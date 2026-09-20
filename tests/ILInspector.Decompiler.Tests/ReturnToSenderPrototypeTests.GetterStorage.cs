@@ -99,6 +99,7 @@ public partial class ReturnToSenderPrototypeTests
     [InlineData("ConstructorGetterComputed", "Value")]
     [InlineData("ConstructorGetterParameterName", "Value")]
     [InlineData("ConstructorGetterKeywordParameter", "Value")]
+    [InlineData("ConstructorGetterOptional", "Value")]
     public async Task NativeGetterRetainsInitialization(string typeName, string propertyName)
     {
         string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
@@ -110,6 +111,11 @@ public partial class ReturnToSenderPrototypeTests
 
         AssertNativeGetterStorage(path, typeName, propertyName, result);
         AssertNativeConstructorStorage(path, typeName, propertyName, result);
+        Assert.Contains($"struct {typeName.Split('`')[0]}", result.Source);
+        Assert.DoesNotContain($"public {typeName.Split('`')[0]}(", result.Source);
+        Assert.Contains("} = ", result.Source);
+        if (typeName == "ConstructorGetterOptional")
+            Assert.Contains("(int value = 7)", result.Source);
     }
 
     [Fact]
@@ -123,7 +129,32 @@ public partial class ReturnToSenderPrototypeTests
 
         AssertNativeGetterStorage(path, "ReadOnlyList`1", "List", result);
         AssertNativeConstructorStorage(path, "ReadOnlyList`1", "List", result);
-        Assert.Contains("this.List = list;", result.Source);
+        Assert.Contains("struct ReadOnlyList<T>(IList<T> list)", result.Source);
+        Assert.Contains("} = list;", result.Source);
+        Assert.DoesNotContain("this.List = list;", result.Source);
+        Assert.DoesNotContain("public ReadOnlyList(", result.Source);
+    }
+
+    [Theory]
+    [InlineData("ConstructorGetterPrivate", "Value")]
+    [InlineData("ConstructorGetterAttributed", "Value")]
+    [InlineData("ConstructorGetterImplementation", "Value")]
+    [InlineData("ConstructorGetterTypeName`1", "Items")]
+    [InlineData("ConstructorGetterTypeParameter`1", "Value")]
+    public async Task NativeGetterRetainsExplicitConstructorWhenInitializerFormDeclines(
+        string typeName, string propertyName)
+    {
+        string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget(
+                $"ILInspector.Decompiler.Fixtures.{typeName}", $"get_{propertyName}", 0)],
+            RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
+
+        AssertNativeGetterStorage(path, typeName, propertyName, result);
+        AssertNativeConstructorStorage(path, typeName, propertyName, result);
+        Assert.Contains($"public {typeName.Split('`')[0]}(", result.Source);
+        Assert.DoesNotContain("} = ", result.Source);
     }
 
     [Theory]

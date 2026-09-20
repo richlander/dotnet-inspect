@@ -217,6 +217,41 @@ public sealed class MemberBodyProducerTypedBodyTests
     }
 
     [Theory]
+    [InlineData("ConstructorGetterList`1", "Items", "items")]
+    [InlineData("ConstructorGetterCounter", "Value", "value")]
+    [InlineData("ConstructorGetterComputed", "Value", "value")]
+    [InlineData("ConstructorGetterParameterName", "Value", "Value")]
+    [InlineData("ConstructorGetterKeywordParameter", "Value", "@event")]
+    [InlineData("ConstructorGetterOptional", "Value", "value")]
+    [InlineData("ConstructorGetterPrivate", "Value", null)]
+    [InlineData("ConstructorGetterAttributed", "Value", null)]
+    [InlineData("ConstructorGetterImplementation", "Value", null)]
+    [InlineData("ConstructorGetterTypeName`1", "Items", null)]
+    [InlineData("ConstructorGetterTypeParameter`1", "Value", null)]
+    public void PropertyInitializerUsesProvenParameterWithoutWideningItsScope(
+        string typeName, string propertyName, string? expected)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+        var body = MemberBodyProducer.ProduceBody(
+            source, MetadataMethodAddress.Create(source.Reader, getter), property);
+        Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+        var constructor = Assert.IsType<SelectedPropertyAccessorSource.PropertyInitializationConstructor>(
+            property.FindInitializationConstructor(source));
+        var initializer = constructor.GetInitializerSource(body.Body!.Source);
+
+        Assert.Equal(expected, initializer?.Expression);
+        if (initializer is not null)
+        {
+            Assert.Equal(expected!.TrimStart('@'), initializer.Parameter.Name);
+            Assert.Equal(typeName == "ConstructorGetterOptional", initializer.Parameter.HasDefault);
+        }
+    }
+
+    [Theory]
     [InlineData("ConstructorGetterExplicitAutomatic")]
     [InlineData("ConstructorGetterExplicitComputed")]
     public void PropertyInitializationConstructorDeclinesExplicitInterface(string typeName)

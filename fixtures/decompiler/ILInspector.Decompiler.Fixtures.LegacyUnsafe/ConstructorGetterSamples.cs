@@ -27,6 +27,43 @@ public readonly struct ConstructorGetterKeywordParameter
     public int Value { get; }
 }
 
+public readonly struct ConstructorGetterOptional(int value = 7)
+{
+    public int Value { get; } = value;
+}
+
+public readonly struct ConstructorGetterPrivate
+{
+    ConstructorGetterPrivate(int value) => Value = value;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterAttributed
+{
+    [Obsolete("Use the default value instead.")]
+    public ConstructorGetterAttributed(int value) => Value = value;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterImplementation
+{
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public ConstructorGetterImplementation(int value) => Value = value;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterTypeName<T>
+{
+    public ConstructorGetterTypeName(IList<T> Array) => Items = Array;
+    public IList<T> Items { get => field ?? System.Array.Empty<T>(); }
+}
+
+public readonly struct ConstructorGetterTypeParameter<T>
+{
+    public ConstructorGetterTypeParameter(T T) => Value = T;
+    public T Value { get; }
+}
+
 public readonly struct ConstructorGetterCalculated(int value)
 {
     public int Value { get; } = value + 1;

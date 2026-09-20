@@ -376,11 +376,39 @@ public sealed class SelectedPropertyAccessorSource
             || !HasOwnTypeArguments(store.Field.DeclaringType, type.GetGenericParameters().Count))
             return null;
 
-        return new PropertyInitializationConstructor(address, produced.Body);
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+        var parameter = declaration.Signature.Parameters.Single();
+        bool canUsePrimaryConstructor = declaration.Accessibility == "public"
+            && declaration.Attributes.Count == 0
+            && method.ImplAttributes == MethodImplAttributes.IL
+            && !type.GetGenericParameters().Any(handle =>
+                reader.GetString(reader.GetGenericParameter(handle).Name) == parameter.Name);
+        return new PropertyInitializationConstructor(address, produced.Body)
+        {
+            InitializerParameter = canUsePrimaryConstructor ? parameter : null,
+        };
     }
 
     public sealed record PropertyInitializationConstructor(
-        MetadataMethodAddress Address, CSharpBlockBody Body);
+        MetadataMethodAddress Address, CSharpBlockBody Body)
+    {
+        internal ApiParameter? InitializerParameter { get; init; }
+
+        public PropertyInitializerSource? GetInitializerSource(string getterBody)
+        {
+            if (InitializerParameter is not { } parameter)
+                return null;
+
+            string expression = CSharpFormatter.EscapeIdentifier(parameter.Name);
+            // A primary parameter enters the getter's scope. Over-decline on any
+            // spelling overlap rather than capture a name in its existing body.
+            if (getterBody.Contains(expression.TrimStart('@'), StringComparison.Ordinal))
+                return null;
+            return new PropertyInitializerSource(parameter, expression);
+        }
+    }
+
+    public sealed record PropertyInitializerSource(ApiParameter Parameter, string Expression);
 
     internal static bool HasOwnTypeArguments(TypeRef declaringType, int count)
         => declaringType.Kind == TypeRefKind.GenericInstance
