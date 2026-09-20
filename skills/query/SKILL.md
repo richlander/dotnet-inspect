@@ -412,7 +412,8 @@ an empty edge table only when the requested start is beyond the available rows.
 `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
 selected Project document inventories, explicit-source Type catalogs, and
-exact Member `Callers` have semantic adoption in their supported modes.
+exact Member `Calls` and `Callers` have semantic adoption in their supported
+modes.
 Partially adopted modes fall back to rendered lines.
 
 Where a route supports it, `--count` is a terminal projection over the selected
