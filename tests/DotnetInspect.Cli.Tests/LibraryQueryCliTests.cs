@@ -66,6 +66,31 @@ public sealed class LibraryQueryCliTests
     }
 
     [Fact]
+    public async Task ProjectedJson_PreservesDuplicateOccurrenceIdentity()
+    {
+        string path = typeof(LibraryQueryCliTests).Assembly.Location;
+
+        var result = await RunAsync(
+            "library",
+            "query",
+            path,
+            path,
+            "--where",
+            "references=System.Runtime",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement[] libraries =
+            [.. json.RootElement.GetProperty("libraries").EnumerateArray()];
+
+        Assert.Equal(2, libraries.Length);
+        Assert.Equal("0", libraries[0].GetProperty("occurrence").GetString());
+        Assert.Equal("1", libraries[1].GetProperty("occurrence").GetString());
+    }
+
+    [Fact]
     public async Task Directory_PreservesMatchBesideInvalidCandidate()
     {
         string directory = Path.Combine(

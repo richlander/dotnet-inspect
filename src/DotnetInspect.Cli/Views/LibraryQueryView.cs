@@ -11,11 +11,33 @@ public sealed class LibraryQueryView
     [MarkoutIgnore]
     public string Title => "Library Query";
 
+    [MarkoutSection(
+        Name = LibraryQuerySections.LibrariesName,
+        IgnoreProperty = nameof(LibraryQueryRow.Occurrence))]
+    public required List<LibraryQueryRow> Results { get; init; }
+
+    [MarkoutSection(Name = LibraryQuerySections.QuerySummaryName)]
+    public required List<LibraryQuerySummaryRow> QuerySummary { get; init; }
+}
+
+[MarkoutSerializable(TitleProperty = nameof(Title))]
+public sealed class LibraryQueryStructuredView
+{
+    [MarkoutIgnore]
+    public string Title => "Library Query";
+
     [MarkoutSection(Name = LibraryQuerySections.LibrariesName)]
     public required List<LibraryQueryRow> Results { get; init; }
 
     [MarkoutSection(Name = LibraryQuerySections.QuerySummaryName)]
     public required List<LibraryQuerySummaryRow> QuerySummary { get; init; }
+
+    public static LibraryQueryStructuredView From(LibraryQueryView view) =>
+        new()
+        {
+            Results = view.Results,
+            QuerySummary = view.QuerySummary,
+        };
 }
 
 [MarkoutSerializable]
@@ -47,7 +69,6 @@ public sealed class LibraryQueryRow
     [MarkoutIgnore]
     public InertString AnswerText { get; }
 
-    [MarkoutIgnore]
     public int Occurrence { get; }
 
     public string Library => LibraryText.ToString();

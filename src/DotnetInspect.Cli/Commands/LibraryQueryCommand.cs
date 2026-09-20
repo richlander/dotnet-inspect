@@ -127,6 +127,8 @@ internal static class LibraryQueryCommand
                     QuerySummary = view.QuerySummary,
                 }
                 : null;
+        LibraryQueryStructuredView structured =
+            LibraryQueryStructuredView.From(view);
 
         void Serialize(
             TextWriter writer,
@@ -154,13 +156,39 @@ internal static class LibraryQueryCommand
             }
         }
 
+        void SerializeStructured(
+            TextWriter writer,
+            IMarkoutFormatter formatter,
+            MarkoutWriterOptions writerOptions)
+        {
+            writerOptions.IncludeSections = includeSections;
+            if (empty is null)
+            {
+                MarkoutSerializer.Serialize(
+                    structured,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions);
+            }
+            else
+            {
+                MarkoutSerializer.Serialize(
+                    empty,
+                    writer,
+                    formatter,
+                    SearchViewContext.Default,
+                    writerOptions);
+            }
+        }
+
         if (options.JsonOutput)
         {
             OutputFormatter.WriteProjectedJson(
                 Console.Out,
                 options.Columns,
                 options.Fields,
-                Serialize,
+                SerializeStructured,
                 indented: true,
                 maxRows: null);
         }
