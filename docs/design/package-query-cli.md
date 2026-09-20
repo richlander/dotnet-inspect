@@ -25,8 +25,9 @@ with structured evidence, separate candidate and match bounds, retained
 Head/Tail/Window stages, visible failures, and typed completion. The route
 registers the Package result grain and complete default Query Profile once.
 `PackageQuery.RegisteredTerms` projects its effective terms and operators for
-both hosts, while `PackageQuery.ResolveIntent` resolves every complete intent
-through the same profile-scoped route.
+both hosts, including each term's acquisition tier and execution class, while
+`PackageQuery.ResolveIntent` resolves every complete intent through the same
+profile-scoped route.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
@@ -134,19 +135,32 @@ one complete `PortableQueryIntent` containing:
 
 The production inspection vocabulary is:
 
-| Term | Value | Tier | Meaning |
-| --- | --- | --- | --- |
-| `dependencies` | `none` or `cross-prefix` | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
-| `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
-| `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
-| `depends-ecosystem` | canonical ecosystem ID | nuspec | Direct dependency belonging to the ecosystem's registered package population |
-| `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
-| `license` | `any`, `MIT`, or `OSMF` | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
-| `readme` | `true` | nuspec | The manifest declares an embedded README |
-| `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
-| `tool-format` | `v1` or `v2` | package content | Tool settings use the selected format |
-| `references` | Assembly simple name | package content | At least one admitted managed `ref/` or `lib/` asset declares the requested `AssemblyRef` simple name |
-| `skill` | `true` | package content | The archive contains an admitted skill document |
+| Term | Value | Acquisition | Execution class | Meaning |
+| --- | --- | --- | --- | --- |
+| `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
+| `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
+| `depends` | NuGet package ID | nuspec | nuspec | Direct dependency declared in the selected dependency scope |
+| `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
+| `downloads` | `10k`, `100k`, or `1m` | search metadata | search metadata | Lifetime downloads meet the closed threshold |
+| `license` | `any`, `MIT`, or `OSMF` | nuspec | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
+| `readme` | `true` | nuspec | nuspec | The manifest declares an embedded README |
+| `tool` | `true` | nuspec | nuspec | The manifest declares the .NET tool package type |
+| `tool-format` | `v1` or `v2` | package content | package content | Tool settings use the selected format |
+| `references` | Assembly simple name | package content | metadata | At least one admitted managed `ref/` or `lib/` asset declares the requested `AssemblyRef` simple name |
+| `skill` | `true` | package content | package content | The archive contains an admitted skill document |
+
+Acquisition tier authorizes evidence access and enforces candidate bounds.
+Execution class is the product-owned discovery and UI taxonomy for the work
+performed after that evidence is available. They intentionally differ for
+`references`: the term downloads a package archive but performs managed
+metadata inspection. The complete class vocabulary is `search-metadata`,
+`nuspec`, `nuspec-expensive`, `package-content`, `metadata`, and
+`metadata-expensive`. No current term uses either expensive class; transitive
+nuspec search and call-graph or decompiler-driven metadata search remain future
+explicit work rather than behavior implied by this vocabulary.
+Execution class is descriptor metadata, not a Query Operation effect: it does
+not authorize acquisition, change planning, or substitute for a concrete work
+bound.
 
 All terms admit equality only. Independent terms AND. Repeated
 `tool-format` values OR within their combining family; `tool=true` is
@@ -313,7 +327,9 @@ Such a query defaults the candidate budget to 20 and cannot bypass the
 20-candidate ceiling. `--nuspec-only` rejects it before acquisition.
 `downloads` is evaluated from source search metadata and does not force a
 manifest request. Nuspec terms acquire manifests but no package archive;
-manifest predicates run before archive acquisition.
+manifest predicates run before archive acquisition. CLI `-Q` projects the
+execution class beside every Package Query facet; it does not infer that class
+from acquisition behavior.
 
 `PackageQueryTests` gates vocabulary shape, complete intent retention,
 resolution, dependency-target default and canonical binding, compatible group

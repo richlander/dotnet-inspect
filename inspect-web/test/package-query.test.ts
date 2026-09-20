@@ -39,6 +39,7 @@ const TFM_FACET: QueryPreset = {
   value: "true",
   label: "embedded README",
   tier: "nuspec",
+  executionClass: "nuspec",
 };
 
 const HAS_DEPENDENCIES_FACET: QueryPreset = {
@@ -48,6 +49,7 @@ const HAS_DEPENDENCIES_FACET: QueryPreset = {
   value: "any",
   label: "Has dependencies",
   tier: "nuspec",
+  executionClass: "nuspec",
   selectionGroupId: "dependencies",
 };
 
@@ -58,6 +60,7 @@ const NO_DEPENDENCIES_FACET: QueryPreset = {
   value: "none",
   label: "No dependencies",
   tier: "nuspec",
+  executionClass: "nuspec",
   selectionGroupId: "dependencies",
 };
 
@@ -68,6 +71,7 @@ const SKILL_FACET: QueryPreset = {
   value: "true",
   label: "embedded SKILL.md",
   tier: "package-content",
+  executionClass: "package-content",
 };
 
 const ANY_TOOL_FACET: QueryPreset = {
@@ -77,6 +81,7 @@ const ANY_TOOL_FACET: QueryPreset = {
   value: "true",
   label: ".NET Tool",
   tier: "nuspec",
+  executionClass: "nuspec",
   replacementGroupId: "dotnet-tool",
 };
 
@@ -87,6 +92,7 @@ const TOOL_V1_FACET: QueryPreset = {
   value: "v1",
   label: "v1",
   tier: "package-content",
+  executionClass: "package-content",
   selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
   replacementGroupId: "dotnet-tool",
@@ -99,6 +105,7 @@ const TOOL_V2_FACET: QueryPreset = {
   value: "v2",
   label: "v2",
   tier: "package-content",
+  executionClass: "package-content",
   selectionGroupId: "tool-format",
   combinesWithinSelectionGroup: true,
   replacementGroupId: "dotnet-tool",
@@ -110,6 +117,7 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   summary: "Matches a direct dependency in any group.",
   weight: 10,
   tier: "nuspec",
+  executionClass: "nuspec",
   operators: ["eq"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
@@ -120,6 +128,7 @@ const CONTENT_TERM: QueryTermDescriptor = {
   key: "contains-file",
   label: "Contains file",
   tier: "package-content",
+  executionClass: "package-content",
 };
 
 function row(packageId: string): QueryResultRow {

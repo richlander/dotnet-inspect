@@ -114,6 +114,10 @@ dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
   -S Dependencies
 dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
   -S "Dependency Hierarchy" --tree
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -D @Dependencies --details
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -D "Reference Hierarchy" --details
 dnx dotnet-inspect -y -- library System.Text.Json -S References
 dnx dotnet-inspect -y -- library System.Text.Json \
   -S "Reference Hierarchy" --tree
@@ -127,7 +131,9 @@ the same Depends operation, while `--tree` only chooses its projection.
 On `library`, `References` remains direct assembly metadata and
 `Reference Hierarchy` invokes that same occurrence-addressed Depends operation
 for the exact assembly; `--depth` controls traversal and `--tree` remains only
-a projection choice.
+a projection choice. Use `-D @Dependencies --details` to compare the complete
+category with its members before choosing the exact hierarchy section for tree
+or Mermaid output.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
@@ -262,7 +268,10 @@ or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
 graph is built and before those formats; use `--lines` only for explicit
 rendered-line clipping. Row selection does not reduce package acquisition or
 hide retained graph failures. `graph libraries` remains a separate
-multi-section command and keeps rendered-line `-n` behavior.
+multi-section command: its default and exact `Call Sites` views apply the same
+semantic gestures to complete physical call sites, while its independent
+summary, cluster, path, wildcard, category, and multi-section views retain
+rendered-line `-n`.
 Missing `api.extension` or `integration.observed` endpoints whose assemblies are
 absent from the explicit package set remain outside the induced graph; add the
 owning package to admit those relationships. A missing

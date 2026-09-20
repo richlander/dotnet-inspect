@@ -334,6 +334,9 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(
                 BrowserTier(term.Tier),
                 actual.Tier);
+            Assert.Equal(
+                term.ExecutionClass.ToString(),
+                actual.ExecutionClass.ToString());
         }
 
         PackageQueryRegisteredTerm[] expectedTerms =
@@ -362,6 +365,9 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(expected.ValueKind, actual.ValueKind);
             Assert.Equal(expected.ExampleValue, actual.Example);
             Assert.Equal(BrowserTier(expected.Tier), actual.Tier);
+            Assert.Equal(
+                expected.ExecutionClass.ToString(),
+                actual.ExecutionClass.ToString());
         }
     }
 
@@ -444,6 +450,9 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryAcquisitionTier.Nuspec,
             preset.Tier);
+        Assert.Equal(
+            BrowserPackageQueryExecutionClass.Nuspec,
+            preset.ExecutionClass);
     }
 
     [Fact]
@@ -460,6 +469,9 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryAcquisitionTier.PackageContent,
             term.Tier);
+        Assert.Equal(
+            BrowserPackageQueryExecutionClass.Metadata,
+            term.ExecutionClass);
     }
 
     [Fact]

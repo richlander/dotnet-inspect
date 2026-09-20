@@ -196,6 +196,9 @@ The CLI presents schema query results through `DiscoverOutput`.
 | --- | --- |
 | `-D` | Ordered section rows |
 | `-D "Section"` | Ordered item rows for the resolved section |
+| `-D --details` | Top-level discovery rows with owner-issued detail columns |
+| `-D "Section" --details` | One exact section row with owner-issued details |
+| `-D @Category --details` | One exact category and its complete member expansion with owner-issued details |
 | `-D` at eligible detailed presentation | A section/item tree |
 | `-D --count` | The count of discovered rows, not the inspected subject document |
 | `-D` with row selection | The selected discovery rows in their stable order |
@@ -206,6 +209,25 @@ JSON, or plaintext request is not replaced by an automatic tree. `--no-header`
 applies to formats with headers, and `--out` routes the complete discovery
 artifact to its destination instead of also writing it to standard output.
 Only eligible implicit table presentation or Markdown may promote to a tree.
+
+Library detailed discovery is structural and target-free. `--details` implies
+schema discovery and does not acquire or inspect the named target. The first
+adoption reports typed `Name`, `Kind`, and `Formats` rows; `Formats` contains
+the exact CLI spellings accepted for the complete row selection. Bare `-D`
+retains its top-level catalog rows. An exact category result includes the
+category and each expanded member so the reader can move from broad intent to
+an exact compatible section. An exact section reports that section's details;
+omit `--details` to list its fields or columns.
+
+The first Library adoption accepts bare `-D` or one exact category or section.
+Globs, multiple selectors, section selection, effective discovery, and
+field/column or shape projection are rejected rather than silently changing the
+detail question. Table, TSV, JSONL, Markdown, plaintext, and JSON may render the
+discovery rows; tree and Mermaid remain capabilities being described, not
+renderers of this tabular discovery artifact. Other commands require focused
+adoptions before they expose detailed discovery.
+The capability and complete-selection rules are owned by
+[output-shapes.md](output-shapes.md#structural-format-capabilities).
 
 Section patterns and category doors are resolved against the complete
 owner-issued section vocabulary. Categories, costs, and visibility remain

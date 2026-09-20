@@ -81,10 +81,15 @@ public partial class SectionPipelineTests
             DiffSections.ComplexityContext.Name,
             category.Value,
             StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            DiffSections.StructuralContext.Name,
+            category.Value,
+            StringComparer.OrdinalIgnoreCase);
         Assert.Equal(
             [
                 DiffSections.FindingTransitions.Name,
                 DiffSections.ComplexityContext.Name,
+                DiffSections.StructuralContext.Name,
             ],
             DiffSections.ExactOnlySections);
         Assert.Equal(
@@ -112,6 +117,30 @@ public partial class SectionPipelineTests
             ],
             schema.GetSection(DiffSections.ComplexityContext.Name)!
                 .Items.Select(static item => item.Name));
+        Assert.Equal(
+            [
+                "Member",
+                "State",
+                "Instruction Delta",
+                "Complexity Delta",
+                "Loop Delta",
+                "Exception Region Delta",
+                "Direct Call Delta",
+                "Allocation Delta",
+                "Async Delta",
+                "Instruction Direction",
+                "Complexity Direction",
+                "Loop Direction",
+                "Exception Region Direction",
+                "Direct Call Direction",
+                "Allocation Direction",
+                "Async Direction",
+                "Population Size",
+                "Cohort Size",
+                "Kind",
+            ],
+            schema.GetSection(DiffSections.StructuralContext.Name)!
+                .Items.Select(static item => item.Name));
     }
 
     [Fact]
@@ -136,6 +165,11 @@ public partial class SectionPipelineTests
         {
             DiffSections.ComplexityContext.Name,
         };
+        var structuralContext = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.StructuralContext.Name,
+        };
 
         Assert.Equal(
             [ApiComparisonQuery.Definition],
@@ -156,6 +190,11 @@ public partial class SectionPipelineTests
             catalog.Pipeline.GetRequiredQueries(
                 Verbosity.Minimal,
                 complexityContext));
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                structuralContext));
         Assert.Equal(
             SectionCost.NetworkFree,
             Assert.Single(
@@ -178,6 +217,12 @@ public partial class SectionPipelineTests
                 catalog.Pipeline.SectionCosts,
                 section => section.Name
                     == DiffSections.ComplexityContext.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name
+                    == DiffSections.StructuralContext.Name).Cost);
     }
 
     [Fact]
