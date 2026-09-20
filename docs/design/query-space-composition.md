@@ -385,6 +385,15 @@ be satisfied for a participating set:
 - after `Head(N)`, by witnessing N applicable ordered rows or exhausting the
   population with fewer than N.
 
+Count publication is all-or-failure across the participating sets. A failed,
+`Absent`, or Count-insufficient source outcome prevents every Count entry,
+preserves every participating set's disposition and completion evidence in one
+typed source failure, carries no row values or Count payload, and invokes no
+residual row-query or semantic execution. If residual execution begins, a
+later row-query or semantic failure likewise publishes no partial Count.
+Already-reached owner-defined observations remain governed by the section-row
+failure-precedence contract.
+
 Count remains first class because it tests whether every layer preserves
 semantic scope and completion. A provider's candidate count, total-hit field,
 page size, work bound, or observed match count is not automatically the final
@@ -589,6 +598,10 @@ The eventual implementation and adopter gates must preserve these cases:
 - Two participating row sets contain three and five selected rows. Count
   returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
   total of eight.
+- Two participating row sets are requested for Count, but one is
+  Count-insufficient. The result preserves both source dispositions and
+  completion evidence, executes no residual shaping, and publishes no Count
+  entries for either set.
 - A generated consumer omits a control. The runtime descriptor remains
   complete and another host can expose the capability.
 - A source advertises prefix filtering but cannot preserve the required
@@ -636,7 +649,7 @@ slices:
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates in different binding scopes cannot combine, conflict, satisfy, or collapse one another. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
-| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `CountObservesPrecedingSemanticStages`, and `CountPreservesDeclaredRowSetScope`; Count validates but never executes cell projection, and successful results preserve one ordered entry per participating row set without inventing an aggregate. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; Count validates but never executes cell projection, successful results preserve one ordered entry per participating row set without inventing an aggregate, and a blocking source or semantic outcome publishes no partial Count. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
