@@ -159,6 +159,19 @@ public sealed class PdbLocalScopePass : IIrPass
         }
         if (lastBlock <= firstBlock || lastStatement is null)
             return;
+        if (!TryCloseRangeWithinPdbScope(
+                function,
+                index,
+                declaration,
+                declarationBlock,
+                container,
+                blocks,
+                firstBlock,
+                ref lastBlock,
+                ref lastStatement))
+        {
+            return;
+        }
 
         var branchTargets = ReferenceOwnership.CollectBranchTargets(function);
         var retainedLabels = new Dictionary<int, LabelAnchor>();
@@ -233,6 +246,144 @@ public sealed class PdbLocalScopePass : IIrPass
                 container.Add((Block)allBlocks[blockIndex]);
         }
         context.Stepper.StepOver($"retain cross-block scope for local {index}", lexical);
+    }
+
+    static bool TryCloseRangeWithinPdbScope(
+        IrFunction function,
+        int index,
+        IrNode declaration,
+        Block declarationBlock,
+        BlockContainer container,
+        Block[] blocks,
+        int firstBlock,
+        ref int lastBlock,
+        ref IrNode lastStatement)
+    {
+        IReadOnlySet<int>? labelsPrintedOutside =
+            CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                function,
+                declaration,
+                declarationBlock);
+        while (true)
+        {
+            List<IrNode> range = BasicBlockRange(
+                blocks,
+                firstBlock,
+                declaration,
+                lastBlock,
+                lastStatement);
+            var bodyLabels = range
+                .SelectMany(statement =>
+                    statement.DescendantsOutsideNestedFunctions.Prepend(statement))
+                .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+                .Select(node => node.SourceOffset)
+                .ToHashSet();
+            if (labelsPrintedOutside is not null)
+                bodyLabels.ExceptWith(labelsPrintedOutside);
+
+            var enteringTransfers = function.DescendantsOutsideNestedFunctions
+                .Where(transfer => !range.Any(statement =>
+                    ExactLocalNameAllocation.Contains(statement, transfer))
+                    && ReferenceOwnership.TransferTargets(transfer)
+                        .Any(bodyLabels.Contains))
+                .ToArray();
+            if (enteringTransfers.Length == 0)
+                return true;
+            if (index >= function.LocalDeclarationBindings.Length
+                || function.LocalDeclarationBindings[index] is not { } binding)
+            {
+                return false;
+            }
+
+            int extendedLastBlock = lastBlock;
+            IrNode extendedLastStatement = lastStatement;
+            foreach (IrNode transfer in enteringTransfers)
+            {
+                if (transfer.SourceOffset < binding.Scope.StartOffset
+                    || transfer.SourceOffset >= binding.Scope.EndOffset)
+                {
+                    return false;
+                }
+                Block? owner = TopLevelBlock(transfer, container);
+                IrNode? statement = owner is null
+                    ? null
+                    : StatementInBlock(transfer, owner);
+                if (owner is null
+                    || statement is null
+                    || owner.ChildIndex < lastBlock
+                    || owner.ChildIndex == lastBlock
+                        && statement.ChildIndex <= lastStatement.ChildIndex)
+                {
+                    return false;
+                }
+                if (owner.ChildIndex > extendedLastBlock
+                    || owner.ChildIndex == extendedLastBlock
+                        && statement.ChildIndex > extendedLastStatement.ChildIndex)
+                {
+                    extendedLastBlock = owner.ChildIndex;
+                    extendedLastStatement = statement;
+                }
+            }
+            if (!ExtensionStaysInsidePdbScope(
+                    blocks,
+                    lastBlock,
+                    lastStatement,
+                    extendedLastBlock,
+                    extendedLastStatement,
+                    binding.Scope))
+            {
+                return false;
+            }
+            lastBlock = extendedLastBlock;
+            lastStatement = extendedLastStatement;
+        }
+    }
+
+    static List<IrNode> BasicBlockRange(
+        Block[] blocks,
+        int firstBlock,
+        IrNode declaration,
+        int lastBlock,
+        IrNode lastStatement)
+    {
+        var range = new List<IrNode>();
+        range.AddRange(blocks[firstBlock].Children.Skip(declaration.ChildIndex));
+        for (int blockIndex = firstBlock + 1; blockIndex < lastBlock; blockIndex++)
+            range.AddRange(blocks[blockIndex].Children);
+        range.AddRange(blocks[lastBlock].Children.Take(lastStatement.ChildIndex + 1));
+        return range;
+    }
+
+    static bool ExtensionStaysInsidePdbScope(
+        Block[] blocks,
+        int lastBlock,
+        IrNode lastStatement,
+        int extendedLastBlock,
+        IrNode extendedLastStatement,
+        LocalSlotScope scope)
+    {
+        for (int blockIndex = lastBlock; blockIndex <= extendedLastBlock; blockIndex++)
+        {
+            int firstPosition = blockIndex == lastBlock
+                ? lastStatement.ChildIndex + 1
+                : 0;
+            int lastPosition = blockIndex == extendedLastBlock
+                ? extendedLastStatement.ChildIndex
+                : blocks[blockIndex].Children.Count - 1;
+            for (int position = firstPosition; position <= lastPosition; position++)
+            {
+                if (blocks[blockIndex].Children[position]
+                    .DescendantsOutsideNestedFunctions
+                    .Prepend(blocks[blockIndex].Children[position])
+                    .Any(node => node.SourceOffset >= 0
+                        && (node.SourceOffset < scope.StartOffset
+                            || node.SourceOffset >= scope.EndOffset)))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     static void RetainExistingBlockLabels(
