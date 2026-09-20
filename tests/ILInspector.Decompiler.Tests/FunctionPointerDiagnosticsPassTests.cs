@@ -124,7 +124,15 @@ public class FunctionPointerDiagnosticsPassTests
         "delegate* unmanaged"
             + "<modopt(System.Runtime.CompilerServices"
             + ".CallConvSuppressGCTransition)System.Int32>")]
-    public void TypeRefDecoder_DoesNotNormalizeCoreLibraryLookalikes(
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .MixedSuppressGcTransitionModifier,
+        "delegate* unmanaged[SuppressGCTransition]<System.Int32>",
+        "delegate* unmanaged"
+            + "<modopt(System.Runtime.CompilerServices"
+            + ".CallConvSuppressGCTransition)"
+            + "modopt(Probe.Marker)System.Int32>")]
+    public void TypeRefDecoder_PreservesConventionModifierIdentity(
         FunctionPointerConventionReturnOverloadFixture.IdentityCase
             identityCase,
         string expectedCoreLibraryIdentity,

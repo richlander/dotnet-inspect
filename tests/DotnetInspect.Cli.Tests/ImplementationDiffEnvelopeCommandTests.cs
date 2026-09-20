@@ -196,6 +196,9 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     [InlineData(
         FunctionPointerConventionReturnOverloadFixture.IdentityCase
             .CoreLibrarySuppressGcTransitionLookalikeModifier)]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .MixedSuppressGcTransitionModifier)]
     public async Task
         FunctionPointerReturnOverloads_SelectByExactBodyIdentity(
             FunctionPointerConventionReturnOverloadFixture.IdentityCase
@@ -415,18 +418,25 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData("--rows", "1..1")]
-    [InlineData("--table", null)]
-    [InlineData("--pdb-source", null)]
-    [InlineData("--changed", null)]
+    [InlineData("--envelope", "--rows", "1..1")]
+    [InlineData("--envelope", "--table", null)]
+    [InlineData("--envelope", "--pdb-source", null)]
+    [InlineData("--envelope", "--repo", "https://github.com/example/repo")]
+    [InlineData("--envelope", "--changed", null)]
+    [InlineData("--json", "--rows", "1..1")]
+    [InlineData("--json", "--table", null)]
+    [InlineData("--json", "--pdb-source", null)]
+    [InlineData("--json", "--repo", "https://github.com/example/repo")]
+    [InlineData("--json", "--changed", null)]
     public async Task CompleteTransport_RejectsPresentationOrOtherOperations(
+        string output,
         string option,
         string? value)
     {
         var result = await Invoke([
             "--library",
             "missing-before.dll..missing-after.dll",
-            "--envelope",
+            output,
             "-S",
             "Implementation Diff",
             option,
@@ -449,16 +459,31 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData("--package", "Missing.Package@1.0.0..2.0.0")]
-    [InlineData("--platform", "System.Runtime@9.0.0..10.0.0")]
+    [InlineData(
+        "--envelope",
+        "--package",
+        "Missing.Package@1.0.0..2.0.0")]
+    [InlineData(
+        "--envelope",
+        "--platform",
+        "System.Runtime@9.0.0..10.0.0")]
+    [InlineData(
+        "--json",
+        "--package",
+        "Missing.Package@1.0.0..2.0.0")]
+    [InlineData(
+        "--json",
+        "--platform",
+        "System.Runtime@9.0.0..10.0.0")]
     public async Task CompleteTransport_RejectsNonLocalSourcesBeforeAcquisition(
+        string output,
         string source,
         string range)
     {
         var result = await Invoke(
             source,
             range,
-            "--envelope",
+            output,
             "-S",
             "Implementation Diff");
 

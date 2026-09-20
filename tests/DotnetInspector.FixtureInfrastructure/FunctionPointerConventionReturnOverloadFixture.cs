@@ -29,6 +29,9 @@ public static class FunctionPointerConventionReturnOverloadFixture
         CoreLibrarySuppressGcTransitionLookalikeModifierTypeName =
             "FunctionPointerCoreLibrarySuppressGcTransitionLookalikeReturnSample";
 
+    public const string MixedSuppressGcTransitionModifierTypeName =
+        "FunctionPointerMixedSuppressGcTransitionReturnSample";
+
     public enum IdentityCase
     {
         ConventionModifiers,
@@ -38,6 +41,7 @@ public static class FunctionPointerConventionReturnOverloadFixture
         DuplicateConventionModifier,
         CoreLibraryLookalikeModifier,
         CoreLibrarySuppressGcTransitionLookalikeModifier,
+        MixedSuppressGcTransitionModifier,
     }
 
     public static string GetTypeName(IdentityCase identityCase)
@@ -53,6 +57,8 @@ public static class FunctionPointerConventionReturnOverloadFixture
                 CoreLibraryLookalikeModifierTypeName,
             IdentityCase.CoreLibrarySuppressGcTransitionLookalikeModifier =>
                 CoreLibrarySuppressGcTransitionLookalikeModifierTypeName,
+            IdentityCase.MixedSuppressGcTransitionModifier =>
+                MixedSuppressGcTransitionModifierTypeName,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(identityCase)),
         };
@@ -146,6 +152,18 @@ public static class FunctionPointerConventionReturnOverloadFixture
                     {
                         0x00, 0x01, 0x1B, 0x09, 0x00,
                         0x20, 0x15, 0x08, 0x02,
+                    }),
+                IdentityCase.MixedSuppressGcTransitionModifier => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x09, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x09, 0x20, 0x0D, 0x08, 0x02,
                     }),
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(identityCase)),

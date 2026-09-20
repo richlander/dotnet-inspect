@@ -414,7 +414,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             out string convention);
         convention = AddSuppressGcTransition(
             convention,
-            HasRecognizedSuppressGcTransitionModifier(returnType));
+            conventionModifiersAreExact
+                && HasRecognizedSuppressGcTransitionModifier(returnType));
         bool signatureIsExact = callingConventionIsExact
             && conventionModifiersAreExact
             && FunctionPointerRefKindsAreExact(returnType, parameters);
@@ -822,8 +823,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
                                 parameters),
                         callingConvention: AddSuppressGcTransition(
                             CallingConvention,
-                            HasRecognizedSuppressGcTransitionModifier(
-                                returnType)))
+                            FunctionPointerConventionModifiersAreExact
+                                && HasRecognizedSuppressGcTransitionModifier(
+                                    returnType)))
                     : this;
                 break;
             }

@@ -2245,6 +2245,49 @@ public class ResearchDiffTests
 
     [Fact]
     public void
+        ImplementationComplexityService_MixedConventionModifiersRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef suppressGcTransition = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef unsupported = TypeRef.Definition(
+            "Sample",
+            "Probe",
+            "Marker");
+        TypeRef FunctionPointer(TypeRef returnType) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        SignatureAttributes.None),
+                    returnType,
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+        TypeRef suppressingReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                suppressGcTransition,
+                integer,
+                isRequired: false));
+        TypeRef mixedReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                suppressGcTransition,
+                TypeRef.UnsupportedModified(
+                    unsupported,
+                    integer,
+                    isRequired: false),
+                isRequired: false));
+
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            suppressingReturn,
+            mixedReturn,
+            "FunctionPointerMixedSuppressGcTransitionReturnSample");
+    }
+
+    [Fact]
+    public void
         ImplementationComplexityService_FunctionPointerHeaderOverloadsRemainDistinct()
     {
         TypeRef integer = TypeRef.CoreLib("System", "Int32");

@@ -1198,12 +1198,7 @@ public class DiffCommand
         if (!selectsOnlyImplementationDiff)
             return false;
 
-        if (options.EnvelopeOutput)
-            return true;
-
-        return !string.IsNullOrEmpty(options.LibraryVersionRange)
-            && !options.IncludePdbSource
-            && options.SourceRepositories.Length == 0;
+        return true;
     }
 
     private static bool HasIncompatibleImplementationTransportProjection(

@@ -988,6 +988,10 @@ public sealed class ImplementationComparisonQueryTests
             .CoreLibrarySuppressGcTransitionLookalikeModifier,
         "modopt(System.Runtime.CompilerServices"
             + ".CallConvSuppressGCTransition)")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .MixedSuppressGcTransitionModifier,
+        "modopt(Probe.Marker)")]
     public void
         DocumentQuery_CorrelatesFunctionPointerStructuralReturnCollisions(
             FunctionPointerConventionReturnOverloadFixture.IdentityCase

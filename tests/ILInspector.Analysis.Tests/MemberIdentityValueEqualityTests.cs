@@ -565,6 +565,47 @@ public class MemberIdentityValueEqualityTests
             modifiedIdentity);
     }
 
+    [Fact]
+    public void
+        FunctionPointerSignatureIdentity_DoesNotPartiallyNormalizeModifiers()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef suppressGcTransition = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef unsupported = TypeRef.Definition(
+            "Sample",
+            "Probe",
+            "Marker");
+        TypeRef modifiedReturn = TypeRef.UnsupportedModified(
+            suppressGcTransition,
+            TypeRef.UnsupportedModified(
+                unsupported,
+                integer,
+                isRequired: false),
+            isRequired: false);
+        TypeRef pointer = TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.Unmanaged,
+                    SignatureAttributes.None),
+                modifiedReturn,
+                requiredParameterCount: 0,
+                genericParameterCount: 0,
+                []));
+
+        Assert.True(
+            pointer.TryGetFunctionPointerSignatureIdentity(
+                out string identity));
+        Assert.Equal(
+            "delegate* unmanaged"
+                + "<modopt(System.Runtime.CompilerServices"
+                + ".CallConvSuppressGCTransition)"
+                + "modopt(Probe.Marker)int>",
+            identity);
+    }
+
     [Theory]
     [InlineData("CallConvCdecl")]
     [InlineData("CallConvSuppressGCTransition")]
