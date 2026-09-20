@@ -425,7 +425,10 @@ public abstract record AssemblyMemberSourceComparisonEntry(
         AssemblyContextSubject Subject,
         AssemblyMemberSourceRequest Request,
         AssemblySourceFailure Failure)
-        : AssemblyMemberSourceComparisonEntry(Subject, Request);
+        : AssemblyMemberSourceComparisonEntry(Subject, Request)
+    {
+        public AssemblyMemberPdbSourceAttempt? PdbAttempt { get; init; }
+    }
 
     public sealed record Rejected(
         AssemblyContextSubject Subject,
@@ -846,6 +849,19 @@ public static partial class AssemblyContextSourceQuery
                 };
             }
 
+            if (pdb.LibraryFailure is { } libraryFailure)
+            {
+                return new AssemblyMemberSourceEntry.Unavailable(
+                    subject,
+                    request,
+                    LibraryAdmissionUnavailable(libraryFailure),
+                    pdb.Inspection)
+                {
+                    HouseOutcome = pdb.HouseOutcome,
+                    LibraryFailure = libraryFailure,
+                };
+            }
+
             (CSharpDecompilationAttempt decompiled,
                 SourceHouseMemberDecompilationOutcome houseOutcome) =
                 await DecompileMemberAsync(
@@ -936,6 +952,17 @@ public static partial class AssemblyContextSourceQuery
         {
             AssemblyMemberPdbSourceAttempt pdbAttempt =
                 pdb.ToAttempt();
+            if (pdb.LibraryFailure is { } libraryFailure)
+            {
+                return new AssemblyMemberSourceComparisonEntry.Failed(
+                    subject,
+                    request,
+                    LibraryAdmissionUnavailable(libraryFailure))
+                {
+                    PdbAttempt = pdbAttempt,
+                };
+            }
+
             (CSharpDecompilationAttempt decompiled,
                 SourceHouseMemberDecompilationOutcome houseOutcome) =
                 await DecompileMemberAsync(
@@ -1433,6 +1460,13 @@ public static partial class AssemblyContextSourceQuery
             AssemblySourceFailureKind
                 .PdbAndDecompiledUnavailable,
             "Neither PDB-mapped nor decompiled source is available for the selected target.");
+
+    static AssemblySourceFailure LibraryAdmissionUnavailable(
+        AssemblyContextLibraryAdapterResult.Terminal terminal)
+        => new(
+            AssemblySourceFailureKind.InspectionFailed,
+            "Source inspection stopped at terminal Library admission: "
+                + AdmissionDetail(terminal));
 
     internal static AssemblySourceFailure InspectionFailure(Exception error)
         => new(
