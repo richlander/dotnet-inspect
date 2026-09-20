@@ -14,7 +14,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         var context = new NavigationRetainedSubjectContext(
@@ -43,10 +43,10 @@ public sealed class NavigationRestorationPreparationTests
             prepared.Initialization;
         Assert.Equal(
             type,
-            initialization.State.InstalledSnapshot.ActiveSubject);
+            initialization.State.CurrentSnapshot.ActiveSubject);
         Assert.Equal(
             lens,
-            initialization.State.InstalledSnapshot
+            initialization.State.CurrentSnapshot
                 .LensOutcome.EffectiveLens);
         Assert.Equal(
             NavigationOutcomeKind.Applied,
@@ -69,7 +69,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         var context = new NavigationRetainedSubjectContext(
@@ -106,11 +106,11 @@ public sealed class NavigationRestorationPreparationTests
                 : NavigationOutcomeKind.Unavailable,
             prepared.Initialization.Result.Consumer.Outcome.Kind);
         Assert.Null(
-            prepared.Initialization.State.InstalledSnapshot
+            prepared.Initialization.State.CurrentSnapshot
                 .LensOutcome.EffectiveLens);
         NavigationLensEvaluationBasis.ExactRequest exact =
             Assert.IsType<NavigationLensEvaluationBasis.ExactRequest>(
-                prepared.Initialization.State.InstalledSnapshot
+                prepared.Initialization.State.CurrentSnapshot
                     .LensOutcome.Basis);
         Assert.Equal(lens, exact.Request);
         if (failed)
@@ -136,7 +136,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         var context = new NavigationRetainedSubjectContext(
@@ -172,7 +172,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject subject =
             installed.Types[0].Row.Subject;
         StructuralSubjectIdentity.TypeSubject lensSubject =
@@ -215,7 +215,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         var facts = new NavigationEvaluationFacts(
@@ -252,7 +252,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         StructuralSubjectIdentity.PackageSubject package =
@@ -273,7 +273,7 @@ public sealed class NavigationRestorationPreparationTests
             StructuralSubjectKind.Library,
             prepared.Initialization.State.Snapshot.ActiveSubject.Kind);
         Assert.NotNull(
-            prepared.Initialization.State.InstalledSnapshot
+            prepared.Initialization.State.CurrentSnapshot
                 .LensOutcome.EffectiveLens);
     }
 
@@ -283,7 +283,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         StructuralSubjectIdentity.PackageSubject package =
@@ -314,9 +314,9 @@ public sealed class NavigationRestorationPreparationTests
         await using Fixture first = await Fixture.CreateAsync();
         await using Fixture second = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot firstInstalled =
-            first.Session.InstalledSnapshot;
+            first.Session.CurrentSnapshot;
         NavigationWorkspaceSnapshot secondInstalled =
-            second.Session.InstalledSnapshot;
+            second.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             secondInstalled.Types[0].Row.Subject;
         var request = new NavigationInitialization(
@@ -346,7 +346,7 @@ public sealed class NavigationRestorationPreparationTests
         await using Fixture first = await Fixture.CreateAsync();
         await using Fixture second = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            first.Session.InstalledSnapshot;
+            first.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         var request = new NavigationInitialization(
@@ -377,7 +377,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject retained =
             installed.Types[0].Row.Subject;
         StructuralSubjectIdentity.TypeSubject requested =
@@ -413,7 +413,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject first =
             installed.Types[0].Row.Subject;
         StructuralSubjectIdentity.TypeSubject second =
@@ -432,7 +432,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[1].Row.Subject;
         var context = new NavigationRetainedSubjectContext(
@@ -451,11 +451,11 @@ public sealed class NavigationRestorationPreparationTests
 
         Assert.Equal(
             type.Library,
-            prepared.Initialization.State.InstalledSnapshot
+            prepared.Initialization.State.CurrentSnapshot
                 .TypeInventoryLibraryContext);
         Assert.Equal(
             type.Library,
-            prepared.Initialization.State.InstalledSnapshot
+            prepared.Initialization.State.CurrentSnapshot
                 .RetainedContext!.Library);
     }
 
@@ -464,7 +464,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.PackageSubject package =
             installed.Inventory!.Package;
         var lens = new NavigationLensIdentity(
@@ -485,10 +485,10 @@ public sealed class NavigationRestorationPreparationTests
 
         Assert.Equal(
             package,
-            prepared.Initialization.State.InstalledSnapshot.ActiveSubject);
+            prepared.Initialization.State.CurrentSnapshot.ActiveSubject);
         Assert.Equal(
             lens,
-            prepared.Initialization.State.InstalledSnapshot
+            prepared.Initialization.State.CurrentSnapshot
                 .LensOutcome.EffectiveLens);
     }
 
@@ -498,7 +498,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.PackageSubject package =
             installed.Inventory!.Package;
         WorkspaceScopeSnapshot scope = WithStatus(
@@ -535,7 +535,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject first =
             installed.Types[0].Row.Subject;
         StructuralSubjectIdentity.TypeSubject second =
@@ -569,15 +569,15 @@ public sealed class NavigationRestorationPreparationTests
             StructuralSubjectKind.Workspace,
             secondSnapshot.ActiveSubject.Kind);
         Assert.NotEqual(
-            firstResult.Initialization.State.InstalledSnapshot.RetainedContext,
-            secondResult.Initialization.State.InstalledSnapshot.RetainedContext);
+            firstResult.Initialization.State.CurrentSnapshot.RetainedContext,
+            secondResult.Initialization.State.CurrentSnapshot.RetainedContext);
         Assert.Equal(
             first.Library,
-            firstResult.Initialization.State.InstalledSnapshot
+            firstResult.Initialization.State.CurrentSnapshot
                 .TypeInventoryLibraryContext);
         Assert.Equal(
             second.Library,
-            secondResult.Initialization.State.InstalledSnapshot
+            secondResult.Initialization.State.CurrentSnapshot
                 .TypeInventoryLibraryContext);
 
         NavigationRestorationPreparationResult.Prepared Prepared(
@@ -814,9 +814,9 @@ public sealed class NavigationRestorationPreparationTests
                 NavigationRestorationPreparationResult.Prepared>(result);
         Assert.Equal(
             requested,
-            prepared.Initialization.State.InstalledSnapshot.ActiveSubject);
+            prepared.Initialization.State.CurrentSnapshot.ActiveSubject);
         Assert.NotEmpty(
-            prepared.Initialization.State.InstalledSnapshot
+            prepared.Initialization.State.CurrentSnapshot
                 .Inventory!.Libraries[0].Types.Evidence);
     }
 
@@ -826,7 +826,7 @@ public sealed class NavigationRestorationPreparationTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationWorkspaceSnapshot installed =
-            fixture.Session.InstalledSnapshot;
+            fixture.Session.CurrentSnapshot;
         StructuralSubjectIdentity.TypeSubject type =
             installed.Types[0].Row.Subject;
         var request = new NavigationInitialization(
@@ -862,8 +862,8 @@ public sealed class NavigationRestorationPreparationTests
                 .Navigation.Action!.Id);
         Assert.True(
             NavigationWorkspaceSnapshotEquality.Equals(
-                first.Initialization.State.InstalledSnapshot,
-                second.Initialization.State.InstalledSnapshot));
+                first.Initialization.State.CurrentSnapshot,
+                second.Initialization.State.CurrentSnapshot));
 
         NavigationRestorationPreparationResult.Prepared Prepare() =>
             Assert.IsType<
