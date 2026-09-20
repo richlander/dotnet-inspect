@@ -2170,39 +2170,27 @@ public partial class DependsCommand
         IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
-        var sections = new HashSet<string>(
-            includeSections,
-            StringComparer.OrdinalIgnoreCase);
-        bool includeHierarchy = sections.Remove(
-            DependsAssetSections.DependencyHierarchy);
-        string hierarchy = includeHierarchy
-            ? RenderHierarchySection(
-                projection,
-                hierarchyRows,
-                options.EmbeddedMermaid)
-            : "";
-        string evidence = "";
-        if (sections.Count > 0)
+        var writerOptions = new MarkoutWriterOptions
         {
-            var writerOptions = new MarkoutWriterOptions
-            {
-                IncludeSections = sections,
-            };
-            var writer = new MarkoutWriter(
-                new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
-                writerOptions);
-            DependsAssetViewContext.Default.Serialize(
-                BuildAssetTableView(
-                    projection,
-                    sections,
-                    options.Rows,
-                    hierarchyRows),
-                writer);
-            evidence = writer.ToString();
-        }
-
-        output.WriteLine(
-            JoinMarkdown(hierarchy, evidence));
+            IncludeSections = includeSections,
+            SectionOrder = DependsAssetSections.SectionOrder,
+        };
+        var writer = new MarkoutWriter(
+            new MarkdownFormatter(
+                options.EmbeddedMermaid
+                    ? MarkdownGraphMode.Mermaid
+                    : MarkdownGraphMode.FencedTree),
+            writerOptions);
+        DependsAssetView view = BuildAssetView(
+            projection,
+            includeSections,
+            options.Rows,
+            hierarchyRows,
+            options.EmbeddedMermaid);
+        DependsAssetViewContext.Default.Serialize(
+            DependsAssetMarkdownView.From(view),
+            writer);
+        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -2254,7 +2242,7 @@ public partial class DependsCommand
         DependsAssetViewContext.Default.Serialize(tableView, tableWriter);
 
         output.WriteLine(
-            JoinMarkdown(
+            JoinOutputFragments(
                 summaryWriter.ToString(),
                 tableWriter.ToString()));
     }
@@ -2307,7 +2295,7 @@ public partial class DependsCommand
         return writer.ToString().TrimEnd();
     }
 
-    private static string JoinMarkdown(params string[] fragments) =>
+    private static string JoinOutputFragments(params string[] fragments) =>
         string.Join(
             Environment.NewLine + Environment.NewLine,
             fragments

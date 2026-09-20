@@ -2126,6 +2126,17 @@ public sealed class DependsAssetCommandTests
             "## Dependencies",
             markdown,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "```text",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.True(
+            markdown.IndexOf(
+                "## Dependency Hierarchy",
+                StringComparison.Ordinal)
+            < markdown.IndexOf(
+                "## Dependencies",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             "| Root Set |",
             markdown,
@@ -2149,6 +2160,37 @@ public sealed class DependsAssetCommandTests
 
         using JsonDocument document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.TryGetProperty("summary", out _));
+    }
+
+    [Fact]
+    public async Task MarkdownRendersEmbeddedMermaidWithNeighboringSection()
+    {
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Hierarchy,Dependencies",
+            "--markdown",
+            "--mermaid",
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "## Dependency Hierarchy",
+            output.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.Contains("```mermaid", output, StringComparison.Ordinal);
+        Assert.Contains("## Dependencies", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Root Set |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            output.Split(Environment.NewLine),
+            StringComparer.Ordinal);
     }
 
     [Fact]
