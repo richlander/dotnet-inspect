@@ -463,6 +463,7 @@ public abstract record DiffHistoryNextAction
             DiffHistoryInterval boundary,
             string packageId,
             string typeFullName,
+            string? member,
             string finding,
             ApiSurfaceScope scope,
             PackageHouseTargetContext targetContext,
@@ -478,12 +479,15 @@ public abstract record DiffHistoryNextAction
             }
             ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
             ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
+            if (member is not null)
+                ArgumentException.ThrowIfNullOrWhiteSpace(member);
             ArgumentException.ThrowIfNullOrWhiteSpace(finding);
             if (!Enum.IsDefined(scope))
                 throw new ArgumentOutOfRangeException(nameof(scope));
 
             PackageId = packageId;
             TypeFullName = typeFullName;
+            Member = member;
             Finding = finding;
             Scope = scope;
             TargetContext = targetContext
@@ -496,6 +500,8 @@ public abstract record DiffHistoryNextAction
         public string PackageId { get; }
 
         public string TypeFullName { get; }
+
+        public string? Member { get; }
 
         public string Finding { get; }
 
