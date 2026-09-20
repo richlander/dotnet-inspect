@@ -24,10 +24,13 @@ public class DiscoveryDocumentFactoryTests
             discover: null);
 
         Assert.Equal("synthetic", document.Catalog);
-        Assert.NotEmpty(document.CatalogEntries);
         Assert.Equal(
-            DiscoveryResourceKind.Category,
-            document.CatalogEntries[0].Kind);
+            [
+                Category("@Group"),
+                Section("Empty"),
+                Section("Rows"),
+            ],
+            document.CatalogEntries);
         Assert.Contains(
             document.Resources,
             resource =>
