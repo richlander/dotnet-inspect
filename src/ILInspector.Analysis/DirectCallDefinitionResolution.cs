@@ -283,6 +283,13 @@ internal interface IDirectCallDefinitionGenerationExtension
         CancellationToken cancellationToken);
 }
 
+internal interface IDirectCallDefinitionCandidateSelector
+{
+    bool Includes(
+        CatalogCallGraphParticipant participant,
+        DirectCall call);
+}
+
 internal sealed record DirectCallGenericScopeOwners(
     GraphNodeStorageKey Type,
     GraphNodeStorageKey Method);
@@ -351,24 +358,48 @@ public static class DirectCallDefinitionResolver
             limits,
             options,
             extension: null,
+            candidateSelector: null,
             cancellationToken);
+
+    internal static DirectCallDefinitionResolutionOutcome
+        ResolveCandidates(
+            IAssemblyBindingPolicy bindingPolicy,
+            IEnumerable<CatalogCallGraphParticipant> participants,
+            IDirectCallDefinitionCandidateSelector candidateSelector,
+            DirectCallDefinitionResolutionLimits? limits = null,
+            TypeResolutionContextOptions? options = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(candidateSelector);
+        return ResolveCore(
+            bindingPolicy,
+            participants,
+            limits,
+            options,
+            extension: null,
+            candidateSelector,
+            cancellationToken);
+    }
 
     internal static DirectCallDefinitionResolutionOutcome
         ResolveWithGenerationExtension(
             IAssemblyBindingPolicy bindingPolicy,
             IEnumerable<CatalogCallGraphParticipant> participants,
             IDirectCallDefinitionGenerationExtension extension,
+            IDirectCallDefinitionCandidateSelector candidateSelector,
             DirectCallDefinitionResolutionLimits? limits = null,
             TypeResolutionContextOptions? options = null,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(extension);
+        ArgumentNullException.ThrowIfNull(candidateSelector);
         return ResolveCore(
             bindingPolicy,
             participants,
             limits,
             options,
             extension,
+            candidateSelector,
             cancellationToken);
     }
 
@@ -378,6 +409,7 @@ public static class DirectCallDefinitionResolver
         DirectCallDefinitionResolutionLimits? limits,
         TypeResolutionContextOptions? options,
         IDirectCallDefinitionGenerationExtension? extension,
+        IDirectCallDefinitionCandidateSelector? candidateSelector,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(bindingPolicy);
@@ -427,12 +459,17 @@ public static class DirectCallDefinitionResolver
         var evidenceScopes = new Dictionary<
             (CatalogCallGraphParticipant Participant, int MethodToken),
             EvidenceGenericScopeResult>();
+        var reusablePlans = new Dictionary<
+            (AssemblyAcquisitionRegistration Registration, int OperandToken),
+            CatalogMemberCorrespondencePlan>();
         long invocationOccurrences = 0;
         foreach (CatalogCallGraphParticipant participant in population)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            invocationOccurrences +=
-                participant.CallGraph.DirectCalls.Length;
+            invocationOccurrences += candidateSelector is null
+                ? participant.CallGraph.DirectCalls.Length
+                : participant.CallGraph.DirectCalls.Count(call =>
+                    candidateSelector.Includes(participant, call));
         }
         if (invocationOccurrences > limits.MaxInvocationOccurrences)
         {
@@ -443,6 +480,12 @@ public static class DirectCallDefinitionResolver
                     in participant.CallGraph.DirectCalls)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (candidateSelector?.Includes(
+                            participant,
+                            call) == false)
+                    {
+                        continue;
+                    }
                     pending.Add(PendingInvocation.Incomplete(
                         participant,
                         call,
@@ -474,6 +517,12 @@ public static class DirectCallDefinitionResolver
                 in participant.CallGraph.DirectCalls)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (candidateSelector?.Includes(
+                        participant,
+                        call) == false)
+                {
+                    continue;
+                }
                 if (signatureNodes.IsExceeded)
                 {
                     pending.Add(PendingInvocation.Incomplete(
@@ -497,6 +546,47 @@ public static class DirectCallDefinitionResolver
                             call,
                             DirectCallDefinitionGapKind
                                 .UnsupportedSignature)));
+                    continue;
+                }
+                if (call.Callee.GenericArity == 0
+                        ? !call.Callee.TypeArguments.IsEmpty
+                        : call.Callee.TypeArguments.Length
+                            != call.Callee.GenericArity)
+                {
+                    pending.Add(PendingInvocation.Unsupported(
+                        participant,
+                        call,
+                        Gap(
+                            participant,
+                            call,
+                            DirectCallDefinitionGapKind
+                                .UnsupportedSignature)));
+                    continue;
+                }
+                var reusablePlanKey = (
+                    participant.Assembly.Registration,
+                    call.OperandToken);
+                bool containsInvocationGenericParameter =
+                    GenericMemberIdentity.ContainsGenericParameter(
+                        call.Callee.DeclaringType)
+                    || call.Callee.ParameterTypes.Any(
+                        GenericMemberIdentity.ContainsGenericParameter)
+                    || GenericMemberIdentity.ContainsGenericParameter(
+                        call.Callee.ReturnType)
+                    || call.Callee.TypeArguments.Any(
+                        GenericMemberIdentity.ContainsGenericParameter);
+                if (call.OperandToken != 0
+                    && !containsInvocationGenericParameter
+                    && reusablePlans.TryGetValue(
+                        reusablePlanKey,
+                        out CatalogMemberCorrespondencePlan?
+                            reusablePlan))
+                {
+                    pending.Add(new PendingInvocation(
+                        participant,
+                        call,
+                        reusablePlan,
+                        EvidenceScope: null));
                     continue;
                 }
                 MethodSignatureTypeInspection admission =
@@ -554,21 +644,6 @@ public static class DirectCallDefinitionResolver
                     continue;
                 }
                 if (openAdmission.Failure is not null)
-                {
-                    pending.Add(PendingInvocation.Unsupported(
-                        participant,
-                        call,
-                        Gap(
-                            participant,
-                            call,
-                            DirectCallDefinitionGapKind
-                                .UnsupportedSignature)));
-                    continue;
-                }
-                if (call.Callee.GenericArity == 0
-                        ? !call.Callee.TypeArguments.IsEmpty
-                        : call.Callee.TypeArguments.Length
-                            != call.Callee.GenericArity)
                 {
                     pending.Add(PendingInvocation.Unsupported(
                         participant,
@@ -707,6 +782,9 @@ public static class DirectCallDefinitionResolver
                     plan!,
                     evidenceScope));
                 requests.AddRange(plan!.Requests);
+                if (call.OperandToken != 0
+                    && !admission.ContainsGenericParameter)
+                    reusablePlans.TryAdd(reusablePlanKey, plan);
             }
         }
 
@@ -1811,6 +1889,10 @@ public static class DirectCallDefinitionResolver
         var results =
             ImmutableArray.CreateBuilder<DirectCallDefinitionResolution>(
                 pending.Length);
+        var reusableResolutions = new Dictionary<
+            CatalogMemberCorrespondencePlan,
+            ReusableInvocationResolution>(
+                ReferenceEqualityComparer.Instance);
         long invocationBindings = 0;
         foreach (PendingInvocation item in pending)
         {
@@ -1822,6 +1904,29 @@ public static class DirectCallDefinitionResolver
                     item,
                     initialKind,
                     item.InitialGap!));
+                continue;
+            }
+            if (reusableResolutions.TryGetValue(
+                    item.Plan!,
+                    out ReusableInvocationResolution? reusable))
+            {
+                long requiredWork =
+                    invocationBindings + reusable.InvocationBindings;
+                if (requiredWork > limits.MaxInvocationBindings)
+                {
+                    workLimit = new(
+                        DirectCallDefinitionWorkDimension.InvocationBindings,
+                        limits.MaxInvocationBindings,
+                        requiredWork);
+                    break;
+                }
+                invocationBindings = requiredWork;
+                results.Add(CreateResult(
+                    context,
+                    item,
+                    reusable.CallKey,
+                    reusable.DeclaringType,
+                    reusable.Selected));
                 continue;
             }
 
@@ -1955,6 +2060,7 @@ public static class DirectCallDefinitionResolver
                 continue;
             }
 
+            long bindingStart = invocationBindings;
             SelectedMemberOutcome selected = SelectDefinition(
                 item,
                 issued.Key,
@@ -1980,6 +2086,16 @@ public static class DirectCallDefinitionResolver
                 issued.Key,
                 resolved,
                 selected));
+            if (selected is SelectedMemberOutcome.Selected exact)
+            {
+                reusableResolutions.TryAdd(
+                    item.Plan,
+                    new(
+                        issued.Key,
+                        resolved,
+                        exact,
+                        invocationBindings - bindingStart));
+            }
         }
         return results.ToImmutable();
     }
@@ -3199,6 +3315,12 @@ public static class DirectCallDefinitionResolver
         DirectCallDefinitionWorkDimension Dimension,
         long Limit,
         long RequiredWork);
+
+    sealed record ReusableInvocationResolution(
+        CatalogMemberJoinKey CallKey,
+        TypeResolutionOutcome.Resolved DeclaringType,
+        SelectedMemberOutcome.Selected Selected,
+        long InvocationBindings);
 
     abstract record SelectedMemberOutcome
     {

@@ -1155,6 +1155,34 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void RepeatedOperandReusesPlanWithoutCollapsingInvocations()
+    {
+        SyntheticParticipant participant = CreateSynthetic(new()
+        {
+            CallCount = 50,
+        });
+
+        DirectCallDefinitionResolutionOutcome.Completed completed =
+            Resolve(
+                participant,
+                new DirectCallDefinitionResolutionLimits(
+                    maxSignatureNodes: 16));
+
+        Assert.Equal(50, completed.Results.Length);
+        Assert.All(
+            completed.Results,
+            result =>
+                Assert.IsType<
+                    DirectCallDefinitionResolution.Resolved>(result));
+        Assert.Equal(
+            50,
+            completed.Results
+                .Select(result => result.PhysicalInvocation)
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
     public void InvocationBindingLimitPublishesNoPartialSuccess()
     {
         SyntheticParticipant participant = CreateSynthetic(new()
@@ -1923,7 +1951,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             default);
         metadata.AddAssembly(
             metadata.GetOrAddString(options.AssemblyName),
-            new Version(1, 0, 0, 0),
+            options.AssemblyVersion,
             culture: default,
             publicKey: default,
             flags: default,
@@ -1953,10 +1981,10 @@ public sealed partial class DirectCallDefinitionResolutionTests
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString(
-                options.TypeGenericParameterRows == 0
-                    ? "Owner"
-                    : options.OwnerTypeName
-                        ?? $"Owner`{options.TypeGenericParameterRows}"),
+                options.OwnerTypeName
+                    ?? (options.TypeGenericParameterRows == 0
+                        ? "Owner"
+                        : $"Owner`{options.TypeGenericParameterRows}")),
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
@@ -2311,9 +2339,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
         bool malformedInterfaceImpl = false,
         bool malformedMethodImpl = false,
         bool invalidOnlyInterfaceImpl = false,
-        bool wrappedTypeParameter = false)
+        bool wrappedTypeParameter = false,
+        string assemblyName = "InterfaceDirectCalls",
+        Version? assemblyVersion = null)
     {
-        const string AssemblyName = "InterfaceDirectCalls";
+        assemblyVersion ??= new Version(1, 0, 0, 0);
         addPublicDecoy |= addSwappedGenericDecoy;
         bool genericInterface = generic || fixedGenericInterface;
         bool genericImplementation = generic;
@@ -2322,13 +2352,13 @@ public sealed partial class DirectCallDefinitionResolutionTests
         Guid mvid = Guid.NewGuid();
         metadata.AddModule(
             0,
-            metadata.GetOrAddString(AssemblyName + ".dll"),
+            metadata.GetOrAddString(assemblyName + ".dll"),
             metadata.GetOrAddGuid(mvid),
             default,
             default);
         metadata.AddAssembly(
-            metadata.GetOrAddString(AssemblyName),
-            new Version(1, 0, 0, 0),
+            metadata.GetOrAddString(assemblyName),
+            assemblyVersion,
             default,
             default,
             default,
@@ -2782,7 +2812,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     "interface direct-call definition test"))!;
         LibraryBodyIndex index =
             LibraryBodyIndex.OpenFromPrefetchedImage(
-                AssemblyName + ".dll",
+                assemblyName + ".dll",
                 ImmutableArray.CreateRange(image),
                 LibraryBodyAnalysisFeatures.MethodEvidence);
         return new SyntheticParticipant(
@@ -2843,6 +2873,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
     {
         internal string AssemblyName { get; init; } =
             "SyntheticDirectCalls";
+        internal Version AssemblyVersion { get; init; } =
+            new(1, 0, 0, 0);
         internal MethodAttributes TargetAttributes { get; init; } =
             MethodAttributes.Public | MethodAttributes.Static;
         internal string TargetName { get; init; } = "Target";

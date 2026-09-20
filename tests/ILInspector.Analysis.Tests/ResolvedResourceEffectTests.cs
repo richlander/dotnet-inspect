@@ -13,6 +13,73 @@ namespace ILInspector.Analysis.Tests;
 public sealed partial class DirectCallDefinitionResolutionTests
 {
     [Fact]
+    public void ShippedArrayPoolModelBoundsDefinitionResolutionToCandidates()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            OwnershipFixturePath,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                OwnershipFixturePath,
+                AssemblyResolutionProvenance.Local(
+                    "resource-effect candidate-selection test"));
+        var participant =
+            new CatalogCallGraphParticipant(index, assembly);
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(
+                OwnershipFixturePath));
+
+        ResourceEffectResolutionOutcome initial =
+            ResourceEffectResolver.Resolve(
+                policy,
+                ArrayPoolResourceEffectModel.Create(),
+                [participant],
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        int candidateCount =
+            Receipt(initial).Population.Results.Length;
+
+        Assert.InRange(
+            candidateCount,
+            1,
+            index.DirectCalls.Length - 1);
+        Assert.DoesNotContain(
+            Receipt(initial).Population.Results,
+            result =>
+                result.Call.Callee.DeclaringType.Name.Contains(
+                    "OwnershipSink",
+                    StringComparison.Ordinal));
+        ResourceEffectResolutionOutcome bounded =
+            ResourceEffectResolver.Resolve(
+                policy,
+                ArrayPoolResourceEffectModel.Create(),
+                [participant],
+                directCallLimits:
+                    new(maxInvocationOccurrences: candidateCount),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(initial.GetType(), bounded.GetType());
+        Assert.Equal(
+            candidateCount,
+            Receipt(bounded).Population.Results.Length);
+
+        static ResourceEffectResolutionReceipt Receipt(
+            ResourceEffectResolutionOutcome outcome) =>
+            outcome switch
+            {
+                ResourceEffectResolutionOutcome.Complete complete =>
+                    complete.Receipt,
+                ResourceEffectResolutionOutcome.Incomplete incomplete =>
+                    incomplete.Receipt,
+                ResourceEffectResolutionOutcome.Conflict conflict =>
+                    conflict.Receipt,
+                _ => throw new InvalidOperationException(
+                    "Candidate selection unexpectedly rejected resolution."),
+            };
+    }
+
+    [Fact]
     public void ShippedArrayPoolModelResolvesFrameworkOperations()
     {
         ResourceEffectResolutionOutcome outcome = ResolveEffects(
@@ -519,6 +586,99 @@ public sealed partial class DirectCallDefinitionResolutionTests
             gap => gap.Kind
                 == ResourceEffectResolutionGapKind
                     .DeferredInterfaceApplication);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InterfaceEffectAppliesWithoutInterfaceInvocation(
+        bool explicitImplementation)
+    {
+        SyntheticParticipant participant = CreateInterfaceParticipant(
+            explicitImplementation: explicitImplementation,
+            includeInterfaceCall: false);
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.interface-application-without-interface-call",
+                InterfaceTarget(participant),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResourceEffectResolver.Resolve(
+                    participant.Policy,
+                    admission,
+                    [participant.Participant],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResolvedResourceEffect implementation =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.NotNull(implementation.InterfaceApplication);
+        Assert.Equal(
+            explicitImplementation
+                ? "ExplicitTarget"
+                : "Target",
+            implementation.DirectCall.Definition.Member.Name);
+    }
+
+    [Fact]
+    public void NonInterfaceProofIsScopedToParticipantRegistration()
+    {
+        const string AssemblyName = "SharedTypeKind";
+        SyntheticParticipant nonInterface = CreateSynthetic(new()
+        {
+            AssemblyName = AssemblyName,
+            AssemblyVersion = new Version(1, 0, 0, 0),
+            OwnerTypeName = "IContract",
+            TargetAttributes = System.Reflection.MethodAttributes.Public,
+            TargetSignature = [0x20, 0x00, 0x01],
+            CallKind = CallKind.CallVirtual,
+        });
+        SyntheticParticipant interfaceParticipant =
+            CreateInterfaceParticipant(
+                includeInterfaceCall: false,
+                assemblyName: AssemblyName,
+                assemblyVersion: new Version(2, 0, 0, 0));
+        DirectCallDefinitionResolutionOutcome.Completed provisional =
+            Resolve(nonInterface);
+        DirectCallDefinitionResolution.Resolved direct =
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(
+                Assert.Single(provisional.Results));
+        ResourceEffectTargetSelector.Member exact =
+            Assert.IsType<ResourceEffectTargetSelector.Member>(
+                TargetFor(direct.Definition));
+        ResourceTypeExpression.Named declaringType =
+            exact.Selector.DeclaringType;
+        ResourceEffectTargetSelector target = TargetWithAssembly(
+            exact.Selector,
+            declaringType,
+            new ResourceAssemblySelector(
+                AssemblyName,
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any));
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.participant-scoped-type-kind",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+        var selector =
+            new ResourceEffectDirectCallCandidateSelector(admission);
+
+        selector.IncludePotentialInterfaceImplementations(provisional);
+
+        Assert.All(
+            interfaceParticipant.Participant.CallGraph.DirectCalls,
+            call => Assert.True(
+                selector.Includes(
+                    interfaceParticipant.Participant,
+                    call)));
     }
 
     [Fact]

@@ -421,6 +421,62 @@ public static class ResourceEffectSelectorBinder
         return TypeNameCouldMatch(selector.DeclaringType, declaring);
     }
 
+    internal static bool CouldMatchInterfaceImplementation(
+        ResourceEffectMemberSelector selector,
+        MemberRef member)
+    {
+        if (selector.Kind
+                is ResourceEffectMemberKind.Field
+                    or ResourceEffectMemberKind.Constructor
+            || selector.IsStatic
+            || member.Kind == MemberKind.Constructor
+            || !member.HasThis)
+        {
+            return false;
+        }
+        if (member.Kind == MemberKind.Unsupported)
+            return true;
+        if (selector.GenericArity != member.GenericArity
+            || selector.HasThis != member.HasThis
+            || selector.ExplicitThis
+                != ((member.SignatureHeader & ExplicitThis) != 0)
+            || !ParameterCountsCouldMatch(
+                selector.CallingConvention,
+                selector.Parameters.Length,
+                member))
+        {
+            return false;
+        }
+        ResourceEffectCallingConvention? callingConvention =
+            CallingConvention(member.SignatureHeader);
+        if (callingConvention is not null
+            && callingConvention != selector.CallingConvention)
+        {
+            return false;
+        }
+        for (int i = 0; i < selector.Parameters.Length; i++)
+        {
+            TypeRef actual = member.ParameterTypes[i];
+            bool actualByRef = actual.Kind == TypeRefKind.ByRef;
+            if ((selector.Parameters[i].RefKind
+                    == ResourceEffectRefKind.Value) == actualByRef)
+            {
+                return false;
+            }
+            if (actualByRef)
+                actual = actual.ElementType!;
+            if (!CandidateTypeCouldMatch(
+                    selector.Parameters[i].Type,
+                    actual))
+            {
+                return false;
+            }
+        }
+        return CandidateTypeCouldMatch(
+            selector.ReturnType,
+            member.ReturnType);
+    }
+
     internal static bool TypeNameCouldMatch(
         ResourceTypeExpression.Named selector,
         TypeRef actual)
@@ -462,6 +518,86 @@ public static class ResourceEffectSelectorBinder
         return true;
     }
 
+    static bool CandidateTypeCouldMatch(
+        ResourceTypeExpression selector,
+        TypeRef actual)
+    {
+        if (actual.Kind
+            is TypeRefKind.Unsupported
+                or TypeRefKind.GenericParameter
+                or TypeRefKind.MethodGenericParameter)
+        {
+            return true;
+        }
+        if (actual.Kind == TypeRefKind.Pinned)
+            return CandidateTypeCouldMatch(selector, actual.ElementType!);
+        return selector switch
+        {
+            ResourceTypeExpression.Variable => true,
+            ResourceTypeExpression.Named named =>
+                CandidateNamedTypeCouldMatch(named, actual),
+            ResourceTypeExpression.SzArray array =>
+                actual.Kind == TypeRefKind.SzArray
+                && CandidateTypeCouldMatch(
+                    array.Element,
+                    actual.ElementType!),
+            ResourceTypeExpression.Array array =>
+                actual.Kind == TypeRefKind.Array
+                && actual.Rank == array.Rank
+                && CandidateTypeCouldMatch(
+                    array.Element,
+                    actual.ElementType!),
+            ResourceTypeExpression.ByReference reference =>
+                actual.Kind == TypeRefKind.ByRef
+                && CandidateTypeCouldMatch(
+                    reference.Element,
+                    actual.ElementType!),
+            ResourceTypeExpression.Pointer pointer =>
+                actual.Kind == TypeRefKind.Pointer
+                && CandidateTypeCouldMatch(
+                    pointer.Element,
+                    actual.ElementType!),
+            _ => true,
+        };
+    }
+
+    static bool CandidateNamedTypeCouldMatch(
+        ResourceTypeExpression.Named selector,
+        TypeRef actual)
+    {
+        TypeRef definition = actual.Kind == TypeRefKind.GenericInstance
+            ? actual.ElementType!
+            : actual;
+        if (definition.Kind
+            is TypeRefKind.Unsupported
+                or TypeRefKind.GenericParameter
+                or TypeRefKind.MethodGenericParameter)
+        {
+            return true;
+        }
+        if (definition.Kind != TypeRefKind.Definition
+            || !TypeNameCouldMatch(selector, definition))
+        {
+            return false;
+        }
+        ImmutableArray<TypeRef> arguments =
+            actual.Kind == TypeRefKind.GenericInstance
+                ? actual.TypeArguments
+                : [];
+        if (arguments.Length != selector.Arguments.Length)
+            return false;
+        for (int i = 0; i < arguments.Length; i++)
+        {
+            if (!CandidateTypeCouldMatch(
+                    selector.Arguments[i],
+                    arguments[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     static string SegmentName(ResourceTypeNameSegment segment) =>
         segment.GenericArity == 0
             ? segment.MetadataName
@@ -483,6 +619,7 @@ public static class ResourceEffectSelectorBinder
         {
             return MatchResult.NoMatch();
         }
+
         ResourceEffectCallingConvention? callingConvention =
             CallingConvention(member.SignatureHeader);
         if (callingConvention is null)
