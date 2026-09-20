@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using InertText;
+using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
@@ -89,6 +91,40 @@ public sealed record PackageInfoMeasurements
             unavailableReason)
     {
         ToolEvidence = evidence;
+    }
+
+    internal PackageInfoMeasurements(
+        PackageRootBinding root,
+        PackageInfoMeasurementStatus status,
+        long? compressedPackageBytes,
+        string? selectedTargetFramework,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
+        IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
+        long? selectedLibraryPayloadBytes,
+        int? selectedLibraryCount,
+        InertString? detail,
+        PackageHouseCompileSliceMeasurementUnavailableReason?
+            unavailableReason)
+        : this(
+            status,
+            root?.Root.PackageId
+                ?? throw new ArgumentNullException(nameof(root)),
+            root.Root.PackageVersion,
+            compressedPackageBytes,
+            selectedTargetFramework is null
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    selectedTargetFramework),
+            availableTargetFrameworks,
+            selectedTargetFrameworkFolders,
+            selectedLibraryPayloadBytes,
+            selectedLibraryCount,
+            detail,
+            unavailableReason)
+    {
+        RootGeneration = root.ContentGenerationIdentity;
+        RootSelectionIdentity = root.SelectionIdentity;
     }
 
     [JsonConstructor]
@@ -295,19 +331,94 @@ public sealed record PackageInfoMeasurements
     [JsonIgnore]
     public PackageContentGenerationIdentity? Generation =>
         Evidence?.Realization.Acquisition.Generation
-        ?? ToolEvidence?.Evidence.Generation;
+        ?? ToolEvidence?.Evidence.Generation
+        ?? RootGeneration;
 
     [JsonIgnore]
     public PackageCompileAssetSelectionReceipt? SelectionReceipt =>
         Evidence?.Realization.Receipt;
+
+    [JsonIgnore]
+    public PackageRootSelectionIdentity? RootSelectionIdentity { get; }
+
+    [JsonIgnore]
+    private PackageContentGenerationIdentity? RootGeneration { get; }
 }
 
 /// <summary>
-/// Projects compile or declared-tool measurements through the shared
-/// inspection envelope boundary.
+/// Projects retained Package Root, compile, or declared-tool measurements
+/// through the shared inspection envelope boundary.
 /// </summary>
 public static class PackageInfoMeasurementInspection
 {
+    public static InspectionEnvelope<PackageInfoMeasurements> Project(
+        PackageRootBinding root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        PackageInfoMeasurements content = root.Root.UseContent(
+            packageContent => CreateContent(root, packageContent));
+        return CreateRootEnvelope(content);
+    }
+
+    /// <summary>
+    /// Projects one already-admitted Package Root using the same declared-tool
+    /// versus compile-slice choice as ordinary Package inspection.
+    /// </summary>
+    public static InspectionEnvelope<PackageInfoMeasurements>
+        ProjectAdmittedRoot(
+            PackageRootBinding root,
+            ReadOnlyMemory<byte>? admittedPackageManifest,
+            string? requestedTargetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
+            root.Root.PackageId,
+            root.Root.PackageVersion);
+        PackageInfoMeasurements content = root.Root.UseContent(
+            packageContent =>
+            {
+                PackageToolDeclarationEvidence? declaration =
+                    admittedPackageManifest is { } manifest
+                        ? PackageToolDeclarationEvidence.TryCreate(
+                            coordinate,
+                            packageContent,
+                            manifest)
+                        : null;
+                return declaration is null
+                    ? CreateContent(root, packageContent)
+                    : CreateContent(
+                        PackageToolSliceMeasurementProjection.Project(
+                            coordinate,
+                            packageContent,
+                            declaration,
+                            requestedTargetFramework));
+            });
+        return CreateRootEnvelope(content);
+    }
+
+    private static InspectionEnvelope<PackageInfoMeasurements>
+        CreateRootEnvelope(PackageInfoMeasurements content)
+    {
+        var diagnostics = ImmutableArray.CreateBuilder<InspectionDiagnostic>();
+        if (content.Detail is { } detail)
+        {
+            diagnostics.Add(
+                new InspectionDiagnostic(
+                    $"package-info-measurements.{StatusCode(content.Status)}",
+                    InspectionDiagnosticSeverity.Warning,
+                    detail,
+                    Field(
+                        $"{content.PackageId}@{content.PackageVersion}")));
+        }
+
+        return new(
+            content,
+            new InspectionShare.NonProjectable(
+                "package-info-measurements/share",
+                "Package Info measurements do not yet have a canonical Workspace Share projection."),
+            diagnostics.ToImmutable());
+    }
+
     public static InspectionEnvelope<PackageInfoMeasurements> Project(
         PackageHouseSettlement.Acquired settlement)
     {
@@ -456,6 +567,207 @@ public static class PackageInfoMeasurementInspection
             _ => throw new InvalidOperationException(
                 "Unknown PackageHouse compile measurement outcome."),
         };
+
+    private static PackageInfoMeasurements CreateContent(
+        PackageRootBinding root,
+        IPackageContent content)
+    {
+        PackageCompileAssetSelection selection = root.Root.AssetSelection;
+        if (!PackageHouseCompileSliceMeasurementProjection
+                .TryGetArchiveLength(
+                    content,
+                    out long compressedPackageBytes,
+                    out PackageHouseCompileSliceMeasurementUnavailableReason
+                        archiveFailure))
+        {
+            return Unavailable(
+                root,
+                compressedPackageBytes: null,
+                availableTargetFrameworks: null,
+                archiveFailure);
+        }
+
+        InertString[] availableTargetFrameworks =
+        [
+            .. selection.AvailableTargetFrameworks.Select(
+                static framework =>
+                    new InertString(TextPolicy.Field, framework)),
+        ];
+        return selection.Status switch
+        {
+            PackageCompileAssetSelectionStatus.Selected =>
+                MeasureSelectedRoot(
+                    root,
+                    content,
+                    selection,
+                    compressedPackageBytes,
+                    availableTargetFrameworks,
+                    selectedEmpty: false),
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                MeasureSelectedRoot(
+                    root,
+                    content,
+                    selection,
+                    compressedPackageBytes,
+                    availableTargetFrameworks,
+                    selectedEmpty: true),
+            PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                RootPackageOnly(
+                    root,
+                    PackageInfoMeasurementStatus.NoCompileSlices,
+                    compressedPackageBytes,
+                    availableTargetFrameworks,
+                    "The package contains no compile asset slices."),
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                RootPackageOnly(
+                    root,
+                    PackageInfoMeasurementStatus.NoApplicableSlice,
+                    compressedPackageBytes,
+                    availableTargetFrameworks,
+                    selection.Message
+                        ?? "The requested target framework has no applicable compile slice."),
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                RootPackageOnly(
+                    root,
+                    PackageInfoMeasurementStatus.InvalidSelection,
+                    compressedPackageBytes,
+                    availableTargetFrameworks,
+                    selection.Message
+                        ?? "The selected implementation assets are invalid."),
+            _ => throw new InvalidOperationException(
+                "Unknown compile asset-selection status."),
+        };
+    }
+
+    private static PackageInfoMeasurements MeasureSelectedRoot(
+        PackageRootBinding root,
+        IPackageContent content,
+        PackageCompileAssetSelection selection,
+        long compressedPackageBytes,
+        IReadOnlyList<InertString> availableTargetFrameworks,
+        bool selectedEmpty)
+    {
+        string selectedTargetFramework =
+            selection.TargetFramework
+            ?? throw new InvalidOperationException(
+                "A selected compile slice requires a target framework.");
+        ImmutableArray<string> selectedFolders =
+            PackageHouseCompileSliceMeasurementProjection
+                .SelectTargetFrameworkFolders(
+                    content,
+                    selectedTargetFramework);
+        long selectedPayloadBytes = 0;
+        if (!selectedEmpty)
+        {
+            if (content is not IPackageContentEntryManifest manifest)
+            {
+                return Unavailable(
+                    root,
+                    compressedPackageBytes,
+                    availableTargetFrameworks,
+                    PackageHouseCompileSliceMeasurementUnavailableReason
+                        .EntryManifestUnavailable);
+            }
+
+            foreach (PackageCompileAsset compileAsset in selection.Assets)
+            {
+                PackageCompileAsset payloadAsset =
+                    selection.FindImplementationAsset(compileAsset)
+                    ?? compileAsset;
+                if (!manifest.TryGetEntryLength(
+                        payloadAsset.Path,
+                        out long uncompressedBytes))
+                {
+                    return Unavailable(
+                        root,
+                        compressedPackageBytes,
+                        availableTargetFrameworks,
+                        PackageHouseCompileSliceMeasurementUnavailableReason
+                            .SelectedEntryUnavailable,
+                        payloadAsset.Path);
+                }
+                if (uncompressedBytes < 0)
+                {
+                    return Unavailable(
+                        root,
+                        compressedPackageBytes,
+                        availableTargetFrameworks,
+                        PackageHouseCompileSliceMeasurementUnavailableReason
+                            .SelectedEntryLengthInvalid,
+                        payloadAsset.Path);
+                }
+
+                try
+                {
+                    selectedPayloadBytes = checked(
+                        selectedPayloadBytes + uncompressedBytes);
+                }
+                catch (OverflowException)
+                {
+                    return Unavailable(
+                        root,
+                        compressedPackageBytes,
+                        availableTargetFrameworks,
+                        PackageHouseCompileSliceMeasurementUnavailableReason
+                            .SelectedPayloadBytesOverflow,
+                        payloadAsset.Path);
+                }
+            }
+        }
+
+        return new(
+            root,
+            selectedEmpty
+                ? PackageInfoMeasurementStatus.SelectedEmpty
+                : PackageInfoMeasurementStatus.Measured,
+            compressedPackageBytes,
+            selectedTargetFramework,
+            availableTargetFrameworks,
+            selectedFolders.Select(
+                    static folder =>
+                        new InertString(TextPolicy.Field, folder))
+                .ToArray(),
+            selectedPayloadBytes,
+            selection.Assets.Count,
+            detail: null,
+            unavailableReason: null);
+    }
+
+    private static PackageInfoMeasurements RootPackageOnly(
+        PackageRootBinding root,
+        PackageInfoMeasurementStatus status,
+        long compressedPackageBytes,
+        IReadOnlyList<InertString> availableTargetFrameworks,
+        string detail) =>
+        new(
+            root,
+            status,
+            compressedPackageBytes,
+            selectedTargetFramework: null,
+            availableTargetFrameworks,
+            selectedTargetFrameworkFolders: null,
+            selectedLibraryPayloadBytes: null,
+            selectedLibraryCount: null,
+            Field(detail),
+            unavailableReason: null);
+
+    private static PackageInfoMeasurements Unavailable(
+        PackageRootBinding root,
+        long? compressedPackageBytes,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
+        PackageHouseCompileSliceMeasurementUnavailableReason reason,
+        string? selectedEntry = null) =>
+        new(
+            root,
+            PackageInfoMeasurementStatus.Unavailable,
+            compressedPackageBytes,
+            selectedTargetFramework: null,
+            availableTargetFrameworks,
+            selectedTargetFrameworkFolders: null,
+            selectedLibraryPayloadBytes: null,
+            selectedLibraryCount: null,
+            UnavailableDetail(reason, selectedEntry),
+            reason);
 
     private static PackageInfoMeasurements CreateContent(
         PackageToolSliceMeasurementOutcome outcome) =>
@@ -610,7 +922,14 @@ public static class PackageInfoMeasurementInspection
 
     private static InertString UnavailableDetail(
         PackageHouseCompileSliceMeasurementOutcome.Unavailable unavailable) =>
-        Field(unavailable.Reason switch
+        UnavailableDetail(
+            unavailable.Reason,
+            unavailable.PayloadAsset?.Path);
+
+    private static InertString UnavailableDetail(
+        PackageHouseCompileSliceMeasurementUnavailableReason reason,
+        string? selectedEntry) =>
+        Field(reason switch
         {
             PackageHouseCompileSliceMeasurementUnavailableReason
                 .ArchiveUnavailable =>
@@ -623,10 +942,10 @@ public static class PackageInfoMeasurementInspection
                 "The retained package entry manifest is unavailable.",
             PackageHouseCompileSliceMeasurementUnavailableReason
                 .SelectedEntryUnavailable =>
-                $"Selected package entry '{unavailable.PayloadAsset?.Path}' is unavailable.",
+                $"Selected package entry '{selectedEntry}' is unavailable.",
             PackageHouseCompileSliceMeasurementUnavailableReason
                 .SelectedEntryLengthInvalid =>
-                $"Selected package entry '{unavailable.PayloadAsset?.Path}' has an invalid length.",
+                $"Selected package entry '{selectedEntry}' has an invalid length.",
             PackageHouseCompileSliceMeasurementUnavailableReason
                 .SelectedPayloadBytesOverflow =>
                 "The selected package payload byte total overflowed.",

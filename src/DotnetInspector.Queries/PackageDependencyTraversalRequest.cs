@@ -23,6 +23,24 @@ public enum PackageDependencyTraversalExpansionAuthority
 }
 
 /// <summary>
+/// Whether an exact dependency may close onto root-supplied evidence without
+/// owner-issued candidate correspondence.
+/// </summary>
+public enum PackageDependencyTraversalRootRecurrenceAuthority
+{
+    /// <summary>
+    /// The root owner has not authorized coordinate-only recurrence.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// The root owner authorizes its admitted evidence for an exact recurrence of
+    /// the same canonical coordinate.
+    /// </summary>
+    ExactCoordinate,
+}
+
+/// <summary>
 /// The typed framework-selection mode every admitted root and transitive manifest
 /// projection is constructed under. This is structural request currency, not a
 /// reconstruction of <see cref="PackageDependencyEvidenceSelection.RequestedFramework"/>.
@@ -87,7 +105,10 @@ public sealed record PackageDependencyTraversalRootOccurrence
 {
     public PackageDependencyTraversalRootOccurrence(
         PackageDependencyEvidenceRoot root,
-        PackageDependencyTraversalExpansionAuthority authority)
+        PackageDependencyTraversalExpansionAuthority authority,
+        PackageDependencyTraversalRootRecurrenceAuthority
+            recurrenceAuthority =
+                PackageDependencyTraversalRootRecurrenceAuthority.None)
     {
         ArgumentNullException.ThrowIfNull(root);
         if (root.Identity is not PackageDependencyEvidenceRootIdentity.Package)
@@ -107,11 +128,16 @@ public sealed record PackageDependencyTraversalRootOccurrence
 
         Root = root;
         Authority = authority;
+        RecurrenceAuthority = recurrenceAuthority;
     }
 
     public PackageDependencyEvidenceRoot Root { get; }
 
     public PackageDependencyTraversalExpansionAuthority Authority { get; }
+
+    public PackageDependencyTraversalRootRecurrenceAuthority
+        RecurrenceAuthority
+    { get; }
 
     internal PackageSourceCoordinate Coordinate =>
         ((PackageDependencyEvidenceRootIdentity.Package)Root.Identity).Coordinate;
