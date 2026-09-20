@@ -9,19 +9,28 @@ namespace DotnetInspector.PlatformHouse;
 /// </summary>
 public sealed class PlatformTargetSelectionContext
 {
+    private readonly IReadOnlyDictionary<
+        PlatformSourceCapabilityIdentity,
+        SelectedAssociation> _selectedByCapability;
+
     internal PlatformTargetSelectionContext(
         PlatformTargetSettlement.Selected targetSettlement,
         IEnumerable<PlatformTargetDiscoveryCandidate> selectedCandidates,
+        IReadOnlyDictionary<
+            PlatformSourceCapabilityIdentity,
+            SelectedAssociation> selectedByCapability,
         IEnumerable<PlatformSourceSettlement> sourceSettlements,
         PlatformHouseConsumedWork consumedWork)
     {
         ArgumentNullException.ThrowIfNull(targetSettlement);
         ArgumentNullException.ThrowIfNull(selectedCandidates);
+        ArgumentNullException.ThrowIfNull(selectedByCapability);
         ArgumentNullException.ThrowIfNull(sourceSettlements);
         ArgumentNullException.ThrowIfNull(consumedWork);
         TargetSettlement = targetSettlement;
         SelectedCandidates = Array.AsReadOnly(
             selectedCandidates.ToArray());
+        _selectedByCapability = selectedByCapability;
         SourceSettlements = Array.AsReadOnly(
             sourceSettlements.ToArray());
         ConsumedWork = consumedWork;
@@ -34,6 +43,24 @@ public sealed class PlatformTargetSelectionContext
         SelectedCandidates { get; }
     public IReadOnlyList<PlatformSourceSettlement> SourceSettlements { get; }
     public PlatformHouseConsumedWork ConsumedWork { get; }
+
+    internal PlatformTargetDiscoveryCandidate? CandidateFor(
+        PlatformSourceCapabilityIdentity capability,
+        PlatformSourceAssociationRouteIdentity route)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        ArgumentNullException.ThrowIfNull(route);
+        return _selectedByCapability.TryGetValue(
+                capability,
+                out SelectedAssociation? association)
+            && ReferenceEquals(association.Route, route)
+                ? association.Candidate
+                : null;
+    }
+
+    internal sealed record SelectedAssociation(
+        PlatformTargetDiscoveryCandidate Candidate,
+        PlatformSourceAssociationRouteIdentity? Route);
 }
 
 public delegate ValueTask<PlatformHouseOutcome<TValue>>
@@ -197,8 +224,12 @@ public static class PlatformHouseTargetSelector
                         "target-selection-source-work-exhausted"));
             }
 
+            PlatformTargetDiscoverySource source =
+                sources[capability];
+            PlatformHouseWorkBudget remainingWork =
+                work.Remaining();
             PlatformTargetDiscoveryAttempt attempt =
-                await sources[capability].DiscoverAsync(request)
+                await source.DiscoverAsync(request, remainingWork)
                     .ConfigureAwait(false);
             work.ChargeSourceOperation();
             request.CancellationToken.ThrowIfCancellationRequested();
@@ -210,7 +241,12 @@ public static class PlatformHouseTargetSelector
                     capability,
                     attempt))
                 {
-                    executed.Add(new(capability, attempt, stage));
+                    executed.Add(
+                        new(
+                            capability,
+                            attempt,
+                            stage,
+                            source.AssociationRoute));
                 }
                 return new(
                     null,
@@ -237,7 +273,11 @@ public static class PlatformHouseTargetSelector
             }
 
             var executedAttempt =
-                new ExecutedDiscovery(capability, attempt, stage);
+                new ExecutedDiscovery(
+                    capability,
+                    attempt,
+                    stage,
+                    source.AssociationRoute);
             executed.Add(executedAttempt);
             if (attempt
                 is PlatformTargetDiscoveryAttempt.NotSucceeded terminal)
@@ -299,7 +339,6 @@ public static class PlatformHouseTargetSelector
                         OutcomeRelevant(executed),
                         "target-selection-candidate-work-exhausted"));
             }
-
             foreach (PlatformTargetDiscoveryCandidate candidate
                 in success.Candidates)
             {
@@ -425,9 +464,45 @@ public static class PlatformHouseTargetSelector
         var context = new PlatformTargetSelectionContext(
             targetSettlement,
             winner.Candidates,
+            SelectedCandidatesByCapability(
+                winner.Target,
+                executed),
             settlements,
             consumed);
         return await continuation(context).ConfigureAwait(false);
+    }
+
+    static IReadOnlyDictionary<
+        PlatformSourceCapabilityIdentity,
+        PlatformTargetSelectionContext.SelectedAssociation>
+        SelectedCandidatesByCapability(
+            PlatformFamilyTarget target,
+            IReadOnlyList<ExecutedDiscovery> executed)
+    {
+        var result = new Dictionary<
+            PlatformSourceCapabilityIdentity,
+            PlatformTargetSelectionContext.SelectedAssociation>(
+                ReferenceEqualityComparer.Instance);
+        foreach (ExecutedDiscovery discovery in executed)
+        {
+            if (discovery.Attempt
+                is not PlatformTargetDiscoveryAttempt.Succeeded success)
+            {
+                continue;
+            }
+            PlatformTargetDiscoveryCandidate? candidate =
+                success.Candidates.SingleOrDefault(
+                    item => item.Target == target);
+            if (candidate is not null)
+            {
+                result.Add(
+                    discovery.Capability,
+                    new(
+                        candidate,
+                        discovery.AssociationRoute));
+            }
+        }
+        return result;
     }
 
     static bool TryIndexSources(
@@ -614,7 +689,8 @@ public static class PlatformHouseTargetSelector
     sealed record ExecutedDiscovery(
         PlatformSourceCapabilityIdentity Capability,
         PlatformTargetDiscoveryAttempt Attempt,
-        PlatformTargetDiscoveryStage Stage);
+        PlatformTargetDiscoveryStage Stage,
+        PlatformSourceAssociationRouteIdentity? AssociationRoute);
 
     sealed class StageWinner
     {
@@ -656,6 +732,18 @@ public static class PlatformHouseTargetSelector
         public void ChargeSourceOperation() =>
             _sourceOperations = checked(_sourceOperations + 1);
 
+        public PlatformHouseWorkBudget Remaining() =>
+            new(
+                Remaining(_request.Work.MaxSourceOperations, _sourceOperations),
+                Remaining(_request.Work.MaxTargetCandidates, _targetCandidates),
+                _request.Work.MaxAssemblies,
+                _request.Work.MaxXmlDocuments,
+                _request.Work.MaxPortablePdbs,
+                _request.Work.MaxSourceDocuments,
+                _request.Work.MaxBytes,
+                _request.Work.MaxForwardingHops,
+                Remaining(_request.Work.MaxDuration, Elapsed));
+
         public bool ChargeCandidates(int count)
         {
             long total = (long)_targetCandidates + count;
@@ -689,6 +777,16 @@ public static class PlatformHouseTargetSelector
                 forwardingHops: 0,
                 _targetComparisons,
                 Elapsed);
+
+        static int Remaining(int maximum, int consumed) =>
+            Math.Max(0, maximum - consumed);
+
+        static TimeSpan Remaining(
+            TimeSpan maximum,
+            TimeSpan consumed) =>
+            consumed >= maximum
+                ? TimeSpan.Zero
+                : maximum - consumed;
 
         TimeSpan Elapsed => Stopwatch.GetElapsedTime(_started);
     }
