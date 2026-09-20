@@ -154,6 +154,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             new[]
             {
+                SectionNames.EcosystemDependencies,
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.Signals,
@@ -167,6 +168,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             new[]
             {
+                SectionNames.EcosystemDependencies,
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
