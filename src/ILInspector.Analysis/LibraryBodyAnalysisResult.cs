@@ -46,6 +46,8 @@ internal sealed record AllocationAnalysisResult(
 
 internal sealed record OptimizationAnalysisResult(
     ImmutableArray<OptimizationOpportunity> Opportunities,
+    ImmutableArray<StringMaterializationOccurrence>
+        StringMaterializations,
     IReadOnlySet<int> SuppressedMethodTokens,
     IReadOnlySet<int> ScopeExcludedMethodTokens,
     IReadOnlySet<string> ExceptionTypeNames);

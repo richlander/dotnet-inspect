@@ -9,6 +9,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -1274,7 +1275,48 @@ public partial class PackageCommand
                         options.Tfm,
                         options.IncludePrerelease,
                         options.SourceOptions,
+                        PackageDependencyQueryPlan(options),
                         context);
+            }
+
+            if (result.DependencyHierarchyProjection is { } hierarchyProjection
+                && options.DependencyQueryPlan?.HierarchyRows
+                    is { Operations.Count: > 0 })
+            {
+                if (!DependsCommand.TrySelectHierarchyRows(
+                        hierarchyProjection,
+                        options.DependencyQueryPlan,
+                        options.Rows,
+                        options.DependencyHierarchyLegacyWindowStageIndex,
+                        out IReadOnlyList<
+                            DependencyHierarchyOccurrenceRow>
+                            selectedHierarchyRows))
+                {
+                    return 1;
+                }
+
+                result.DependencyHierarchyProjection =
+                    hierarchyProjection with
+                    {
+                        HierarchyRows = [.. selectedHierarchyRows],
+                    };
+                options = options with
+                {
+                    DependencyHierarchyRowsSelected = true,
+                };
+            }
+
+            static DependencyQueryPlan PackageDependencyQueryPlan(
+                InspectionOptions options)
+            {
+                if (options.DependencyQueryPlan is { } plan)
+                    return plan;
+
+                DependencyQueryPlanResult result =
+                    DependencyQuery.ResolveIntent(
+                        DependencyQueryRouteKind.PackageHierarchy,
+                        PortableQueryIntent.Empty);
+                return ((DependencyQueryPlanResult.Accepted)result).Plan;
             }
 
             // Filter output based on options

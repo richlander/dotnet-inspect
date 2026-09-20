@@ -1287,14 +1287,15 @@ public partial class OutputFormatterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void OptimizationOpportunitiesQuery_SuppressesGeneratedMethodsExceptGenericObjectBox()
+    public void OptimizationOpportunitiesQuery_SuppressesGeneratedActionableMethodsExceptGenericObjectBox()
     {
         var rows = QueryOptimizationOpportunities();
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);
         Assert.DoesNotContain(rows, r =>
-            r.Shape != "generic-parameter-object-box"
+            r.Shape != AnalysisFindings.StringMaterializationShape
+            && r.Shape != "generic-parameter-object-box"
             && (r.Member.Contains("<>c")
                 || r.Member.Contains(">g__")
                 || r.Member.Contains(">b__")
@@ -1329,6 +1330,34 @@ public partial class OutputFormatterTests
             {
                 TypeRef.Definition("Asm", "Ns", "GeneratedOuter"),
             }));
+    }
+
+    [Fact]
+    public void SelectPerformanceTriageOpportunities_PreservesGeneratedStringCensusOnly()
+    {
+        var stringOccurrence = Opp(
+            "<Main>$",
+            inLoop: false,
+            confidence: "high",
+            rootReach: 1,
+            shape: AnalysisFindings.StringMaterializationShape);
+        var actionableOpportunity = Opp(
+            "<Main>$",
+            inLoop: false,
+            confidence: "high",
+            rootReach: 1,
+            shape: "allocation-hotspot");
+        var available = new OptimizationOpportunitiesResult.Available(
+            [stringOccurrence, actionableOpportunity],
+            [],
+            [],
+            []);
+
+        Assert.Equal(
+            [stringOccurrence],
+            LibraryMetadataService.SelectPerformanceTriageOpportunities(
+                available,
+                PerformanceTriageOptions.Default));
     }
 
     [Fact]

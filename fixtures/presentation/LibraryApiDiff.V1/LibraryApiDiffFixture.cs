@@ -11,9 +11,15 @@ public static class ProjectionExtensions
         int value) => value;
 }
 
+[HistoryTag("before")]
 public struct TypeDefinitionOnly
 {
     public int Value;
+}
+
+internal sealed class HistoryTagAttribute(string value) : System.Attribute
+{
+    public string Value { get; } = value;
 }
 
 public class HardChangedType

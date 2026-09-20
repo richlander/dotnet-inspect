@@ -4,11 +4,16 @@ namespace DotnetInspector.Sections;
 
 public static class TypeDependencyVocabulary
 {
+    public const string SourceKey = "Source";
+    public const string TargetKey = "Target";
+    public const string KindKey = "Kind";
+    public const string TraversalOrderKey = "Traversal";
+
     private static readonly RowQueryNamedOrder<TypeDependencyRelationship>
-        TraversalOrder =
+        TraversalOrderDefinition =
         new(
             RowQueryNamedOrderIdentity.Create(),
-            "Traversal",
+            TraversalOrderKey,
             RowQueryOrderPurpose.Sequence,
             direction => Directional(
                 Comparer<TypeDependencyRelationship>.Create(
@@ -22,20 +27,23 @@ public static class TypeDependencyVocabulary
             RowQueryVocabularyIdentity.Create(),
             [
                 TextKey(
-                    "Source",
+                    SourceKey,
                     static relationship =>
                         relationship.SourceTypeName),
                 TextKey(
-                    "Target",
+                    TargetKey,
                     static relationship =>
                         relationship.TargetTypeName),
-                KindKey(),
+                KindQueryKey(),
             ],
-            [TraversalOrder],
+            [TraversalOrderDefinition],
             defaultBaselineOrder:
                 new(
-                    TraversalOrder,
+                    TraversalOrderDefinition,
                     RowQueryOrderDirection.Ascending));
+
+    internal static RowQueryVocabulary<TypeDependencyRelationship> Query =>
+        Vocabulary;
 
     public static RowQueryResolutionResult<TypeDependencyRelationship>
         Resolve(RowQueryIntent intent) =>
@@ -63,10 +71,10 @@ public static class TypeDependencyVocabulary
                 direction,
                 missingLast: false));
 
-    private static RowQueryKey<TypeDependencyRelationship> KindKey() =>
+    private static RowQueryKey<TypeDependencyRelationship> KindQueryKey() =>
         RowQueryKey<TypeDependencyRelationship>.Create(
             RowQueryKeyIdentity.Create(),
-            "Kind",
+            KindKey,
             [RowQueryOperator.Equals, RowQueryOperator.NotEquals],
             row => RowQueryValue<TypeDependencyRelationshipKind>.Present(
                 row.Kind),

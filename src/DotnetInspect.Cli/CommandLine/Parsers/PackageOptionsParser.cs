@@ -39,6 +39,7 @@ public static class PackageOptionsParser
         Option<bool> FrontmatterOption,
         Option<bool> BodyOption,
         Option<string?> TfmOption,
+        Option<string?> DepthOption,
         Option<string?> TypeFilterOption,
         Option<string?> VersionOption,
         Option<bool> LinesOption,
@@ -296,6 +297,47 @@ public static class PackageOptionsParser
                 cloneCandidateRowSelectionError!);
         }
 
+        RowSelectionIntent<string>? packageSectionRowSelection = null;
+        if (!selectsVersionPopulation
+            && !selectsSourceLinkFiles
+            && !selectsPackageFiles
+            && !selectsPackageLayout
+            && !selectsPackageTfms
+            && !selectsCloneCandidateRows
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package section",
+                out packageSectionRowSelection,
+                out string? packageSectionRowSelectionError))
+        {
+            return new InvalidArguments(
+                packageSectionRowSelectionError!);
+        }
+        packageSectionRowSelection =
+            DependencyQueryOptions.AppendLegacyRows(
+                parseResult,
+                opts,
+                packageSectionRowSelection,
+                out int? legacyHierarchyWindowStageIndex);
+        int? dependencyDepth =
+            int.TryParse(
+                parseResult.GetValue(args.DepthOption),
+                out int parsedDependencyDepth)
+                ? parsedDependencyDepth
+                : null;
+        if (!DependencyQueryOptions.TryResolve(
+                DependencyQueryRouteKind.PackageHierarchy,
+                [],
+                null,
+                packageSectionRowSelection,
+                dependencyDepth,
+                out DependencyQueryPlan dependencyQueryPlan,
+                out OptionError dependencyQueryError))
+        {
+            return new InvalidArguments(
+                dependencyQueryError.Message);
+        }
+
         var verbosity = opts.ParseVerbosity(parseResult);
         bool frontmatterRequested = parseResult.GetValue(args.FrontmatterOption);
         bool bodyRequested = parseResult.GetValue(args.BodyOption);
@@ -336,6 +378,9 @@ public static class PackageOptionsParser
             ExplicitVersion = explicitVersion,
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
+            DependencyQueryPlan = dependencyQueryPlan,
+            DependencyHierarchyLegacyWindowStageIndex =
+                legacyHierarchyWindowStageIndex,
             TypeFilter = typeFilter,
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
