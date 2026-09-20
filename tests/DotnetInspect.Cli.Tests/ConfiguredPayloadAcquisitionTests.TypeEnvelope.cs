@@ -202,12 +202,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
-    [InlineData("--json", null)]
-    [InlineData("--markdown", null)]
-    [InlineData("--plaintext", null)]
-    [InlineData("--table", null)]
-    [InlineData("--tsv", null)]
-    [InlineData("--jsonl", null)]
+    [InlineData("--format=json", null)]
+    [InlineData("--format=markdown", null)]
+    [InlineData("--format=plaintext", null)]
+    [InlineData("--format=table", null)]
+    [InlineData("--format=tsv", null)]
+    [InlineData("--format=jsonl", null)]
     [InlineData("--tree", null)]
     [InlineData("--mermaid", null)]
     [InlineData("--no-headers", null)]
@@ -260,7 +260,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     {
         var result = await RunEnvelopeCommandAsync(
             ["depends", "System.Object", "--library", typeof(object).Assembly.Location,
-                envelope ? "--envelope" : "--json", "--tips", "q"]);
+                envelope ? "--envelope" : "--format=json", "--tips", "q"]);
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);

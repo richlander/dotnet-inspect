@@ -38,7 +38,7 @@ For a format-4 input `$w` retaining that Type, the CLI operation is:
 
 ```bash
 dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --json --envelope
+  --replace-package 1 --to-version 12.1.2 --envelope
 ```
 
 The following summarizes the semantic before/after rather than the JSON shape:
@@ -244,7 +244,7 @@ renderDiagnostics(result.diagnostics);
 
 The CLI selects the source by one-based packet navigation-row order using
 `--replace-package`, and destination intent with `--to-version`, `--to-tfm`,
-or both. It requires either `--share packet|url` or `--json --envelope` so the
+or both. It requires either `--share packet|url` or `--envelope` so the
 complete durable result, rather than only a summary, is always emitted.
 The JSON registration is `workspace-coordinate-replacement`, schema version 1.
 Sections preserves typed native settlement, correspondence statuses and

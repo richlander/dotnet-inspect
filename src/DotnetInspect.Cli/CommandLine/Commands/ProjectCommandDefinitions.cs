@@ -49,8 +49,10 @@ public static class ProjectCommandDefinitions
         SharedOptions.AddOutputPathValidator(projectCommand, outOption);
         opts.AddJsonOptionTo(projectCommand);
         projectCommand.Options.Add(opts.Bare);
-        projectCommand.Options.Add(opts.Markdown);
-        projectCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            projectCommand,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         opts.AddTableOptionsTo(projectCommand);
         opts.AddOutputOptionsTo(
             projectCommand,

@@ -209,7 +209,7 @@ remains rejected by the existing safety gate. It performs no correspondence.
 gates the lossless wrapped-text claim.
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
 consumes the same result for both presentations. With two documents it invokes
-the product issuer; `--json` emits the resulting
+the product issuer; `--format json` emits the resulting
 `CSharpStructuralDiffDocument`. The one-file form accepts only that generated
 artifact, reissues its correspondence, and renders it later. Both forms read
 untrusted input through Decompiler-owned `AnnotatedSourceJson`, so the CLI

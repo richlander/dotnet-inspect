@@ -658,11 +658,11 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                     sections,
                 };
                 if (json)
-                    arguments.Add("--json");
+                    arguments.Add("--format=json");
                 if (allocRegressions)
                     arguments.Add("--alloc-regressions");
                 if (table)
-                    arguments.Add("--table");
+                    arguments.Add("--format=table");
                 arguments.AddRange(
                     [
                         "--source",

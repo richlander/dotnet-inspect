@@ -257,7 +257,7 @@ public class DemoCommandTests
         Assert.False(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Mermaid, noHeader: false, out _, out var error));
-        Assert.Contains("--mermaid requires a Call Graph home demo", error, StringComparison.Ordinal);
+        Assert.Contains("Mermaid output requires a Call Graph home demo", error, StringComparison.Ordinal);
         Assert.Contains("Methods", error, StringComparison.Ordinal);
     }
 
@@ -289,7 +289,7 @@ public class DemoCommandTests
         Assert.False(
             DemoScenarioRunner.TryCreateOptions(
                 resolved, OutputFormat.Json, noHeader: false, out _, out var error));
-        Assert.Contains("--json cannot represent Call Graph", error, StringComparison.Ordinal);
+        Assert.Contains("--format json cannot represent Call Graph", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public class DemoCommandTests
     [Fact]
     public async Task Cli_DemoList_DispatchesThroughPreprocessor()
     {
-        var (exitCode, output, error) = await RunCliAsync("demo", "list", "--json");
+        var (exitCode, output, error) = await RunCliAsync("demo", "list", "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -327,8 +327,8 @@ public class DemoCommandTests
     {
         string[] args =
             subcommand is null
-                ? ["demo", "-n", "1", "--json"]
-                : ["demo", subcommand, "-n", "1", "--json"];
+                ? ["demo", "-n", "1", "--format=json"]
+                : ["demo", subcommand, "-n", "1", "--format=json"];
         var (exitCode, output, error) =
             await RunCliAsync(args);
 
@@ -350,8 +350,8 @@ public class DemoCommandTests
     {
         string[] args =
             subcommand is null
-                ? ["demo", "-n", "2", "--count", "--json"]
-                : ["demo", subcommand, "-n", "2", "--count", "--json"];
+                ? ["demo", "-n", "2", "--count", "--format=json"]
+                : ["demo", subcommand, "-n", "2", "--count", "--format=json"];
         var (exitCode, output, error) =
             await RunCliAsync(args);
 
@@ -389,8 +389,8 @@ public class DemoCommandTests
     {
         string[] args =
             subcommand is null
-                ? ["demo", "-n", "1", "--lines", "--count", "--json"]
-                : ["demo", subcommand, "-n", "1", "--lines", "--count", "--json"];
+                ? ["demo", "-n", "1", "--lines", "--count", "--format=json"]
+                : ["demo", subcommand, "-n", "1", "--lines", "--count", "--format=json"];
         var (exitCode, output, error) =
             await RunCliWithLineWindowAsync(args);
 
@@ -429,7 +429,7 @@ public class DemoCommandTests
                 "-n",
                 "1",
                 "list",
-                "--json");
+                "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -449,7 +449,7 @@ public class DemoCommandTests
                 "demo",
                 "list",
                 "-1",
-                "--json");
+                "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -468,7 +468,7 @@ public class DemoCommandTests
             await RunCliAsync(
                 "demo",
                 "-2147483648",
-                "--json");
+                "--format=json");
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -478,8 +478,8 @@ public class DemoCommandTests
     }
 
     [Theory]
-    [InlineData("LIST", "-n", "1", "--json")]
-    [InlineData("-n", "1", "--json", "--", "list")]
+    [InlineData("LIST", "-n", "1", "--format=json")]
+    [InlineData("-n", "1", "--format=json", "--", "list")]
     public async Task Cli_DemoListAliasesUseSemanticRows(
         params string[] arguments)
     {
@@ -506,7 +506,7 @@ public class DemoCommandTests
                 "-n",
                 "1",
                 "--tail",
-                "--json");
+                "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -529,7 +529,7 @@ public class DemoCommandTests
                 "2",
                 "--rows",
                 "2..3",
-                "--json");
+                "--format=json");
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -550,7 +550,7 @@ public class DemoCommandTests
                 "2..3",
                 "-n",
                 "1",
-                "--json");
+                "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -585,7 +585,7 @@ public class DemoCommandTests
                     "demo",
                     "list",
                     .. rowArguments,
-                    "--json",
+                    "--format=json",
                 ]);
 
         Assert.Equal(1, exitCode);
@@ -595,10 +595,10 @@ public class DemoCommandTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("--plaintext")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     public async Task Cli_DemoList_LimitSelectsSameMarkoutRow(
         string formatOption)
     {
@@ -649,7 +649,7 @@ public class DemoCommandTests
                 "-n",
                 "2",
                 "--lines",
-                "--json");
+                "--format=json");
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -687,7 +687,7 @@ public class DemoCommandTests
 
         var (exitCode, output, error) =
             await ConsoleCapture.RunAsync(
-                () => root.Parse(["demo", "list", "--json"]).InvokeAsync());
+                () => root.Parse(["demo", "list", "--format=json"]).InvokeAsync());
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -900,7 +900,7 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.ExtensionsCallGraph,
-            "--mermaid");
+            "--format=mermaid");
 
         Assert.True(exitCode == 0, error + "\n" + output);
         Assert.Contains(
@@ -917,11 +917,11 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.StjSerializer,
-            "--mermaid");
+            "--format=mermaid");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("├─", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid requires a Call Graph home demo", error, StringComparison.Ordinal);
+        Assert.Contains("Mermaid output requires a Call Graph home demo", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -930,33 +930,33 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.StjSerializer,
-            "--markdown",
+            "--format=markdown",
             "--mermaid");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("graph TD", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Methods", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid requires a Call Graph home demo", error, StringComparison.Ordinal);
+        Assert.Contains("Mermaid output requires a Call Graph home demo", error, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Cli_DemoList_Mermaid_FailsClosed()
     {
-        var (exitCode, output, error) = await RunCliAsync("demo", "--mermaid");
+        var (exitCode, output, error) = await RunCliAsync("demo", "--format=mermaid");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("stj-serializer", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid is not supported for demo list", error, StringComparison.Ordinal);
+        Assert.Contains("Mermaid output is not supported for demo list", error, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Cli_DemoList_EmbeddedMermaid_FailsClosed()
     {
-        var (exitCode, output, error) = await RunCliAsync("demo", "--markdown", "--mermaid");
+        var (exitCode, output, error) = await RunCliAsync("demo", "--format=markdown", "--mermaid");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("stj-serializer", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid is not supported for demo list", error, StringComparison.Ordinal);
+        Assert.Contains("Mermaid output is not supported for demo list", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -964,22 +964,22 @@ public class DemoCommandTests
     {
         // Parent-bound flags before the list subcommand token.
         var (exitCode, output, error) = await RunCliAsync(
-            "demo", "--markdown", "--mermaid", "list");
+            "demo", "--format=markdown", "--mermaid", "list");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("stj-serializer", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid is not supported for demo list", error, StringComparison.Ordinal);
+        Assert.Contains("Mermaid output is not supported for demo list", error, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Cli_DemoListSubcommand_ParentJsonMermaid_FailsClosed()
     {
         var (exitCode, output, error) = await RunCliAsync(
-            "demo", "--json", "--mermaid", "list");
+            "demo", "--format=json", "--mermaid", "list");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("\"id\"", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid cannot be combined with --json", error, StringComparison.Ordinal);
+        Assert.Contains("--mermaid embeds diagrams in Markdown", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -988,12 +988,12 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.StjSerializer,
-            "--json",
+            "--format=json",
             "--mermaid");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("\"members\"", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid cannot be combined with --json", error, StringComparison.Ordinal);
+        Assert.Contains("--mermaid embeds diagrams in Markdown", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1002,12 +1002,12 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.ExtensionsCallGraph,
-            "--plaintext",
+            "--format=plaintext",
             "--mermaid");
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("graph TD", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid cannot be combined with", error, StringComparison.Ordinal);
+        Assert.Contains("--mermaid embeds diagrams in Markdown", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1016,7 +1016,7 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.ExtensionsCallGraph,
-            "--table");
+            "--format=table");
 
         Assert.True(exitCode == 0, error + "\n" + output);
         Assert.DoesNotContain("Selection matches 2 sections", error, StringComparison.Ordinal);
@@ -1041,7 +1041,7 @@ public class DemoCommandTests
                 continue;
             }
 
-            var (exitCode, output, error) = await RunCliAsync("demo", entry.ScenarioId, "--mermaid");
+            var (exitCode, output, error) = await RunCliAsync("demo", entry.ScenarioId, "--format=mermaid");
             Assert.True(exitCode == 0, $"{entry.ScenarioId}: {error}\n{output}");
             Assert.Contains("graph TD", output, StringComparison.Ordinal);
             Assert.True(
@@ -1064,7 +1064,7 @@ public class DemoCommandTests
                 continue;
             }
 
-            var (exitCode, output, error) = await RunCliAsync("demo", entry.ScenarioId, "--table");
+            var (exitCode, output, error) = await RunCliAsync("demo", entry.ScenarioId, "--format=table");
             Assert.True(exitCode == 0, $"{entry.ScenarioId}: {error}\n{output}");
             Assert.False(
                 string.IsNullOrWhiteSpace(output),
@@ -1080,10 +1080,10 @@ public class DemoCommandTests
         var (exitCode, output, error) = await RunCliAsync(
             "demo",
             ProductDemoIds.ExtensionsCallGraph,
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("--json cannot represent Call Graph", error, StringComparison.Ordinal);
+        Assert.Contains("--format json cannot represent Call Graph", error, StringComparison.Ordinal);
         Assert.DoesNotContain("\"members\"", output, StringComparison.Ordinal);
     }
 

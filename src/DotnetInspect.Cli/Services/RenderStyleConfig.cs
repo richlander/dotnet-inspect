@@ -264,7 +264,7 @@ internal static class RenderStyleConfig
 /// <see cref="PrinterOptions"/>, then emits them to stderr exactly once. A
 /// reference-typed latch so a single emission survives the record <c>with</c>
 /// copies that flow the options, and so warnings surface only on a run that truly
-/// reads source (never on, say, a <c>--json</c> or <c>-S Facts</c> run that never
+/// reads source (never on, say, a <c>--format json</c> or <c>-S Facts</c> run that never
 /// touches the config). Emitting at consumption keeps the warning honest: it fires
 /// if and only if the config is read, without predicting output mode or verbosity.
 /// </summary>

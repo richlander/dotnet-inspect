@@ -11,7 +11,7 @@ dotnet-inspect type --platform System.Runtime -t "*Exception*"
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect type --platform System.Runtime -t "*Exception*" --json | jq '.types[].name'
+dotnet-inspect type --platform System.Runtime -t "*Exception*" --format json | jq '.types[].name'
 ```
 
 ## Discovery Path (Learning)

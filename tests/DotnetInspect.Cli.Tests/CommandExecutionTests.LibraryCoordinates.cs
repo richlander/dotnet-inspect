@@ -436,7 +436,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-D",
             "@Context",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -685,10 +685,10 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
     public async Task LibraryCoordinateCommand_FileSupportsEveryTabularFormat(
             string format)
     {
@@ -836,7 +836,7 @@ public partial class CommandExecutionTests
                 path,
                 "--library",
                 TestAssemblyPath,
-                "--json",
+                "--format=json",
                 "--tips",
                 "q");
 
@@ -886,7 +886,7 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-n",
                 "1",
-                "--jsonl",
+                "--format=jsonl",
                 "--tips",
                 "q",
             ];
@@ -941,7 +941,7 @@ public partial class CommandExecutionTests
                         "library", "-n", "1", "coordinate",
                         "--file", path,
                         "--library", TestAssemblyPath,
-                        "--jsonl",
+                        "--format=jsonl",
                         "--tips", "q",
                     ]
                     :
@@ -950,7 +950,7 @@ public partial class CommandExecutionTests
                         "--file", path,
                         "--library", TestAssemblyPath,
                         "-n", "1",
-                        "--jsonl",
+                        "--format=jsonl",
                         "--tips", "q",
                     ];
 
@@ -1760,7 +1760,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "coordinate", "--file", path,
-                "--library", TestAssemblyPath, "--json", "--tips", "q");
+                "--library", TestAssemblyPath, "--format=json", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1825,7 +1825,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library", "coordinate", "--file", path,
-                "--library", TestAssemblyPath, "--json", "--tips", "q");
+                "--library", TestAssemblyPath, "--format=json", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1918,10 +1918,10 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_IlOffsetDiscovery_IsCoordinateScoped()
     {
         var (withoutExit, withoutOutput, withoutError) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
+            "library", "--platform", "System.Text.Json", "-D", "--format=table", "--tips", "q");
         var (withExit, withOutput, withError) = await RunAppAsync(
             "library", "coordinate", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-D", "--table", "--tips", "q");
+            "--platform", "System.Text.Json", "-D", "--format=table", "--tips", "q");
 
         Assert.Equal(0, withoutExit);
         Assert.Equal(0, withExit);
@@ -1940,7 +1940,7 @@ public partial class CommandExecutionTests
 
         var (contextExit, contextOutput, contextError) = await RunAppAsync(
             "library", "coordinate", "0x06000001+0x0",
-            "--platform", "System.Text.Json", "-D", "@Context", "--table", "--tips", "q");
+            "--platform", "System.Text.Json", "-D", "@Context", "--format=table", "--tips", "q");
         Assert.Equal(0, contextExit);
         Assert.Empty(contextError);
         Assert.Contains("Context: Source Location", contextOutput);
@@ -2196,7 +2196,7 @@ public partial class CommandExecutionTests
             "library", "coordinate", "0x06000001+0x0",
             "--platform", "System.Text.Json",
             "-S", "Context: Member,Context: Instruction",
-            "--count", "--json", "--tips", "q");
+            "--count", "--format=json", "--tips", "q");
 
         Assert.Equal(0, scalar.Exit);
         Assert.Equal("0", scalar.Output.Trim());
@@ -2219,7 +2219,7 @@ public partial class CommandExecutionTests
             "--platform", "System.Text.Json",
             "-S", "Context: Member,Performance: Boxing",
             "--columns", "Member",
-            "--count", "--json", "--tips", "q");
+            "--count", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2385,7 +2385,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", selector, "--json", "--tips", "q");
+            "-S", selector, "--format=json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

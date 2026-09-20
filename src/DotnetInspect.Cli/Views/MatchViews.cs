@@ -75,8 +75,8 @@ public static class MatchOutputFormatter
 }
 
 /// <summary>
-/// JSON envelope for <c>match --body --json</c>. The structural result stays independent
-/// of the native body comparisons; plain <c>match --json</c> keeps its flat document.
+/// JSON envelope for <c>match --body --format json</c>. The structural result stays independent
+/// of the native body comparisons; plain <c>match --format json</c> keeps its flat document.
 /// </summary>
 public sealed record MatchBodyDocument(
     StructuralCloneComparisonDocument Match,

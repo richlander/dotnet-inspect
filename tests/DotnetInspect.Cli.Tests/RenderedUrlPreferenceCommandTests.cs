@@ -146,7 +146,7 @@ public sealed class RenderedUrlPreferenceCommandTests
             ];
             foreach (string[] command in commands)
             {
-                foreach (string format in new[] { "--json", "--jsonl", "--json-array" })
+                foreach (string format in new[] { "--format=json", "--format=jsonl", "--json-array" })
                 {
                     foreach (bool preferRendered in new[] { false, true })
                     {

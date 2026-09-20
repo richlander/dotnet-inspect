@@ -242,7 +242,7 @@ The host defaults to the query-owned 42-day interval, accepts paired
 `--from`/`--through` timestamps for the same exclusive/inclusive bounds, maps
 `--security-only` to `SecurityRelevant`, and maps `-n` to the semantic result
 limit before execution. Markdown and plain text lower the shared Markout view;
-`--json` uses the shared lossless serializer. `--envelope` emits the complete
+`--format json` uses the shared lossless serializer. `--envelope` emits the complete
 authoritative service value with result kind `ecosystem-change-report`, the
 same Document under `content`, non-projectable Share, and ordered diagnostics.
 `--compact` controls either JSON boundary. Catalog-only projections,

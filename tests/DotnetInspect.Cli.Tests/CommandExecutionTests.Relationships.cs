@@ -54,7 +54,7 @@ public partial class CommandExecutionTests
     public async Task Implements_Count_ComposesWithJson()
     {
         var (exit, output, _) = await RunAppAsync(
-            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--json");
+            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--format=json");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
@@ -64,7 +64,7 @@ public partial class CommandExecutionTests
     public async Task Extensions_Count_ComposesWithJson()
     {
         var (exit, output, _) = await RunAppAsync(
-            "extensions", "String", "--library", TestAssemblyPath, "--count", "--json");
+            "extensions", "String", "--library", TestAssemblyPath, "--count", "--format=json");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
@@ -204,7 +204,7 @@ public partial class CommandExecutionTests
         // The type with dependencies matters: a type with none short-circuits before the
         // JSON branch, which is why an earlier probe using such a type saw no defect.
         var (exit, output, _) = await RunAppAsync(
-            "depends", "SampleGenericClass`1", "--library", TestAssemblyPath, "--count", "--json");
+            "depends", "SampleGenericClass`1", "--library", TestAssemblyPath, "--count", "--format=json");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
@@ -242,11 +242,11 @@ public partial class CommandExecutionTests
             "--rows", "2..3", "--tips", "q",
         ];
         var count = await RunAppAsync([.. window, "--count"]);
-        var table = await RunAppAsync([.. window, "--table"]);
-        var tsv = await RunAppAsync([.. window, "--tsv"]);
-        var jsonl = await RunAppAsync([.. window, "--jsonl"]);
-        var json = await RunAppAsync([.. window, "--json"]);
-        var mermaid = await RunAppAsync([.. window, "--mermaid"]);
+        var table = await RunAppAsync([.. window, "--format=table"]);
+        var tsv = await RunAppAsync([.. window, "--format=tsv"]);
+        var jsonl = await RunAppAsync([.. window, "--format=jsonl"]);
+        var json = await RunAppAsync([.. window, "--format=json"]);
+        var mermaid = await RunAppAsync([.. window, "--format=mermaid"]);
 
         foreach (var result in new[]
                  {
@@ -294,9 +294,9 @@ public partial class CommandExecutionTests
             "-n", "2", "--tips", "q",
         ];
         var count = await RunAppAsync([.. limit, "--count"]);
-        var table = await RunAppAsync([.. limit, "--table"]);
-        var jsonl = await RunAppAsync([.. limit, "--jsonl"]);
-        var mermaid = await RunAppAsync([.. limit, "--mermaid"]);
+        var table = await RunAppAsync([.. limit, "--format=table"]);
+        var jsonl = await RunAppAsync([.. limit, "--format=jsonl"]);
+        var mermaid = await RunAppAsync([.. limit, "--format=mermaid"]);
 
         foreach (var result in new[] { count, table, jsonl, mermaid })
         {
@@ -358,7 +358,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.Int128",
-            "--json", "--rows", "1..1", "--tips", "q");
+            "--format=json", "--rows", "1..1", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -383,7 +383,7 @@ public partial class CommandExecutionTests
             "--where", "Kind=Interface",
             "--order-by", "Target desc",
             "--top", "1",
-            "--jsonl", "--tips", "q");
+            "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -406,18 +406,18 @@ public partial class CommandExecutionTests
             "--order-by", "Target desc",
             "--rows", "2..3",
             "--top", "1",
-            "--jsonl", "--tips", "q");
+            "--format=jsonl", "--tips", "q");
         var topThenWindow = await RunAppAsync(
             "depends", "System.Int128",
             "--where", "Kind=Interface",
             "--order-by", "Target desc",
             "--top", "1",
             "--rows", "2..3",
-            "--jsonl", "--tips", "q");
+            "--format=jsonl", "--tips", "q");
         var legacyTail = await RunAppAsync(
             "depends", "System.Int128",
             "--rows", "1", "--tail",
-            "--jsonl", "--tips", "q");
+            "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, windowThenTop.Exit);
         Assert.Empty(windowThenTop.Error);
@@ -448,7 +448,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "depends", "System.IDisposable",
-            "--json", "--tips", "q");
+            "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -497,10 +497,10 @@ public partial class CommandExecutionTests
     {
         var pretty = await RunAppAsync(
             "depends", "--library", TestAssemblyPath,
-            "--json", "--tips", "q");
+            "--format=json", "--tips", "q");
         var compact = await RunAppAsync(
             "depends", "--library", TestAssemblyPath,
-            "--json", "--compact", "--tips", "q");
+            "--format=json", "--compact", "--tips", "q");
 
         Assert.Equal(0, pretty.Exit);
         Assert.Equal(0, compact.Exit);
@@ -547,7 +547,7 @@ public partial class CommandExecutionTests
         {
             var graph = await RunAppAsync(
                 "depends", "--library", path,
-                "--json", "--compact", "--tips", "q");
+                "--format=json", "--compact", "--tips", "q");
             var count = await RunAppAsync(
                 "depends", "--library", path,
                 "--count", "--tips", "q");
@@ -597,7 +597,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "depends", "--library", path,
-                "--json", "--compact", "--tips", "q");
+                "--format=json", "--compact", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -744,7 +744,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--jsonl", "--rows", "1..2", "--tips", "q");
+            "--format=jsonl", "--rows", "1..2", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

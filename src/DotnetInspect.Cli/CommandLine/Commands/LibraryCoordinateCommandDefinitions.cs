@@ -93,9 +93,12 @@ internal static class LibraryCoordinateCommandDefinitions
         command.Options.Add(opts.PreferRenderedUrls);
         command.Options.Add(opts.Trace);
         command.Options.Add(opts.Effective);
-        command.Options.Add(opts.Json);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
         command.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(command);
@@ -294,8 +297,8 @@ internal static class LibraryCoordinateCommandDefinitions
                 PreferRenderedUrls =
                     parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = format == OutputFormat.Json,
-                Markdown = parseResult.GetValue(opts.Markdown),
-                PlainText = parseResult.GetValue(opts.PlainText),
+                Markdown = opts.IsMarkdownOutput(parseResult),
+                PlainText = opts.IsPlainTextOutput(parseResult),
                 Tabular =
                     format is OutputFormat.Table
                         or OutputFormat.Tsv

@@ -435,13 +435,13 @@ from the pinned nuget.org archive into `./reference-pack`:
 
 ```sh
 dnx dotnet-inspect -y -- find JsonSerializer \
-  --package System.Text.Json@10.0.0 --tfm net10.0 --json
+  --package System.Text.Json@10.0.0 --tfm net10.0 --format json
 dnx dotnet-inspect -y -- find JsonSerializer \
-  --library ./reference-pack/ref/net10.0/System.Text.Json.dll --json
+  --library ./reference-pack/ref/net10.0/System.Text.Json.dll --format json
 dnx dotnet-inspect -y -- find System.Object \
-  --library ./reference-pack/ref/net10.0/System.Runtime.dll --json
+  --library ./reference-pack/ref/net10.0/System.Runtime.dll --format json
 dnx dotnet-inspect -y -- library \
-  ./reference-pack/ref/net10.0/netstandard.dll -S "Type Forwarders" --json
+  ./reference-pack/ref/net10.0/netstandard.dll -S "Type Forwarders" --format json
 ```
 
 The local-file probes verify declarations only; they do not themselves issue

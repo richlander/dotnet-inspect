@@ -250,7 +250,7 @@ public static class FindOptionsParser
             return
             [
                 new(MemberCommand.Name, $"<TypeName> {pinnedSourceFlag} --library <LibraryName>", "inspect the type you found"),
-                new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} --table", "compact output"),
+                new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} --format table", "compact output"),
                 new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} -v:d", "detailed results")
             ];
         }
@@ -258,7 +258,7 @@ public static class FindOptionsParser
         return
         [
             new(MemberCommand.Name, "<TypeName> --platform <LibraryName>", "inspect the type you found"),
-            new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} --table", "compact output"),
+            new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} --format table", "compact output"),
             new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} -v:d", "detailed results")
         ];
     }

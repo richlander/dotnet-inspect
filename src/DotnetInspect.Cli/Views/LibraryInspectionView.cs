@@ -1807,8 +1807,8 @@ public record PerformanceRow(
 
 /// <summary>
 /// A <see cref="PerformanceRow"/> prefixed with its kind label, used to flatten the per-kind
-/// performance sections into one self-describing tabular table (<c>-S @Performance --tsv</c>/
-/// <c>--jsonl</c>/<c>--table</c>). The leading <c>Kind</c> column tells consumers which performance
+/// performance sections into one self-describing tabular table (<c>-S @Performance --format tsv</c>/
+/// <c>--format jsonl</c>/<c>--format table</c>). The leading <c>Kind</c> column tells consumers which performance
 /// kind each row belongs to, since the flattened table has no per-section headings.
 /// </summary>
 [MarkoutSerializable]

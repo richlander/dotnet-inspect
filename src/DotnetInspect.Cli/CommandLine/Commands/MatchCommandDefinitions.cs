@@ -40,7 +40,7 @@ public static class MatchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var configDirectoryOption = NuGetConfigDirectoryOption.Create();
         var allOption = new Option<bool>("--all") { Description = "Include non-public members when resolving selectors" };
-        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --format json)" };
         var bodyOption = new Option<bool>("--body")
         {
             Description = "Show decompiled C# and IL body differences alongside the structural-match result",
@@ -76,7 +76,7 @@ public static class MatchCommandDefinitions
         matchCommand.Options.Add(tfmOption);
         matchCommand.Options.Add(configDirectoryOption);
         matchCommand.Options.Add(allOption);
-        matchCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(matchCommand);
         matchCommand.Options.Add(compactOption);
         matchCommand.Options.Add(bodyOption);
         matchCommand.Options.Add(similarOption);

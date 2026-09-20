@@ -243,7 +243,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "-S", "Source Locations", "--json", "--tips", "q",
+            "-S", "Source Locations", "--format=json", "--tips", "q",
             .. includeParts ? new[] { "--source-parts", "--repo", FindRepositoryRoot() } : [],
         ]);
 
@@ -321,7 +321,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         var result = await RunCliAsync(
             "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!, "HasPdb",
             "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
-            "--repo", FindRepositoryRoot(), "--print", "--part", "member", "--json", "--tips", "q");
+            "--repo", FindRepositoryRoot(), "--print", "--part", "member", "--format=json", "--tips", "q");
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
@@ -350,8 +350,8 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
     [InlineData("--json-array")]
     public async Task MemberParts_StructuredPrintKeepsTheSelectedText(string format)
     {
@@ -366,13 +366,13 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         var item = format == "--json-array" ? json.RootElement[0] : json.RootElement;
         Assert.StartsWith("public static string? ExtractMemberText(", item.GetProperty("content").GetString());
         Assert.Equal("signature", item.GetProperty("part").GetString());
-        if (format == "--jsonl")
+        if (format == "--format=jsonl")
             Assert.Single(result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Theory]
-    [InlineData("--table")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=table")]
+    [InlineData("--format=jsonl")]
     [InlineData("--json-array")]
     public async Task MemberParts_DiscoveryRejectsUnsupportedDocumentFormats(string format)
     {
@@ -400,7 +400,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "-S", section, "--json", "--tips", "q",
+            "-S", section, "--format=json", "--tips", "q",
             .. print ? new[] { "--print", "--part", "signature" } : new[] { "--source-parts" },
         ]);
 
@@ -418,7 +418,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--print", "--part", "xml-docs", "--json", "--tips", "q",
+            "--print", "--part", "xml-docs", "--format=json", "--tips", "q",
         ];
         var raw = await RunCliAsync(arguments);
         var rendered = await RunCliAsync([.. arguments, "--prefer-rendered-urls"]);
@@ -442,7 +442,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         [
             "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
             "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
-            "-m", "Get*", "-S", "Source Locations", "--json", "--tips", "q",
+            "-m", "Get*", "-S", "Source Locations", "--format=json", "--tips", "q",
         ];
         var all = await RunCliAsync(arguments);
         var selected = await RunCliAsync([.. arguments, "--rows", "2..2"]);

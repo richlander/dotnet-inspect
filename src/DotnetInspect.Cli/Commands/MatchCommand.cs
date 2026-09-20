@@ -86,8 +86,8 @@ public static class MatchCommand
         if (options.IncludeBody && (options.Tabular || options.Tsv || options.Jsonl))
         {
             CommandError.Write(
-                "--body cannot be combined with --table, --tsv, or --jsonl; "
-                    + "render Markdown (the default) or --json instead.");
+                "--body cannot be combined with --format table, --format tsv, or --format jsonl; "
+                    + "render Markdown (the default) or --format json instead.");
             return 1;
         }
 

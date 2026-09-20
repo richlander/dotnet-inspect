@@ -109,7 +109,7 @@ Show me the JsonSerializer type.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer -v:q --markdown
+dotnet-inspect type System.Text.Json JsonSerializer -v:q --format markdown
 ```
 
 ```expect
@@ -126,7 +126,7 @@ Show me JsonSerializer using its full name.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer -v:q --markdown
+dotnet-inspect System.Text.Json.JsonSerializer -v:q --format markdown
 ```
 
 ```expect
@@ -141,7 +141,7 @@ Look up the JsonSerializer type using the type command.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json.JsonSerializer -v:q --markdown
+dotnet-inspect type System.Text.Json.JsonSerializer -v:q --format markdown
 ```
 
 ```expect
@@ -158,7 +158,7 @@ Show me the JsonConverter type in System.Text.Json.Serialization.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q --markdown
+dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q --format markdown
 ```
 
 ```expect
@@ -176,7 +176,7 @@ Tell me about the WebApplication class.
 ```
 
 ```bash
-dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q --markdown
+dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q --format markdown
 ```
 
 ```expect

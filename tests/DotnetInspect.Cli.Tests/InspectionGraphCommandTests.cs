@@ -297,7 +297,7 @@ public sealed class InspectionGraphCommandTests
                         "missing-provider.dll",
                         "-S",
                         selector,
-                        "--json",
+                        "--format=json",
                     ])
                 .InvokeAsync());
 
@@ -327,7 +327,7 @@ public sealed class InspectionGraphCommandTests
                         "Cluster=14",
                         "-S",
                         "Public Root Paths",
-                        "--json",
+                        "--format=json",
                     ])
                 .InvokeAsync());
 
@@ -432,7 +432,7 @@ public sealed class InspectionGraphCommandTests
                         "Cluster=15",
                         "-S",
                         "Public Root Paths",
-                        "--jsonl",
+                        "--format=jsonl",
                     ])
                 .InvokeAsync());
 
@@ -570,7 +570,7 @@ public sealed class InspectionGraphCommandTests
                         FixtureCatalog.AnalysisCallerGraphTarget
                             .AssemblyPath(),
                         "-S",
-                        "--json",
+                        "--format=json",
                     ])
                 .InvokeAsync());
 
@@ -617,7 +617,7 @@ public sealed class InspectionGraphCommandTests
                 FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
                 "-S",
                 SectionCategoryNames.Libraries,
-                "--json",
+                "--format=json",
             ]);
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.CreateRootCommand()
@@ -660,7 +660,7 @@ public sealed class InspectionGraphCommandTests
                             .AssemblyPath(),
                         "-S",
                         "Direct Use Clusters",
-                        "--jsonl",
+                        "--format=jsonl",
                     ])
                 .InvokeAsync());
 
@@ -711,7 +711,7 @@ public sealed class InspectionGraphCommandTests
                             .AssemblyPath(),
                         "--where",
                         "Cluster=3",
-                        "--jsonl",
+                        "--format=jsonl",
                     ])
                 .InvokeAsync());
 
@@ -799,7 +799,7 @@ public sealed class InspectionGraphCommandTests
                         provider,
                         "--where",
                         "Cluster=1",
-                        "--jsonl",
+                        "--format=jsonl",
                     ])
                 .InvokeAsync());
 
@@ -862,7 +862,7 @@ public sealed class InspectionGraphCommandTests
                         "Cluster=1",
                         "-S",
                         "Public Root Paths",
-                        "--json",
+                        "--format=json",
                     ])
                 .InvokeAsync());
 
@@ -907,7 +907,7 @@ public sealed class InspectionGraphCommandTests
                         "Cluster=3",
                         "-S",
                         "*",
-                        "--json",
+                        "--format=json",
                     ])
                 .InvokeAsync());
 
@@ -1094,7 +1094,7 @@ public sealed class InspectionGraphCommandTests
                             .AssemblyPath(),
                         "-S",
                         "Consumer Use Sites",
-                        "--jsonl",
+                        "--format=jsonl",
                         "--rows",
                         "2..3",
                     ])
@@ -1147,7 +1147,7 @@ public sealed class InspectionGraphCommandTests
                             .AssemblyPath(),
                         "-S",
                         "Provider API Types",
-                        "--jsonl",
+                        "--format=jsonl",
                     ])
                 .InvokeAsync());
 
@@ -1181,13 +1181,13 @@ public sealed class InspectionGraphCommandTests
                         "graph",
                         "libraries",
                         "-S",
-                        "--table",
+                        "--format=table",
                     ])
                 .InvokeAsync());
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Contains(
-            "--table requires exactly one selected table",
+            "--format table requires exactly one selected table",
             captured.Error);
         Assert.DoesNotContain(
             "Exactly two --library values are required.",
@@ -1208,7 +1208,7 @@ public sealed class InspectionGraphCommandTests
                         "libraries",
                         "-S",
                         selection,
-                        "--json",
+                        "--format=json",
                     ])
                 .InvokeAsync());
 
@@ -1252,7 +1252,7 @@ public sealed class InspectionGraphCommandTests
             "Consumer Use Sites",
             "--rows",
             "1..2");
-        var multiple = await Execute("-S", "--json");
+        var multiple = await Execute("-S", "--format=json");
 
         Assert.Equal(0, single.ExitCode);
         Assert.Equal("2", single.Output.Trim());
@@ -1303,7 +1303,7 @@ public sealed class InspectionGraphCommandTests
                             "-S",
                             "*",
                             "--count",
-                            "--json",
+                            "--format=json",
                         ])
                     .InvokeAsync());
 
@@ -1372,7 +1372,7 @@ public sealed class InspectionGraphCommandTests
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             "--library",
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
-            "--jsonl",
+            "--format=jsonl",
             "--rows",
             "1..2");
 
@@ -1462,7 +1462,7 @@ public sealed class InspectionGraphCommandTests
         const string columns =
             "Source Member;Target Member;Evidence Token;IL Offset";
         var complete = await RunCliAsync(
-            [.. pair, "--jsonl", "--columns", columns]);
+            [.. pair, "--format=jsonl", "--columns", columns]);
         JsonElement expected;
         using (var document = JsonDocument.Parse(
             complete.Output
@@ -1489,21 +1489,21 @@ public sealed class InspectionGraphCommandTests
             columns,
         ];
         var markdown = await RunCliAsync(selection);
-        var table = await RunCliAsync([.. selection, "--table"]);
+        var table = await RunCliAsync([.. selection, "--format=table"]);
         var tsv = await RunCliAsync(
-            [.. selection, "--tsv", "--no-headers"]);
-        var jsonl = await RunCliAsync([.. selection, "--jsonl"]);
+            [.. selection, "--format=tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. selection, "--format=jsonl"]);
         var selectedJsonl = await RunCliAsync(
             [
                 .. selection,
                 "-S",
                 LibraryCallUseSections.CallSites,
-                "--jsonl",
+                "--format=jsonl",
             ]);
-        var json = await RunCliAsync([.. selection, "--json"]);
+        var json = await RunCliAsync([.. selection, "--format=json"]);
         var count = await RunCliAsync([.. selection, "--count"]);
         var jsonCount = await RunCliAsync(
-            [.. selection, "--count", "--json"]);
+            [.. selection, "--count", "--format=json"]);
 
         foreach (var result in new[]
         {
@@ -1579,7 +1579,7 @@ public sealed class InspectionGraphCommandTests
         const string columns =
             "Cluster;Anchor Source Token;Anchor Target Token";
         var complete = await RunCliAsync(
-            [.. pair, "--jsonl", "--columns", columns]);
+            [.. pair, "--format=jsonl", "--columns", columns]);
         JsonElement expected;
         using (var document = JsonDocument.Parse(
             complete.Output
@@ -1606,14 +1606,14 @@ public sealed class InspectionGraphCommandTests
             columns,
         ];
         var markdown = await RunCliAsync(selection);
-        var table = await RunCliAsync([.. selection, "--table"]);
+        var table = await RunCliAsync([.. selection, "--format=table"]);
         var tsv = await RunCliAsync(
-            [.. selection, "--tsv", "--no-headers"]);
-        var jsonl = await RunCliAsync([.. selection, "--jsonl"]);
-        var json = await RunCliAsync([.. selection, "--json"]);
+            [.. selection, "--format=tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. selection, "--format=jsonl"]);
+        var json = await RunCliAsync([.. selection, "--format=json"]);
         var count = await RunCliAsync([.. selection, "--count"]);
         var jsonCount = await RunCliAsync(
-            [.. selection, "--count", "--json"]);
+            [.. selection, "--count", "--format=json"]);
 
         foreach (var result in new[]
         {
@@ -1678,7 +1678,7 @@ public sealed class InspectionGraphCommandTests
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
             "--rows",
             "999..1000",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -1706,7 +1706,7 @@ public sealed class InspectionGraphCommandTests
             sectionSelection,
             "--rows",
             "999..1000",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -1736,7 +1736,7 @@ public sealed class InspectionGraphCommandTests
             LibraryCallUseSections.DirectUseClusters,
             "-n",
             "1",
-            "--jsonl");
+            "--format=jsonl");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Single(
@@ -1765,7 +1765,7 @@ public sealed class InspectionGraphCommandTests
             LibraryCallUseSections.DirectUseClusters,
             "--rows",
             "2..2",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -2060,7 +2060,7 @@ public sealed class InspectionGraphCommandTests
             "-n",
             "1",
             "--lines",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -2089,7 +2089,7 @@ public sealed class InspectionGraphCommandTests
         };
         if (value is not null)
             args.Add(value);
-        args.Add("--json");
+        args.Add("--format=json");
 
         var captured = await RunCliAsync([.. args]);
 
@@ -2117,7 +2117,7 @@ public sealed class InspectionGraphCommandTests
             "libraries",
             "-n",
             "1",
-            "--json",
+            "--format=json",
         };
         if (section is not null)
         {
@@ -2149,7 +2149,7 @@ public sealed class InspectionGraphCommandTests
             "Call Sites,Direct Use Clusters",
             "-n",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -2173,7 +2173,7 @@ public sealed class InspectionGraphCommandTests
             LibraryCallUseSections.ConsumerUseSites,
             "-n",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -2191,7 +2191,7 @@ public sealed class InspectionGraphCommandTests
     public async Task ExecuteAsync_UsesExactPackageSetAndStructuredRequest()
     {
         Execution captured = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             relationships:
             [
                 InspectionGraphIntegrationsCatalog.IntegrationObserved.Id,
@@ -2225,7 +2225,7 @@ public sealed class InspectionGraphCommandTests
     {
         bool observedMissingPeer = false;
         Execution execution = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             relationships:
             [
                 InspectionGraphIntegrationsCatalog.Extension.Id,
@@ -2314,13 +2314,13 @@ public sealed class InspectionGraphCommandTests
             ["--rows", "1"],
             injectedDocument: document);
         Execution table = await ExecuteAsync(
-            ["--table", "--rows", "1"],
+            ["--format=table", "--rows", "1"],
             injectedDocument: document);
         Execution json = await ExecuteAsync(
-            ["--json", "--rows", "1"],
+            ["--format=json", "--rows", "1"],
             injectedDocument: document);
         Execution jsonLines = await ExecuteAsync(
-            ["--jsonl", "--rows", "1"],
+            ["--format=jsonl", "--rows", "1"],
             injectedDocument: document);
         Execution count = await ExecuteAsync(
             ["--count", "--rows", "1"],
@@ -2377,15 +2377,15 @@ public sealed class InspectionGraphCommandTests
             injectedDocument: document,
             rowSelection: tail);
         Execution table = await ExecuteAsync(
-            ["--table"],
+            ["--format=table"],
             injectedDocument: document,
             rowSelection: tail);
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             injectedDocument: document,
             rowSelection: tail);
         Execution jsonLines = await ExecuteAsync(
-            ["--jsonl"],
+            ["--format=jsonl"],
             injectedDocument: document,
             rowSelection: tail);
         Execution count = await ExecuteAsync(
@@ -2455,11 +2455,11 @@ public sealed class InspectionGraphCommandTests
             injectedDocument: document,
             rows: empty);
         Execution mermaid = await ExecuteAsync(
-            ["--mermaid"],
+            ["--format=mermaid"],
             injectedDocument: document,
             rows: empty);
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             injectedDocument: document,
             rows: empty);
 
@@ -2521,7 +2521,7 @@ public sealed class InspectionGraphCommandTests
             ["--tree"],
             injectedDocument: document);
         Execution mermaid = await ExecuteAsync(
-            ["--mermaid"],
+            ["--format=mermaid"],
             injectedDocument: document);
 
         Assert.Equal(0, tree.ExitCode);
@@ -2540,16 +2540,16 @@ public sealed class InspectionGraphCommandTests
             GraphWithDuplicateTypeLabels();
 
         Execution table = await ExecuteAsync(
-            ["--table"],
+            ["--format=table"],
             injectedDocument: document);
         Execution jsonLines = await ExecuteAsync(
-            ["--jsonl"],
+            ["--format=jsonl"],
             injectedDocument: document);
         Execution tree = await ExecuteAsync(
             ["--tree"],
             injectedDocument: document);
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             injectedDocument: document);
 
         Assert.All(
@@ -2588,7 +2588,7 @@ public sealed class InspectionGraphCommandTests
     public async Task AcquiredEndpoints_RetainAssemblyWithinOnePackage()
     {
         Execution table = await ExecuteAsync(
-            ["--table"],
+            ["--format=table"],
             documentFactory:
                 GraphWithDuplicateAcquiredTypeLabels);
         Execution tree = await ExecuteAsync(
@@ -2596,7 +2596,7 @@ public sealed class InspectionGraphCommandTests
             documentFactory:
                 GraphWithDuplicateAcquiredTypeLabels);
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             documentFactory:
                 GraphWithDuplicateAcquiredTypeLabels);
 
@@ -2633,7 +2633,7 @@ public sealed class InspectionGraphCommandTests
             documentFactory:
                 GraphWithDuplicateAcquiredTypeLabelFailures);
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             documentFactory:
                 GraphWithDuplicateAcquiredTypeLabelFailures);
 
@@ -2676,7 +2676,7 @@ public sealed class InspectionGraphCommandTests
         InspectionGraphDocument document = GraphWithDuplicateLabels();
 
         Execution json = await ExecuteAsync(
-            ["--json", "--rows", "1"],
+            ["--format=json", "--rows", "1"],
             injectedDocument: document);
 
         Assert.Equal(0, json.ExitCode);
@@ -2728,7 +2728,7 @@ public sealed class InspectionGraphCommandTests
         Execution execution = await ExecuteAsync(
             injectedDocument: incomplete);
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             injectedDocument: incomplete,
             rowSelection: Select(
                 RowSelectionIntentOperation<string>.Head(1)));
@@ -2756,7 +2756,7 @@ public sealed class InspectionGraphCommandTests
     {
         const string bidi = "\u202e";
         Execution json = await ExecuteAsync(
-            ["--json"],
+            ["--format=json"],
             documentFactory: (context, _) =>
             {
                 InspectionGraphDocument graph = GraphWithTwoEdges();
@@ -2865,13 +2865,13 @@ public sealed class InspectionGraphCommandTests
             PackageStore = store,
         };
         string[] arguments = additionalArguments ?? [];
-        OutputFormat format = arguments.Contains("--json")
+        OutputFormat format = arguments.Contains("--format=json")
             ? OutputFormat.Json
-            : arguments.Contains("--jsonl")
+            : arguments.Contains("--format=jsonl")
                 ? OutputFormat.Jsonl
-                : arguments.Contains("--table")
+                : arguments.Contains("--format=table")
                     ? OutputFormat.Table
-                    : arguments.Contains("--mermaid")
+                    : arguments.Contains("--format=mermaid")
                         ? OutputFormat.Mermaid
                         : OutputFormat.Markdown;
         int rowsIndex = Array.IndexOf(arguments, "--rows");

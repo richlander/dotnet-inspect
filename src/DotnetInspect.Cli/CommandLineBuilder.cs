@@ -56,7 +56,10 @@ public static class CommandLineBuilder
                         "--versions-with-feed")))
             || (result.CommandResult.Command.Name
                     == MemberCommand.Name
-                && HasParsedOption(result, "--json")
+                && ArgumentPreprocessor.HasParsedOptionValue(
+                    result,
+                    "--format",
+                    "json")
                 && (HasParsedOption(result, "--fields")
                     || HasParsedOption(result, "--columns")));
     }
@@ -277,7 +280,7 @@ public static class CommandLineBuilder
     /// contract. System.CommandLine's own default handler would otherwise print
     /// <c>Unhandled exception: </c> and the raw exception to stderr at column 0, which
     /// makes it a second, uncontained writer of this stream: an exception message quotes
-    /// attacker-reachable text (an <c>--out</c> path, a zip entry name, a nuspec
+    /// attacker-reachable text (an <c>--output</c> path, a zip entry name, a nuspec
     /// fragment), so a line terminator in that text forged a diagnostic outright. Turning
     /// the default handler off and catching here rather than only at the entry point
     /// keeps the containment on the path the test harness exercises too.

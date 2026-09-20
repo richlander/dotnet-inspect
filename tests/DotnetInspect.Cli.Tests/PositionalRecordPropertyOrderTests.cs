@@ -16,7 +16,7 @@ namespace DotnetInspect.Cli.Tests;
 /// keys, TSV and Markdown columns, and the generated <c>ToString</c>.
 ///
 /// It shipped twice. <c>ProjectSkillRow</c> and <c>ProjectPackageDocument</c>
-/// moved <c>size</c> ahead of <c>package</c> in <c>--jsonl</c>, and
+/// moved <c>size</c> ahead of <c>package</c> in <c>--format jsonl</c>, and
 /// <c>ApiChange</c> moved <c>Category</c> and <c>Subject</c> ahead of
 /// <c>Message</c>. Both were found by review reading the source, and neither
 /// was caught by a byte-neutrality sweep, because the reordering is invisible

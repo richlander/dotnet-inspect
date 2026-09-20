@@ -75,7 +75,7 @@ public static class SearchCommandDefinitions
             Hidden = true,
             Arity = ArgumentArity.ExactlyOne,
         };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --format json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
             Description =
@@ -101,7 +101,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
-        findCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(findCommand);
         findCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(findCommand);
         findCommand.Options.Add(packagePrefixOption);
@@ -230,7 +230,7 @@ public static class SearchCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --format json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
             Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
@@ -252,7 +252,7 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
         implCommand.Options.Add(typeFilterOption);
-        implCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(implCommand);
         implCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(implCommand);
         implCommand.Options.Add(packagePrefixOption);
@@ -403,7 +403,7 @@ public static class SearchCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --format json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
             Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
@@ -427,7 +427,7 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(tfmOption);
         extCommand.Options.Add(allOption);
         extCommand.Options.Add(typeFilterOption);
-        extCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(extCommand);
         extCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(extCommand);
         extCommand.Options.Add(packagePrefixOption);
@@ -606,7 +606,7 @@ public static class SearchCommandDefinitions
             Description =
                 "Maximum dependency depth; 1 includes direct relationships only"
         };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --format json or --envelope)" };
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 #if DEBUG
@@ -651,11 +651,14 @@ public static class SearchCommandDefinitions
             dependsCommand,
             outOption);
 #endif
-        dependsCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(dependsCommand);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
-        dependsCommand.Options.Add(opts.Markdown);
-        dependsCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            dependsCommand,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
         opts.AddTableOptionsTo(dependsCommand);
         opts.AddSectionOptionsTo(dependsCommand);
         dependsCommand.Options.Add(opts.Effective);
@@ -679,12 +682,9 @@ public static class SearchCommandDefinitions
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
             if (result.GetValue(opts.Tree)
-                && (result.GetValue(opts.Json)
-                    || result.GetValue(opts.Markdown)
-                    || result.GetValue(opts.PlainText)
-                    || result.GetValue(opts.Table)
-                    || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
+                && (result.GetResult(opts.Format)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Mermaid)
                     || result.GetResult(opts.Verbosity)
                         is { Implicit: false }))
             {
@@ -715,7 +715,7 @@ public static class SearchCommandDefinitions
                 && !evidenceEnvelope)
             {
                 result.AddError(
-                    "--out is supported by asset-mode depends only with --evidence-envelope.");
+                    "--output is supported by asset-mode depends only with --evidence-envelope.");
             }
 #else
             const bool evidenceEnvelope = false;
@@ -870,7 +870,7 @@ public static class SearchCommandDefinitions
                             or NotSupportedException
                             or PathTooLongException)
                     {
-                        CommandError.Write("--out requires a valid file path.");
+                        CommandError.Write("--output requires a valid file path.");
                         return 1;
                     }
 
@@ -880,7 +880,7 @@ public static class SearchCommandDefinitions
                             StringComparison.OrdinalIgnoreCase))
                     {
                         CommandError.Write(
-                            "--out and --evidence-envelope must name distinct files.");
+                            "--output and --evidence-envelope must name distinct files.");
                         return 1;
                     }
                 }

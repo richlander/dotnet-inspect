@@ -25,8 +25,8 @@ public static class DiffOutputFormatter
     /// <summary>
     /// Renders a type's simple name with generic arity expanded to a C#-friendly
     /// form (<c>JsonConverter`1</c> → <c>JsonConverter&lt;T&gt;</c>) for the human
-    /// Markdown diff view only. Machine-facing tabular views (<c>--table</c>/<c>--tsv</c>/
-    /// <c>--jsonl</c>) keep the canonical metadata name (arity backtick) so the Type
+    /// Markdown diff view only. Machine-facing tabular views (<c>--format table</c>/<c>--format tsv</c>/
+    /// <c>--format jsonl</c>) keep the canonical metadata name (arity backtick) so the Type
     /// field stays a stable, script-parseable identifier.
     /// </summary>
     private static InertString FormatTypeDisplayName(string typeFullName)

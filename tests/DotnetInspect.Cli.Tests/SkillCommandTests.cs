@@ -169,7 +169,7 @@ public class SkillCommandTests
             () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("plain `--json` retains the typed root result array", output);
+        Assert.Contains("plain `--format json` retains the typed root result array", output);
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public class SkillCommandTests
         Assert.Empty(error);
         Assert.Contains("name: dotnet-inspect-query", output);
         Assert.Contains(
-            "plain `--json` retains the typed root result array",
+            "plain `--format json` retains the typed root result array",
             output);
     }
 

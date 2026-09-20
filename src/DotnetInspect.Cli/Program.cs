@@ -11,7 +11,7 @@ Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false
 
 // The .NET runtime is the one writer of this process's stderr that CommandError
 // cannot own: an escaping exception is printed by the runtime at column 0, raw,
-// with the message interpolated straight in. `--out "<dir>/x\nError: ..."`
+// with the message interpolated straight in. `--output "<dir>/x\nError: ..."`
 // therefore forged a diagnostic line with no product code involved, and a
 // hostile .nupkg reached the same printer through a zip-traversal or nuspec
 // parse throw. Catching one exception type here (the --rows validation throw)

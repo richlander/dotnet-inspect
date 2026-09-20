@@ -33,7 +33,7 @@ public partial class CommandExecutionTests
     public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "System.Text", "--platform", "--table", "--tips", "q");
+            "find", "System.Text", "--platform", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("No exact matches for 'System.Text'", error);
@@ -46,10 +46,10 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Find_Count_ComposesWithJson()
     {
-        // Found by the projection audit: --json was resolved before --count, so a count
+        // Found by the projection audit: --format json was resolved before --count, so a count
         // request was answered with the full unprojected result set and exit 0.
         var (exit, output, _) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "--count", "--json");
+            "find", "Cache", "--library", TestAssemblyPath, "--count", "--format=json");
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
@@ -63,10 +63,10 @@ public partial class CommandExecutionTests
         // document. This combination failed closed under #3386/#3472 only because the lowered
         // JSON view did not exist yet; the error is now replaced by the output it asked for.
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--format=json");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("cannot be combined with --format json", error);
         Assert.DoesNotContain("produced unprojected output", error);
 
         using var document = JsonDocument.Parse(output);
@@ -92,9 +92,9 @@ public partial class CommandExecutionTests
         // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
         // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--format=tsv", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", window);
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--format=json", "--rows", window);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
@@ -118,7 +118,7 @@ public partial class CommandExecutionTests
         // A one-row semantic window remains a complete JSON document rather than becoming a
         // line-oriented fragment of the pretty-printed representation.
         var (exit, output, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "1..1");
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--format=json", "--rows", "1..1");
 
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);
@@ -131,7 +131,7 @@ public partial class CommandExecutionTests
         // --compact is a Format concern, so the lowered view has to honor it the same way the
         // pre-lowered view does rather than always pretty-printing.
         var (exit, output, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--compact");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--format=json", "--compact");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("\n  ", output, StringComparison.Ordinal);
@@ -143,21 +143,21 @@ public partial class CommandExecutionTests
     public async Task Find_ProjectedJsonRows_CarryTheSameContentAsJsonl()
     {
         // The load-bearing invariant behind "JSON is a Format, not a Shape": at the same Shape,
-        // changing Format must not change content. --jsonl is JSON's closest sibling -- same
-        // projection, one row per line -- so every row of the projected --json array must carry the
+        // changing Format must not change content. --format jsonl is JSON's closest sibling -- same
+        // projection, one row per line -- so every row of the projected --format json array must carry the
         // same keys, in the same order, with the same values. This is what catches key-casing drift
-        // (#3494 review): before Markout was asked for its JSONL vocabulary, --json emitted "Type"
-        // where --jsonl emitted "type" for the same query.
+        // (#3494 review): before Markout was asked for its JSONL vocabulary, --format json emitted "Type"
+        // where --format jsonl emitted "type" for the same query.
         //
         // Decoded pairs rather than raw bytes, because the two writers escape differently and that
         // is encoding, not content: Utf8JsonWriter renders a backtick as \u0060 where Markout emits
         // it literally. Matching Utf8JsonWriter is correct here -- it is what the pre-lowered
-        // --json already does, so the --json flag keeps one encoding whether or not a projection
+        // --format json already does, so the --format json flag keeps one encoding whether or not a projection
         // was requested.
         var (jsonlExit, jsonlOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--jsonl");
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--format=jsonl");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--json");
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type,Library", "--format=json");
 
         Assert.Equal(0, jsonlExit);
         Assert.Equal(0, jsonExit);
@@ -189,9 +189,9 @@ public partial class CommandExecutionTests
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--format=tsv", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--format=json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
@@ -212,17 +212,17 @@ public partial class CommandExecutionTests
     public async Task Find_FieldsProjectionWithJson_AgreesWithTableFormats()
     {
         // Format-invariance gate (#3494): --fields selects rows of a fields section, not table
-        // columns, so on find's table section it is a no-op -- under --tsv as much as --json. The
+        // columns, so on find's table section it is a no-op -- under --format tsv as much as --format json. The
         // lowered JSON view must agree with the table formats rather than invent a narrowing of
         // its own, so compare the two renderings instead of asserting a shape in isolation.
         var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--format=json");
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--tsv");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--fields", "Type", "--format=tsv");
 
         Assert.Equal(0, jsonExit);
         Assert.Equal(0, tsvExit);
-        Assert.DoesNotContain("cannot be combined with --json", jsonError);
+        Assert.DoesNotContain("cannot be combined with --format json", jsonError);
 
         using var document = JsonDocument.Parse(jsonOutput);
         var keys = document.RootElement.GetProperty("results")[0]
@@ -240,10 +240,10 @@ public partial class CommandExecutionTests
     {
         // The member-search path shares the writer, so it lowers the same way (#3494).
         var (exit, output, error) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--format=json");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("cannot be combined with --format json", error);
 
         using var document = JsonDocument.Parse(output);
         var rows = document.RootElement.GetProperty("members");
@@ -255,17 +255,17 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
-    [InlineData("--table")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=table")]
     public async Task Find_DuplicateColumn_FailsClosedInEveryFormat(string format)
     {
-        // A duplicate column is silent data loss in the keyed formats: --jsonl and the lowered
-        // --json both emit the property twice, and no JSON parser reports that -- consumers keep
+        // A duplicate column is silent data loss in the keyed formats: --format jsonl and the lowered
+        // --format json both emit the property twice, and no JSON parser reports that -- consumers keep
         // one. Rejecting it in BuildProjection rather than in a renderer is what keeps every format
         // agreeing about which requests are valid; fixing it only where it happens to be lossy
-        // would make --json reject what --jsonl accepts, which is the Format-invariance this change
+        // would make --format json reject what --format jsonl accepts, which is the Format-invariance this change
         // exists to establish. Found by adversarial review of #3494.
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,Type", format);
@@ -276,14 +276,14 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Type,*", "*", "--json")]
-    [InlineData("Type,*", "*", "--jsonl")]
-    [InlineData("Type,*", "*", "--tsv")]
-    [InlineData("Type,*", "*", "--table")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--json")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--jsonl")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--tsv")]
-    [InlineData("T*,*e", "Type,Namespace,Source", "--table")]
+    [InlineData("Type,*", "*", "--format=json")]
+    [InlineData("Type,*", "*", "--format=jsonl")]
+    [InlineData("Type,*", "*", "--format=tsv")]
+    [InlineData("Type,*", "*", "--format=table")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--format=json")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--format=jsonl")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--format=tsv")]
+    [InlineData("T*,*e", "Type,Namespace,Source", "--format=table")]
     public async Task Find_OverlappingColumnPatterns_AreDeduplicatedInEveryFormat(
         string columns,
         string deduplicatedColumns,
@@ -309,7 +309,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns", "Ty*,Lib*", "--jsonl");
+            "--columns", "Ty*,Lib*", "--format=jsonl");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -331,7 +331,7 @@ public partial class CommandExecutionTests
         // Column selection is case-insensitive, so "Type,type" is the same duplicate request and
         // produces the same duplicate JSON key. A case-sensitive check would pass this through.
         var (exit, _, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,type", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type,type", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Contains("Duplicate --columns entry", error, StringComparison.Ordinal);
@@ -347,7 +347,7 @@ public partial class CommandExecutionTests
         string value)
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, flag, value, "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, flag, value, "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -360,7 +360,7 @@ public partial class CommandExecutionTests
     public async Task Find_InlineEmptyProjectionUnderJson_FailsInsteadOfEmittingTypedJson(string option)
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, option, "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, option, "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -372,7 +372,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns=", "--columns=", "--json");
+            "--columns=", "--columns=", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -389,7 +389,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            first, second, "--json");
+            first, second, "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -404,7 +404,7 @@ public partial class CommandExecutionTests
         // therefore remains a valid one-column request.
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns=", "--columns", "Type", "--json");
+            "--columns=", "--columns", "Type", "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -419,7 +419,7 @@ public partial class CommandExecutionTests
     public async Task Find_BareProjectionUnderJson_PreservesTypedJson(string option)
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, option, option, "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, option, option, "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -452,7 +452,7 @@ public partial class CommandExecutionTests
         // breaking a valid request.
         var (exit, output, _) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath,
-            "--columns", "Type", "--columns", "Kind", "--tsv");
+            "--columns", "Type", "--columns", "Kind", "--format=tsv");
 
         Assert.Equal(0, exit);
         Assert.StartsWith("type\tkind", output.TrimStart(), StringComparison.Ordinal);
@@ -462,9 +462,9 @@ public partial class CommandExecutionTests
     public async Task Find_UnmatchedColumnUnderJson_StillFailsClosed()
     {
         // Lowering must not turn a bad column name into a success-shaped empty document. The
-        // lowered path reuses Markout's projection, so it fails exactly as --tsv does.
+        // lowered path reuses Markout's projection, so it fails exactly as --format tsv does.
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "NotAColumn", "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "NotAColumn", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -482,7 +482,7 @@ public partial class CommandExecutionTests
         var args = new List<string>
         {
             "find", "ZzzNoSuchResult", "--library", TestAssemblyPath,
-            "--columns", column, "--json",
+            "--columns", column, "--format=json",
         };
         if (members)
             args.Insert(2, "--members");
@@ -498,7 +498,7 @@ public partial class CommandExecutionTests
     public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
     {
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -518,14 +518,14 @@ public partial class CommandExecutionTests
     public async Task Find_ColumnProjectionWithJsonl_IsHonored()
     {
         // Boundary: the row-oriented formats project columns, and must keep doing so now that
-        // --json lowers to the same projected view. The pattern has to actually match: while the
+        // --format json lowers to the same projected view. The pattern has to actually match: while the
         // rejection guard ran ahead of the search, a non-matching pattern still exercised it, so
         // this assertion has to reach real rows to mean anything.
         var (exit, output, error) = await RunAppAsync(
-            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--jsonl");
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", "Type", "--format=jsonl");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("cannot be combined with --format json", error);
 
         var firstRow = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
         using var document = JsonDocument.Parse(firstRow);
@@ -537,10 +537,10 @@ public partial class CommandExecutionTests
     {
         // --count reduces to a scalar and is excluded from the rejection.
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "--fields", "Type", "--count", "--json");
+            "find", "Cache", "--library", TestAssemblyPath, "--fields", "Type", "--count", "--format=json");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("cannot be combined with --format json", error);
         Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
     }
 
@@ -548,13 +548,13 @@ public partial class CommandExecutionTests
     public async Task Find_Discovery_ColumnProjectionWithJson_IsHonored()
     {
         // The -D discovery branch honors projection itself and returns before the guard, so a
-        // discovery request carrying --fields/--json must not be rejected.
+        // discovery request carrying --fields/--format json must not be rejected.
         var (exit, output, error) = await RunAppAsync(
             "find", "Cache", "--library", TestAssemblyPath,
-            "-D", "Results", "--fields", "Name", "--json");
+            "-D", "Results", "--fields", "Name", "--format=json");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("cannot be combined with --format json", error);
         using var document = JsonDocument.Parse(output);
         Assert.NotEmpty(document.RootElement.EnumerateArray());
         Assert.All(
@@ -664,7 +664,7 @@ public partial class CommandExecutionTests
             "ecosystem.ai",
             "--tfm",
             "net10.0",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -736,7 +736,7 @@ public partial class CommandExecutionTests
                 "System.Text.Json@10.0.0",
                 "--tfm",
                 "net10.0",
-                "--json",
+                "--format=json",
                 "--tips",
                 "q",
             };
@@ -802,7 +802,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -831,7 +831,7 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0",
             "--all",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -865,7 +865,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
+            "--format=json",
             "--tips",
             "q",
             "-n",
@@ -896,7 +896,7 @@ public partial class CommandExecutionTests
             "System.Text.Json@10.0.0",
             "--tfm",
             "net10.0",
-            "--json",
+            "--format=json",
             "--tips",
             "q",
             "-n",
@@ -1004,7 +1004,7 @@ public partial class CommandExecutionTests
     public async Task Find_Members_Json_EmitsMemberFields()
     {
         var (exit, output, _) = await RunAppAsync(
-            "find", ".Serialize", "--platform", "System.Text.Json", "--json");
+            "find", ".Serialize", "--platform", "System.Text.Json", "--format=json");
 
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);

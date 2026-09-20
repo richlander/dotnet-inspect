@@ -81,9 +81,9 @@ public class LibraryIntegrationQueryTests
     {
         await WithFixtureAsync(true, async path =>
         {
-            var full = await RunAsync("library", path, "-S", "Integrations", "--json");
+            var full = await RunAsync("library", path, "-S", "Integrations", "--format=json");
             var narrowed = await RunAsync("library", path, "-S", "Integrations",
-                "--where", AspirePredicate, "--json");
+                "--where", AspirePredicate, "--format=json");
             Assert.Equal(0, full.ExitCode);
             Assert.True(narrowed.ExitCode == 0, narrowed.Error);
             Assert.Contains("AddPublicThing", full.Output);
@@ -97,20 +97,20 @@ public class LibraryIntegrationQueryTests
     {
         await WithFixtureAsync(true, async path =>
         {
-            var result = await RunAsync("library", path, "--where", AspirePredicate, "--json");
+            var result = await RunAsync("library", path, "--where", AspirePredicate, "--format=json");
             var selected = await RunAsync("library", path, "-S", "Integrations",
-                "--where", AspirePredicate, "--json");
+                "--where", AspirePredicate, "--format=json");
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.Equal(selected.Output, result.Output);
         });
     }
 
     [Theory]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     public async Task ConcreteSectionKeepsItsOrdinaryFormat(string format)
     {
         await WithFixtureAsync(true, async path =>
@@ -127,8 +127,8 @@ public class LibraryIntegrationQueryTests
     }
 
     [Theory]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
     public async Task RowWindowAndCountAgreeWithoutDocumentContext(string format)
     {
         await WithFixtureAsync(true, async path =>
@@ -137,7 +137,7 @@ public class LibraryIntegrationQueryTests
                 "--where", AspirePredicate, format, "--rows", "1");
             Assert.True(result.ExitCode == 0, result.Error);
             var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            if (format == "--jsonl")
+            if (format == "--format=jsonl")
             {
                 using var row = JsonDocument.Parse(Assert.Single(lines));
                 Assert.Equal(
@@ -175,10 +175,10 @@ public class LibraryIntegrationQueryTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
-    [InlineData("--markdown")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=markdown")]
     public async Task ConceptPredicateNarrowsRowsAndTypedJsonWithinEcosystem(
         string format)
     {
@@ -191,7 +191,7 @@ public class LibraryIntegrationQueryTests
                 format);
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.Contains("AddPublicThing", result.Output);
-            if (format == "--json")
+            if (format == "--format=json")
             {
                 using var json = JsonDocument.Parse(result.Output);
                 Assert.True(json.RootElement.TryGetProperty("dependency_injection", out _));
@@ -209,9 +209,9 @@ public class LibraryIntegrationQueryTests
     {
         await WithImageAsync(EcosystemIntegrationScannerTests.BuildCloudClientAssembly(), async path =>
         {
-            var full = await RunAsync("library", path, "-S", "Integration Opportunities", "--json");
+            var full = await RunAsync("library", path, "-S", "Integration Opportunities", "--format=json");
             var narrowed = await RunAsync("library", path, "-S", "Integration Opportunities",
-                "--where", AspirePredicate, "--json");
+                "--where", AspirePredicate, "--format=json");
             Assert.True(full.ExitCode == 0, full.Error);
             Assert.True(narrowed.ExitCode == 0, narrowed.Error);
             using var fullJson = JsonDocument.Parse(full.Output);
@@ -219,7 +219,7 @@ public class LibraryIntegrationQueryTests
             Assert.Contains(fullRows, row => row.GetProperty("integration").GetString() != "Aspire");
             Assert.Equal(full.Output, narrowed.Output);
             var rowResult = await RunAsync("library", path, "-S", "Integration Opportunities",
-                "--where", AspirePredicate, "--jsonl", "--rows", "1", "--columns", "Integration;API");
+                "--where", AspirePredicate, "--format=jsonl", "--rows", "1", "--columns", "Integration;API");
             Assert.True(rowResult.ExitCode == 0, rowResult.Error);
             using var rowJson = JsonDocument.Parse(rowResult.Output);
             Assert.Equal(
@@ -309,7 +309,7 @@ public class LibraryIntegrationQueryTests
     public async Task NonIntegrationSelectionCannotSilentlyDiscardPredicate()
     {
         var result = await RunAsync("library", "/missing/query.dll", "-S", "References",
-            "--where", AspirePredicate, "--json");
+            "--where", AspirePredicate, "--format=json");
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("predicates target Integrations", result.Error);
         Assert.Empty(result.Output);
@@ -323,7 +323,7 @@ public class LibraryIntegrationQueryTests
     {
         List<string> args =
             ["library", "/missing/query.dll", "--where", AspirePredicate,
-             operation, "/missing/query-operation", "--json"];
+             operation, "/missing/query-operation", "--format=json"];
         if (discoveryMode is not null)
             args.AddRange(["-D", "Integrations", discoveryMode]);
         var result = await RunAsync([.. args]);
@@ -336,7 +336,7 @@ public class LibraryIntegrationQueryTests
     public async Task StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget()
     {
         var result = await RunAsync("library", "/missing/query.dll",
-            "-D", "Integrations", "--where", AspirePredicate, "--schema", "--json");
+            "-D", "Integrations", "--where", AspirePredicate, "--schema", "--format=json");
         Assert.True(result.ExitCode == 0, result.Error);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
@@ -378,7 +378,7 @@ public class LibraryIntegrationQueryTests
                     """);
             }
             var result = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integrations", "--where", AspirePredicate, "--json", "--offline");
+                "-S", "Integrations", "--where", AspirePredicate, "--format=json", "--offline");
             Assert.True(result.ExitCode == 0, result.Error);
             using var json = JsonDocument.Parse(result.Output);
             Assert.Equal(2, json.RootElement.GetArrayLength());
@@ -389,7 +389,7 @@ public class LibraryIntegrationQueryTests
                     library.GetProperty("dependency_injection").EnumerateArray());
             });
             var jsonl = await RunAsync("library", "--package", package, "--tfm", "all",
-                "-S", "Integrations", "--where", AspirePredicate, "--jsonl", "--offline");
+                "-S", "Integrations", "--where", AspirePredicate, "--format=jsonl", "--offline");
             Assert.Equal(1, jsonl.ExitCode);
             Assert.Contains("requires exactly one table shape", jsonl.Error);
             Assert.Empty(jsonl.Output);

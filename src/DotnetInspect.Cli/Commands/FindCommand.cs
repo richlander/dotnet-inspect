@@ -108,7 +108,7 @@ public class FindCommand
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
             // --count reduces the payload, so it is resolved before the format flags that
-            // render it. Ordering these the other way lets --json answer a count request
+            // render it. Ordering these the other way lets --format json answer a count request
             // with the full unprojected result set.
             if (options.Count)
             {
@@ -129,7 +129,7 @@ public class FindCommand
             else if (options.JsonOutput)
             {
                 // --fields/--columns name post-lowering vocabulary (computed table columns), so
-                // naming one opts into the lowered display view; plain --json keeps the typed
+                // naming one opts into the lowered display view; plain --format json keeps the typed
                 // root result array (#3494). This combination used to fail closed (#3386) only
                 // because the lowered JSON view did not exist yet.
                 if (IsColumnProjectionRequested(options))
@@ -234,7 +234,7 @@ public class FindCommand
         }
         else if (options.JsonOutput)
         {
-            // See the type-search branch: a projection request lowers --json to the display view.
+            // See the type-search branch: a projection request lowers --format json to the display view.
             if (IsColumnProjectionRequested(options))
             {
                 WriteMemberProjectedJson(results, title, options);

@@ -594,7 +594,7 @@ Keep the current command when only an observation producer, lens, section,
 traversal choice, or output projection changes. A type-presence census and a
 type-scoped member census can both participate in `diff --type T`;
 `member -S IL` does not become an `il` command because it is the same member
-under another representation. `--json` does not become a command; it is another
+under another representation. `--format json` does not become a command; it is another
 writer over the same content.
 
 An execution lifecycle is different when at least one of these is true:
@@ -699,7 +699,7 @@ Admission rejects `--at`, Type/member populations, Count and row projections,
 projection filters, sections, body/source/Analysis requests,
 platform/project/local sources, and other rendering modes before package
 acquisition. Markdown and plain text lower the typed result through its
-host-neutral presentation. `--json` emits the unprojected Content, while
+host-neutral presentation. `--format json` emits the unprojected Content, while
 `--envelope` emits that identical Content with Share and diagnostics. This
 operation does not reuse or relocate the root `match` command, whose subject is
 implementation-clone comparison rather than cross-version API-coordinate
@@ -813,7 +813,7 @@ supports the public `--envelope` projection defined by
 the already constructed baseline without another inspection, Share projection,
 or host enrichment. The
 [CLI output boundary](output-shapes.md#content-shapes-and-service-envelopes)
-distinguishes Content-layer shapes and `--json` from service-layer
+distinguishes Content-layer shapes and `--format json` from service-layer
 `--envelope`.
 
 Browser adoption preserves Content, Share, and diagnostic identity and order
@@ -1349,7 +1349,7 @@ the obligation unconditional without corrupting a parsed stream.
 The tabular formats emit exactly one row shape: the ranked candidates. Discovery
 also produces a seed, a scope, a retrieval disposition, a receipt, and blockers,
 and those are not candidate rows. Emitting them as extra tables would give
-`--table`, `--tsv`, and `--jsonl` two or three incompatible schemas in one
+`--format table`, `--format tsv`, and `--format jsonl` two or three incompatible schemas in one
 stream, which the output-shape contract forbids. They travel to stderr as notes
 beside the disclosure, so the parsed stream stays single-shaped while the
 context remains visible. Markdown and structured output, which can carry several

@@ -44,7 +44,7 @@ public partial class CommandExecutionTests
             "Extension Methods",
             "--columns",
             "Signature;Description",
-            "--tsv",
+            "--format=tsv",
             "--tips",
             "q");
 
@@ -119,7 +119,7 @@ public partial class CommandExecutionTests
                 "--library",
                 assemblyPath,
                 "-v:d",
-                "--json",
+                "--format=json",
                 "--tips",
                 "q");
 

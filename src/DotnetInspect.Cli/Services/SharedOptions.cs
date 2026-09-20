@@ -13,24 +13,39 @@ namespace DotnetInspect.Cli.Services;
 /// </summary>
 public class SharedOptions
 {
+    private static readonly string[] FormatValues =
+    [
+        "markdown",
+        "table",
+        "tsv",
+        "jsonl",
+        "json",
+        "plaintext",
+        "mermaid",
+    ];
+    private readonly Dictionary<
+        Command,
+        HashSet<CliPresentationFormat>> supportedFormats = [];
+
     // Output format options
-    public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
+    public Option<string?> Format { get; } = new("--format")
+    {
+        Description =
+            "Output format: markdown, table, tsv, jsonl, json, plaintext, or mermaid",
+        Arity = ArgumentArity.ExactlyOne,
+        HelpName = "FORMAT",
+    };
     public Option<bool> Envelope { get; } = new("--envelope")
     {
         Description = "Output the complete inspection envelope as JSON where supported",
         Arity = ArgumentArity.Zero
     };
-    public Option<bool> Markdown { get; } = new("--markdown") { Description = "Output as markdown" };
-    public Option<bool> PlainText { get; } = new("--plaintext") { Description = "Output as plain text" };
     public Option<bool> Bare { get; } = new("--bare") { Description = "Render the selected payload without document decoration; does not change the selected shape" };
     public Option<bool> PreferRenderedUrls { get; } = new("--prefer-rendered-urls") { Description = "Prefer rendered browser-view URLs when supported; otherwise keep the original URL" };
-    public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
+    public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Embed Mermaid diagrams in Markdown; use --format mermaid for standalone Mermaid" };
     public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
     public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Use the default readable local-name synthesis even when configuration disables it; byte-preserving (names do not affect IL)" };
     public Option<string?> Focus { get; } = new("--focus") { Description = "Report a fact family with the caret gesture (underlined beneath the statement) instead of a trailing comment: a category (allocation), a descriptor id (alloc.box), or an id prefix (alloc). Promotes, never filters: unmatched facts keep their trailing comment", Arity = ArgumentArity.ExactlyOne };
-    public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
-    public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
-    public Option<bool> Jsonl { get; } = new("--jsonl") { Description = "Output as JSON Lines (one object per row)" };
     public Option<bool> NoHeaders { get; } = new("--no-headers") { Description = "Suppress table/TSV column headers" };
 
     // Verbosity options
@@ -123,6 +138,10 @@ public class SharedOptions
     public SharedOptions()
     {
         CliOptionValueValidation.AcceptOnlyFromAmong(
+            Format,
+            StringComparer.OrdinalIgnoreCase,
+            FormatValues);
+        CliOptionValueValidation.AcceptOnlyFromAmong(
             Verbosity,
             StringComparer.OrdinalIgnoreCase,
             OptionParsers.ValidVerbosityValues);
@@ -192,7 +211,7 @@ public class SharedOptions
 
         // An explicit projection must name something. A repeated name asks for the same column
         // twice. Under the table formats the second copy is a redundant duplicate column; under
-        // --json/--jsonl it produces a repeated JSON property, which Utf8JsonWriter does not
+        // --format json or --format jsonl it produces a repeated JSON property, which Utf8JsonWriter does not
         // reject and which parsers resolve inconsistently. Reject either invalid request.
         //
         // Validating on the option (not per command) is what makes the rejection
@@ -222,12 +241,12 @@ public class SharedOptions
 
     public static Option<string?> CreateOutputPathOption()
     {
-        var option = new Option<string?>("--out")
+        var option = new Option<string?>("-o")
         {
-            Description = "Write output to file instead of stdout"
+            Description = "Write output to file instead of stdout",
+            HelpName = "PATH",
         };
         option.Aliases.Add("--output");
-        option.Aliases.Add("-o");
         return option;
     }
 
@@ -244,7 +263,7 @@ public class SharedOptions
             }
 
             if (result.GetResult(option) is { Tokens: [{ Value.Length: 0 }] })
-                result.AddError("--out requires a non-empty path.");
+                result.AddError("--output requires a non-empty path.");
         });
     }
 
@@ -304,6 +323,7 @@ public class SharedOptions
         bool supportsRowWindows = true,
         Func<CommandResult, bool>? validateLegacyRowWindow = null)
     {
+        AddFormatOptionTo(command, CliPresentationFormat.Markdown);
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
         command.Options.Add(Tips);
@@ -437,8 +457,8 @@ public class SharedOptions
             var token = rowsResult.Tokens[^1].Value;
 
             // System.CommandLine will hand a required-argument option the next token
-            // even when it is plainly another option, so `--rows --tsv` arrives here as
-            // a row selection of "--tsv". Blaming the spelling of --tsv would send a
+            // even when it is plainly another option, so `--rows --format tsv` can arrive here
+            // with "--format" as the row selection. Blaming that spelling would send a
             // reader to fix the wrong thing; the actual mistake is the missing value.
             if (token.StartsWith('-'))
             {
@@ -471,7 +491,54 @@ public class SharedOptions
     /// </summary>
     public void AddJsonOptionTo(Command command)
     {
-        command.Options.Add(Json);
+        AddFormatOptionTo(command, CliPresentationFormat.Json);
+    }
+
+    internal void AddFormatOptionTo(
+        Command command,
+        params CliPresentationFormat[] formats)
+    {
+        if (!supportedFormats.TryGetValue(command, out var declaredFormats))
+        {
+            declaredFormats = [];
+            supportedFormats.Add(command, declaredFormats);
+        }
+        foreach (CliPresentationFormat format in formats)
+            declaredFormats.Add(format);
+
+        if (command.Options.Contains(Format))
+            return;
+
+        command.Options.Add(Format);
+        command.Validators.Add(result =>
+        {
+            if (result.GetResult(Format) is not { Implicit: false })
+                return;
+
+            string? value = GetFormatValue(result);
+            if (!TryParseFormat(
+                    value,
+                    out CliPresentationFormat selectedFormat))
+            {
+                return;
+            }
+
+            if (!declaredFormats.Contains(selectedFormat))
+            {
+                result.AddError(
+                    $"{command.Name} does not support '--format "
+                    + $"{FormatName(selectedFormat)}'.");
+                return;
+            }
+
+            if (IsExplicitTrue(result, Mermaid)
+                && selectedFormat != CliPresentationFormat.Markdown)
+            {
+                result.AddError(
+                    "--mermaid embeds diagrams in Markdown and requires "
+                    + "--format markdown.");
+            }
+        });
     }
 
     public void AddEnvelopeOptionTo(Command command, params Option[] incompatibleOptions)
@@ -479,29 +546,43 @@ public class SharedOptions
         command.Options.Add(Envelope);
         Option[] presentationOptions =
         [
-            Json, Markdown, PlainText, Table, Tsv, Jsonl, Tree, Mermaid,
+            Format, Tree, Mermaid,
             NoHeaders, Bare, Columns, Fields, Print, Value, Urls, Paths,
             JsonArray, PreferRenderedUrls,
             .. incompatibleOptions
         ];
         command.Validators.Add(result =>
         {
-            if (!result.GetValue(Envelope))
+            if (!IsEnvelopeOutput(result))
                 return;
+            if (result.Errors.Any()
+                || result.Children.Any(static child => child.Errors.Any()))
+            {
+                return;
+            }
 
             foreach (Option option in presentationOptions)
             {
-                if (result.GetResult(option) is { Implicit: false })
-                    result.AddError($"--envelope cannot be combined with {option.Name}.");
+                if (result.GetResult(option) is not { Implicit: false })
+                    continue;
+
+                string spelling =
+                    ReferenceEquals(option, Format)
+                        ? $"--format {GetFormatValue(result)}"
+                        : option.Name;
+                result.AddError(
+                    $"--envelope cannot be combined with {spelling}.");
             }
         });
     }
 
     public void AddTableOptionsTo(Command command)
     {
-        command.Options.Add(Table);
-        command.Options.Add(Tsv);
-        command.Options.Add(Jsonl);
+        AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Table,
+            CliPresentationFormat.Tsv,
+            CliPresentationFormat.Jsonl);
         command.Options.Add(NoHeaders);
     }
 
@@ -649,9 +730,12 @@ public class SharedOptions
     /// </summary>
     public void AddAllOptionsTo(Command command)
     {
-        command.Options.Add(Json);
-        command.Options.Add(Markdown);
-        command.Options.Add(PlainText);
+        AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
         command.Options.Add(Mermaid);
         AddTableOptionsTo(command);
         AddOutputOptionsTo(command);
@@ -695,20 +779,26 @@ public class SharedOptions
 
     /// <summary>
     /// Resolves the output format from parse result.
-    /// Precedence: explicit CLI flags (--json, --markdown, -v:*) → DOTNET_INSPECT_FORMAT env → <paramref name="defaultFormat"/>.
+    /// Precedence: --format → -v:* → DOTNET_INSPECT_FORMAT → <paramref name="defaultFormat"/>.
     /// </summary>
     public OutputFormat ResolveFormat(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
-        bool jsonFlag = parseResult.GetValue(Json);
-        bool markdownFlag = parseResult.GetValue(Markdown);
-        bool plainTextFlag = parseResult.GetValue(PlainText);
-        bool mermaidFlag = parseResult.GetValue(Mermaid);
-        bool tableFlag = IsExplicitTrue(parseResult, Table);
-        bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
-        bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
+        CliPresentationFormat? selectedFormat = ParseFormat(parseResult);
+        bool jsonFlag = selectedFormat == CliPresentationFormat.Json;
+        bool markdownFlag =
+            selectedFormat == CliPresentationFormat.Markdown
+            || selectedFormat is null
+                && IsExplicitTrue(parseResult, Mermaid);
+        bool plainTextFlag = selectedFormat == CliPresentationFormat.PlainText;
+        bool mermaidFlag = selectedFormat == CliPresentationFormat.Mermaid;
+        bool tableFlag = selectedFormat == CliPresentationFormat.Table;
+        bool tsvFlag = selectedFormat == CliPresentationFormat.Tsv;
+        bool jsonlFlag = selectedFormat == CliPresentationFormat.Jsonl;
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
+        ValidateRendererFlags(
+            tableFlag || tsvFlag || jsonlFlag,
+            hasVerbosity);
         if (ShouldSuppressEnvironmentTabularFormat(
             parseResult,
             tableFlag || tsvFlag || jsonlFlag,
@@ -726,17 +816,19 @@ public class SharedOptions
         (resolveOutputFormat is null
             ? ResolveFormat(parseResult)
             : resolveOutputFormat(parseResult)) == OutputFormat.Json
-        || IsExplicitTrue(parseResult, Envelope)
+        || IsEnvelopeOutput(parseResult)
         || IsExplicitTrue(parseResult, JsonArray);
 
     /// <summary>
-    /// Returns true when --mermaid is combined with --markdown (embedded mermaid in markdown).
+    /// Returns true when --mermaid is combined with Markdown output.
     /// </summary>
     public bool IsEmbeddedMermaid(ParseResult parseResult)
-        => OutputFormatResolver.IsEmbeddedMermaid(parseResult.GetValue(Markdown), parseResult.GetValue(Mermaid));
+        => IsExplicitTrue(parseResult, Mermaid)
+            && ResolveFormat(parseResult) == OutputFormat.Markdown;
 
     /// <summary>
-    /// Resolves whether tabular output should be used, considering --table, --tsv, and --jsonl.
+    /// Resolves whether tabular output should be used, considering --format table,
+    /// --format tsv, and --format jsonl.
     /// Throws if a tabular flag is combined with -v (contradictory: -v implies markdown).
     /// </summary>
     public bool ResolveTabular(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
@@ -752,9 +844,8 @@ public class SharedOptions
         ResolveFormat(parseResult, defaultFormat) == OutputFormat.Jsonl;
 
     /// <summary>
-    /// Returns true when the user explicitly chose an output format via CLI flags
-    /// (--json, --markdown, --plain-text, --table, --tsv, --jsonl, or -v)
-    /// or DOTNET_INSPECT_FORMAT.
+    /// Returns true when the user explicitly chose an output format via
+    /// --format, --mermaid, -v, or DOTNET_INSPECT_FORMAT.
     /// When false, commands are free to apply their own default format.
     /// </summary>
     public bool IsFormatExplicitlySet(ParseResult parseResult)
@@ -767,10 +858,7 @@ public class SharedOptions
     /// </summary>
     public bool IsFormatFlagExplicitlySet(ParseResult parseResult)
     {
-        if (IsTableFlagExplicitlySet(parseResult)) return true;
-        if (IsExplicitTrue(parseResult, Json)) return true;
-        if (IsExplicitTrue(parseResult, Markdown)) return true;
-        if (IsExplicitTrue(parseResult, PlainText)) return true;
+        if (parseResult.GetResult(Format) is { Implicit: false }) return true;
         if (IsExplicitTrue(parseResult, Mermaid)) return true;
         if (IsExplicitTrue(parseResult, Bare)) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
@@ -783,19 +871,20 @@ public class SharedOptions
             && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl);
 
     public bool IsTableFlagExplicitlySet(ParseResult parseResult) =>
-        IsExplicitTrue(parseResult, Table)
-        || IsExplicitTrue(parseResult, Tsv)
-        || IsExplicitTrue(parseResult, Jsonl);
+        ParseFormat(parseResult) is
+            CliPresentationFormat.Table
+            or CliPresentationFormat.Tsv
+            or CliPresentationFormat.Jsonl;
 
     internal bool IsTableOrTsvOutput(CommandResult result)
     {
-        if (IsExplicitTrue(result, Table)
-            || IsExplicitTrue(result, Tsv))
+        if (IsTableOutput(result)
+            || IsTsvOutput(result))
         {
             return true;
         }
 
-        if (IsExplicitTrue(result, Jsonl)
+        if (IsJsonlOutput(result)
             || IsNonTabularFormatExplicitlySet(result))
         {
             return false;
@@ -859,7 +948,64 @@ public class SharedOptions
     public bool IsDiscoveryMode(ParseResult parseResult)
         => parseResult.GetResult(Discover) is { Implicit: false };
 
-    public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
+    public bool ParseTree(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Tree);
+
+    public bool IsEnvelopeOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Envelope);
+
+    public bool IsEnvelopeOutput(CommandResult result) =>
+        IsExplicitTrue(result, Envelope);
+
+    public bool IsTreeOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Tree);
+
+    public bool IsTreeOutput(CommandResult result) =>
+        IsExplicitTrue(result, Tree);
+
+    public bool IsJsonOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.Json;
+
+    public bool IsJsonOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.Json;
+
+    public bool IsMarkdownOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.Markdown;
+
+    public bool IsMarkdownOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.Markdown;
+
+    public bool IsPlainTextOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.PlainText;
+
+    public bool IsPlainTextOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.PlainText;
+
+    public bool IsMermaidOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.Mermaid
+        || IsExplicitTrue(parseResult, Mermaid);
+
+    public bool IsMermaidOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.Mermaid
+        || IsExplicitTrue(result, Mermaid);
+
+    public bool IsTableOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.Table;
+
+    public bool IsTableOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.Table;
+
+    public bool IsTsvOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.Tsv;
+
+    public bool IsTsvOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.Tsv;
+
+    public bool IsJsonlOutput(ParseResult parseResult) =>
+        ParseFormat(parseResult) == CliPresentationFormat.Jsonl;
+
+    public bool IsJsonlOutput(CommandResult result) =>
+        ParseFormat(result) == CliPresentationFormat.Jsonl;
 
     /// <summary>
     /// Resolves static discovery. <c>--schema</c> opts out of effective discovery.
@@ -883,25 +1029,16 @@ public class SharedOptions
     }
 
     private static void ValidateRendererFlags(
-        bool jsonFlag,
-        bool markdownFlag,
-        bool plainTextFlag,
-        bool mermaidFlag,
         bool tabularFlag,
         bool hasVerbosity)
     {
         if (!tabularFlag)
             return;
 
-        if (jsonFlag)
+        if (hasVerbosity)
         {
-            CommandError.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
-            throw new OperationCanceledException();
-        }
-
-        if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
-        {
-            CommandError.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
+            CommandError.WriteLine(
+                "Tabular --format values cannot be combined with -v.");
             throw new OperationCanceledException();
         }
     }
@@ -919,17 +1056,21 @@ public class SharedOptions
         IsExplicit(result, option) && result.GetValue(option);
 
     private bool IsNonTabularFormatExplicitlySet(ParseResult parseResult) =>
-        IsExplicitTrue(parseResult, Json)
-        || IsExplicitTrue(parseResult, Markdown)
-        || IsExplicitTrue(parseResult, PlainText)
+        ParseFormat(parseResult) is
+            CliPresentationFormat.Json
+            or CliPresentationFormat.Markdown
+            or CliPresentationFormat.PlainText
+            or CliPresentationFormat.Mermaid
         || IsExplicitTrue(parseResult, Mermaid)
         || IsExplicitTrue(parseResult, Bare)
         || parseResult.GetResult(Verbosity) is { Implicit: false };
 
     private bool IsNonTabularFormatExplicitlySet(CommandResult result) =>
-        IsExplicitTrue(result, Json)
-        || IsExplicitTrue(result, Markdown)
-        || IsExplicitTrue(result, PlainText)
+        ParseFormat(result) is
+            CliPresentationFormat.Json
+            or CliPresentationFormat.Markdown
+            or CliPresentationFormat.PlainText
+            or CliPresentationFormat.Mermaid
         || IsExplicitTrue(result, Mermaid)
         || IsExplicitTrue(result, Bare)
         || result.GetResult(Verbosity) is { Implicit: false };
@@ -942,6 +1083,79 @@ public class SharedOptions
         && !explicitNonTabularFormat
         && IsExplicitTrue(parseResult, Bare)
         && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
+
+    private string? GetFormatValue(ParseResult parseResult)
+    {
+        OptionResult? format = parseResult.GetResult(Format);
+        return format is { Tokens: [{ Value: string value }] }
+            && !format.Errors.Any()
+                ? value
+                : null;
+    }
+
+    private string? GetFormatValue(CommandResult result)
+    {
+        OptionResult? format = result.GetResult(Format);
+        return format is { Tokens: [{ Value: string value }] }
+            && !format.Errors.Any()
+                ? value
+                : null;
+    }
+
+    private CliPresentationFormat? ParseFormat(ParseResult parseResult) =>
+        TryParseFormat(
+            GetFormatValue(parseResult),
+            out CliPresentationFormat format)
+            ? format
+            : null;
+
+    private CliPresentationFormat? ParseFormat(CommandResult result) =>
+        TryParseFormat(
+            GetFormatValue(result),
+            out CliPresentationFormat format)
+            ? format
+            : null;
+
+    private static bool TryParseFormat(
+        string? value,
+        out CliPresentationFormat format)
+    {
+        format = value?.ToLowerInvariant() switch
+        {
+            "markdown" => CliPresentationFormat.Markdown,
+            "table" => CliPresentationFormat.Table,
+            "tsv" => CliPresentationFormat.Tsv,
+            "jsonl" => CliPresentationFormat.Jsonl,
+            "json" => CliPresentationFormat.Json,
+            "plaintext" => CliPresentationFormat.PlainText,
+            "mermaid" => CliPresentationFormat.Mermaid,
+            _ => default,
+        };
+        return value is not null
+            && FormatValues.Contains(
+                value,
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string FormatName(
+        CliPresentationFormat format) =>
+        format switch
+        {
+            CliPresentationFormat.Markdown => "markdown",
+            CliPresentationFormat.Table => "table",
+            CliPresentationFormat.Tsv => "tsv",
+            CliPresentationFormat.Jsonl => "jsonl",
+            CliPresentationFormat.Json => "json",
+            CliPresentationFormat.PlainText => "plaintext",
+            CliPresentationFormat.Mermaid => "mermaid",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(format)),
+        };
+
+    internal string? GetExplicitFormatSpelling(CommandResult result) =>
+        result.GetResult(Format) is { Implicit: false }
+            ? $"--format {GetFormatValue(result)}"
+            : null;
 
     private static readonly char[] ListSeparators = [',', ';'];
 

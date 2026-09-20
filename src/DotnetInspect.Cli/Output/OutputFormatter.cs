@@ -51,7 +51,7 @@ public static class OutputFormatter
 
     /// <summary>
     /// Trims a rendered single-section table to <paramref name="maxRows"/> data rows,
-    /// for any table output format. <c>--tsv</c>/<c>--jsonl</c> render one section at a
+    /// for any table output format. <c>--format tsv</c>/<c>--format jsonl</c> render one section at a
     /// time, so the rendered text is a single table: jsonl is one self-describing row
     /// object per line (no header line), tsv has an optional header line, and the default
     /// table mode is a Markdown table delimited by a separator line. A null/negative limit
@@ -186,14 +186,14 @@ public static class OutputFormatter
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is the <c>--json</c> destination once a caller names <c>--fields</c>/<c>--columns</c>.
+    /// This is the <c>--format json</c> destination once a caller names <c>--fields</c>/<c>--columns</c>.
     /// Those flags select from the post-lowering vocabulary, so naming one opts into the display
-    /// view; plain <c>--json</c> keeps the pre-lowered typed shape and does not come through here.
+    /// view; plain <c>--format json</c> keeps the pre-lowered typed shape and does not come through here.
     /// </para>
     /// <para>
     /// The projection is applied by Markout, not re-implemented here, which is what keeps JSON
     /// content-identical to the table formats at the same shape. An unmatched column therefore
-    /// fails the same way it does under <c>--tsv</c>: Markout throws and the top-level handler
+    /// fails the same way it does under <c>--format tsv</c>: Markout throws and the top-level handler
     /// reports <c>No columns matched projection</c>. Letting that propagate keeps a bad column
     /// name failing closed instead of silently yielding an empty document.
     /// </para>
@@ -214,9 +214,9 @@ public static class OutputFormatter
         writerOptions.SectionOrder = sectionOrder;
         // Ask Markout for the JSONL flavor of the header names. The formatter is ours, so this
         // does not change who renders the table -- it changes the vocabulary handed to the
-        // renderer, which is how --jsonl and the pre-lowered --json both get machine keys
+        // renderer, which is how --format jsonl and the pre-lowered --format json both get machine keys
         // ("type") rather than the display headings Markdown shows ("Type"). Without it the same
-        // --json flag would change key casing depending on whether a projection was requested.
+        // --format json flag would change key casing depending on whether a projection was requested.
         ConfigureTableWriterOptions(writerOptions, tsv: false, jsonl: true);
         var formatter = new JsonSectionFormatter();
         formatter.BeginDocument(writerOptions);

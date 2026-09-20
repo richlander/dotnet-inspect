@@ -90,7 +90,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
                 "false",
                 "-n",
                 "2",
-                "--json",
+                "--format=json",
                 "--offline");
 
         Assert.Equal(1, invocation.ExitCode);

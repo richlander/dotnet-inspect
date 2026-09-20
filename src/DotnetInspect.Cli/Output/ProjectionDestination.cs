@@ -36,7 +36,7 @@ internal static class ProjectionDestinationWriter
         }
 
         CommandError.Write(
-            "a rendered line limit cannot be combined with exact --out transfer because it would change the payload bytes.");
+            "a rendered line limit cannot be combined with exact --output transfer because it would change the payload bytes.");
         return false;
     }
 

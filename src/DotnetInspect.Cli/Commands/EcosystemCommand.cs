@@ -220,9 +220,9 @@ public static class EcosystemCommand
                 + $"{string.Join(", ", selected.Select(section => section.Name))}.");
             CommandError.WriteBlankLine();
             CommandError.WriteLine(
-                "--table, --tsv, and --jsonl display one section at a time.");
+                "--format table, --format tsv, and --format jsonl display one section at a time.");
             CommandError.WriteLine(
-                "Use -S with a specific section name, or --markdown/--json for multi-section output.");
+                "Use -S with a specific section name, or --format markdown or --format json for multi-section output.");
             return 1;
         }
 

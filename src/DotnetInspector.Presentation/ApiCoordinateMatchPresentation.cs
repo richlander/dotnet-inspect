@@ -59,11 +59,11 @@ public static class ApiCoordinateMatchPresentation
                     candidate.MetadataToken is { } token ? $"0x{token:x8}" : "",
                 }).ToList());
             if (content.Candidates.Length > candidateLimit)
-                document.WriteParagraph($"Showing {candidateLimit} of {content.Candidates.Length} candidates; --json includes all candidate evidence.");
+                document.WriteParagraph($"Showing {candidateLimit} of {content.Candidates.Length} candidates; --format json includes all candidate evidence.");
         }
         else if (content.Status == ApiCoordinateMatchStatus.Absent && !content.Candidates.IsEmpty)
         {
-            document.WriteParagraph($"Evaluated {content.Candidates.Length} candidate declarations; --json includes their coordinates.");
+            document.WriteParagraph($"Evaluated {content.Candidates.Length} candidate declarations; --format json includes their coordinates.");
         }
         if (content.Status is not (ApiCoordinateMatchStatus.Exact or ApiCoordinateMatchStatus.Absent)
             && !content.Stages.IsEmpty)

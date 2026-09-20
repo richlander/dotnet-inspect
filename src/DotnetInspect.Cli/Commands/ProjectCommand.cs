@@ -146,9 +146,9 @@ public class ProjectCommand
                 + $"{string.Join(", ", orderedNames)}.");
             CommandError.WriteBlankLine();
             CommandError.WriteLine(
-                "--table, --tsv, and --jsonl display one section at a time.");
+                "--format table, --format tsv, and --format jsonl display one section at a time.");
             CommandError.WriteLine(
-                "Use -S with a specific section name, or --markdown/--json "
+                "Use -S with a specific section name, or --format markdown or --format json "
                 + "for multi-section output.");
             return 1;
         }
@@ -319,7 +319,7 @@ public class ProjectCommand
             && options.Format is OutputFormat.Json or OutputFormat.Jsonl)
         {
             CommandError.Write(
-                "--json-array cannot be combined with --json or --jsonl.");
+                "--json-array cannot be combined with --format json or --format jsonl.");
             return false;
         }
 

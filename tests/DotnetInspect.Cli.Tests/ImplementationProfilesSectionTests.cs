@@ -389,7 +389,7 @@ public class ImplementationProfilesSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Implementation Profiles analysis.",
+            "Document --format json cannot represent Implementation Profiles analysis.",
             result.Error);
     }
 
@@ -410,7 +410,7 @@ public class ImplementationProfilesSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Implementation Profiles analysis.",
+            "Document --format json cannot represent Implementation Profiles analysis.",
             result.Error);
     }
 

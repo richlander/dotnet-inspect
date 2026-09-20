@@ -248,7 +248,7 @@ public class ExtensionsCommandTests
             "--library",
             typeof(ExtensionsCommandTests).Assembly.Location,
             "--all",
-            "--json",
+            "--format=json",
             "-n",
             "1",
             "--tail");
@@ -272,7 +272,7 @@ public class ExtensionsCommandTests
             "--library",
             typeof(ExtensionsCommandTests).Assembly.Location,
             "--all",
-            "--json",
+            "--format=json",
             "-t",
             "1");
 
@@ -294,7 +294,7 @@ public class ExtensionsCommandTests
             "--library",
             typeof(ExtensionsCommandTests).Assembly.Location,
             "--all",
-            "--json",
+            "--format=json",
             limit);
 
         Assert.Equal(0, result.ExitCode);
@@ -331,7 +331,7 @@ public class ExtensionsCommandTests
             "--library",
             typeof(ExtensionsCommandTests).Assembly.Location,
             "--all",
-            "--json",
+            "--format=json",
             "--rows",
             "1..10");
 

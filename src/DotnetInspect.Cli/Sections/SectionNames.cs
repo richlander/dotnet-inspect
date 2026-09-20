@@ -171,7 +171,7 @@ public static class SectionNames
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the
     /// Decompiled Source view renders inline, as rows (id, category, detail, IL
-    /// offset) for agents to consume via --json/--tsv/--table.
+    /// offset) for agents to consume via --format json/--format tsv/--format table.
     /// </summary>
     public const string Facts = "Facts";
 

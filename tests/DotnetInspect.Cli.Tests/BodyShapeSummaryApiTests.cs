@@ -22,7 +22,7 @@ public sealed class BodyShapeSummaryApiTests
     [Fact]
     public async Task TypeSummary_GroupsCompleteEvidenceInFirstOccurrenceOrder()
     {
-        var result = await Query("type", SectionNames.BodyShapeSummary, "--jsonl");
+        var result = await Query("type", SectionNames.BodyShapeSummary, "--format=jsonl");
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("Error:", result.Error);
@@ -40,8 +40,8 @@ public sealed class BodyShapeSummaryApiTests
     [Fact]
     public async Task MemberSummary_MatchesOneLocatableOccurrence()
     {
-        var summary = await Query("member", SectionNames.BodyShapeSummary, "--jsonl");
-        var occurrences = await Query("member", SectionNames.BodyShapes, "--jsonl");
+        var summary = await Query("member", SectionNames.BodyShapeSummary, "--format=jsonl");
+        var occurrences = await Query("member", SectionNames.BodyShapes, "--format=jsonl");
 
         Assert.Equal(0, summary.ExitCode);
         Assert.Equal(0, occurrences.ExitCode);
@@ -69,7 +69,7 @@ public sealed class BodyShapeSummaryApiTests
     public async Task ColumnProjection_PreservesViewCardinality(
         string command, string section, string columns, int expected)
     {
-        var result = await Query(command, section, "--columns", columns, "--jsonl");
+        var result = await Query(command, section, "--columns", columns, "--format=jsonl");
 
         Assert.Equal(0, result.ExitCode);
         var rows = ParseRows(result.Output);
@@ -85,7 +85,7 @@ public sealed class BodyShapeSummaryApiTests
     public async Task SummaryCountColumnProjection_KeepsGroupsWithEqualCounts()
     {
         var result = await Query("type", SectionNames.BodyShapeSummary,
-            "--all", "--columns", "Count", "--jsonl");
+            "--all", "--columns", "Count", "--format=jsonl");
 
         Assert.Equal(0, result.ExitCode);
         var rows = ParseRows(result.Output);
@@ -101,7 +101,7 @@ public sealed class BodyShapeSummaryApiTests
         string window, string match, string count)
     {
         var result = await Query("type", SectionNames.BodyShapeSummary,
-            "--columns", "Match;Count", "--rows", window, "--jsonl");
+            "--columns", "Match;Count", "--rows", window, "--format=jsonl");
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("has no data", result.Error);
@@ -120,7 +120,7 @@ public sealed class BodyShapeSummaryApiTests
         string command, string? window, string expected)
     {
         var result = await Query(command, SectionNames.BodyShapeSummary,
-            ["--columns", "Count", "--count", "--json",
+            ["--columns", "Count", "--count", "--format=json",
                 .. window is null ? Array.Empty<string>() : ["--rows", window]]);
 
         Assert.Equal(0, result.ExitCode);
@@ -133,9 +133,9 @@ public sealed class BodyShapeSummaryApiTests
     public async Task TypeSummary_AppliesMemberFilterBeforeGrouping()
     {
         var summary = await Query("type", SectionNames.BodyShapeSummary,
-            "--member", nameof(BodyShapeFixture.PublicCreation), "--jsonl");
+            "--member", nameof(BodyShapeFixture.PublicCreation), "--format=jsonl");
         var occurrences = await Query("type", SectionNames.BodyShapes,
-            "--member", nameof(BodyShapeFixture.PublicCreation), "--jsonl");
+            "--member", nameof(BodyShapeFixture.PublicCreation), "--format=jsonl");
 
         Assert.Equal(0, summary.ExitCode);
         Assert.Equal(0, occurrences.ExitCode);
@@ -156,7 +156,7 @@ public sealed class BodyShapeSummaryApiTests
                 "--member", nameof(BodyShapeFilterFixture.s_Create),
                 "-S", section,
                 "--where", "Kind=ObjectCreationExpression",
-                "--jsonl"]);
+                "--format=jsonl"]);
 
         Assert.Equal(0, result.ExitCode);
         var row = Assert.Single(ParseRows(result.Output));
@@ -307,10 +307,10 @@ public sealed class BodyShapeSummaryApiTests
     [InlineData("member")]
     public async Task SummaryDocumentJson_FailsClosedInsteadOfDroppingEvidence(string command)
     {
-        var result = await Query(command, SectionNames.BodyShapeSummary, "--json");
+        var result = await Query(command, SectionNames.BodyShapeSummary, "--format=json");
 
         Assert.Equal(1, result.ExitCode);
-        Assert.Contains("Document --json cannot represent Body Shapes analysis.", result.Error);
+        Assert.Contains("Document --format json cannot represent Body Shapes analysis.", result.Error);
         Assert.Empty(result.Output);
     }
 

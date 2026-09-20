@@ -373,7 +373,7 @@ public partial class PackageCommand
 
             if (options.JsonArray && (options.JsonOutput || options.Jsonl))
             {
-                CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
+                CommandError.Write("--json-array cannot be combined with --format json or --format jsonl.");
                 return 1;
             }
 

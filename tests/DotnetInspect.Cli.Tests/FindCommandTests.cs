@@ -1349,9 +1349,9 @@ public class FindCommandIntegrationTests
             "1..1",
         ];
         if (table)
-            args.Add("--table");
+            args.Add("--format=table");
         if (jsonl)
-            args.Add("--jsonl");
+            args.Add("--format=jsonl");
         if (count)
             args.Add("--count");
 
@@ -1365,10 +1365,10 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     [InlineData("--count")]
-    [InlineData("--table")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=table")]
+    [InlineData("--format=jsonl")]
     public void Find_MixedMultiPatternStrictWindow_ExcludesUnmatchedContext(
         string format)
     {
@@ -1447,7 +1447,7 @@ public class FindCommandIntegrationTests
                 "Matches",
                 "-n",
                 "1",
-                "--json",
+                "--format=json",
             ]);
 
             var (exit, output, error) =

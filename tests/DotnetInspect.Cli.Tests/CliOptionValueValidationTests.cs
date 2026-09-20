@@ -205,7 +205,7 @@ public sealed class CliOptionValueValidationTests
             foreach (string selector in new[] { "--versions", "--versions-with-feed" })
             {
                 string[] prefix = implicitCommand ? [] : ["package"];
-                string[] suffix = query ? ["-Q", "--json"] : [];
+                string[] suffix = query ? ["-Q", "--format=json"] : [];
                 foreach (string value in new[] { "2", "ordinary", "true", "false" })
                     cases.Add(selector, [.. prefix, "System.CommandLine", selector, value, .. suffix]);
                 foreach (string separator in new[] { "=", ":" })
@@ -214,7 +214,7 @@ public sealed class CliOptionValueValidationTests
                 foreach (string modifier in new[] { "--head", "--tail", "--lines", "--tail-lines" })
                 {
                     // Text output keeps the separate format-compatibility guard out of this case.
-                    string[] textSuffix = query ? ["-Q", "--markdown"] : [];
+                    string[] textSuffix = query ? ["-Q", "--format=markdown"] : [];
                     cases.Add(modifier, [.. prefix, "System.CommandLine", selector, "-n", "2", $"{modifier}=false", .. textSuffix]);
                     cases.Add(modifier, [.. prefix, "System.CommandLine", selector, "-2", modifier, "ordinary", .. textSuffix]);
                     cases.Add(modifier, [.. prefix, "System.CommandLine", selector, "-n2", modifier, "2", .. textSuffix]);
@@ -231,12 +231,12 @@ public sealed class CliOptionValueValidationTests
         AssertRejected(await RunPackage(arguments), name);
 
     [Theory]
-    [InlineData("--out=", "", "--versions=false")]
-    [InlineData("--out", "", "--versions=false")]
+    [InlineData("--output=", "", "--versions=false")]
+    [InlineData("--output", "", "--versions=false")]
     public async Task PackageEmptyOutputValuesDoNotHideAttachedVersionValues(
         params string[] arguments) =>
         AssertRejected(
-            await RunPackage(["package", .. arguments, "-Q", "--json"]),
+            await RunPackage(["package", .. arguments, "-Q", "--format=json"]),
             "--versions");
 
     [Theory]
@@ -256,9 +256,9 @@ public sealed class CliOptionValueValidationTests
             foreach (string target in new[] { "System.CommandLine", "2", "2147483648", "true", "false" })
             {
                 string[] prefix = implicitCommand ? [] : ["package"];
-                cases.Add([.. prefix, selector, target, "-n", "2", "-Q", "--json"]);
-                cases.Add([.. prefix, target, selector, "-2", "-Q", "--json"]);
-                cases.Add([.. prefix, selector, "--head", target, "-n2", "-Q", "--json"]);
+                cases.Add([.. prefix, selector, target, "-n", "2", "-Q", "--format=json"]);
+                cases.Add([.. prefix, target, selector, "-2", "-Q", "--format=json"]);
+                cases.Add([.. prefix, selector, "--head", target, "-n2", "-Q", "--format=json"]);
             }
             return cases;
         }
@@ -301,11 +301,11 @@ public sealed class CliOptionValueValidationTests
     }
 
     [Theory]
-    [InlineData("package", "First", "Second", "--json", "-Q")]
-    [InlineData("package", "First", "--json", "false", "Second", "-Q", "--markdown")]
-    [InlineData("package", "--out=--versions=true", "First", "-Q", "--json")]
-    [InlineData("package", "--out", "--head", "First", "--versions", "-n", "2", "-Q", "--json")]
-    [InlineData("package", "First", "--versions", "-n", "2", "--json", "false", "-Q", "--markdown")]
+    [InlineData("package", "First", "Second", "--format=json", "-Q")]
+    [InlineData("package", "First", "--format=json", "false", "Second", "-Q", "--format=markdown")]
+    [InlineData("package", "--output=--versions=true", "First", "-Q", "--format=json")]
+    [InlineData("package", "--output", "--head", "First", "--versions", "-n", "2", "-Q", "--format=json")]
+    [InlineData("package", "First", "--versions", "-n", "2", "--format=json", "false", "-Q", "--format=markdown")]
     public async Task PackageMultiInputAndOptionOwnedFlagTextRemainValid(params string[] arguments)
     {
         var result = await RunPackage(arguments);

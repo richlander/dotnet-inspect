@@ -86,7 +86,7 @@ public class JsonWireNameGateTests
 
     /// <summary>
     /// <c>TimelineJsonContext</c> declares no naming policy and its views carry no
-    /// <see cref="JsonPropertyNameAttribute"/>, so <c>timeline --json</c> emits CLR PascalCase
+    /// <see cref="JsonPropertyNameAttribute"/>, so <c>timeline --format json</c> emits CLR PascalCase
     /// spelling while every other command emits snake_case. This gate found that; it is a
     /// pre-existing deviation from the output contract, not a sanctioned style. Correcting it
     /// changes a shipped wire format, so it is tracked separately rather than folded into the

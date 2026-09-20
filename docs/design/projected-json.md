@@ -28,9 +28,9 @@ below.
 
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
-column projection under `--json`. `project` also rejects projection, while
+column projection under `--format json`. `project` also rejects projection, while
 `library`, `package`, `timeline`, `implements`, and `extensions` reject
-otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
+otherwise-unclaimed `--format json --fields/--columns` requests at the typed-document
 serializer boundary. Discovery owns projected JSON for its `Name`/`Kind` row
 schema under the lens contract; unadopted lens routes such as
 `library coordinate --file` reject. New command families adopt this contract
@@ -60,7 +60,7 @@ Related docs:
 
 ## Decision: two JSON dialects
 
-`--json` has two deliberately different inputs:
+`--format json` has two deliberately different inputs:
 
 1. **Typed JSON** is the command's pre-lowered machine contract. It preserves
    native JSON value kinds, nullability, machine property names, and the
@@ -77,7 +77,7 @@ Payload projection routing follows because `--fields`/`--columns` can select
 the source column for `--value` or `--print`. After no lens or payload
 projection has claimed the request, the routing rule is:
 
-> `--json` uses typed JSON unless an otherwise-unclaimed, non-empty
+> `--format json` uses typed JSON unless an otherwise-unclaimed, non-empty
 > `--fields` or `--columns` request selects lowered JSON.
 
 Those flags are the dialect boundary because they name post-lowering
@@ -93,14 +93,14 @@ display columns from JSON property names.
 
 | Request | JSON dialect | Required behavior |
 | --- | --- | --- |
-| `--json` | Typed | Preserve the established typed contract. |
-| `--json -S ...` | Typed | Do not lower; the command's typed section-selection contract applies. |
-| `--json --rows ...` | Typed | Do not lower; the command's typed absolute-range contract applies. |
-| `--json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
-| `--json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
-| `--json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
-| `--json --fields ...` | Lowered | Apply the selected section's declared field/annotation projection. |
-| `--json --columns ...` | Lowered | Apply table-column projection through the section model. |
+| `--format json` | Typed | Preserve the established typed contract. |
+| `--format json -S ...` | Typed | Do not lower; the command's typed section-selection contract applies. |
+| `--format json --rows ...` | Typed | Do not lower; the command's typed absolute-range contract applies. |
+| `--format json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
+| `--format json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
+| `--format json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
+| `--format json --fields ...` | Lowered | Apply the selected section's declared field/annotation projection. |
+| `--format json --columns ...` | Lowered | Apply table-column projection through the section model. |
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
 | Lowered JSON plus `-n`/`--rows` | Lowered | Select semantic items/ranges before JSON serialization. |
 | Lowered JSON plus `--compact` | Lowered | Change whitespace only. |
@@ -501,7 +501,7 @@ The typed and lowered dialects have separate compatibility promises.
 
 ### Typed JSON
 
-Adding projected JSON must not change plain `--json`:
+Adding projected JSON must not change plain `--format json`:
 
 - document envelope and property names;
 - JSON value kinds and null behavior;
@@ -527,7 +527,7 @@ Lowered JSON promises:
 Escaping and insignificant whitespace need not be byte-identical to JSONL.
 Consumers compare decoded content.
 
-Replacing a genuinely fail-closed `--json --fields/--columns` combination with
+Replacing a genuinely fail-closed `--format json --fields/--columns` combination with
 this output is additive. That applies to routes such as current `type` and
 `member`, which reject rather than return a document.
 
@@ -574,7 +574,7 @@ Adopt one coherent command family at a time.
    contract around the existing `find`/`vocabulary` formatter. Move or expose
    projection decisions at the L2 boundary.
 2. **Audit every projection-capable route.** Prove that each accepted
-   `--json --fields/--columns` request is owned by a lens/payload, rendered as
+   `--format json --fields/--columns` request is owned by a lens/payload, rendered as
    lowered JSON, or rejected visibly. Add fail-closed routing or an explicit
    migration before changing a route that currently succeeds after dropping
    the projection.
@@ -587,7 +587,7 @@ Adopt one coherent command family at a time.
 6. **Design remaining envelopes.** Add blobs, mixed-content sections, and
    multi-subject output only after each has an explicit JSON representation.
 
-Each slice keeps plain `--json` on the typed path. A fail-closed command removes
+Each slice keeps plain `--format json` on the typed path. A fail-closed command removes
 its guard only when its lowered path passes the required gates; a silently
 dropping command follows the separate migration rule above.
 
@@ -668,7 +668,7 @@ implemented:
 | Required future gate | Claim it must enforce |
 | --- | --- |
 | `JsonDialectRoutingTests` | Lenses and payload projections claim requests first; only otherwise-unclaimed, non-empty `--fields`/`--columns` select lowered JSON, while `-S`, `--rows`, and `--compact` do not lower. |
-| `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
+| `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--format json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
 | `ProjectedJsonLabeledArrayTests` | Labeled-array keys, empty applicable labels, section object type, and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
 | `ProjectedJsonTreeTests` | Typed-tree hierarchy, authored order, badges, and non-normal structural state survive; a normal leaf and a childless `revisit` node remain distinguishable. |

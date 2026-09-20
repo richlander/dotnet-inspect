@@ -70,7 +70,10 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
         memberCommand.Options.Add(opts.Limit);
-        memberCommand.Options.Add(opts.Json);
+        opts.AddFormatOptionTo(
+            memberCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.PlainText);
         memberCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
@@ -87,8 +90,6 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
-        memberCommand.Options.Add(opts.Markdown);
-        memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);
         memberCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(memberCommand);
@@ -123,7 +124,7 @@ public class MemberOptionsParserTests
     public async Task SourceParts_SelectsSourceLocationsExplicitly()
     {
         var options = await ParseSuccessAsync(
-            "member", "Counter", "Add:1", "--package", "Example", "--source-parts", "--json");
+            "member", "Counter", "Add:1", "--package", "Example", "--source-parts", "--format=json");
         Assert.True(options.SourceParts);
         Assert.Contains("Source Locations", options.Select!);
         Assert.Null(options.SourcePart);
@@ -318,7 +319,7 @@ public class MemberOptionsParserTests
     [Fact]
     public async Task ExplicitPackage_WithTable_SetsTabularOutput()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--format=table");
 
         Assert.True(options.Tabular);
         Assert.False(options.Tsv);
@@ -330,23 +331,23 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithMermaid_SetsStandaloneMermaidOutput()
+    public async Task ExplicitPackage_WithMermaid_SetsEmbeddedMarkdownOutput()
     {
         var options = await ParseSuccessAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid");
 
-        Assert.True(options.MermaidOutput);
-        Assert.False(options.EmbeddedMermaid);
-        Assert.True(options.IsRawOutput);
+        Assert.False(options.MermaidOutput);
+        Assert.True(options.EmbeddedMermaid);
+        Assert.False(options.IsRawOutput);
         Assert.True(options.FormatFlagExplicitlySet);
-        Assert.Equal(OutputFormat.Mermaid, options.Format);
+        Assert.Equal(OutputFormat.Markdown, options.Format);
     }
 
     [Fact]
     public async Task ExplicitPackage_WithMarkdownMermaid_SetsEmbeddedMermaidOutput()
     {
         var options = await ParseSuccessAsync(
-            "member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--mermaid");
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--format=markdown", "--mermaid");
 
         Assert.False(options.MermaidOutput);
         Assert.True(options.EmbeddedMermaid);
@@ -354,24 +355,43 @@ public class MemberOptionsParserTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--plaintext")]
-    [InlineData("--bare")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
-    [InlineData("-v:n")]
-    public async Task ExplicitPackage_WithStandaloneMermaidAndAnotherFormat_IsRejected(string format)
+    [InlineData("--format=json")]
+    [InlineData("--format=plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
+    public void ExplicitPackage_WithMermaidAndNonMarkdownFormat_IsRejected(string format)
+    {
+        var (root, _, _) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid", format]);
+
+        var error = Assert.Single(parseResult.Errors);
+        Assert.Contains("requires --format markdown", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithMermaidAndBare_IsRejected()
     {
         var (root, opts, cmdArgs) = CreateTestCommand();
         var parseResult = root.Parse(
-            ["member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid", format]);
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid", "--bare"]);
         Assert.Empty(parseResult.Errors);
 
         var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
 
         var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
-        Assert.Contains("--mermaid is standalone", error.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("--mermaid modifies Markdown output", error.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithMermaidAndVerbosity_SetsEmbeddedMarkdownOutput()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid", "-v:n");
+
+        Assert.True(options.EmbeddedMermaid);
+        Assert.Equal(OutputFormat.Markdown, options.Format);
     }
 
     [Fact]
@@ -474,7 +494,7 @@ public class MemberOptionsParserTests
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
             var (root, opts, _) = CreateTestCommand();
-            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--bare", "--json"]);
+            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--bare", "--format=json"]);
 
             Assert.Empty(parseResult.Errors);
             Assert.Equal(OutputFormat.Json, opts.ResolveFormat(parseResult));
@@ -498,7 +518,7 @@ public class MemberOptionsParserTests
     [Fact]
     public async Task ExplicitPackage_WithMarkdown_SuppressesTips()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--tips", "d");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--format=markdown", "--tips", "d");
 
         Assert.True(options.FormatExplicitlySet);
         Assert.False(options.IsRawOutput);
@@ -508,7 +528,7 @@ public class MemberOptionsParserTests
     [Fact]
     public async Task ExplicitPackage_WithTsvAndNoHeaders_SetsTsvOutput()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--format=tsv", "--no-headers");
 
         Assert.True(options.Tabular);
         Assert.True(options.Tsv);
@@ -521,7 +541,7 @@ public class MemberOptionsParserTests
     [Fact]
     public async Task ExplicitPackage_WithJsonl_SetsJsonlOutput()
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--jsonl");
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--format=jsonl");
 
         Assert.True(options.Tabular);
         Assert.False(options.Tsv);
@@ -530,63 +550,22 @@ public class MemberOptionsParserTests
         Assert.True(options.FormatExplicitlySet);
     }
 
-    [Fact]
-    public async Task ExplicitPackage_WithTableAndTsv_UsesTsvOutput()
+    [Theory]
+    [InlineData("table", "tsv")]
+    [InlineData("table", "jsonl")]
+    [InlineData("json", "tsv")]
+    [InlineData("json", "jsonl")]
+    public void ExplicitPackage_WithRepeatedFormat_IsRejected(
+        string first,
+        string second)
     {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--tsv");
+        var (root, _, _) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["member", "JsonSerializer", "--package", "System.Text.Json",
+                $"--format={first}", $"--format={second}"]);
 
-        Assert.True(options.Tabular);
-        Assert.True(options.Tsv);
-        Assert.False(options.Jsonl);
-        Assert.True(options.TabularExplicitlySet);
-        Assert.True(options.FormatExplicitlySet);
-    }
-
-    [Fact]
-    public async Task ExplicitPackage_WithTableAndJsonl_UsesJsonlOutput()
-    {
-        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--table", "--jsonl");
-
-        Assert.True(options.Tabular);
-        Assert.False(options.Tsv);
-        Assert.True(options.Jsonl);
-        Assert.True(options.TabularExplicitlySet);
-        Assert.True(options.FormatExplicitlySet);
-    }
-
-    [Fact]
-    public async Task ExplicitPackage_WithJsonAndTsv_IsRejected()
-    {
-        var (root, opts, cmdArgs) = CreateTestCommand();
-        var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--json", "--tsv"]);
-        Assert.Empty(parseResult.Errors);
-
-        // The rejection path writes to Console.Error before cancelling; run it
-        // under ConsoleCapture so that write lands on a live, semaphore-owned
-        // writer instead of one a parallel capture test may have disposed.
-        await ConsoleCapture.RunAsync(async () =>
-        {
-            await Assert.ThrowsAsync<OperationCanceledException>(
-                () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
-            return 0;
-        });
-    }
-
-    [Fact]
-    public async Task ExplicitPackage_WithJsonAndJsonl_IsRejected()
-    {
-        var (root, opts, cmdArgs) = CreateTestCommand();
-        var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--json", "--jsonl"]);
-        Assert.Empty(parseResult.Errors);
-
-        // See ExplicitPackage_WithJsonAndTsv_IsRejected: capture the console so
-        // the rejection's Console.Error write cannot hit a disposed writer.
-        await ConsoleCapture.RunAsync(async () =>
-        {
-            await Assert.ThrowsAsync<OperationCanceledException>(
-                () => MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs));
-            return 0;
-        });
+        var error = Assert.Single(parseResult.Errors);
+        Assert.Contains("expects a single argument", error.Message, StringComparison.Ordinal);
     }
 
     // ── Explicit --package with type and member ──────────────────────────

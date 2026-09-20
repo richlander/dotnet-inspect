@@ -199,7 +199,7 @@ public partial class CommandExecutionTests
     public async Task Router_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Runtime.CompilerService", "--table", "--tips", "q");
+            "System.Runtime.CompilerService", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -211,7 +211,7 @@ public partial class CommandExecutionTests
     public async Task Router_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Regex", "--markdown", "--tips", "q");
+            "Regex", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -229,7 +229,7 @@ public partial class CommandExecutionTests
         string expectedType)
     {
         var (exit, output, error) = await RunAppAsync(
-            query, "--markdown", "--tips", "q");
+            query, "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
@@ -241,7 +241,7 @@ public partial class CommandExecutionTests
     public async Task Router_NestedPlatformTypePlusSyntax_RemainsResolvable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "JSType+String", "--markdown", "--tips", "q");
+            "JSType+String", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -254,7 +254,7 @@ public partial class CommandExecutionTests
     public async Task Router_AmbiguousPlatformFind_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Timer", "--markdown", "--tips", "q");
+            "Timer", "--format=markdown", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -268,7 +268,7 @@ public partial class CommandExecutionTests
     public async Task Router_AmbiguousPlatformMemberFind_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Timer.Start", "--markdown", "--tips", "q");
+            "Timer.Start", "--format=markdown", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -282,7 +282,7 @@ public partial class CommandExecutionTests
     public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>", "--markdown", "--tips", "q");
+            "List<T>", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
@@ -300,7 +300,7 @@ public partial class CommandExecutionTests
         string expectedLibrary)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--markdown", "--tips", "q");
+            typeName, "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -314,7 +314,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -349,7 +349,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--format=markdown", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -512,7 +512,7 @@ public partial class CommandExecutionTests
             "-D",
             SectionNames.TypeInfo,
             "--schema",
-            "--table",
+            "--format=table",
             "--tips",
             "q"
         ];
@@ -552,7 +552,7 @@ public partial class CommandExecutionTests
         string expectedType)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
@@ -568,7 +568,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "SequenceReader<T>.TryRead", "--all", "--markdown", "--tips", "q");
+            "SequenceReader<T>.TryRead", "--all", "--format=markdown", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -586,7 +586,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Memory",
             "--all",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -636,7 +636,7 @@ public partial class CommandExecutionTests
             target,
             "--framework",
             "netstandard",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -653,7 +653,7 @@ public partial class CommandExecutionTests
             "System.Threading.Tasks.Task<T>.Result",
             "--framework",
             "netstandard",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -674,7 +674,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "--where",
             "Kind=InvocationExpression",
-            "--table",
+            "--format=table",
             "--tips",
             "q"
         ];
@@ -842,7 +842,7 @@ public partial class CommandExecutionTests
             "runtime@0.0.0",
             "-D",
             "--schema",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -876,7 +876,7 @@ public partial class CommandExecutionTests
             "System.String.IndexOf",
             "--framework",
             "runtime@10.0.10",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -895,7 +895,7 @@ public partial class CommandExecutionTests
             "System.String.IndexOf",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -915,7 +915,7 @@ public partial class CommandExecutionTests
             "System.AppDomain.FriendlyName",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -937,7 +937,7 @@ public partial class CommandExecutionTests
             "System.AppDomain",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -958,7 +958,7 @@ public partial class CommandExecutionTests
             "runtime@10.0.10",
             "-S",
             "Methods",
-            "--markdown",
+            "--format=markdown",
             "--verbose",
             "--tips",
             "q");
@@ -986,7 +986,7 @@ public partial class CommandExecutionTests
             "System.TimeProvider",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
+            "--format=markdown",
             "--verbose",
             "--tips",
             "q");
@@ -1005,7 +1005,7 @@ public partial class CommandExecutionTests
             "System.Time",
             "--framework",
             "runtime@3.1.0",
-            "--json",
+            "--format=json",
             "--verbose",
             "--tips",
             "q");
@@ -1101,7 +1101,7 @@ public partial class CommandExecutionTests
             "--library",
             missingAssembly,
             "--json-array",
-            "--json",
+            "--format=json",
             "--tips",
             "q"
         ];
@@ -1131,7 +1131,7 @@ public partial class CommandExecutionTests
             "--library",
             missingAssembly,
             "--tree",
-            "--json",
+            "--format=json",
             "--tips",
             "q"
         ];
@@ -1150,7 +1150,7 @@ public partial class CommandExecutionTests
             "--tree is a standalone output format and cannot combine with another output format.",
             deferred.Error);
         Assert.DoesNotContain("File not found", deferred.Error);
-        Assert.DoesNotContain("Document --json cannot represent", deferred.Error);
+        Assert.DoesNotContain("Document --format json cannot represent", deferred.Error);
     }
 
     [Fact]
@@ -1200,7 +1200,7 @@ public partial class CommandExecutionTests
             "Member Index",
             "--columns",
             "Stable",
-            "--tsv",
+            "--format=tsv",
             "--tips",
             "q");
         Assert.Equal(0, inventory.Exit);
@@ -1248,7 +1248,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable.ImmutableArray<T>.Builder",
             "--platform",
             "System.Collections.Immutable",
-            "--markdown",
+            "--format=markdown",
             "--verbose",
             "--tips",
             "q"
@@ -1275,7 +1275,7 @@ public partial class CommandExecutionTests
             "SequenceReader<T>",
             "--platform",
             "System.Memory",
-            "--markdown",
+            "--format=markdown",
             "-S",
             "Methods",
             "--tips",
@@ -1615,7 +1615,7 @@ public partial class CommandExecutionTests
         [
             "--library",
             TestAssemblyPath,
-            "--markdown",
+            "--format=markdown",
             "--mermaid",
             "--tips",
             "q"
@@ -1691,7 +1691,7 @@ public partial class CommandExecutionTests
             "ConvertAll<TOutput>",
             "-S",
             "Member Index",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
         Assert.Equal(0, inventory.Exit);
@@ -1808,7 +1808,7 @@ public partial class CommandExecutionTests
             missingAssembly,
             "-D",
             "--schema",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -1897,7 +1897,7 @@ public partial class CommandExecutionTests
             "Member Index",
             "--columns",
             "Stable",
-            "--tsv",
+            "--format=tsv",
             "--tips",
             "q");
 
@@ -1932,7 +1932,7 @@ public partial class CommandExecutionTests
     {
         const string typeName =
             "DotnetInspect.Cli.Tests.Operators<T>";
-        string[] projection = ["--table", "--tips", "q"];
+        string[] projection = ["--format=table", "--tips", "q"];
         var direct = await RunAppAsync(
         [
             "member",
@@ -1971,7 +1971,7 @@ public partial class CommandExecutionTests
             "Member Index",
             "--columns",
             "Stable",
-            "--tsv",
+            "--format=tsv",
             "--tips",
             "q");
 
@@ -2043,7 +2043,7 @@ public partial class CommandExecutionTests
             "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
             "--package",
             "System.Collections.Concurrent@4.3.0",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -2073,7 +2073,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericNestedTypeMember_UsesLongestExactTypePrefix(string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--table", "--tips", "q");
+            target, "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2085,7 +2085,7 @@ public partial class CommandExecutionTests
     public async Task Router_VoidKeyword_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "void", "--table", "--tips", "q");
+            "void", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Package 'void'", error);
@@ -2095,7 +2095,7 @@ public partial class CommandExecutionTests
     public async Task Router_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.String.IndexOf", "--table", "--tips", "q");
+            "System.String.IndexOf", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2107,7 +2107,7 @@ public partial class CommandExecutionTests
     public async Task Router_SimplePlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.IndexOf", "--table", "--tips", "q");
+            "String.IndexOf", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2119,7 +2119,7 @@ public partial class CommandExecutionTests
     public async Task Router_PrimitiveKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "string.IndexOf", "--table", "--tips", "q");
+            "string.IndexOf", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2131,7 +2131,7 @@ public partial class CommandExecutionTests
     public async Task Router_NumericKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "int.Parse", "--table", "--tips", "q");
+            "int.Parse", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Parse", output);
@@ -2144,7 +2144,7 @@ public partial class CommandExecutionTests
     public async Task Router_BooleanKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "bool.TryParse", "--table", "--tips", "q");
+            "bool.TryParse", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("TryParse", output);
@@ -2155,7 +2155,7 @@ public partial class CommandExecutionTests
     public async Task Router_ObjectKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "object.GetType", "--table", "--tips", "q");
+            "object.GetType", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("GetType", output);
@@ -2167,7 +2167,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericMemberSelector_NormalizesGenericTypeArguments()
     {
         var (exit, output, error) = await RunAppAsync(
-            "JsonSerializer.Deserialize<TValue>", "--table", "--tips", "q");
+            "JsonSerializer.Deserialize<TValue>", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
@@ -2179,7 +2179,7 @@ public partial class CommandExecutionTests
     public async Task Router_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.ctor", "--table", "--tips", "q");
+            "String.ctor", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2191,7 +2191,7 @@ public partial class CommandExecutionTests
     public async Task Router_DoubleDotConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>..ctor", "--table", "--tips", "q");
+            "List<T>..ctor", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2203,7 +2203,7 @@ public partial class CommandExecutionTests
     public async Task Router_DoubleDotConstructorSelector_PreservesOverloadIndex()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>..ctor:3", "--table", "--tips", "q");
+            "List<T>..ctor:3", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2215,7 +2215,7 @@ public partial class CommandExecutionTests
     public async Task Router_IndexerSelector_NormalizesThisAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.this[]", "--table", "--tips", "q");
+            "String.this[]", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Chars", output);
@@ -2227,7 +2227,7 @@ public partial class CommandExecutionTests
     public async Task Router_IndexerSelector_NormalizesThisAliasWithIllustrativeArgument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.this[0]", "--table", "--tips", "q");
+            "String.this[0]", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Chars", output);
@@ -2239,7 +2239,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericIndexerSelector_NormalizesThisAliasWithTypeArgument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Dictionary<TKey,TValue>.this[TKey]", "--table", "--tips", "q");
+            "Dictionary<TKey,TValue>.this[TKey]", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("Item", output);
@@ -2251,7 +2251,7 @@ public partial class CommandExecutionTests
     public async Task Router_OperatorSelector_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "DateTime.operator+", "--table", "--tips", "q");
+            "DateTime.operator+", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("operator +", output);
@@ -2263,7 +2263,7 @@ public partial class CommandExecutionTests
     public async Task Router_ConversionSelector_NormalizesImplicitAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Decimal.implicit", "--table", "--tips", "q");
+            "Decimal.implicit", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("implicit operator", output);
@@ -2275,7 +2275,7 @@ public partial class CommandExecutionTests
     public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text", "--table", "--tips", "q");
+            "System.Text", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -2289,7 +2289,7 @@ public partial class CommandExecutionTests
     public async Task Router_ExactPlatformAssembly_StillRoutesToLibrary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Runtime", "--table", "--tips", "q");
+            "System.Runtime", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2324,7 +2324,7 @@ public partial class CommandExecutionTests
     public async Task Router_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Collections.Frozen", "--table", "--tips", "q");
+            "System.Collections.Frozen", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -2341,7 +2341,7 @@ public partial class CommandExecutionTests
             "System.Text.Json.Serialization",
             "--platform",
             "System.Text.Json",
-            "--table",
+            "--format=table",
             "--tips",
             "q"
         ];
@@ -2413,7 +2413,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     [InlineData("-k", "class")]
     public async Task Router_ExplicitPlatformIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
         params string[] leadingOptions)
@@ -2729,7 +2729,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--library",
                 "Test.Primary.dll",
-                "--table",
+                "--format=table",
                 "--tips",
                 "q"
             ];
@@ -3044,7 +3044,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.AspNetCore.Builder.WebApplication", "--markdown", "--tips", "q");
+            "Microsoft.AspNetCore.Builder.WebApplication", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
@@ -3061,7 +3061,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown", "--tips", "q");
+            target, "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
@@ -3077,7 +3077,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -3096,7 +3096,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>.ExecuteAsync",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -3114,7 +3114,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.AspNetCore.Http.HttpContext", "--markdown", "--tips", "q");
+            "Microsoft.AspNetCore.Http.HttpContext", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
@@ -3129,7 +3129,7 @@ public partial class CommandExecutionTests
         SkipUnlessAspNetCoreAvailable();
 
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.AspNetCore.Builder.WebApplication.Run", "--table", "--tips", "q");
+            "Microsoft.AspNetCore.Builder.WebApplication.Run", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3140,7 +3140,7 @@ public partial class CommandExecutionTests
     public async Task BareQualifiedPlatformType_TrueAmbiguityStillFails()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Numerics.Enumerator", "--markdown", "--tips", "q");
+            "System.Numerics.Enumerator", "--format=markdown", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3227,12 +3227,12 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Router_OutputFlagBeforeBareToken_KeepsBareTokenAsRouteTarget()
     {
-        var (exit, output, error) = await RunAppAsync("--json", "frobnicate");
+        var (exit, output, error) = await RunAppAsync("--format=json", "frobnicate");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Package 'frobnicate' selection 'latest'", error);
-        Assert.DoesNotContain("Package '--json' selection", error);
+        Assert.DoesNotContain("Package '--format json' selection", error);
     }
 
     [Fact]
@@ -3738,7 +3738,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     [InlineData("-k", "class")]
     public async Task Router_ExplicitPackageIdentity_OptionsBeforeTypePositional_PreserveTypeInspection(
         params string[] leadingOptions)
@@ -3865,7 +3865,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Contains(
-            "Multiple package output requires --json or a row format",
+            "Multiple package output requires --format json or a row format",
             routed.Error);
         Assert.DoesNotContain("Type Info", routed.Error);
     }
@@ -3980,7 +3980,7 @@ public partial class CommandExecutionTests
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
-            "System.Runtime.CompilerServices.Unsafe", "--markdown", "-v:q", "--tips", "q");
+            "System.Runtime.CompilerServices.Unsafe", "--format=markdown", "-v:q", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -4002,7 +4002,7 @@ public partial class CommandExecutionTests
         Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
-            "System.Text.Json", "--markdown", "-v:q", "--tips", "q");
+            "System.Text.Json", "--format=markdown", "-v:q", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);

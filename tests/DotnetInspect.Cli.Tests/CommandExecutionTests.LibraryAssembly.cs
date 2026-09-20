@@ -240,7 +240,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains("Selection matches 2 sections", error);
-        Assert.Contains("--table, --tsv, and --jsonl display one section at a time", error);
+        Assert.Contains("--format table, --format tsv, and --format jsonl display one section at a time", error);
     }
 
     [Fact]
@@ -454,7 +454,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             SectionNames.References,
-            "--json",
+            "--format=json",
             "--tips",
             "q");
         Assert.Equal(0, baseline.Exit);
@@ -487,10 +487,10 @@ public partial class CommandExecutionTests
             "q",
         ];
         var markdown = await RunAppAsync(args);
-        var table = await RunAppAsync([.. args, "--table"]);
-        var tsv = await RunAppAsync([.. args, "--tsv", "--no-headers"]);
-        var jsonl = await RunAppAsync([.. args, "--jsonl"]);
-        var json = await RunAppAsync([.. args, "--json"]);
+        var table = await RunAppAsync([.. args, "--format=table"]);
+        var tsv = await RunAppAsync([.. args, "--format=tsv", "--no-headers"]);
+        var jsonl = await RunAppAsync([.. args, "--format=jsonl"]);
+        var json = await RunAppAsync([.. args, "--format=json"]);
         var aliasJson = await RunAppAsync(
             "library",
             "System.Text.Json",
@@ -498,7 +498,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--tail",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
         var count = await RunAppAsync([.. args, "--count"]);
@@ -563,7 +563,7 @@ public partial class CommandExecutionTests
             SectionNames.References,
             "--rows",
             "999..1000",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -595,7 +595,7 @@ public partial class CommandExecutionTests
                 "net10.0",
                 "-S",
                 SectionNames.References,
-                "--json",
+                "--format=json",
                 "--tips",
                 "q",
             ];
@@ -641,7 +641,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             SectionNames.References,
-            "--table",
+            "--format=table",
             "--lines",
             "-n",
             "1",
@@ -670,7 +670,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--lines",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -1241,10 +1241,10 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category | --format markdown, --format plaintext |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | --format markdown, --format plaintext, --format json, --format table, --format tsv, --format jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1268,13 +1268,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category | --format markdown, --format plaintext |",
             output);
         Assert.Contains(
-            "| Reference Hierarchy | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree, --mermaid |",
+            "| Reference Hierarchy | section | --format markdown, --format plaintext, --format json, --format table, --format tsv, --format jsonl, --tree, --format mermaid |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | --format markdown, --format plaintext, --format json, --format table, --format tsv, --format jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1292,7 +1292,7 @@ public partial class CommandExecutionTests
             "-D",
             "reference hierarchy",
             "--details",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -1310,14 +1310,14 @@ public partial class CommandExecutionTests
             row.GetProperty("kind").GetString());
         Assert.Equal(
             [
-                "--markdown",
-                "--plaintext",
-                "--json",
-                "--table",
-                "--tsv",
-                "--jsonl",
+                "--format markdown",
+                "--format plaintext",
+                "--format json",
+                "--format table",
+                "--format tsv",
+                "--format jsonl",
                 "--tree",
-                "--mermaid",
+                "--format mermaid",
             ],
             row.GetProperty("formats")
                 .EnumerateArray()
@@ -1401,7 +1401,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             SectionNames.References,
-            "--mermaid",
+            "--format=mermaid",
             "--tips",
             "q");
         var hierarchy = await RunAppAsync(
@@ -1409,7 +1409,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             SectionNames.ReferenceHierarchy,
-            "--mermaid",
+            "--format=mermaid",
             "--depth",
             "1",
             "--tips",
@@ -1420,7 +1420,7 @@ public partial class CommandExecutionTests
             "-S",
             SectionNames.References,
             "--count",
-            "--mermaid",
+            "--format=mermaid",
             "--tips",
             "q");
 
@@ -1615,7 +1615,7 @@ public partial class CommandExecutionTests
                 rootPath,
                 "-S",
                 SectionNames.ReferenceHierarchy,
-                "--json",
+                "--format=json",
                 "--tips",
                 "q");
 
@@ -1694,12 +1694,12 @@ public partial class CommandExecutionTests
                 rootPath,
                 "-S",
                 SectionNames.ReferenceHierarchy,
-                "--tsv",
+                "--format=tsv",
                 "--columns",
                 "Target,Depth,Disposition",
                 "--rows",
                 "1..2",
-                "--out",
+                "--output",
                 outputPath,
                 "--tips",
                 "q");
@@ -2120,7 +2120,7 @@ public partial class CommandExecutionTests
         // PDB. SourceLink members stay behind their domain door, never in the flat base catalog.
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json", "-D", "--effective",
-            "--table", "--tips", "q");
+            "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Tip:", error);
@@ -2132,7 +2132,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("@Hidden", output);
 
         var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "@SourceLink", "--table", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "-D", "@SourceLink", "--format=table", "--tips", "q");
 
         Assert.Equal(0, sourceExit);
         Assert.DoesNotContain("Tip:", sourceError);
@@ -2154,7 +2154,7 @@ public partial class CommandExecutionTests
             "library",
             typeof(EmbeddedSourceFixture).Assembly.Location,
             "-D",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -2316,7 +2316,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error);
-        // Tight markdown columns (rich diagnostics moved to nested --json).
+        // Tight markdown columns (rich diagnostics moved to nested --format json).
         Assert.Contains("| Member | column |", output);
         Assert.Contains("| Evidence | column |", output);
         Assert.Contains("| Allocation | column |", output);
@@ -2349,7 +2349,7 @@ public partial class CommandExecutionTests
             SectionNames.PerformanceStrings,
             "--triage-shape",
             AnalysisFindings.StringMaterializationShape,
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -2631,7 +2631,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json",
-            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--format=tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2673,7 +2673,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Metadata: H*", "--json", "--tips", "q");
+            "-S", "Metadata: H*", "--format=json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -2699,7 +2699,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
                 "--extract-resources", outputPath,
-                "--json",
+                "--format=json",
                 "--tips", "q");
 
             Assert.Equal(1, exit);
@@ -2732,7 +2732,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "@Surface", "--table");
+            "library", "System.Text.Json", "-D", "@Surface", "--format=table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
@@ -2749,7 +2749,7 @@ public partial class CommandExecutionTests
             Assert.Empty(SwitchScanner.Scan(peReader));
 
         var (exit, output, error) = await RunAppAsync(
-            "library", assemblyPath, "-D", "@Surface", "--table");
+            "library", assemblyPath, "-D", "@Surface", "--format=table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
@@ -2761,7 +2761,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverAuditCategory_ListsAuditWorkflowSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "@Audit", "--table");
+            "library", "System.Text.Json", "-D", "@Audit", "--format=table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Signals", output);
@@ -3085,7 +3085,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Microsoft.Extensions.AI", "-D", "@Integrations",
-            "--effective", "--table");
+            "--effective", "--format=table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Integrations  section", output);
@@ -3793,7 +3793,7 @@ public partial class CommandExecutionTests
             typeof(object).Assembly.Location,
             "-S",
             "Signals",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("\"references\":", output);
@@ -3937,10 +3937,10 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--tree")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=plaintext")]
     public async Task LibraryCommand_TfmAll_RejectsNonDocumentOutputBeforePackageAcquisition(string option)
     {
         var missingPackagePath = Path.Combine(
@@ -4035,7 +4035,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath, "--tfm", "all",
-            "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+            "-S", SectionNames.LibraryInfo, "--format=tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -4050,7 +4050,7 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json", "--package", missingPackagePath,
-            "--tfm", "all", "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+            "--tfm", "all", "-S", SectionNames.LibraryInfo, "--format=tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
@@ -4068,7 +4068,7 @@ public partial class CommandExecutionTests
                 "-S", SectionNames.LibraryInfo, "--tips", "q");
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
-                "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
+                "-S", SectionNames.LibraryInfo, "--format=json", "--tips", "q");
 
             Assert.Equal(0, markdownExit);
             Assert.Contains("## Libraries", markdownOutput);
@@ -4108,7 +4108,7 @@ public partial class CommandExecutionTests
             ZipFile.CreateFromDirectory(content, emptyPackagePath);
             var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async Methods", "--markdown", "--tips", "q");
+                "-S", "Async Methods", "--format=markdown", "--tips", "q");
             Assert.Equal(1, emptyExit);
             Assert.Empty(emptyOutput);
             Assert.Equal(
@@ -4117,7 +4117,7 @@ public partial class CommandExecutionTests
 
             var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async*", "--markdown", "--tips", "q");
+                "-S", "Async*", "--format=markdown", "--tips", "q");
             Assert.Equal(0, wildcardExit);
             Assert.Contains("## Libraries", wildcardOutput);
             Assert.Equal(
@@ -4126,7 +4126,7 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--markdown", "--tips", "q");
+                "-S", "Async Methods", "--format=markdown", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Libraries", output);
@@ -4150,7 +4150,7 @@ public partial class CommandExecutionTests
 
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--json", "--tips", "q");
+                "-S", "Async Methods", "--format=json", "--tips", "q");
 
             Assert.Equal(0, jsonExit);
             using (var document = JsonDocument.Parse(jsonOutput))
@@ -4164,7 +4164,7 @@ public partial class CommandExecutionTests
                 "library", TestAssemblyPath, "-S", "Async Methods", "--count", "--tips", "q");
             var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--count", "--tsv", "--tips", "q");
+                "-S", "Async Methods", "--count", "--format=tsv", "--tips", "q");
             var (multiTreeCountExit, multiTreeCountOutput, multiTreeCountError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
                 "-S", "Async Methods", "--count", "--tree", "--tips", "q");
@@ -4555,7 +4555,7 @@ public partial class CommandExecutionTests
     public async Task Library_TopLeverageSection_WithTopFilter_RendersSingleSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Top Leverage", "--top", "1", "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-S", "Top Leverage", "--top", "1", "--format=tsv", "--tips", "q");
 
         Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
         Assert.Empty(error);

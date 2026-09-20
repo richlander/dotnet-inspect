@@ -1633,7 +1633,7 @@ public static partial class WorkspaceCommand
             return ReplacementOptionError(options);
         }
         if (options.EnvelopeOutput)
-            return "--envelope currently requires --replace-package and --json.";
+            return "--envelope currently requires --replace-package.";
 
         if (options.RootRequest is not null
             && (options.Packages.Length != 0 || options.Tfm is not null))

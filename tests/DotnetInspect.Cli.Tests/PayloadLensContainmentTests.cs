@@ -16,7 +16,7 @@ namespace DotnetInspect.Cli.Tests;
 ///
 /// README and <c>--content</c> payloads are visually encoded when written to
 /// stdout. Callers that need exact bytes make that intent explicit with
-/// <c>--out</c>. The contract lives in <c>docs/design/output-shapes.md</c>, and
+/// <c>--output</c>. The contract lives in <c>docs/design/output-shapes.md</c>, and
 /// this is the gate it names:
 ///
 /// <list type="number">
@@ -79,7 +79,7 @@ public class PayloadLensContainmentTests : IDisposable
     [Fact]
     public void ChildCli_UsesThePerTestCache()
     {
-        var (output, error) = RunCliCore(["cache", "--json", "-T:q"]);
+        var (output, error) = RunCliCore(["cache", "--format=json", "-T:q"]);
 
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
@@ -130,7 +130,7 @@ public class PayloadLensContainmentTests : IDisposable
             "README.export.md");
 
         var (output, error) = RunCli(
-            [package.Path, ..ReadmeLens, "--out", outputPath]);
+            [package.Path, ..ReadmeLens, "--output", outputPath]);
 
         Assert.Empty(output);
         Assert.Empty(error);
@@ -151,7 +151,7 @@ public class PayloadLensContainmentTests : IDisposable
                 ..ReadmeLens,
                 "--body",
                 "--bare",
-                "--out",
+                "--output",
                 outputPath,
             ]);
 
@@ -175,7 +175,7 @@ public class PayloadLensContainmentTests : IDisposable
                 "--path",
                 "README.md",
                 "--body",
-                "--out",
+                "--output",
                 outputPath,
             ]);
 
@@ -227,7 +227,7 @@ public class PayloadLensContainmentTests : IDisposable
     /// </summary>
     /// <remarks>
     /// This is the contrast that shows the rule is about framing rather than
-    /// about the flag: <c>--jsonl</c> wraps the identical content in a
+    /// about the flag: <c>--format jsonl</c> wraps the identical content in a
     /// structure a caller parses, so the content becomes JSON-escaped text and
     /// <c>U+202E</c> arrives as the six characters <c>\u202E</c>.
     /// </remarks>
@@ -236,7 +236,7 @@ public class PayloadLensContainmentTests : IDisposable
     {
         using var package = HostilePackage.Create();
 
-        var (output, _) = RunCli([package.Path, ..ReadmeLens, "--jsonl"]);
+        var (output, _) = RunCli([package.Path, ..ReadmeLens, "--format=jsonl"]);
 
         HostileOutputAssert.NoRenderingHazard(output, "readme-jsonl");
         HostileOutputAssert.MarkersRendered(output, "readme-jsonl", "MARKERBIDI", "MARKERESC", "MARKERLS");
@@ -283,9 +283,9 @@ public class PayloadLensContainmentTests : IDisposable
 
     [Theory]
     [Trait("Speed", "Slow")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     public void MultiPackageFileRows_ContainPackageAndPathMetadata(string format)
     {
         using var first = HostilePackage.Create();
@@ -311,7 +311,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var second = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [first.Path, second.Path, "-S", "Package Info", "--table", "--tips", "q"]);
+            [first.Path, second.Path, "-S", "Package Info", "--format=table", "--tips", "q"]);
 
         HostileOutputAssert.MarkersRendered(
             output,
@@ -327,7 +327,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [package.Path, "--path", "ENTRY*", "--jsonl", "--tips", "q"]);
+            [package.Path, "--path", "ENTRY*", "--format=jsonl", "--tips", "q"]);
 
         HostileOutputAssert.MarkersRendered(
             output,
@@ -343,7 +343,7 @@ public class PayloadLensContainmentTests : IDisposable
         using var package = HostilePackage.Create();
 
         var (output, _) = RunCli(
-            [package.Path, "--path", "README.md", "--content", "--jsonl", "--tips", "q"]);
+            [package.Path, "--path", "README.md", "--content", "--format=jsonl", "--tips", "q"]);
 
         HostileOutputAssert.MarkersRendered(
             output,

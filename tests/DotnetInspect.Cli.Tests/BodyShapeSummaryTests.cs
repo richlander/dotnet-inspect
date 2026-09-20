@@ -95,7 +95,7 @@ public sealed class BodyShapeSummaryTests
     [Fact]
     public async Task LibrarySummary_PreservesCountsAcrossProjectionAndRowWindow()
     {
-        var complete = await Library("--json");
+        var complete = await Library("--format=json");
         Assert.Equal(0, complete.ExitCode);
         using var document = JsonDocument.Parse(complete.Output);
         var groups = document.RootElement.GetProperty("body_shape_summary");
@@ -104,7 +104,7 @@ public sealed class BodyShapeSummaryTests
         var first = groups[0];
         Assert.True(first.GetProperty("count").GetInt32() > 0);
 
-        var windowedDocument = await Library("--rows", "2..2", "--json");
+        var windowedDocument = await Library("--rows", "2..2", "--format=json");
         Assert.Equal(0, windowedDocument.ExitCode);
         using var windowed = JsonDocument.Parse(windowedDocument.Output);
         var selectedGroup = Assert.Single(
@@ -114,7 +114,7 @@ public sealed class BodyShapeSummaryTests
         Assert.Equal(groups[1].GetProperty("count").GetInt32(),
             selectedGroup.GetProperty("count").GetInt32());
 
-        var projected = await Library("--columns", "Match;Count", "--rows", "1", "--jsonl");
+        var projected = await Library("--columns", "Match;Count", "--rows", "1", "--format=jsonl");
         Assert.Equal(0, projected.ExitCode);
         using var row = JsonDocument.Parse(projected.Output);
         Assert.Equal(first.GetProperty("match").GetString(), row.RootElement.GetProperty("match").GetString());
@@ -131,7 +131,7 @@ public sealed class BodyShapeSummaryTests
     {
         var result = await Run(
             "library", FixturePath, "-S", "Body Shapes,Body Shape Summary",
-            "--where", "Kind=ObjectCreationExpression", "--json");
+            "--where", "Kind=ObjectCreationExpression", "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var document = JsonDocument.Parse(result.Output);
         var occurrences = document.RootElement.GetProperty("body_shapes");
@@ -150,7 +150,7 @@ public sealed class BodyShapeSummaryTests
     {
         var result = await Run(
             "library", FixturePath, "-S", "Body Shapes,Body Shape Summary",
-            "--where", "Kind=ArrayCreationExpression", "--where", "Shape=small-array", "--json");
+            "--where", "Kind=ArrayCreationExpression", "--where", "Shape=small-array", "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var document = JsonDocument.Parse(result.Output);
         var occurrences = document.RootElement.GetProperty("body_shapes");
@@ -182,7 +182,7 @@ public sealed class BodyShapeSummaryTests
     public async Task SummaryQueryDiscovery_UsesExistingKindContractWithoutInspection(string command)
     {
         var result = await Run(command, "--package", "/missing/summary.nupkg",
-            "-Q", SectionNames.BodyShapeSummary, "--json");
+            "-Q", SectionNames.BodyShapeSummary, "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var document = JsonDocument.Parse(result.Output);
         var section = Assert.Single(document.RootElement.GetProperty("sections").EnumerateArray());

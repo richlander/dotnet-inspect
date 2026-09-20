@@ -68,7 +68,7 @@ Three projections share one classification pass:
 - **Facts** — the structured table over the same Research overlay (member,
   IL offset, C# line when available, anchor, category, id, detail,
   conditionality), the agent-facing dual. `ExplicitOnly`: never auto-renders,
-  requested via `-S "Facts"` / `--tsv`.
+  requested via `-S "Facts"` / `--format tsv`.
 
 Whole-assembly overlays stay explicit-only while their precision and usefulness
 settle:

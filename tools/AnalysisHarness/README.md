@@ -594,7 +594,7 @@ only `untrusted-actionable` rows and describes them as pool-churn-on-exception c
 permanent memory leaks or memory-corruption findings:
 
 ```bash
-dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
+dotnet-inspect library MyLib.dll -S "Resource Triage" --format jsonl
 ```
 
 A 2026-07-17 run over the .NET 11 daily shared framework (314 assemblies) classified

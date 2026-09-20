@@ -103,9 +103,11 @@ public static class UtilityCommandDefinitions
     {
         var cacheCommand = new Command("cache", "Manage the dotnet-inspect cache");
 
-        cacheCommand.Options.Add(opts.Json);
-        cacheCommand.Options.Add(opts.Markdown);
-        cacheCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            cacheCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         opts.AddTableOptionsTo(cacheCommand);
         opts.AddOutputOptionsTo(cacheCommand, supportsRowWindows: false);
         CliOptionValueValidation.RegisterPresenceOptions(
@@ -174,7 +176,7 @@ public static class UtilityCommandDefinitions
 
         // Subcommand: list (supports the standard output formats)
         var listCommand = new Command("list", "List available focused skills");
-        listCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(listCommand);
         opts.AddTableOptionsTo(listCommand);
         opts.AddLineSelectionOptionsTo(
             listCommand,
@@ -226,9 +228,12 @@ public static class UtilityCommandDefinitions
             Arity = ArgumentArity.ZeroOrOne,
         };
         demoCommand.Arguments.Add(scenarioArg);
-        demoCommand.Options.Add(opts.Json);
-        demoCommand.Options.Add(opts.Markdown);
-        demoCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            demoCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
         demoCommand.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(demoCommand);
         demoCommand.Options.Add(limitOption);
@@ -241,9 +246,11 @@ public static class UtilityCommandDefinitions
         opts.RegisterLineSelectionFallback(demoCommand, limitOption);
 
         var listCommand = new Command("list", "List product home demos");
-        listCommand.Options.Add(opts.Json);
-        listCommand.Options.Add(opts.Markdown);
-        listCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            listCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         opts.AddTableOptionsTo(listCommand);
         listCommand.Options.Add(limitOption);
         listCommand.Options.Add(rowsOption);
@@ -330,7 +337,7 @@ public static class UtilityCommandDefinitions
 
         listCommand.SetAction(parseResult =>
         {
-            // Parent-bound flags (e.g. `demo --markdown --mermaid list`) must use the
+            // Parent-bound flags (e.g. `demo --format markdown --mermaid list`) must use the
             // same mermaid gates as the root handler — list previously dropped them.
             if (RejectInvalidDemoMermaidFlags(opts, parseResult) is { } mermaidExit)
                 return mermaidExit;
@@ -344,7 +351,7 @@ public static class UtilityCommandDefinitions
 
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
-            var mermaid = parseResult.GetValue(opts.Mermaid);
+            var mermaid = opts.IsMermaidOutput(parseResult);
             return DemoCommand.ExecuteList(
                 format,
                 noHeader,
@@ -362,7 +369,7 @@ public static class UtilityCommandDefinitions
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
             var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
-            var mermaid = parseResult.GetValue(opts.Mermaid);
+            var mermaid = opts.IsMermaidOutput(parseResult);
             var scenario = parseResult.GetValue(scenarioArg);
             if (IsDemoListMode(scenario))
             {
@@ -429,13 +436,11 @@ public static class UtilityCommandDefinitions
     /// </summary>
     private static int? RejectInvalidDemoMermaidFlags(SharedOptions opts, ParseResult parseResult)
     {
-        var mermaid = parseResult.GetValue(opts.Mermaid);
-        var markdown = parseResult.GetValue(opts.Markdown);
-        var json = parseResult.GetValue(opts.Json);
-        var plainText = parseResult.GetValue(opts.PlainText);
-        var tabular = parseResult.GetValue(opts.Table)
-            || parseResult.GetValue(opts.Tsv)
-            || parseResult.GetValue(opts.Jsonl);
+        var mermaid = opts.IsMermaidOutput(parseResult);
+        var markdown = opts.ResolveFormat(parseResult) == OutputFormat.Markdown;
+        var json = opts.IsJsonOutput(parseResult);
+        var plainText = opts.IsPlainTextOutput(parseResult);
+        var tabular = opts.IsTableFlagExplicitlySet(parseResult);
         if (!DemoCommand.TryValidateMermaidCombinations(
                 mermaid, markdown, json, plainText, tabular, out var comboError))
         {

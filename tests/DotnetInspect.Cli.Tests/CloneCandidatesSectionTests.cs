@@ -106,7 +106,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "-n",
             "1",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -155,7 +155,7 @@ public sealed class CloneCandidatesSectionTests
             member,
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -196,7 +196,7 @@ public sealed class CloneCandidatesSectionTests
             member,
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -232,7 +232,7 @@ public sealed class CloneCandidatesSectionTests
             member,
             "-S",
             SectionNames.CloneCandidates,
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, result.ExitCode);
         using JsonDocument json = JsonDocument.Parse(result.Output);
@@ -279,7 +279,7 @@ public sealed class CloneCandidatesSectionTests
             "Raise",
             "-S",
             SectionCategoryNames.Member,
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(
@@ -300,7 +300,7 @@ public sealed class CloneCandidatesSectionTests
             "Tag",
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -354,7 +354,7 @@ public sealed class CloneCandidatesSectionTests
             "Breadth=Everything",
             "-n",
             "1",
-            "--table",
+            "--format=table",
             "-T",
             "q");
 
@@ -380,7 +380,7 @@ public sealed class CloneCandidatesSectionTests
             "Rank;Score",
             "-n",
             "2",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -399,12 +399,12 @@ public sealed class CloneCandidatesSectionTests
     }
 
     [Theory]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
     public async Task FieldsAreRejectedAcrossOutputFormats(string format)
     {
         var result = await Run(
@@ -427,12 +427,12 @@ public sealed class CloneCandidatesSectionTests
     }
 
     [Theory]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
     public async Task BareFieldsAreRejectedAcrossOutputFormats(string format)
     {
         var result = await Run(
@@ -463,7 +463,7 @@ public sealed class CloneCandidatesSectionTests
             "-S",
             SectionNames.CloneCandidates,
             "--fields",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -502,7 +502,7 @@ public sealed class CloneCandidatesSectionTests
                 "-S",
                 SectionNames.CloneCandidates,
                 "--fields",
-                "--json",
+                "--format=json",
                 "-T",
                 "q",
             ]);
@@ -531,7 +531,7 @@ public sealed class CloneCandidatesSectionTests
                 "-S",
                 SectionNames.CloneCandidates,
                 "--fields",
-                "--json",
+                "--format=json",
                 "-T",
                 "q");
 
@@ -564,7 +564,7 @@ public sealed class CloneCandidatesSectionTests
                 "-n",
                 "1",
                 "--tail",
-                "--json",
+                "--format=json",
                 "-T",
                 "q");
             var delegated = await Run(
@@ -577,7 +577,7 @@ public sealed class CloneCandidatesSectionTests
                 "-n",
                 "1",
                 "--tail",
-                "--json",
+                "--format=json",
                 "-T",
                 "q");
             var tailCount = await Run(
@@ -591,7 +591,7 @@ public sealed class CloneCandidatesSectionTests
                 "1",
                 "--tail",
                 "--count",
-                "--json",
+                "--format=json",
                 "-T",
                 "q");
             var windowCount = await Run(
@@ -672,7 +672,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--fields",
             field,
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -778,8 +778,8 @@ public sealed class CloneCandidatesSectionTests
     }
 
     [Theory]
-    [InlineData("--tsv", 3)]
-    [InlineData("--jsonl", 2)]
+    [InlineData("--format=tsv", 3)]
+    [InlineData("--format=jsonl", 2)]
     public async Task Type_StreamFormatsEmitOnlyWindowedCandidateRows(
         string format,
         int expectedLines)
@@ -821,7 +821,7 @@ public sealed class CloneCandidatesSectionTests
             FixturePath,
             "-S",
             SectionNames.CloneCandidates,
-            "--json",
+            "--format=json",
             "-T",
             "q");
         using var completeJson = JsonDocument.Parse(complete.Output);
@@ -836,11 +836,11 @@ public sealed class CloneCandidatesSectionTests
 
         foreach (string format in new[]
         {
-            "--markdown",
-            "--table",
-            "--tsv",
-            "--jsonl",
-            "--json",
+            "--format=markdown",
+            "--format=table",
+            "--format=tsv",
+            "--format=jsonl",
+            "--format=json",
         })
         {
             var selected = await Run(
@@ -876,7 +876,7 @@ public sealed class CloneCandidatesSectionTests
             "-n",
             "1",
             "--tail",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -921,7 +921,7 @@ public sealed class CloneCandidatesSectionTests
                 "-n",
                 "1",
                 "--count",
-                "--json",
+                "--format=json",
                 "-T",
                 "q",
             ]);
@@ -964,7 +964,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--rows",
             "999..1000",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -993,7 +993,7 @@ public sealed class CloneCandidatesSectionTests
             "-n",
             "1",
             "--lines",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 
@@ -1021,7 +1021,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--rows",
             "1",
-            "--json",
+            "--format=json",
             "-T",
             "q");
 

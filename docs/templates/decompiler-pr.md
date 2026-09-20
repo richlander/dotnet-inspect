@@ -217,11 +217,11 @@ documents:
 ```bash
 # At the exact base revision
 dotnet-inspect member {Type} {MethodSelector} {scope} \
-  -S "Annotated Source Document" --json > /tmp/before.json
+  -S "Annotated Source Document" --format json > /tmp/before.json
 
 # At the exact head revision
 dotnet-inspect member {Type} {MethodSelector} {scope} \
-  -S "Annotated Source Document" --json > /tmp/after.json
+  -S "Annotated Source Document" --format json > /tmp/after.json
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/before.json /tmp/after.json

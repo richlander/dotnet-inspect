@@ -33,9 +33,9 @@ internal static class MemberSourcePartsOutput
         if (options.Tabular && !options.Jsonl)
             return "Authored member parts use Markdown, plaintext, or JSON rather than table/TSV lowering.";
         if (options.NoHeader && options.SourcePart is null && !options.JsonOutput)
-            return "Part catalogs do not support --no-headers; use --json or --print --part.";
+            return "Part catalogs do not support --no-headers; use --format json or --print --part.";
         if (options.SourcePart is null && (options.Tabular || options.Jsonl || options.JsonArray || options.Rows is not null))
-            return "--source-parts is a complete member document; use Markdown, plaintext, or --json, or select --print --part.";
+            return "--source-parts is a complete member document; use Markdown, plaintext, or --format json, or select --print --part.";
         return null;
     }
 

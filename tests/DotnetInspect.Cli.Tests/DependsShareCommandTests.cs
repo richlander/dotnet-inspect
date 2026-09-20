@@ -21,7 +21,7 @@ public partial class CommandExecutionTests
             "Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4",
             "--tfm",
             "net8.0",
-            "--json",
+            "--format=json",
             "--share",
             "url",
             "--tips",
@@ -396,13 +396,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--markdown")]
+    [InlineData("--format=json")]
+    [InlineData("--format=markdown")]
     [InlineData("--mermaid")]
-    [InlineData("--plaintext")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     [InlineData("--tree")]
     [InlineData("--no-headers")]
     [InlineData("--count")]

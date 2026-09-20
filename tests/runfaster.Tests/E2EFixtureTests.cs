@@ -1992,7 +1992,7 @@ public class E2EFixtureTests
             "Performance:*",
             "--top",
             "1",
-            "--jsonl",
+            "--format=jsonl",
             "--tips",
             "q");
         Assert.Equal(0, produced.ExitCode);
@@ -2056,7 +2056,7 @@ public class E2EFixtureTests
             "runfaster.Tests.E2EFixtureTests",
             "-S",
             "Performance Triage",
-            "--jsonl");
+            "--format=jsonl");
         Assert.Equal(0, produced.ExitCode);
         Assert.Empty(produced.Error);
         string[] rows = produced.Output.Split(
@@ -2123,7 +2123,7 @@ public class E2EFixtureTests
             "runfaster.Tests.E2EFixtureTests.FlattenedScanFixture",
             "-S",
             "Performance Triage",
-            "--jsonl");
+            "--format=jsonl");
 
         Assert.Equal(0, produced.ExitCode);
         Assert.Empty(produced.Error);
@@ -2191,7 +2191,7 @@ public class E2EFixtureTests
             "runfaster.Tests.E2EFixtureTests.EvidenceMethodAsyncFixture",
             "-S",
             "Performance Triage",
-            "--jsonl");
+            "--format=jsonl");
         Assert.Equal(0, produced.ExitCode);
         Assert.Empty(produced.Error);
         using var producedRow =

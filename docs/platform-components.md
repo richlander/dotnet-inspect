@@ -49,7 +49,7 @@ sources should participate.
 
 ```bash
 dnx dotnet-inspect -y -- type JsonSerializer \
-  --package System.Text.Json@10.0.0 --markdown -v:q
+  --package System.Text.Json@10.0.0 --format markdown -v:q
 ```
 
 The compact output identifies the selected package, version, and TFM. A pinned
@@ -63,7 +63,7 @@ is not guaranteed to include XML documentation, an embedded PDB, or SourceLink.
 
 ```bash
 dnx dotnet-inspect -y -- type JsonSerializer \
-  --platform System.Text.Json --markdown -v:q
+  --platform System.Text.Json --format markdown -v:q
 ```
 
 Here `--platform` takes a **library name**, unlike the bare search-scope flag on
@@ -74,7 +74,7 @@ assemblies for implementations. Source availability depends on the selected
 assembly and matching symbols, not simply on whether its scope is a package or
 platform.
 
-Single-type output uses a tree by default. Add `--markdown` for section-based
+Single-type output uses a tree by default. Add `--format markdown` for section-based
 output; the tree renderer accepts minimal, normal, and detailed verbosity,
 while compact `-v:q` requires the Markdown view.
 
@@ -102,7 +102,7 @@ Markdown view:
 
 ```bash
 dnx dotnet-inspect -y -- type JsonSerializer \
-  --platform System.Text.Json --markdown -v:n
+  --platform System.Text.Json --format markdown -v:n
 ```
 
 Package/local-library documentation is read from XML beside the assembly.
@@ -133,7 +133,7 @@ Discover the current type or member section catalog with `-D`:
 
 ```bash
 dnx dotnet-inspect -y -- type JsonSerializer \
-  --platform System.Text.Json --markdown -D
+  --platform System.Text.Json --format markdown -D
 ```
 
 Source-specific selections include type `Source Files` and member

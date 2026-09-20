@@ -11,7 +11,7 @@ dotnet-inspect type "List<T>" --platform System.Collections --tree
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect member "List<T>" --platform System.Collections --json | jq '.interfaces'
+dotnet-inspect member "List<T>" --platform System.Collections --format json | jq '.interfaces'
 ```
 
 ## Discovery Path (Learning)
@@ -28,7 +28,7 @@ dotnet-inspect find "List*" --framework runtime
 dotnet-inspect type "List<T>" --platform System.Collections
 
 # Or for just interfaces in JSON:
-dotnet-inspect member "List<T>" --platform System.Collections --json | jq '.interfaces'
+dotnet-inspect member "List<T>" --platform System.Collections --format json | jq '.interfaces'
 ```
 
 ## Expected Output
@@ -41,5 +41,5 @@ Should show: IList\<T\>, ICollection\<T\>, IEnumerable\<T\>, IReadOnlyList\<T\>,
 - Use C# generic syntax: `List<T>`, `Dictionary<TKey, TValue>` (tool converts to metadata format)
 - List\<T\> is in `System.Collections` assembly (not System.Collections.Generic package)
 - Use `--platform` for SDK assemblies (no download needed)
-- Use `--interfaces` flag or `--json` to see interface information
+- Use `--interfaces` flag or `--format json` to see interface information
 - The `type` command shows interfaces by default in shape view

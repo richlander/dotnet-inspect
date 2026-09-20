@@ -664,7 +664,7 @@ or format lowering.
 $ dotnet-inspect workspace \
     --register-package-prefix Microsoft.Extensions. \
     --register-ecosystem aspire \
-    -n 1 --tail --table
+    -n 1 --tail --format table
 Kind       Location          State
 Ecosystem  ecosystem.aspire  Registered
 ```
@@ -683,7 +683,7 @@ failure withholds the complete inventory document:
 $ dotnet-inspect workspace \
     --register-package-prefix Microsoft.Extensions. \
     --register-ecosystem aspire \
-    --rows 2..3 --json
+    --rows 2..3 --format json
 Error: Workspace inventory row selection stage 1 requires entry 3, but only 2 entries are available.
 ```
 
@@ -711,7 +711,7 @@ $ dotnet-inspect graph integrations \
     --package Microsoft.Extensions.Http@10.0.0 \
     --tfm net10.0 \
     --relationship integration.observed \
-    -n 1 --tail --table
+    -n 1 --tail --format table
 ```
 
 What to notice: `-n 1 --tail` selects the final admitted logical edge. It does
@@ -728,7 +728,7 @@ failure withholds the complete graph document:
 $ dotnet-inspect graph integrations \
     --package Microsoft.Extensions.Logging@10.0.0 \
     --tfm net10.0 \
-    --rows 2..3 --json
+    --rows 2..3 --format json
 Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges are available.
 ```
 
@@ -745,7 +745,7 @@ diagnostics remain visible and preserve their nonzero exit.
 $ dotnet-inspect graph libraries \
     --library ./Consumer.dll \
     --library ./Provider.dll \
-    -n 1 --tail --jsonl
+    -n 1 --tail --format jsonl
 ```
 
 What to notice: the final physical call site is selected before JSONL
@@ -778,7 +778,7 @@ Head/Tail or strict Window stages select from it.
 
 ```console
 $ dotnet-inspect type --platform System.Text.Json \
-    -n 1 --tail --json
+    -n 1 --tail --format json
 {
   ...
   "public_type_count": 1,
@@ -804,7 +804,7 @@ failure withholds every output shape:
 
 ```console
 $ dotnet-inspect type --platform System.Text.Json \
-    --rows 92..93 --json
+    --rows 92..93 --format json
 Error: Type row selection stage 1 requires row 93, but only 91 rows are available.
 ```
 
@@ -842,7 +842,7 @@ failure withholds every output shape:
 
 ```console
 $ dotnet-inspect package Markout@0.35.2 \
-    --path "skills/*/SKILL.md" --rows 5..6 --json
+    --path "skills/*/SKILL.md" --rows 5..6 --format json
 Error: Package file row selection stage 1 requires row 6, but only 5 rows are available.
 ```
 
@@ -879,7 +879,7 @@ One strict Window failure withholds every output shape:
 
 ```console
 $ dotnet-inspect package Newtonsoft.Json@13.0.4 \
-    --layout --rows 20..21 --json
+    --layout --rows 20..21 --format json
 Error: Package layout file row selection stage 1 requires row 21, but only 20 layout file rows are available.
 ```
 
@@ -898,7 +898,7 @@ Head/Tail or strict Window stages select from that completed vector.
 
 ```console
 $ dotnet-inspect package Newtonsoft.Json@13.0.4 \
-    --tfms -n 1 --tail --json
+    --tfms -n 1 --tail --format json
 [
   {
     "tfm": "net20"
@@ -917,7 +917,7 @@ withholds every output shape:
 
 ```console
 $ dotnet-inspect package Newtonsoft.Json@13.0.4 \
-    --tfms --rows 8..9 --json
+    --tfms --rows 8..9 --format json
 Error: Package TFM row selection stage 1 requires row 9, but only 8 TFM rows are available.
 ```
 
@@ -945,7 +945,7 @@ does not introduce another score or retrieval limit.
 
 ```console
 $ dotnet-inspect match Sample.Encode --similar \
-    --library ./app.dll --top 2 --json
+    --library ./app.dll --top 2 --format json
 {
   ...
   "row_selection": {
@@ -975,7 +975,7 @@ Window after completed retrieval withholds every output shape:
 
 ```console
 $ dotnet-inspect match Sample.Encode --similar \
-    --library ./app.dll --rows 999..999 --json
+    --library ./app.dll --rows 999..999 --format json
 Error: Match candidate row selection stage 1 requires row 999, but only 14 ranked candidates are available.
 ```
 
@@ -998,7 +998,7 @@ Head/Tail or strict Window stages select from that vector.
 
 ```console
 $ dotnet-inspect library System.Text.Json \
-    -S References -n 1 --tail --json
+    -S References -n 1 --tail --format json
 {
   ...
   "assembly_info": {
@@ -1026,7 +1026,7 @@ unavailable strict Window withholds every output shape:
 
 ```console
 $ dotnet-inspect library System.Text.Json \
-    -S References --rows 999..1000 --json
+    -S References --rows 999..1000 --format json
 Error: Library reference row selection stage 1 requires row 1000, but only 6 direct reference rows are available.
 ```
 
@@ -1046,7 +1046,7 @@ declaration applies when a `Breadth` or `Discovery` predicate infers the section
 
 ```console
 $ dotnet-inspect type Cases.Widget --library ./app.dll \
-    -S "Clone Candidates" -n 1 --tail --json
+    -S "Clone Candidates" -n 1 --tail --format json
 {
   ...
   "rows": [
@@ -1084,7 +1084,7 @@ withholds every output shape:
 
 ```console
 $ dotnet-inspect type Cases.Widget --library ./app.dll \
-    -S "Clone Candidates" --rows 999..1000 --json
+    -S "Clone Candidates" --rows 999..1000 --format json
 Error: Clone Candidates row selection stage 1 requires row 1000, but only 14 ranked candidates are available.
 ```
 
@@ -1104,7 +1104,7 @@ the completed vector retains its existing IL-offset order.
 
 ```console
 $ dotnet-inspect member JsonSerializer --package System.Text.Json \
-    Serialize:1 -S Calls -n 1 --tail --json
+    Serialize:1 -S Calls -n 1 --tail --format json
 {
   "calls": [
     {
@@ -1131,7 +1131,7 @@ strict Window withholds every output shape:
 
 ```console
 $ dotnet-inspect member Widget --library ./app.dll \
-    -m Run -S Calls --rows 4..4 --json
+    -m Run -S Calls --rows 4..4 --format json
 Error: Member Calls row selection stage 1 requires call row 4, but only 3 call rows are available.
 ```
 
@@ -1153,7 +1153,7 @@ Evidence Method, and IL Offset.
 $ dotnet-inspect member System.ThrowHelper \
     --platform System.Private.CoreLib --all \
     -m ThrowArgumentNullException:1 -S Callers \
-    -n 1 --tail --json
+    -n 1 --tail --format json
 {
   "callers": [
     {
@@ -1180,7 +1180,7 @@ strict Window withholds every output shape:
 
 ```console
 $ dotnet-inspect member Widget --library ./app.dll \
-    -m Run -S Callers --rows 4..4 --json
+    -m Run -S Callers --rows 4..4 --format json
 Error: Member Callers row selection stage 1 requires caller row 4, but only 3 caller rows are available.
 ```
 
@@ -1220,7 +1220,7 @@ failure withholds every output shape:
 ```console
 $ dotnet-inspect package Newtonsoft.Json@13.0.3 \
     -S "SourceLink: Files" -t JsonReader \
-    --rows 2..3 --json
+    --rows 2..3 --format json
 Error: Package SourceLink file row selection stage 1 requires row 3, but only 2 rows are available.
 ```
 
@@ -1242,7 +1242,7 @@ from the ordered typed vector.
 
 ```console
 $ dotnet-inspect project ./src/DotnetInspect.Cli \
-    -S Skills -n 1 --tail --jsonl
+    -S Skills -n 1 --tail --format jsonl
 {"package":"Markout","version":"0.37.0","path":"skills/markout/SKILL.md",...}
 ```
 
@@ -1260,7 +1260,7 @@ failure withholds every output shape:
 
 ```console
 $ dotnet-inspect project ./src/DotnetInspect.Cli \
-    -S Skills --rows 2..3 --json
+    -S Skills --rows 2..3 --format json
 Error: Project document row selection stage 1 requires row 3, but only 2 rows are available.
 ```
 
@@ -1282,7 +1282,7 @@ line selection remains a presentation operation over that scalar. Scenario
 execution does not support Count.
 
 ```console
-$ dotnet-inspect demo list -n 1 --json
+$ dotnet-inspect demo list -n 1 --format json
 [
   {
     "id": "stj-serializer",
@@ -1298,7 +1298,7 @@ does not clip the JSON text.
 Neighboring ordered case:
 
 ```console
-$ dotnet-inspect demo list -n 2 --rows 2..3 --json
+$ dotnet-inspect demo list -n 2 --rows 2..3 --format json
 Error: Demo row selection stage 2 requires row 3, but only 2 demo rows are available.
 ```
 
@@ -1311,7 +1311,7 @@ of them before count or format lowering; one strict Window failure withholds
 every selected section.
 
 ```console
-$ dotnet-inspect vocabulary -S Accessibility -n 2 --tail --columns ID --tsv
+$ dotnet-inspect vocabulary -S Accessibility -n 2 --tail --columns ID --format tsv
 id
 internal
 private

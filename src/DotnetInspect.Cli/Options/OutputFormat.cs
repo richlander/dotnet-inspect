@@ -78,7 +78,7 @@ public static class OutputFormatResolver
     }
 
     /// <summary>
-    /// Resolves format. Any -v flag implies Markdown. --json implies Json. --markdown implies Markdown.
+    /// Resolves format. An explicit format wins; otherwise any -v flag implies Markdown.
     /// Commands may supply a <paramref name="defaultFormat"/> to override the global default (Markdown).
     /// </summary>
     public static OutputFormat Resolve(
@@ -119,7 +119,7 @@ public static class OutputFormatResolver
     }
 
     /// <summary>
-    /// Returns true when --mermaid is combined with --markdown (embedded mermaid mode).
+    /// Returns true when --mermaid is combined with --format markdown (embedded mermaid mode).
     /// In this mode, the output is still markdown but tree/graph sections render as mermaid code blocks.
     /// </summary>
     public static bool IsEmbeddedMermaid(bool markdownFlag, bool mermaidFlag)
@@ -133,7 +133,7 @@ public static class OutputFormatResolver
     {
         if (tabular && verbosity >= Verbosity.Normal && includeSections == null)
         {
-            CommandError.WriteLine("--table, --tsv, and --jsonl show one table at a time. Use -S <section> to select a section, or --markdown/--json for the full view.");
+            CommandError.WriteLine("--format table, --format tsv, and --format jsonl show one table at a time. Use -S <section> to select a section, or --format markdown or --format json for the full view.");
             return true;
         }
         return false;
@@ -168,11 +168,11 @@ public static class OutputFormatResolver
 
         CommandError.Write($"Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
         CommandError.WriteBlankLine();
-        CommandError.WriteLine("--table, --tsv, and --jsonl display one section at a time.");
+        CommandError.WriteLine("--format table, --format tsv, and --format jsonl display one section at a time.");
         if (includeSections.Any(DotnetInspect.Cli.Sections.PerformanceKinds.Sections.Contains))
-            CommandError.WriteLine("Use -S with a specific section name, -S \"Performance:*\" for the homogeneous performance table family, or --markdown/--json for multi-section output.");
+            CommandError.WriteLine("Use -S with a specific section name, -S \"Performance:*\" for the homogeneous performance table family, or --format markdown or --format json for multi-section output.");
         else
-            CommandError.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
+            CommandError.WriteLine("Use -S with a specific section name, or --format markdown or --format json for multi-section output.");
         return false;
     }
 

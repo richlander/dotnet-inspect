@@ -186,7 +186,7 @@ public static class DiffOptionsParser
                 if (!options.Tabular && !options.NameOnly)
                     tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --tree", "view current type tree"));
                 if (!options.Tabular)
-                    tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --table", "summary statistics"));
+                    tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --format table", "summary statistics"));
             }
         }
 

@@ -1014,7 +1014,7 @@ warnings to stderr when they produce visible C#. Every other run stays silent,
 and the rule is exact — the config is *consumed* precisely when its styling is
 user-visible:
 
-- A metadata projection (`--json`, `--count`, tabular, `--value`/`--urls`) returns
+- A metadata projection (`--format json`, `--count`, tabular, `--value`/`--urls`) returns
   before any source render.
 - A selection that excludes source (`-S Facts`) renders no source.
 - A fidelity-only projection (`-S "Fidelity Causes"`) reads the raised IR and

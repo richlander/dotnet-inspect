@@ -94,7 +94,7 @@ targets, not a promotion signal:
 
 ```bash
 dotnet-inspect library MyLib.dll -S "Performance Triage" \
-  --where "CallerLoop=direct" --jsonl
+  --where "CallerLoop=direct" --format jsonl
 ```
 
 Only resolved `call`, `callvirt`, and `newobj` edges qualify. `ldftn` and
@@ -213,7 +213,7 @@ IL-visible allocation impact:
 ```bash
 dotnet-inspect library MyLib.dll \
   --triage-shape allocation-fanout \
-  --order-by "OncePaths desc" --top 20 --tsv
+  --order-by "OncePaths desc" --top 20 --format tsv
 ```
 
 The fields are deliberately not byte estimates:

@@ -45,7 +45,7 @@ public sealed class PackageChangesCommandTests
             "2026-10-01T00:00:00-07:00",
             "-n",
             "7",
-            "--json",
+            "--format=json",
             "--compact",
             "--verbose",
         ]);
@@ -70,7 +70,7 @@ public sealed class PackageChangesCommandTests
     }
 
     [Theory]
-    [InlineData("--json", "--json")]
+    [InlineData("--format=json", "--format json")]
     [InlineData("-n 1 --head", "--head")]
     [InlineData("-n 1 --lines", "--lines")]
     [InlineData("-n 1 --tail-lines", "--tail-lines")]
@@ -134,9 +134,6 @@ public sealed class PackageChangesCommandTests
 
     [Theory]
     [InlineData(
-        "package activity --ecosystem aspire --table",
-        "--table is not supported with package activity")]
-    [InlineData(
         "ecosystem aspire --changes",
         "Unrecognized command or argument '--changes'")]
     [InlineData(
@@ -153,7 +150,10 @@ public sealed class PackageChangesCommandTests
         "-n must be between 1 and 1000")]
     [InlineData(
         "package activity --ecosystem aspire --compact",
-        "--compact requires package activity --json")]
+        "--compact requires package activity --format json")]
+    [InlineData(
+        "package activity --ecosystem aspire --format table",
+        "activity does not support '--format table'")]
     public void ParserRejectsUnsupportedOrAmbiguousRequests(
         string command,
         string expected)
@@ -515,7 +515,7 @@ public sealed class PackageChangesCommandTests
                     "2026-09-14T17:59:00Z",
                     "--through",
                     "2026-09-14T18:00:00Z",
-                    "--json",
+                    "--format=json",
                     "-n",
                     "1",
                 ]);
@@ -587,7 +587,7 @@ public sealed class PackageChangesCommandTests
                 "activity",
                 "--ecosystem",
                 "aspire",
-                "--json",
+                "--format=json",
                 "-n",
                 "1",
                 "--lines",
@@ -680,7 +680,7 @@ public sealed class PackageChangesCommandTests
                     "2026-09-14T17:59:00Z",
                     "--through",
                     "2026-09-14T18:00:00Z",
-                    "--json",
+                    "--format=json",
                 ]);
 
             Assert.Equal(1, result.ExitCode);

@@ -327,7 +327,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (exit, output, error) = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", source,
                 "--all-libraries", "--tfm", "net11.0",
-                "-S", "Integration Opportunities", "--markdown", "--verbose", "--tips", "q"]);
+                "-S", "Integration Opportunities", "--format=markdown", "--verbose", "--tips", "q"]);
 
         Assert.True(exit == 0, $"Exit {exit}: {error}");
         Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
@@ -1029,7 +1029,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
                 "--rows", "2..2",
-                "--json", "--tips", "q"]);
+                "--format=json", "--tips", "q"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -1276,7 +1276,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 "-S",
                 $"{PackageSections.PackageInfo},{PackageSections.EcosystemDependencies}",
                 "--rows", "2..2",
-                "--json", "--tips", "q"]);
+                "--format=json", "--tips", "q"]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1315,7 +1315,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var result = await RunCommandAsync(
             ["package", $"{id}@{Version}", "--source", FirstFeed,
                 "-S", PackageSections.EcosystemDependencies,
-                "--json", "--tips", "q"]);
+                "--format=json", "--tips", "q"]);
 
         Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
         using JsonDocument document = JsonDocument.Parse(result.Output);
@@ -1514,7 +1514,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (measuredExit, measuredOutput, measuredError) =
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--json", "--tips", "q"]);
+                    "-S", "Package Info", "--format=json", "--tips", "q"]);
 
         Assert.True(
             measuredExit == 0,
@@ -1568,7 +1568,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
                     "-S", "Package Info", "--tfm", "net6.0",
-                    "--json", "--tips", "q"]);
+                    "--format=json", "--tips", "q"]);
 
         Assert.True(
             noApplicableExit == 0,
@@ -1646,7 +1646,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var (jsonExit, jsonOutput, jsonError) =
             await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--json", "--tips", "q"]);
+                    "-S", "Package Info", "--format=json", "--tips", "q"]);
 
         Assert.True(jsonExit == 0, $"Exit {jsonExit}: {jsonError}");
         using JsonDocument document = JsonDocument.Parse(jsonOutput);

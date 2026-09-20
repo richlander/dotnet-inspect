@@ -14,7 +14,7 @@ namespace DotnetInspect.Cli.Output;
 /// This is the <em>lowered</em> JSON view (dotnet-inspect#3494). A caller reaches it by naming
 /// <c>--fields</c>/<c>--columns</c>, which select from the post-lowering vocabulary: computed
 /// table columns such as <c>Return Type</c> have no counterpart in the typed object model, so
-/// naming one is an opt-in to the display view. Plain <c>--json</c> keeps the pre-lowered typed
+/// naming one is an opt-in to the display view. Plain <c>--format json</c> keeps the pre-lowered typed
 /// shape and does not come through here.
 /// </para>
 /// <para>
@@ -408,11 +408,11 @@ internal sealed class JsonSectionFormatter :
     /// </summary>
     /// <remarks>
     /// This is the same policy the pre-lowered serializers declare
-    /// (<c>JsonKnownNamingPolicy.SnakeCaseLower</c>), so <c>--json</c> does not change key casing
+    /// (<c>JsonKnownNamingPolicy.SnakeCaseLower</c>), so <c>--format json</c> does not change key casing
     /// depending on whether a projection was requested. Table headers deliberately do not come
     /// through here: Markout is asked for its JSONL vocabulary, which already supplies machine
     /// names, and that is what keeps a projected row byte-identical to the same row under
-    /// <c>--jsonl</c>. It is a pure string transform, so it stays NativeAOT-safe.
+    /// <c>--format jsonl</c>. It is a pure string transform, so it stays NativeAOT-safe.
     /// </remarks>
     private static string MachineKey(string display) =>
         JsonNamingPolicy.SnakeCaseLower.ConvertName(display);

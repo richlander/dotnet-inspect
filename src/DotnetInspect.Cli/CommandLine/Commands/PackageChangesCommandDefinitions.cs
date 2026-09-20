@@ -45,7 +45,7 @@ public static class PackageChangesCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Output minified JSON (use with --json or --envelope)",
+            Description = "Output minified JSON (use with --format json or --envelope)",
         };
 
         command.Options.Add(ecosystemOption);
@@ -53,14 +53,13 @@ public static class PackageChangesCommandDefinitions
         command.Options.Add(throughOption);
         command.Options.Add(securityOnlyOption);
         command.Options.Add(compactOption);
-        command.Options.Add(opts.Json);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         command.Options.Add(opts.Limit);
         command.Options.Add(opts.Verbose);
-        command.Options.Add(opts.Table);
-        command.Options.Add(opts.Tsv);
-        command.Options.Add(opts.Jsonl);
         command.Options.Add(opts.NoHeaders);
         command.Options.Add(opts.Discover);
         command.Options.Add(opts.Select);
@@ -146,18 +145,15 @@ public static class PackageChangesCommandDefinitions
                     + "for package activity.");
             }
             if (IsExplicit(result, compactOption)
-                && !result.GetValue(opts.Json)
+                && !opts.IsJsonOutput(result)
                 && !result.GetValue(opts.Envelope))
             {
                 result.AddError(
-                    "--compact requires package activity --json or --envelope.");
+                    "--compact requires package activity --format json or --envelope.");
             }
 
             foreach (Option option in new Option[]
             {
-                opts.Table,
-                opts.Tsv,
-                opts.Jsonl,
                 opts.NoHeaders,
                 opts.Discover,
                 opts.Select,
@@ -188,9 +184,7 @@ public static class PackageChangesCommandDefinitions
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Envelope,
-                opts.Json,
-                opts.Markdown,
-                opts.PlainText,
+                opts.Format,
                 opts.Limit,
                 opts.Head,
                 opts.Tail,

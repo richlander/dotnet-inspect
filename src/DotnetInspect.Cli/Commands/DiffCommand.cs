@@ -56,7 +56,7 @@ public class DiffCommand
         }
         if (options.CompactJson && !options.JsonOutput && !options.EnvelopeOutput)
         {
-            CommandError.Write("--compact requires --json or --envelope.");
+            CommandError.Write("--compact requires --format json or --envelope.");
             return 1;
         }
         if (options.Schema && options.Discover is null)
@@ -299,7 +299,7 @@ public class DiffCommand
                     if (options.IsContentJson && options.HasRenderedLineWindow)
                     {
                         CommandError.Write(
-                            "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
+                            "Unprojected Library API diff --format json cannot be combined with rendered-line clipping.");
                         return 1;
                     }
                     var comparison = await LibraryApiDiffRunner.ExecuteAsync(

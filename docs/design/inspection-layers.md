@@ -397,8 +397,8 @@ table, a key-value field set, a list, a code/text blob, or a tree such as a call
 graph, and all of them are still "one section". Trees and tables are siblings
 *within* the section axis, which is why one noun covers both.
 
-**JSON is a format, not a shape and not a section.** `--json`, `--tsv`, and
-`--jsonl` are presentation modifiers: they change how a selected payload is
+**JSON is a format, not a shape and not a section.** `--format json`, `--format tsv`, and
+`--format jsonl` are presentation modifiers: they change how a selected payload is
 rendered without changing the shape.
 
 **Format is owned as *selection*, not as rendering.** The L3 description above

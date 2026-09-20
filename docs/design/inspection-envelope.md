@@ -600,7 +600,7 @@ Supported public CLI passthrough is tracked by
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719). The CLI
 [content-shape and service-envelope boundary](output-shapes.md#content-shapes-and-service-envelopes)
 owns the JSON-only `--envelope` spelling and its distinction from content
-`--json`. It also owns the required content-JSON alignment when a route adopts
+`--format json`. It also owns the required content-JSON alignment when a route adopts
 public passthrough. The generic envelope does not define CLI option
 interactions or migrate existing machine schemas implicitly.
 

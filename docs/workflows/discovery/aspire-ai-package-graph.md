@@ -193,7 +193,7 @@ dotnet-inspect member OpenAIClientExtensions AsIChatClient:3 \
   --package Microsoft.Extensions.AI.OpenAI@10.9.0 \
   --caller-package Microsoft.Extensions.AI.Abstractions@10.9.0 \
   --caller-package OpenAI@2.12.0 \
-  -S "Call Graph" --markdown --mermaid -v:n
+  -S "Call Graph" --format markdown --mermaid -v:n
 ```
 
 ```expect

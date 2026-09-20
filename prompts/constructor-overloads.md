@@ -11,7 +11,7 @@ dotnet-inspect member HttpClient --platform System.Net.Http --ctor -v:d
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect member HttpClient --platform System.Net.Http --ctor --json | jq '.members[] | .signature'
+dotnet-inspect member HttpClient --platform System.Net.Http --ctor --format json | jq '.members[] | .signature'
 ```
 
 ## Discovery Path (Learning)

@@ -1918,13 +1918,13 @@ jobs:
 
       - name: Smoke test - type command (table output)
         run: |
-          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --table > smoke-type.txt
+          dotnet-inspect type --package System.Text.Json@10.0.0 -t JsonSerializer --format table > smoke-type.txt
           cat smoke-type.txt
           grep -q "JsonSerializer" smoke-type.txt
 
       - name: Smoke test - member command (table output)
         run: |
-          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --table > smoke-member.txt
+          dotnet-inspect member JsonSerializer --package System.Text.Json@10.0.0 -m Serialize --format table > smoke-member.txt
           cat smoke-member.txt
           grep -q "Serialize" smoke-member.txt
 
@@ -1943,7 +1943,7 @@ jobs:
 
       - name: Smoke test - platform library
         run: |
-          dotnet-inspect library System.Private.CoreLib -v:q --json > smoke-platform.json
+          dotnet-inspect library System.Private.CoreLib -v:q --format json > smoke-platform.json
           cat smoke-platform.json
           jq -e '
             .source == "Platform"

@@ -34,15 +34,15 @@ public partial class ApiCommand
 
     // ===== Single Type Rendering =====
 
-    // --json selects an output format; --print/--value/--urls/--paths select an
+    // --format json selects an output format; --print/--value/--urls/--paths select an
     // output shape. They compose, so the plain type-surface serializer must not
     // claim a request that a projection owns.
     private static bool IsProjectionRequested(ApiOptions options)
         => options.Print || options.Value || options.Urls || options.Paths;
 
     // --fields/--columns select table columns. They compose with the row-oriented formats
-    // (--table/--tsv/--jsonl) and, when paired with a scalar payload projection, pick which
-    // column feeds --value/--print. They do not compose with document --json, which renders the
+    // (--format table/--format tsv/--format jsonl) and, when paired with a scalar payload projection, pick which
+    // column feeds --value/--print. They do not compose with document --format json, which renders the
     // whole typed graph and has no column-slicing (jq-style) facility, so the combination is
     // rejected rather than silently dropped. See dotnet-inspect#3386 and richlander/markout#173.
     private static bool IsColumnProjectionRequested(ApiOptions options)
@@ -51,10 +51,10 @@ public partial class ApiCommand
     private static int RejectColumnProjectionUnderJson(bool suggestPayloadProjection)
     {
         var hint = suggestPayloadProjection
-            ? " Use --tsv, --jsonl, or --table to project columns, or add --value/--print to project a payload."
-            : " Use --tsv, --jsonl, or --table to project columns.";
+            ? " Use --format tsv, --format jsonl, or --format table to project columns, or add --value/--print to project a payload."
+            : " Use --format tsv, --format jsonl, or --format table to project columns.";
         CommandError.Write(
-            "--fields/--columns select table columns and cannot be combined with --json, "
+            "--fields/--columns select table columns and cannot be combined with --format json, "
             + "which renders the whole document." + hint);
         return 1;
     }
@@ -97,33 +97,33 @@ public partial class ApiCommand
         if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
         {
             CommandError.Write(
-                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --format json.");
             return 1;
         }
         if (IsInvalidFindingCensusJsonSelection(options))
         {
             CommandError.Write(
-                $"section '{SectionNames.FindingCensus}' must be the only selected section under --json.");
+                $"section '{SectionNames.FindingCensus}' must be the only selected section under --format json.");
             return 1;
         }
         if (IsInvalidFindingCensusProjection(options))
         {
             CommandError.Write(
                 $"section '{SectionNames.FindingCensus}' is an indivisible document payload; "
-                + "use Markdown/plaintext or exact singleton --json without row, column, count, or payload projection.");
+                + "use Markdown/plaintext or exact singleton --format json without row, column, count, or payload projection.");
             return 1;
         }
         if (IsInvalidFactsJsonSelection(options))
         {
             CommandError.Write(
-                $"section '{SectionNames.Facts}' must be the only selected section under unprojected --json.");
+                $"section '{SectionNames.Facts}' must be the only selected section under unprojected --format json.");
             return 1;
         }
         if (IsInvalidFactsJsonWindow(options))
         {
             CommandError.Write(
-                $"section '{SectionNames.Facts}' exact --json is a complete typed document; "
-                + "use --table, --tsv, --jsonl, or an explicit field/column projection for row shaping.");
+                $"section '{SectionNames.Facts}' exact --format json is a complete typed document; "
+                + "use --format table, --format tsv, --format jsonl, or an explicit field/column projection for row shaping.");
             return 1;
         }
         bool findingCensusExplicitlySelected =
@@ -155,7 +155,7 @@ public partial class ApiCommand
                 CommandError.Write(
                     "--fields/--columns are not available with type tree output, "
                     + "which renders a tree rather than projected rows. Use "
-                    + "--table, --tsv, or --jsonl for "
+                    + "--format table, --format tsv, or --format jsonl for "
                     + "projected rows, or omit --fields/--columns to keep tree output.");
                 return 1;
             }
@@ -222,12 +222,12 @@ public partial class ApiCommand
             string format = options.Count
                 ? "--count"
                 : options.Jsonl
-                    ? "--jsonl"
+                    ? "--format jsonl"
                     : options.Tsv
-                        ? "--tsv"
+                        ? "--format tsv"
                         : options.Tabular
-                            ? "--table"
-                            : "Document --json";
+                            ? "--format table"
+                            : "Document --format json";
             string guidance = options.Count
                 ? "Use Markdown/plaintext without --count, or replace --count with --print."
                 : "Use Markdown/plaintext output, or add --print to project the section payload.";
@@ -252,8 +252,8 @@ public partial class ApiCommand
                     .Contains(SectionNames.ImplementationProfiles))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
-                    + "Use --jsonl, --tsv, or --table.");
+                    "Document --format json cannot represent Implementation Profiles analysis. "
+                    + "Use --format jsonl, --format tsv, or --format table.");
                 return 1;
             }
             if (GetRequestedMemberSections(type, options)
@@ -261,16 +261,16 @@ public partial class ApiCommand
                 && HasExplicitPerformanceTriageSelector(options))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Performance Triage analysis. "
-                    + "Use --jsonl, --tsv, --table, or --print.");
+                    "Document --format json cannot represent Performance Triage analysis. "
+                    + "Use --format jsonl, --format tsv, --format table, or --print.");
                 return 1;
             }
             if (BodyKindQueryOptions.IsSelected(GetRequestedMemberSections(type, options))
                 && BodyKindQueryOptions.IsSelected(options.IncludeSections))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Body Shapes analysis. "
-                    + "Use --jsonl, --tsv, or --table.");
+                    "Document --format json cannot represent Body Shapes analysis. "
+                    + "Use --format jsonl, --format tsv, or --format table.");
                 return 1;
             }
             // --fields/--columns select table columns; document JSON has no column-slicing

@@ -135,14 +135,12 @@ public static partial class WorkspaceCommand
         }
         if (options.IncludePrerelease)
             return "Coordinate replacement requires exact Version pins, not --preview.";
-        if (options.EnvelopeOutput && options.Format != OutputFormat.Json)
-            return "--envelope requires --json.";
         if (options.EnvelopeOutput && options.ShareFormat is not null)
-            return "Choose --json --envelope or --share; each emits the complete derived Share.";
+            return "Choose --envelope or --share; each emits the complete derived Share.";
         if (!options.EnvelopeOutput && options.ShareFormat is null)
         {
             return "Coordinate replacement requires --share packet|url or "
-                + "--json --envelope to emit the complete derived scenario.";
+                + "--envelope to emit the complete derived scenario.";
         }
         return null;
     }

@@ -76,7 +76,7 @@ Source: NuGet
 ### 1b. Using `type` with table output
 
 ```bash
-dotnet-inspect type System.CommandLine@2.0.3 --table -t 5 --no-headers --tips q
+dotnet-inspect type System.CommandLine@2.0.3 --format table -t 5 --no-headers --tips q
 ```
 
 ```expect-not
@@ -95,7 +95,7 @@ wc -l | tr -d ' '
 ### 1c. Table column structure
 
 ```bash
-dotnet-inspect type System.Text.Json --table | head -1
+dotnet-inspect type System.Text.Json --format table | head -1
 ```
 
 ```expect
@@ -151,7 +151,7 @@ Find all types starting with "Json" in System.Text.Json.
 ### 3a. Using `-t` with glob pattern
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" --table --no-headers
+dotnet-inspect type System.Text.Json -t "Json*" --format table --no-headers
 ```
 
 ```expect
@@ -171,7 +171,7 @@ wc -l | tr -d ' '
 ### 3b. Filter to specific kind
 
 ```bash
-dotnet-inspect type System.Text.Json -t "Json*" --table --no-headers | grep '^enum'
+dotnet-inspect type System.Text.Json -t "Json*" --format table --no-headers | grep '^enum'
 ```
 
 ```expect
@@ -194,7 +194,7 @@ Tell me about the JsonSerializer class.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --markdown -v:q --tips q
+dotnet-inspect type System.Text.Json JsonSerializer --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -221,7 +221,7 @@ methods-positive
 ### 4b. Using fully qualified type name
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer --markdown -v:q --tips q
+dotnet-inspect System.Text.Json.JsonSerializer --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -237,7 +237,7 @@ grep -o 'Kind: [a-z]*'
 ### 4c. Inspect Command type from System.CommandLine
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:q --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -258,7 +258,7 @@ grep -o 'Source: [A-Za-z]*'
 ### 4d. Member table column structure
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table | head -1
+dotnet-inspect type System.Text.Json JsonSerializer --format table | head -1
 ```
 
 ```expect
@@ -279,7 +279,7 @@ grep -o 'Kind\|Name\|Return Type\|Detail' | wc -l | tr -d ' '
 ### 5a. Detailed verbosity (with descriptions)
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --markdown -v:d -n 30 --lines --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --format markdown -v:d -n 30 --lines --tips q
 ```
 
 ```expect
@@ -422,7 +422,7 @@ positive
 ### 7a. Platform library (default for System.*)
 
 ```bash
-dotnet-inspect type System.Text.Json JsonDocument --markdown -v:q --tips q
+dotnet-inspect type System.Text.Json JsonDocument --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -440,7 +440,7 @@ grep -o 'Source: [A-Za-z]*'
 ### 7b. Force package resolution
 
 ```bash
-dotnet-inspect type --package System.Text.Json@10.0.0 JsonDocument --markdown -v:q --tips q
+dotnet-inspect type --package System.Text.Json@10.0.0 JsonDocument --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -462,7 +462,7 @@ grep -o 'Source: [A-Za-z]*'
 ### 9a. Using quoted generic syntax
 
 ```bash
-dotnet-inspect type --package System.Collections@4.3.0 'HashSet<T>' --markdown -v:q --tips q
+dotnet-inspect type --package System.Collections@4.3.0 'HashSet<T>' --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -473,7 +473,7 @@ Type Parameters: T
 ### 9b. Using backtick notation
 
 ```bash
-dotnet-inspect type --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' --markdown -v:q --tips q
+dotnet-inspect type --package Microsoft.Extensions.Options@10.0.2 'OptionsFactory`1' --format markdown -v:q --tips q
 ```
 
 ```expect
@@ -542,7 +542,7 @@ grep -E 'Deserialize(Async)? \([0-9]+ overloads\)'
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --table --no-headers -n 3 --tips q
+  --format table --no-headers -n 3 --tips q
 ```
 
 ```expect
@@ -580,7 +580,7 @@ Tips:
 ### 8a. Using TSV with awk sort
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $NF, $2}' | sort -rn | head -5
+dotnet-inspect type System.Text.Json --format tsv --no-headers | awk -F '\t' '{print $NF, $2}' | sort -rn | head -5
 ```
 
 ```expect
@@ -600,7 +600,7 @@ descending-five
 > Goal: The `--unsafe` flag filters to types that have members with pointer signatures.
 
 ```bash
-dotnet-inspect type System.Runtime --unsafe -t 5 --table --no-headers
+dotnet-inspect type System.Runtime --unsafe -t 5 --format table --no-headers
 ```
 
 ```expect

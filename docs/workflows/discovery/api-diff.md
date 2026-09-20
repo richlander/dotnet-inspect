@@ -187,10 +187,10 @@ The same section works for package and platform ranges. The following is a
 command shape, not an executable fixture because `Foo` is a placeholder:
 
 ```text
-dotnet-inspect diff --package Foo@1.0.0..2.0.0 -S "Implementation Diff" --jsonl
+dotnet-inspect diff --package Foo@1.0.0..2.0.0 -S "Implementation Diff" --format jsonl
 ```
 
-Use `--table`, `--tsv`, or `--jsonl` for columnar output.
+Use `--format table`, `--format tsv`, or `--format jsonl` for columnar output.
 
 This is implementation evidence, not an API compatibility classification or a
 semantic-equivalence proof. Omit `-S "Implementation Diff"` to retain the
@@ -292,7 +292,7 @@ wc -l | tr -d ' '
 ### 9a. With header
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table | head -5
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --format table | head -5
 ```
 
 ```expect
@@ -306,7 +306,7 @@ Detail
 ### 9b. Without header
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --table --no-headers | head -5
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --format table --no-headers | head -5
 ```
 
 ```expect

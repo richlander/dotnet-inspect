@@ -28,7 +28,7 @@ receives the common diagnostic.
 | `package System.CommandLine --versions=2` | Same diagnostic |
 | `package --versions System.CommandLine` | Valid package input |
 | `package --versions 2` | Valid numeric package input |
-| `package System.CommandLine --versions -n 2 --json` | Valid two-version request |
+| `package System.CommandLine --versions -n 2 --format json` | Valid two-version request |
 
 The user explicitly approved preserving valid positional arguments and
 rejecting surplus values. The rule does not recognize former count syntax or

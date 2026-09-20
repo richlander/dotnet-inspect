@@ -333,7 +333,7 @@ public sealed partial class WorkspaceCommandTests
     public void WorkspaceCommand_RegistersSharedOutputOptions()
     {
         string[] arguments =
-            ["workspace", "--json", "--rows", "1", "--verbose"];
+            ["workspace", "--format=json", "--rows", "1", "--verbose"];
 
         var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
 
@@ -1378,7 +1378,7 @@ public sealed partial class WorkspaceCommandTests
             "Zeta.",
             "--register-library",
             "System.Text.Json@10.0.0/System.Text.Json@10.0.0.0",
-            "--json",
+            "--format=json",
         ];
         var captured = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(
@@ -1423,7 +1423,7 @@ public sealed partial class WorkspaceCommandTests
             args.Add("-n");
             args.Add("1");
         }
-        args.Add("--json");
+        args.Add("--format=json");
 
         var captured = await RunCliAsync([.. args]);
 
@@ -1506,7 +1506,7 @@ public sealed partial class WorkspaceCommandTests
             "Zulu.",
             "--rows",
             "2..3",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -1532,7 +1532,7 @@ public sealed partial class WorkspaceCommandTests
             "Zulu.",
             "--rows",
             window,
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, captured.ExitCode);
         Assert.Empty(captured.Error);
@@ -1554,7 +1554,7 @@ public sealed partial class WorkspaceCommandTests
             "-n",
             "1",
             "--lines",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -1576,7 +1576,7 @@ public sealed partial class WorkspaceCommandTests
             "-n",
             "2",
             "--lines",
-            "--table");
+            "--format=table");
 
         Assert.Equal(0, captured.ExitCode);
         Assert.Empty(captured.Error);
@@ -1601,7 +1601,7 @@ public sealed partial class WorkspaceCommandTests
             "1",
             "-n",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -1626,7 +1626,7 @@ public sealed partial class WorkspaceCommandTests
         };
         if (shareFormat is not null)
             args.Add(shareFormat);
-        args.AddRange(["-n", "1", "--json"]);
+        args.AddRange(["-n", "1", "--format=json"]);
 
         var captured = await RunCliAsync([.. args]);
 
@@ -1679,7 +1679,7 @@ public sealed partial class WorkspaceCommandTests
             value,
             "-n",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -2400,7 +2400,7 @@ public sealed partial class WorkspaceCommandTests
             "--all-libraries",
             "--library",
             "compile:lib/net10.0/Example.dll",
-            "--json",
+            "--format=json",
         ];
 
         var captured = await ConsoleCapture.RunAsync(

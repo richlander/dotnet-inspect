@@ -490,7 +490,7 @@ classification. It delays legacy surface extraction so the adopted route does
 not build and compare a second surface. One command-scoped Workspace owns the
 two groups. Markout renders host views derived from the complete document;
 explicitly projected JSON, detailed rows, Type-summary tables, and name-only
-output remain CLI projections. Unprojected `--json` now serializes the
+output remain CLI projections. Unprojected `--format json` now serializes the
 complete Outcome; `--envelope` serializes the service baseline through the
 [common envelope transport](output-shapes.md#envelope-transport).
 

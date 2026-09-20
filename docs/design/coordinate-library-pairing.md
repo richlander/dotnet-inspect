@@ -52,7 +52,7 @@ with the corresponding coordinate and framework:
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json \
-  --package System.Text.Json@10.0.0 --tfm net9.0 -S "Library Info" --json
+  --package System.Text.Json@10.0.0 --tfm net9.0 -S "Library Info" --format json
 ```
 
 These are identity observations, not evidence that the new pairing query runs.

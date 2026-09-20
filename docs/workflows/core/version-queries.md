@@ -188,7 +188,7 @@ provenance. `--versions-with-feed` keeps it, emitting one row per (version, feed
 pair, so a version carried by two sources appears twice.
 
 ```bash
-dotnet-inspect package System.CommandLine --versions-with-feed -n 3 --tsv
+dotnet-inspect package System.CommandLine --versions-with-feed -n 3 --format tsv
 ```
 
 ```query
@@ -260,7 +260,7 @@ version unlisted on nuget.org but also published to a private feed is hidden for
 its nuget.org row and kept for the private one. `--versions` has to pick a single
 answer for the version and reports it as listed.
 
-`--json`, `--jsonl`, and `--tsv` all work; the default is a markdown table.
+`--format json`, `--format jsonl`, and `--format tsv` all work; the default is a markdown table.
 
 ## 4. Handle a nonexistent version
 

@@ -1148,7 +1148,7 @@ public class PackageQueryCliTests
             "query",
             "-D",
             "Packages",
-            "--json");
+            "--format=json");
         Assert.Equal(0, query.ExitCode);
         Assert.Contains("Source", query.Output);
         Assert.Contains("Answer", query.Output);
@@ -1159,7 +1159,7 @@ public class PackageQueryCliTests
             "query",
             "-D",
             "Query Summary",
-            "--json");
+            "--format=json");
         Assert.Equal(0, summary.ExitCode);
         Assert.Contains("Evaluation Failures", summary.Output);
     }
@@ -1211,14 +1211,14 @@ public class PackageQueryCliTests
                     "package",
                     "query",
                     "Contoso.*",
-                    "--json",
+                    "--format=json",
                     "--tree",
                 ],
                 root);
         Assert.Contains(
             root.Parse(rejectedTree).Errors,
             error => error.Message.Contains(
-                "--tree with package query --json requires schema discovery",
+                "--tree with package query --format json requires schema discovery",
                 StringComparison.Ordinal));
 
         string[] discoveryTree =
@@ -1228,7 +1228,7 @@ public class PackageQueryCliTests
                     "query",
                     "-D",
                     "Packages",
-                    "--json",
+                    "--format=json",
                     "--tree",
                 ],
                 root);
@@ -1242,13 +1242,13 @@ public class PackageQueryCliTests
             "package",
             "query",
             "-D",
-            "--table");
+            "--format=table");
         var category = await Run(
             "package",
             "query",
             "-D",
             SectionCategoryNames.Query,
-            "--table");
+            "--format=table");
 
         Assert.Equal(0, catalog.ExitCode);
         Assert.Empty(catalog.Error);
@@ -1613,7 +1613,7 @@ public class PackageQueryCliTests
             "package",
             "query",
             "Contoso.*",
-            "--tsv",
+            "--format=tsv",
             "-S",
             "Packages",
             "-S",
@@ -1622,7 +1622,7 @@ public class PackageQueryCliTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--table, --tsv, and --jsonl display one section at a time",
+            "--format table, --format tsv, and --format jsonl display one section at a time",
             result.Error);
     }
 
@@ -1684,7 +1684,7 @@ public class PackageQueryCliTests
             "package",
             "query",
             "System.Text.Json",
-            "--json",
+            "--format=json",
             "--compact");
         var envelope = await Run(
             "package",
@@ -1718,7 +1718,7 @@ public class PackageQueryCliTests
             "--tfm",
             "net6.0",
         ];
-        var json = await Run([.. arguments, "--json", "--compact"]);
+        var json = await Run([.. arguments, "--format=json", "--compact"]);
         var envelope =
             await Run([.. arguments, "--envelope", "--compact"]);
 
@@ -1749,7 +1749,7 @@ public class PackageQueryCliTests
                 "query",
                 "Contoso.Package.That.Does.Not.Exist.7357",
                 .. selection,
-                "--json",
+                "--format=json",
                 "--compact",
             ]);
 
@@ -1811,7 +1811,7 @@ public class PackageQueryCliTests
             Assert.Equal(1, result.ExitCode);
             Assert.Empty(result.Output);
             Assert.Contains(
-                "--tree with package query --json requires schema discovery",
+                "--tree with package query --format json requires schema discovery",
                 result.Error);
         }
         finally
@@ -1884,14 +1884,14 @@ public class PackageQueryCliTests
             "package",
             "query",
             "Contoso.*",
-            "--tsv",
+            "--format=tsv",
             "-S",
             SectionCategoryNames.Query);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--table, --tsv, and --jsonl display one section at a time",
+            "--format table, --format tsv, and --format jsonl display one section at a time",
             result.Error);
     }
 

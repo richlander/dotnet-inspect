@@ -2081,8 +2081,8 @@ at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
 caller scope — MemberCommand re-adds Callers under caller scope, so
 Call Graph-only tabular would silently fall back to a member inventory — and
 select `Call Graph` when it does not, so single-library entry points with empty
-Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
-`--json` fails closed for Call Graph demos until graph sections project into
+Callers still emit rows; `--format mermaid` keeps `Call Graph`; document
+`--format json` fails closed for Call Graph demos until graph sections project into
 that payload.
 Demo-source resolution fails when a home demo omits `View.Section` or names a
 section outside that allow list
@@ -3619,7 +3619,7 @@ Definition records and product demos (this slice):
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
-  including `--mermaid` and fail-closed Call Graph `--json`;
+  including `--mermaid` and fail-closed Call Graph `--format json`;
   Platform demo construction now consumes the retained plan and selected
   context input directly, retiring the CLI's empty-Workspace plus rebuilt-input
   recipe under #6836;
@@ -3695,7 +3695,7 @@ Definition records and product demos (this slice):
   `https://dotnet-inspect.net/?w=<packet>` for the existing Browser consumer;
   packet-only output remains the default. The URL envelope does not change
   packet limits or expand Browser restoration support, and does not turn
-  `workspace --json` inventory rows into a share scenario.
+  `workspace --format json` inventory rows into a share scenario.
   `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
   `EncodeUrl_PreservesCanonicalPacket`,
   `EncodeUrl_ReadsBoundedStandardInput`,

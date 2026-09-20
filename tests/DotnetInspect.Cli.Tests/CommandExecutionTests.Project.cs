@@ -32,9 +32,9 @@ public partial class CommandExecutionTests
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--bare");
             var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+                "package", packagePath, "-S", "Package skill files", "--print", "--format=jsonl");
             var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+                projectPath, "-S", "Skills", "--print", "--body", "--format=jsonl");
             var (contentExit, contentOutput, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content", "--bare");
@@ -43,7 +43,7 @@ public partial class CommandExecutionTests
                 "--content");
             var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--jsonl");
+                "--content", "--format=jsonl");
 
             Assert.Equal(0, packageExit);
             Assert.Equal(0, projectExit);
@@ -130,27 +130,27 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Skills",
                 "-n", "1", "--tail",
-                "--markdown");
+                "--format=markdown");
             var table = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Skills",
                 "-n", "1", "--tail",
-                "--table");
+                "--format=table");
             var tsv = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Skills",
                 "-n", "1", "--tail",
-                "--tsv");
+                "--format=tsv");
             var jsonl = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Skills",
                 "-n", "1", "--tail",
-                "--jsonl");
+                "--format=jsonl");
             var json = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Skills",
                 "-n", "1", "--tail",
-                "--json");
+                "--format=json");
             var count = await RunProjectFixtureAsync(
                 projectPath,
                 "-S",
@@ -223,7 +223,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Skills",
                 "--rows", "1..2",
-                "--json");
+                "--format=json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -277,7 +277,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Skills",
                 "-n", "1",
-                "--json");
+                "--format=json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -324,7 +324,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Skills",
                 "-n", "2", "--lines",
-                "--table");
+                "--format=table");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -358,7 +358,7 @@ public partial class CommandExecutionTests
                 "-S", "Skills",
                 option,
                 .. arguments,
-                "--json",
+                "--format=json",
             ]);
 
         Assert.Equal(1, exit);
@@ -400,7 +400,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "@Project",
                 "--rows", "1",
-                "--json");
+                "--format=json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -422,7 +422,7 @@ public partial class CommandExecutionTests
             "missing-project",
             "-S", "@Project",
             "-n", "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -532,12 +532,12 @@ public partial class CommandExecutionTests
             var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--bare");
             var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
-                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+                "package", packagePath, "-S", "Package skill files", "--print", "--format=jsonl");
             var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--jsonl");
+                "--content", "--format=jsonl");
             var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+                projectPath, "-S", "Skills", "--print", "--body", "--format=jsonl");
             var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--bare",
                 "--output", packageOutputPath);
@@ -735,7 +735,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -785,7 +785,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -820,7 +820,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -872,7 +872,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Empty(error);
@@ -914,7 +914,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -953,7 +953,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -986,7 +986,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1017,7 +1017,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1052,7 +1052,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(expectedSuccess ? 0 : 1, exit);
             if (expectedSuccess)
@@ -1096,7 +1096,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--jsonl");
+                projectPath, "-S", "Skills", "--format=jsonl");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -1169,7 +1169,7 @@ public partial class CommandExecutionTests
                     [.. testCase.Arguments, "--tips", "q"]);
                 var redirected = await RunProjectFixtureAsync(
                     projectPath,
-                    [.. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+                    [.. testCase.Arguments, "--output", outputPath, "--tips", "q"]);
 
                 Assert.Equal(0, baseline.Exit);
                 Assert.Equal(baseline.Exit, redirected.Exit);
@@ -1329,7 +1329,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+                projectPath, "-S", "Skills", "--print", "--body", "--format=jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -1577,7 +1577,7 @@ public partial class CommandExecutionTests
     public async Task Project_Discover_ListsSupportedDocumentSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "project", "-D", "--table", "--tips", "q");
+            "project", "-D", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1598,7 +1598,7 @@ public partial class CommandExecutionTests
     public async Task Project_Discover_ProjectCategoryListsOwnedSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "project", "-D", "@Project", "--schema", "--table", "--tips", "q");
+            "project", "-D", "@Project", "--schema", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1632,7 +1632,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "project",
             "-D", "Skills,Package README file",
-            "--table");
+            "--format=table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1648,7 +1648,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "project",
             "-D", "Skills",
-            "--tsv",
+            "--format=tsv",
             "--no-header",
             "--rows", "1");
 
@@ -1668,8 +1668,8 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "project",
                 "-D", "Skills",
-                "--json",
-                "--out", path);
+                "--format=json",
+                "--output", path);
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
@@ -1766,7 +1766,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Package README file",
-                "--jsonl");
+                "--format=jsonl");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1882,14 +1882,14 @@ public partial class CommandExecutionTests
                 "--paths",
                 "--rows", "2..2",
                 "--row", "1",
-                "--json");
+                "--format=json");
             var excluded = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "Package README file",
                 "--paths",
                 "--rows", "2..2",
                 "--row", "2",
-                "--json");
+                "--format=json");
 
             Assert.Equal(0, selected.Exit);
             Assert.Empty(selected.Error);
@@ -1974,7 +1974,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath,
                 "-S", "@Project",
-                "--json");
+                "--format=json");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2025,7 +2025,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Package README file",
                 "--print",
-                "--jsonl");
+                "--format=jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -2121,7 +2121,7 @@ public partial class CommandExecutionTests
                 projectPath,
                 "-S", "Package README file",
                 "--print",
-                "--out", outputPath);
+                "--output", outputPath);
 
             Assert.Equal(0, exit);
             Assert.Empty(output);

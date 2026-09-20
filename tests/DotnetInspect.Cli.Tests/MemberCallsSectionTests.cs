@@ -43,14 +43,14 @@ public class MemberCallsSectionTests
         ];
 
         var markdown = await RunCliAsync(args);
-        var table = await RunCliAsync([.. args, "--table"]);
+        var table = await RunCliAsync([.. args, "--format=table"]);
         var tsv = await RunCliAsync(
-            [.. args, "--tsv", "--no-headers"]);
-        var jsonl = await RunCliAsync([.. args, "--jsonl"]);
-        var json = await RunCliAsync([.. args, "--json"]);
+            [.. args, "--format=tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. args, "--format=jsonl"]);
+        var json = await RunCliAsync([.. args, "--format=json"]);
         var count = await RunCliAsync([.. args, "--count"]);
         var jsonCount = await RunCliAsync(
-            [.. args, "--count", "--json"]);
+            [.. args, "--count", "--format=json"]);
 
         foreach (var result in new[]
         {
@@ -114,7 +114,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "--rows",
             "9..9",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -150,7 +150,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "-n",
             "1",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -176,7 +176,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "--rows",
             "3..3",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -206,7 +206,7 @@ public class MemberCallsSectionTests
             "-n",
             "1",
             "--lines",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -242,7 +242,7 @@ public class MemberCallsSectionTests
             selection,
             "-n",
             "1",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -272,7 +272,7 @@ public class MemberCallsSectionTests
             SectionNames.Calls,
             "-n",
             "1",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 

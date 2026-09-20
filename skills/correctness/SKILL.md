@@ -25,13 +25,13 @@ layout; graph fields and hidden facts summarize behavior:
 dnx dotnet-inspect -y -- member Type Method:1 -S "Exception Regions"
 dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --fields "Throws,ThrowSites,ExceptionTypes,ConstructedExceptions,Catch,Finally"
 dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --fields "Throws,Catch,Finally"
-dnx dotnet-inspect -y -- member Type Method:1 -S Facts --tsv
+dnx dotnet-inspect -y -- member Type Method:1 -S Facts --format tsv
 ```
 
 `Throws`/`ThrowSites` count throw sites; `ExceptionTypes`/`ConstructedExceptions`
 name the exception types; `Catch`/`Finally` show handling. `Exception Regions`
 retains IL ranges and caught types. `-S Facts` (member, single method) lists the
-hidden facts in the body and supports `--tsv`.
+hidden facts in the body and supports `--format tsv`.
 
 ## Is it memory-safe? (unsafe operations)
 

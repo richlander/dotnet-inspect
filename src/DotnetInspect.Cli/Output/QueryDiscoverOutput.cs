@@ -156,7 +156,7 @@ internal static class QueryDiscoverOutput
         bool tabular = format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
         if (tabular && !bare && selected.Length != 1)
         {
-            CommandError.Write("Tabular query discovery requires one section; use -Q <section> or --json.");
+            CommandError.Write("Tabular query discovery requires one section; use -Q <section> or --format json.");
             return 1;
         }
 

@@ -1193,7 +1193,7 @@ public static class ApiMemberDetailSectionDescriptors
     /// The structured hidden-fact table for a single method — the agent-facing
     /// dual of the inline Decompiled Source view. <c>ExplicitOnly</c>: never
     /// auto-rendered (the Decompiled Source view already shows the same facts
-    /// inline for humans), requested via <c>-S "Facts"</c>/<c>--json</c>/<c>--tsv</c>.
+    /// inline for humans), requested via <c>-S "Facts"</c>/<c>--format json</c>/<c>--format tsv</c>.
     /// </summary>
     public sealed class Facts : ISectionDescriptor<ApiType>
     {

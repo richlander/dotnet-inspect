@@ -11,7 +11,7 @@ dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0 --json
+dotnet-inspect diff JsonSerializer --package System.Text.Json@9.0.0..10.0.0 --format json
 ```
 
 ## Discovery Path (Learning)

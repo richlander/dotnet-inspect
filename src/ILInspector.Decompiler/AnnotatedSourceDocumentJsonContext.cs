@@ -8,7 +8,7 @@ namespace ILInspector.Decompiler;
 /// </summary>
 /// <remarks>
 /// The document is a portable artifact with more than one producer — the CLI's
-/// <c>Annotated Source Document</c> section and <c>--json</c> output, and the browser engine's
+/// <c>Annotated Source Document</c> section and <c>--format json</c> output, and the browser engine's
 /// annotated-source export — and one consumer contract, the viewer in
 /// <c>prototypes/annotated-source-viewer</c>. Owning the options here rather than in each
 /// producer keeps the wire shape a single rule: a second copy of these options is a second place

@@ -53,7 +53,7 @@ public sealed class DependsAssetCommandTests
             "depends",
             "--project",
             AssetsFixture,
-            "--json",
+            "--format=json",
             "--compact",
         ];
 
@@ -176,7 +176,7 @@ public sealed class DependsAssetCommandTests
             AssetsFixture,
             "-S",
             section,
-            "--json",
+            "--format=json",
             "--compact",
         ];
 
@@ -216,7 +216,7 @@ public sealed class DependsAssetCommandTests
             "depends",
             "--project",
             AssetsFixture,
-            "--json",
+            "--format=json",
             "--compact",
         ];
 
@@ -224,7 +224,7 @@ public sealed class DependsAssetCommandTests
         var withEvidence = await RunCapturedAsync(
         [
             .. ordinaryArguments,
-            "--out",
+            "--output",
             primary,
             "--evidence-envelope",
             sidecar,
@@ -266,7 +266,7 @@ public sealed class DependsAssetCommandTests
             AssetsFixture,
             "--envelope",
             "--compact",
-            "--out",
+            "--output",
             primary,
             "--evidence-envelope",
             sidecar,
@@ -410,7 +410,7 @@ public sealed class DependsAssetCommandTests
             "depends",
             "--project",
             "missing-project.csproj",
-            "--out",
+            "--output",
             primary,
             "--evidence-envelope",
             sidecar,
@@ -419,7 +419,7 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--out and --evidence-envelope must name distinct files",
+            "--output and --evidence-envelope must name distinct files",
             result.Error,
             StringComparison.Ordinal);
         Assert.False(File.Exists(primary));
@@ -746,7 +746,7 @@ public sealed class DependsAssetCommandTests
             "net10.0",
             "--share",
             "packet",
-            "--json",
+            "--format=json",
             "--evidence-envelope",
             sidecar,
         ]);
@@ -766,7 +766,7 @@ public sealed class DependsAssetCommandTests
 
     [Theory]
     [InlineData("--envelope")]
-    [InlineData("--out")]
+    [InlineData("--output")]
     public async Task EvidenceEnvelopeRejectsUnrepresentableShareOutput(
         string outputOption)
     {
@@ -789,7 +789,7 @@ public sealed class DependsAssetCommandTests
             "packet",
             outputOption,
         };
-        if (outputOption == "--out")
+        if (outputOption == "--output")
             arguments.Add(primary);
         arguments.AddRange(["--evidence-envelope", sidecar]);
 
@@ -798,7 +798,7 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--share cannot be combined with --envelope or --out",
+            "--share cannot be combined with --envelope or --output",
             result.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -830,7 +830,7 @@ public sealed class DependsAssetCommandTests
             "--package",
             "No.Such.Package@1.0.0",
             "--envelope",
-            "--out",
+            "--output",
             baseline,
             "--evidence-envelope",
             sidecar,
@@ -871,10 +871,10 @@ public sealed class DependsAssetCommandTests
             "No.Such.Package@1.0.0",
             "-S",
             $"{DependsAssetSections.DependencyHierarchy},{DependsAssetSections.Failures}",
-            "--jsonl",
+            "--format=jsonl",
             "--columns",
             "Reason",
-            "--out",
+            "--output",
             ordinary,
             "--evidence-envelope",
             sidecar,
@@ -913,10 +913,10 @@ public sealed class DependsAssetCommandTests
             "No.Such.Package@1.0.0",
             "-S",
             DependsAssetSections.Roots,
-            "--table",
+            "--format=table",
             "--columns",
             "NoSuchColumn",
-            "--out",
+            "--output",
             ordinary,
             "--evidence-envelope",
             sidecar,
@@ -952,7 +952,7 @@ public sealed class DependsAssetCommandTests
             "-S",
             DependsAssetSections.Roots,
             "--count",
-            "--out",
+            "--output",
             primary,
             "--evidence-envelope",
             sidecar,
@@ -1436,7 +1436,7 @@ public sealed class DependsAssetCommandTests
             "--platform",
             "-S",
             "Dependency Graph",
-            "--jsonl",
+            "--format=jsonl",
         ];
         (int unboundedExit, string unboundedOutput, string unboundedError) =
             await RunCapturedAsync(common);
@@ -1479,7 +1479,7 @@ public sealed class DependsAssetCommandTests
             "1",
         ];
         (int jsonExit, string jsonOutput, string jsonError) =
-            await RunCapturedAsync([.. graph, "--json", "--compact"]);
+            await RunCapturedAsync([.. graph, "--format=json", "--compact"]);
         (int treeExit, string treeOutput, string treeError) =
             await RunCapturedAsync([.. graph, "--tree"]);
         (int countExit, string countOutput, string countError) =
@@ -1534,7 +1534,7 @@ public sealed class DependsAssetCommandTests
             "--platform",
             "-S",
             "Dependency Graph",
-            "--jsonl",
+            "--format=jsonl",
             "--columns",
             "Target",
         ]);
@@ -1562,7 +1562,7 @@ public sealed class DependsAssetCommandTests
             "/missing/last.nuspec",
             "-S",
             "Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -1775,7 +1775,7 @@ public sealed class DependsAssetCommandTests
             path,
             "-S",
             "Dependency Hierarchy,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -1812,7 +1812,7 @@ public sealed class DependsAssetCommandTests
             path,
             "-S",
             "Dependency Hierarchy,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -1895,7 +1895,7 @@ public sealed class DependsAssetCommandTests
             "not a tfm",
             "-S",
             "Dependency Hierarchy",
-            "--json",
+            "--format=json",
         ]);
 
         Assert.Equal(1, exitCode);
@@ -1933,7 +1933,7 @@ public sealed class DependsAssetCommandTests
             AssetsFixture,
             "-S",
             "Dependencies",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -1964,7 +1964,7 @@ public sealed class DependsAssetCommandTests
             "--package",
             "/missing/second-audit.nupkg",
             "-S",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2006,7 +2006,7 @@ public sealed class DependsAssetCommandTests
             path,
             "-S",
             "Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2076,7 +2076,7 @@ public sealed class DependsAssetCommandTests
             AssetsFixture,
             "-D",
             "--effective",
-            "--json",
+            "--format=json",
             "--columns",
             "Name",
         ]);
@@ -2110,7 +2110,7 @@ public sealed class DependsAssetCommandTests
         (int projectedExit, string projected, string projectedError) =
             await RunCapturedAsync([.. arguments, "--columns", "Target"]);
         (int jsonExit, string json, string jsonError) =
-            await RunCapturedAsync([.. arguments, "--json", "--compact"]);
+            await RunCapturedAsync([.. arguments, "--format=json", "--compact"]);
 
         Assert.Equal(0, markdownExit);
         Assert.Equal(0, projectedExit);
@@ -2166,9 +2166,9 @@ public sealed class DependsAssetCommandTests
         (int markdownExit, string markdown, string markdownError) =
             await RunCapturedAsync(arguments);
         (int tableExit, string table, string tableError) =
-            await RunCapturedAsync([.. arguments, "--table"]);
+            await RunCapturedAsync([.. arguments, "--format=table"]);
         (int jsonExit, string json, string jsonError) =
-            await RunCapturedAsync([.. arguments, "--json", "--compact"]);
+            await RunCapturedAsync([.. arguments, "--format=json", "--compact"]);
 
         Assert.Equal(0, markdownExit);
         Assert.Equal(0, tableExit);
@@ -2223,7 +2223,7 @@ public sealed class DependsAssetCommandTests
             AssetsFixture,
             "-S",
             "Roots,Dependencies,Restored Edges",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
         Assert.Equal(0, exitCode);
@@ -2252,7 +2252,7 @@ public sealed class DependsAssetCommandTests
             NuspecFixture,
             "-S",
             "Roots,Dependencies",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
         Assert.Equal(0, exitCode);
@@ -2310,7 +2310,7 @@ public sealed class DependsAssetCommandTests
             dependencySource,
             "-S",
             "Dependency Hierarchy,Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2536,7 +2536,7 @@ public sealed class DependsAssetCommandTests
             "net99.0",
             "-S",
             "Dependency Hierarchy,Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2576,7 +2576,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Dependency Hierarchy,Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2626,7 +2626,7 @@ public sealed class DependsAssetCommandTests
             source,
             "-S",
             "Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2649,7 +2649,7 @@ public sealed class DependsAssetCommandTests
             source,
             "-S",
             "Dependency Hierarchy,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2685,7 +2685,7 @@ public sealed class DependsAssetCommandTests
                 source,
                 "-S",
                 "Dependency Hierarchy,Failures",
-                "--jsonl",
+                "--format=jsonl",
             ]);
         Assert.Equal(1, jsonlExit);
         Assert.Contains("typed failure", jsonlError, StringComparison.Ordinal);
@@ -2733,7 +2733,7 @@ public sealed class DependsAssetCommandTests
                 source,
                 "-S",
                 "Dependency Hierarchy,Failures",
-                "--json",
+                "--format=json",
                 "--columns",
                 "Reason",
             ]);
@@ -2857,7 +2857,7 @@ public sealed class DependsAssetCommandTests
             "/missing/sibling.nuspec",
             "-S",
             "Dependencies,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2890,7 +2890,7 @@ public sealed class DependsAssetCommandTests
             AssetsFixture,
             "-S",
             "Dependencies,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2943,7 +2943,7 @@ public sealed class DependsAssetCommandTests
             "net48",
             "-S",
             "Dependencies,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -2969,7 +2969,7 @@ public sealed class DependsAssetCommandTests
             "/missing/jsonl-sibling.nuspec",
             "-S",
             "Dependency Hierarchy,Failures",
-            "--jsonl",
+            "--format=jsonl",
         ]);
 
         Assert.Equal(1, exitCode);
@@ -3460,7 +3460,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3517,7 +3517,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3584,7 +3584,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3623,7 +3623,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3681,7 +3681,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3749,7 +3749,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3814,7 +3814,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -3898,7 +3898,7 @@ public sealed class DependsAssetCommandTests
             "net11.0",
             "-S",
             "Pruning,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -4504,7 +4504,7 @@ public sealed class DependsAssetCommandTests
             "--project",
             AssetsFixture,
             verbosity,
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -4575,7 +4575,7 @@ public sealed class DependsAssetCommandTests
                 .. arguments,
                 "-S",
                 section,
-                "--json",
+                "--format=json",
                 "--compact",
             ]);
 
@@ -4618,7 +4618,7 @@ public sealed class DependsAssetCommandTests
             "100",
             "-S",
             "Dependency Hierarchy",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -4653,7 +4653,7 @@ public sealed class DependsAssetCommandTests
                 library,
                 "-S",
                 "Dependency Hierarchy,Failures",
-                "--json",
+                "--format=json",
                 "--compact",
             ]);
 
@@ -4779,7 +4779,7 @@ public sealed class DependsAssetCommandTests
             library,
             "-S",
             "Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -4834,13 +4834,13 @@ public sealed class DependsAssetCommandTests
         ];
 
         (_, string markdown, _) = await RunCapturedAsync(root);
-        (_, string table, _) = await RunCapturedAsync([.. root, "--table"]);
-        (_, string tsv, _) = await RunCapturedAsync([.. root, "--tsv"]);
-        (_, string jsonl, _) = await RunCapturedAsync([.. root, "--jsonl"]);
-        (_, string json, _) = await RunCapturedAsync([.. root, "--json"]);
+        (_, string table, _) = await RunCapturedAsync([.. root, "--format=table"]);
+        (_, string tsv, _) = await RunCapturedAsync([.. root, "--format=tsv"]);
+        (_, string jsonl, _) = await RunCapturedAsync([.. root, "--format=jsonl"]);
+        (_, string json, _) = await RunCapturedAsync([.. root, "--format=json"]);
         (_, string tree, _) = await RunCapturedAsync([.. root, "--tree"]);
         (_, string mermaid, _) = await RunCapturedAsync(
-            [.. root, "--mermaid"]);
+            [.. root, "--format=mermaid"]);
         (_, string count, _) = await RunCapturedAsync(
             [.. root, "--count"]);
 
@@ -4926,7 +4926,7 @@ public sealed class DependsAssetCommandTests
         ];
 
         (int plainExit, string plain, string plainError) =
-            await RunCapturedAsync([.. arguments, "--plaintext"]);
+            await RunCapturedAsync([.. arguments, "--format=plaintext"]);
         (int markdownExit, string markdown, string markdownError) =
             await RunCapturedAsync(arguments);
 
@@ -5045,7 +5045,7 @@ public sealed class DependsAssetCommandTests
         (_, string markdown, _) = await RunCapturedAsync(
             ["depends", "--nuspec", path, "-v:n"]);
         (_, string json, _) = await RunCapturedAsync(
-            ["depends", "--nuspec", path, "-v:n", "--json"]);
+            ["depends", "--nuspec", path, "-v:n", "--format=json"]);
         (_, string tsv, _) = await RunCapturedAsync(
         [
             "depends",
@@ -5053,7 +5053,7 @@ public sealed class DependsAssetCommandTests
             path,
             "-S",
             "Dependencies",
-            "--tsv",
+            "--format=tsv",
         ]);
 
         foreach (string rendered in new[] { markdown, json, tsv })
@@ -5073,7 +5073,7 @@ public sealed class DependsAssetCommandTests
             path,
             "-S",
             "Roots",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
         Assert.Equal(0, exitCode);
@@ -5129,7 +5129,7 @@ public sealed class DependsAssetCommandTests
             .. arguments,
             "-S",
             "Dependency Hierarchy",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
         Assert.Equal(0, exitCode);

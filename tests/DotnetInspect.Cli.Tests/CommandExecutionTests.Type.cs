@@ -192,11 +192,11 @@ public partial class CommandExecutionTests
         ];
 
         var markdown = await RunAppAsync(args);
-        var table = await RunAppAsync([.. args, "--table"]);
+        var table = await RunAppAsync([.. args, "--format=table"]);
         var tsv = await RunAppAsync(
-            [.. args, "--tsv", "--no-headers"]);
-        var jsonl = await RunAppAsync([.. args, "--jsonl"]);
-        var json = await RunAppAsync([.. args, "--json"]);
+            [.. args, "--format=tsv", "--no-headers"]);
+        var jsonl = await RunAppAsync([.. args, "--format=jsonl"]);
+        var json = await RunAppAsync([.. args, "--format=json"]);
 
         foreach (var result in new[]
         {
@@ -254,7 +254,7 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--tail",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -280,7 +280,7 @@ public partial class CommandExecutionTests
             "*Json*",
             "--platform",
             "System.Text.Json",
-            "--json",
+            "--format=json",
             "--tips",
             "q",
         ];
@@ -323,7 +323,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "--rows",
             "9999..9999",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -346,7 +346,7 @@ public partial class CommandExecutionTests
             "Package.That.Must.Not.Resolve",
             "--rows",
             "1",
-            "--json");
+            "--format=json");
         var jsonLines = await RunAppAsync(
             "--offline",
             "type",
@@ -355,7 +355,7 @@ public partial class CommandExecutionTests
             "--lines",
             "-n",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, legacyCount.Exit);
         Assert.Empty(legacyCount.Output);
@@ -406,7 +406,7 @@ public partial class CommandExecutionTests
                 .. mode,
                 "-n",
                 "1",
-                "--json",
+                "--format=json",
                 "--tips",
                 "q",
             ]);
@@ -428,7 +428,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-t",
             "2",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -683,14 +683,14 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("-v:q is not supported by the type shape renderer", error);
-        Assert.Contains("--markdown -v:q", error);
+        Assert.Contains("--format markdown -v:q", error);
     }
 
     [Fact]
     public async Task Type_SingleType_MarkdownQuiet_RendersCompactSectionView()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "--markdown", "-v:q", "--tips", "q");
+            "type", "System.Text.Json.JsonSerializer", "--format=markdown", "-v:q", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -704,7 +704,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_MarkdownMinimal_IncludesLibraryContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.FrozenDictionary", "--markdown", "--tips", "q");
+            "type", "System.Collections.FrozenDictionary", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -722,7 +722,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_PlaintextIncludesAcquisitionContext(string verbosity)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "--plaintext",
+            "type", "System.Text.Json.JsonSerializer", "--format=plaintext",
             $"-v:{verbosity}", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -741,7 +741,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Runtime.CompilerService", "--table", "--tips", "q");
+            "type", "System.Runtime.CompilerService", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -753,7 +753,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text", "--table", "--tips", "q");
+            "type", "System.Text", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -767,7 +767,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_WildcardNote_DoesNotDoubleStar()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text*", "--table", "--tips", "q");
+            "type", "System.Text*", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
@@ -779,7 +779,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_AllMissProjection_ReportsCleanError()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text", "--table", "--columns", "Library", "--tips", "q");
+            "type", "System.Text", "--format=table", "--columns", "Library", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -791,7 +791,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_PartialProjection_WarnsForMissingColumn()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text", "--table", "--columns", "Type,Library,Members", "--tips", "q");
+            "type", "System.Text", "--format=table", "--columns", "Type,Library,Members", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Text.StringBuilder", output);
@@ -802,7 +802,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Regex", "--markdown", "--tips", "q");
+            "type", "Regex", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -823,7 +823,7 @@ public partial class CommandExecutionTests
             typeName,
             "--platform",
             "System.Private.CoreLib",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -840,7 +840,7 @@ public partial class CommandExecutionTests
             "OrderedDictionary<TKey,TValue>.*Collection",
             "--platform",
             "System.Collections",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -879,7 +879,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", target, "--markdown", "--tips", "q");
+            "type", target, "--format=markdown", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -916,7 +916,7 @@ public partial class CommandExecutionTests
             target,
             "--package",
             "System.Collections.Concurrent@4.3.0",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -932,7 +932,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "MemoryExtensions", "--platform", "System.Memory",
-            "-m", selector, "--table", "--tips", "q");
+            "-m", selector, "--format=table", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -943,7 +943,7 @@ public partial class CommandExecutionTests
     public async Task Type_OperatorMemberFilter_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "DateTime", "-m", "operator+", "--table", "--tips", "q");
+            "type", "DateTime", "-m", "operator+", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("operator +", output);
@@ -954,7 +954,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareSimpleTypeMiss_PrefersPlatformTypeOverSameNamedPackage()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "JsonSerializer", "--markdown", "--tips", "q");
+            "type", "JsonSerializer", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.Json.JsonSerializer", output);
@@ -967,7 +967,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareSimpleTypeMiss_PrefersExactNonGenericMatch()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "FrozenDictionary", "--markdown", "--tips", "q");
+            "type", "FrozenDictionary", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
@@ -981,7 +981,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareCoreLibSimpleName_PrefersNonGenericExactMatch()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "Task", "--markdown", "--tips", "q");
+            "type", "Task", "--format=markdown", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -993,7 +993,7 @@ public partial class CommandExecutionTests
     public async Task Type_ExactPlatformAssembly_DoesNotUseWidePlatformPrefixBrowse()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections", "--table", "--tips", "q");
+            "type", "System.Collections", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1006,7 +1006,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Frozen", "--table", "--tips", "q");
+            "type", "System.Collections.Frozen", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort platform prefix matches", error);
@@ -1019,7 +1019,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ExplicitPlatformNamespace_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.Serialization", "--platform", "System.Text.Json", "--table", "--tips", "q");
+            "type", "System.Text.Json.Serialization", "--platform", "System.Text.Json", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -1031,7 +1031,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_ExplicitLibraryNamespace_ListsBestEffortMatches()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "DotnetInspect.Cli.Tests.Sample", "--library", TestAssemblyPath, "--table", "--tips", "q");
+            "type", "DotnetInspect.Cli.Tests.Sample", "--library", TestAssemblyPath, "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("best-effort prefix matches", error);
@@ -1048,7 +1048,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "type", "DotnetInspect.Cli.Tests.Sample", "--package", packagePath,
-                "--library", "Test.Primary.dll", "--table", "--tips", "q");
+                "--library", "Test.Primary.dll", "--format=table", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Contains("best-effort prefix matches", error);
@@ -1279,8 +1279,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
     public async Task Type_TypeInfoSection_NonTabularValidEmptyFieldReportsNoData(
         string format)
     {
@@ -1305,8 +1305,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
     public async Task Type_FieldReplayDoesNotCreditProjectedAwayFieldTable(
         string format)
     {
@@ -1336,8 +1336,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
     public async Task Type_NonTabularUnknownFieldWithoutSectionFails(
         string format)
     {
@@ -1547,7 +1547,7 @@ public partial class CommandExecutionTests
         // Agrees with the rows the same selection renders, so this cannot pass by counting a
         // different section or an unfiltered surface.
         var (rowsExit, rowsOutput, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--format=tsv", "--tips", "q");
         Assert.Equal(0, rowsExit);
         var rowCount = rowsOutput.Split('\n').Count(l => l.Trim().Length > 0) - 1;
         Assert.Equal(rowCount, int.Parse(countOutput.Trim()));
@@ -1570,7 +1570,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -1593,7 +1593,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -1618,7 +1618,7 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-D",
             "Classes",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -1639,7 +1639,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-D",
             "Classes",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -1661,7 +1661,7 @@ public partial class CommandExecutionTests
             "System.Private.CoreLib",
             "-D",
             "Interfaces",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -1682,7 +1682,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums",
-            "--count", "--json", "--tips", "q");
+            "--count", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -1697,7 +1697,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
-            "-S", "Type Info,Methods", "--count", "--json", "--tips", "q");
+            "-S", "Type Info,Methods", "--count", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -1716,9 +1716,9 @@ public partial class CommandExecutionTests
     /// exit 0, which the direct listing rejects. Pinned per flag so a regression names its own site.
     /// </summary>
     [Theory]
-    [InlineData("--tsv")]
-    [InlineData("--table")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=table")]
+    [InlineData("--format=jsonl")]
     public async Task Type_PrefixBrowse_MultiSectionSelect_FailsTabularArityLikeTheDirectListing(string format)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1737,7 +1737,7 @@ public partial class CommandExecutionTests
     public async Task Type_PrefixBrowse_SingleSectionSelect_StillRendersTabular()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--format=tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("kind\ttype", output, StringComparison.Ordinal);
@@ -1835,7 +1835,7 @@ public partial class CommandExecutionTests
             Assert.Contains(field + ":", line, StringComparison.Ordinal);
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--json", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "--format=json", "--tips", "q");
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -1899,7 +1899,7 @@ public partial class CommandExecutionTests
             .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "type", "System.Runtime", "--json", "--tips", "q");
+            "type", "System.Runtime", "--format=json", "--tips", "q");
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -1935,7 +1935,7 @@ public partial class CommandExecutionTests
             .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            ["type", .. source, "--json", "--tips", "q"]);
+            ["type", .. source, "--format=json", "--tips", "q"]);
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -1962,7 +1962,7 @@ public partial class CommandExecutionTests
             .Single(value => value.StartsWith("Library:", StringComparison.Ordinal));
 
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            ["type", .. source, "--json", "--tips", "q"]);
+            ["type", .. source, "--format=json", "--tips", "q"]);
         Assert.Equal(0, jsonExit);
         using var fullDocument = JsonDocument.Parse(jsonOutput);
         var root = fullDocument.RootElement;
@@ -1977,7 +1977,7 @@ public partial class CommandExecutionTests
     {
         string[][] modes =
         [
-            ["--plaintext"],
+            ["--format=plaintext"],
             ["--rows", "1"]
         ];
 
@@ -2034,7 +2034,7 @@ public partial class CommandExecutionTests
                 "type", "--platform", "System.Text.Json",
                 "-S", "API Info,Classes",
                 "--fields", "NoSuchField",
-                "--count", "--json", "--tips", "q");
+                "--count", "--format=json", "--tips", "q");
 
         Assert.Equal(1, mixedCountExit);
         Assert.Empty(mixedCountOutput);
@@ -2095,18 +2095,18 @@ public partial class CommandExecutionTests
         Assert.True(int.Parse(crossKindOkOutput.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Empty(crossKindOkError);
 
-        // --plaintext wrote straight to the console and so never saw the gate at all, which is
+        // --format plaintext wrote straight to the console and so never saw the gate at all, which is
         // the same bypass shape as the fact-table routing in #3648: a path that skips the shared
         // check because it renders differently, not because it should behave differently.
         var (plainExit, plainOutput, plainError) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "NoSuchField", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--format=plaintext", "--fields", "NoSuchField", "--tips", "q"]);
 
         Assert.Equal(1, plainExit);
         Assert.Contains("NoSuchField", plainError, StringComparison.Ordinal);
         Assert.Equal(string.Empty, plainOutput.Trim());
 
         var (plainOkExit, plainOkOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--plaintext", "--fields", "Library", "--tips", "q"]);
+            ["type", "--platform", "System.Text.Json", "-S", "API Info", "--format=plaintext", "--fields", "Library", "--tips", "q"]);
 
         Assert.Equal(0, plainOkExit);
         Assert.NotEqual(string.Empty, plainOkOutput.Trim());
@@ -2137,8 +2137,8 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
     // A flattened table retains the selected section's identity even when its view heading is
     // the generic table title.
-    [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--tsv", "--rows", "1" }, "System.")]
-    [InlineData(new[] { "--columns", "Type,Members", "--table", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--format=tsv", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "--columns", "Type,Members", "--format=table", "--rows", "1" }, "System.")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
     // renders exactly as it did before and must keep exiting 0.
     [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
@@ -2167,9 +2167,9 @@ public partial class CommandExecutionTests
     /// success-shaped empty output this gate exists to prevent.
     /// </summary>
     [Theory]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=plaintext")]
     [InlineData("--count")]
     public async Task Type_Listing_ProjectionMatchingTheWrongKind_FailsLikeAnUnknownName(string format)
     {
@@ -2186,7 +2186,7 @@ public partial class CommandExecutionTests
         // The companion: the same name against the kind it actually is must still render, so the
         // rule is "wrong kind", not "this name is banned".
         var (okExit, okOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "Classes", "--columns", "Type", "--tsv", "--tips", "q"]);
+            ["type", "--platform", "System.Net.Http", "-S", "Classes", "--columns", "Type", "--format=tsv", "--tips", "q"]);
 
         Assert.Equal(0, okExit);
         Assert.Contains("System.Net.Http.HttpClient", okOutput, StringComparison.Ordinal);
@@ -2216,7 +2216,7 @@ public partial class CommandExecutionTests
         // nothing and the gate is actually reached. Against a platform library the render is
         // non-empty and the wildcard never gets as far as the name check.
         var (exit, _, _) = await RunAppAsync(
-            ["type", "--library", TestAssemblyPath, "-S", "API Info", flag, pattern, "--tsv", "--tips", "q"]);
+            ["type", "--library", TestAssemblyPath, "-S", "API Info", flag, pattern, "--format=tsv", "--tips", "q"]);
 
         Assert.Equal(expectedExit, exit);
     }
@@ -2256,15 +2256,15 @@ public partial class CommandExecutionTests
     // A KNOWN field that simply holds no value. `Version` is advertised by -D "API Info", but a
     // local .dll has none, so the render is empty for a reason that is not an unmatched name.
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version" })]
-    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--tsv" })]
+    [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--format=tsv" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--count" })]
     // The same known field, but selected ALONGSIDE a section whose schema does not list it, with
     // that section filtered to zero rows. `Version` is document-level, so it belongs to no
     // section in particular; resolving it only against the SELECTED section reported it
     // unresolved. Normally the document fields keep the render non-empty and hide that, which is
     // why the zero-row filter is the load-bearing part of this case.
-    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--tsv" })]
-    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--jsonl" })]
+    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--format=tsv" })]
+    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--format=jsonl" })]
     public async Task Type_Listing_EmptyResultWithoutAnUnmatchedName_StaysSuccessful(string[] args)
     {
         var (exit, _, error) = await RunAppAsync(
@@ -2283,8 +2283,8 @@ public partial class CommandExecutionTests
     /// </summary>
     [Theory]
     [InlineData("")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     public async Task Type_Listing_EmptySectionWithNoProjection_StaysSuccessful(string format)
     {
         string[] formatArgs = format.Length == 0 ? [] : [format];
@@ -2297,9 +2297,9 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("matched projection", error, StringComparison.Ordinal);
 
         // Non-vacuity: the section must really be empty in the tabular form, or this asserts
-        // nothing about the gate. `--tsv` renders zero bytes for a zero-row section.
+        // nothing about the gate. `--format tsv` renders zero bytes for a zero-row section.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", "--tsv", "--tips", "q"]);
+            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", "--format=tsv", "--tips", "q"]);
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(string.Empty, tsvOutput.Trim());
@@ -2395,16 +2395,16 @@ public partial class CommandExecutionTests
     {
         // The listing tabular view filters by mapping section names to type KINDS, so a selection
         // it cannot map leaves the filter empty -- and an empty filter means "no filter", which
-        // emitted every type in the assembly under --tsv/--jsonl while the markdown rendering and
+        // emitted every type in the assembly under --format tsv/--format jsonl while the markdown rendering and
         // --count of the same invocation answered the question that was actually asked. Three
         // renderers disagreeing about one -S is the failure this pins, and it is invisible to any
         // test that only checks markdown.
         var (mdExit, markdown, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tips", "q");
         var (tsvExit, tsv, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--tsv", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--format=tsv", "--tips", "q");
         var (jsonlExit, jsonl, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--jsonl", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--format=jsonl", "--tips", "q");
         var (countExit, count, _) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "-S", SectionNames.ApiInfo, "--count", "--tips", "q");
 
@@ -2420,7 +2420,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
 
         // Machine modes carry no prose: the inline identity line is a document-level field, and
-        // serializing the whole view rather than the section leaked it into --tsv output.
+        // serializing the whole view rather than the section leaked it into --format tsv output.
         Assert.DoesNotContain("Library:", tsv, StringComparison.Ordinal);
 
         var markdownRows = markdown.Split('\n')
@@ -2444,7 +2444,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             "Classes",
-            "--plaintext",
+            "--format=plaintext",
             "--rows",
             "2",
             "--tips",
@@ -2467,7 +2467,7 @@ public partial class CommandExecutionTests
         // per-kind tables must keep their existing surface projection. A predicate that widened to
         // "any single section" would silently convert these to field/value rows.
         var (exit, tsv, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-S", section, "--tsv", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", section, "--format=tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.StartsWith("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
@@ -2493,7 +2493,7 @@ public partial class CommandExecutionTests
         foreach (var section in new[] { "Classes", SectionNames.ApiInfo })
         {
             var (exit, output, error) = await RunAppAsync(
-                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, "Nonexistent", "--tips", "q");
+                "type", "--platform", "System.Text.Json", "-S", section, "--format=tsv", flag, "Nonexistent", "--tips", "q");
 
             Assert.Contains("Nonexistent", error, StringComparison.Ordinal);
 
@@ -2513,7 +2513,7 @@ public partial class CommandExecutionTests
         foreach (var (section, name) in new[] { ("Classes", "Type"), (SectionNames.ApiInfo, factName) })
         {
             var (okExit, okOutput, _) = await RunAppAsync(
-                "type", "--platform", "System.Text.Json", "-S", section, "--tsv", flag, name, "--tips", "q");
+                "type", "--platform", "System.Text.Json", "-S", section, "--format=tsv", flag, name, "--tips", "q");
 
             Assert.Equal(0, okExit);
             Assert.NotEqual(string.Empty, okOutput.Trim());
@@ -2536,7 +2536,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_DiscoveryUsesAuthoredSurfaceCategoryWithoutComputedPoles()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "-D", "--schema", "--table", "--tips", "q");
+            "type", "-D", "--schema", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2574,7 +2574,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Drawing",
             "-D",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
         var (_, countOutput, _) = await RunAppAsync(
@@ -2598,9 +2598,9 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--table", "Target Library", "Kind    Type")]
-    [InlineData("--tsv", "target_library\ttypes", "kind\ttype")]
-    [InlineData("--jsonl", "\"target_library\":", "\"kind\":")]
+    [InlineData("--format=table", "Target Library", "Kind    Type")]
+    [InlineData("--format=tsv", "target_library\ttypes", "kind\ttype")]
+    [InlineData("--format=jsonl", "\"target_library\":", "\"kind\":")]
     public async Task Type_Listing_MixedSurfaceProjectsForwardersInTabularFormats(
         string format,
         string expected,
@@ -2633,7 +2633,7 @@ public partial class CommandExecutionTests
             "System.Text.Json",
             "-S",
             SectionNames.TypeForwarders,
-            "--table",
+            "--format=table",
             "--columns",
             "Target Library",
             "--rows",
@@ -2673,7 +2673,7 @@ public partial class CommandExecutionTests
             "--platform",
             "System.Text.Json",
             "-D",
-            "--table",
+            "--format=table",
             "--tips",
             "q");
 
@@ -3081,15 +3081,15 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task TypeListing_ColumnProjectionWithJson_IsRejected()
     {
-        // #3386: --columns/--fields select table columns; document --json has no column-slicing
+        // #3386: --columns/--fields select table columns; document --format json has no column-slicing
         // facility. The combination used to silently drop the column filter and emit the whole
         // typed document; it now fails closed instead.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--json");
+            "type", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Contains("cannot be combined with --format json", error);
         Assert.DoesNotContain("produced unprojected output", error);
     }
 
@@ -3100,7 +3100,7 @@ public partial class CommandExecutionTests
         // used to dump the whole ~20 MB surface and then trip the projection audit. It now fails
         // closed before rendering, and the audit must not add a second, misleading line.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Runtime", "-S", "Classes", "--value", "--json");
+            "type", "--platform", "System.Runtime", "-S", "Classes", "--value", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3113,26 +3113,26 @@ public partial class CommandExecutionTests
     {
         // #3386: the same rejection applies on the single-type path.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--json");
+            "type", "System.String", "--platform", "System.Runtime", "-S", "Methods", "--fields", "Name", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("cannot be combined with --json", error);
+        Assert.Contains("cannot be combined with --format json", error);
     }
 
     [Fact]
     public async Task GlobListing_Discovery_IsHonoredNotRejected()
     {
         // #3386 regression guard: the glob (and prefix-browse) fallback routes ignored -D
-        // discovery and fell through to WriteFullApiOutput. Once that path rejects --fields+--json,
+        // discovery and fell through to WriteFullApiOutput. Once that path rejects --fields+--format json,
         // a discovery request there would have been rejected with a misleading column message.
         // Discovery must be dispatched before the projection guard, matching the main listing path.
         var (exit, output, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.Sample*", "--library", TestAssemblyPath,
-            "-D", "Classes", "--fields", "Name", "--json");
+            "-D", "Classes", "--fields", "Name", "--format=json");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("cannot be combined with --json", error);
+        Assert.DoesNotContain("cannot be combined with --format json", error);
         using var document = JsonDocument.Parse(output);
         Assert.NotEmpty(document.RootElement.EnumerateArray());
         Assert.All(
@@ -3147,7 +3147,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "DotnetInspect.Cli.Tests.Sample*Constraint*", "--library", TestAssemblyPath,
-            "-D", "Enums", "--table", "--tips", "q");
+            "-D", "Enums", "--format=table", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3159,7 +3159,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "Zqqxnomatch.*", "--library", TestAssemblyPath,
-            "-D", "Classes", "--fields", "Name", "--json");
+            "-D", "Classes", "--fields", "Name", "--format=json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3207,7 +3207,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "2", "--jsonl", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "2", "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3223,7 +3223,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "first", "--jsonl", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "first", "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3238,7 +3238,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "last", "--jsonl", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "last", "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3267,7 +3267,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// <c>--json</c> selects an output format and <c>--print</c> selects an output shape,
+    /// <c>--format json</c> selects an output format and <c>--print</c> selects an output shape,
     /// so they compose: the projection owns the request and the plain type surface must not
     /// claim it. Regression for #3379, where the type-surface early return preceded the
     /// projection dispatch and silently discarded <c>--print</c> with exit 0.
@@ -3277,7 +3277,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--row", "1", "--json", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "1", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3290,14 +3290,14 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Cardinality validation belongs to the projection, so it must run under <c>--json</c> too.
+    /// Cardinality validation belongs to the projection, so it must run under <c>--format json</c> too.
     /// </summary>
     [Fact]
     public async Task Type_SourceFiles_PrintJson_RequiresRowWhenMultipleUrls()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print", "--json", "--tips", "q");
+            "-S", "Source Files", "--print", "--format=json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3309,7 +3309,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--urls", "--json", "--tips", "q");
+            "-S", "Source Files", "--urls", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3325,7 +3325,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--value", "--row", "2", "--json", "--tips", "q");
+            "-S", "Source Files", "--value", "--row", "2", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3370,7 +3370,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The acquisition guarantee must hold under <c>--json</c> as well; before #3379 this
+    /// The acquisition guarantee must hold under <c>--format json</c> as well; before #3379 this
     /// combination exited 0 with the type surface and never attempted the fetch.
     /// </summary>
     [Theory]
@@ -3392,7 +3392,7 @@ public partial class CommandExecutionTests
                     "--package", "Newtonsoft.Json@13.0.3",
                     .. member ? new[] { "-m", "SerializeObject" } : [],
                     "-S", member ? "Source Locations" : "Source Files",
-                    "--print", "--row", "2", "--json", "--tips", "q",
+                    "--print", "--row", "2", "--format=json", "--tips", "q",
                 ]);
 
             Assert.Equal(1, exit);
@@ -3517,7 +3517,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Annotated Source Document", "--json", "--tips", "q");
+            "-S", "Annotated Source Document", "--format=json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -3542,7 +3542,7 @@ public partial class CommandExecutionTests
     public async Task Type_Discovery_DoesNotListCostOverlay()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath, "-D", "--table", "--tips", "q");
+            "type", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath, "-D", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3606,7 +3606,7 @@ public partial class CommandExecutionTests
     public async Task TypeListing_NestedTypes_ShowDeclaringTypeContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "--table", "--tips", "q");
+            "type", "--platform", "System.Collections", "--format=table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3874,15 +3874,15 @@ public partial class CommandExecutionTests
             string[][] typeOutputOptions =
             [
                 [],
-                ["--json"],
-                ["--table"],
+                ["--format=json"],
+                ["--format=table"],
                 ["-S", "Type Info", "--count"],
             ];
             string[][] memberOutputOptions =
             [
                 [],
-                ["--json"],
-                ["--table"],
+                ["--format=json"],
+                ["--format=table"],
                 ["-S", "Member Index", "--count"],
             ];
             for (int i = 0; i < typeOutputOptions.Length; i++)
@@ -4096,8 +4096,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--table")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=table")]
+    [InlineData("--format=jsonl")]
     public async Task
         TypeListing_TabularInspectionFailuresSelectionRendersFailures(
             string format)
@@ -4153,7 +4153,7 @@ public partial class CommandExecutionTests
                 path,
                 "-S",
                 "Inspection Failures",
-                "--jsonl",
+                "--format=jsonl",
                 "--tips",
                 "q");
 

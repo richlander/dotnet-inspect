@@ -116,7 +116,7 @@ Microsoft.Extensions.Logging
 
 ```bash
 dotnet-inspect type Command \
-  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" --markdown -v:q
+  --project "$PROJECT_WORKFLOW/FindDemo/FindDemo.csproj" --format markdown -v:q
 ```
 
 ```expect

@@ -542,14 +542,14 @@ public static class TypeCommand
                         else
                         {
                             CommandError.Write("-v:q is not supported by the type shape renderer.");
-                            CommandError.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
+                            CommandError.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --format markdown -v:q for compact section output.");
                         }
                         return 1;
                     }
 
                     // Default to the tree renderer for a single Type when the user is not running
                     // a section/projection query and did not explicitly choose another renderer.
-                    // Verbosity grows the tree view; --markdown opts into the section/document view.
+                    // Verbosity grows the tree view; --format markdown opts into the section/document view.
                     if (ShouldDefaultToShape(effectiveOptions))
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
 

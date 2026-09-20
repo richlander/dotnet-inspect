@@ -40,10 +40,8 @@ internal static class ApiCoordinateMatchOptionsParser
                     args.AllOption,
                     matchOption,
                     args.CompactOption,
-                    options.Json,
+                    options.Format,
                     options.Envelope,
-                    options.Markdown,
-                    options.PlainText,
                     options.Verbose,
                     options.Info,
                     options.Tips,
@@ -96,10 +94,8 @@ internal static class ApiCoordinateMatchOptionsParser
                     args.IndexOption,
                     args.ShareOption,
                     args.CompactOption,
-                    options.Json,
+                    options.Format,
                     options.Envelope,
-                    options.Markdown,
-                    options.PlainText,
                     options.Verbose,
                     options.Info,
                     options.Tips,
@@ -289,14 +285,12 @@ internal static class ApiCoordinateMatchOptionsParser
 
         bool envelope = parseResult.GetValue(options.Envelope);
         int explicitFormatCount =
-            (parseResult.GetResult(options.Json) is { Implicit: false } ? 1 : 0)
-            + (parseResult.GetResult(options.Markdown) is { Implicit: false } ? 1 : 0)
-            + (parseResult.GetResult(options.PlainText) is { Implicit: false } ? 1 : 0)
+            (parseResult.GetResult(options.Format) is { Implicit: false } ? 1 : 0)
             + (parseResult.GetResult(options.Envelope) is { Implicit: false } ? 1 : 0);
         if (explicitFormatCount > 1)
         {
             return new Failure(
-                "--match accepts only one of --markdown, --plaintext, --json, or --envelope.");
+                "--match accepts either --format or --envelope, not both.");
         }
 
         OutputFormat format =
@@ -309,7 +303,7 @@ internal static class ApiCoordinateMatchOptionsParser
                 or OutputFormat.Json))
         {
             return new Failure(
-                "--match supports Markdown, plain text, --json, or --envelope output.");
+                "--match supports Markdown, plain text, --format json, or --envelope output.");
         }
 
         if (compactJson
@@ -317,7 +311,7 @@ internal static class ApiCoordinateMatchOptionsParser
             && format != OutputFormat.Json)
         {
             return new Failure(
-                "--compact requires --json or --envelope with --match.");
+                "--compact requires --format json or --envelope with --match.");
         }
 
         return new Success(

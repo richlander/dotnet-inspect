@@ -175,7 +175,7 @@ public class MemberCallGraphSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Performance Triage analysis.",
+            "Document --format json cannot represent Performance Triage analysis.",
             result.Error);
     }
 
@@ -198,7 +198,7 @@ public class MemberCallGraphSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --json cannot represent Performance Triage analysis.",
+            "Document --format json cannot represent Performance Triage analysis.",
             result.Error);
     }
 
@@ -711,7 +711,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains("--mermaid requires exactly one selected graph", result.Error);
+        Assert.Contains("Mermaid output requires exactly one selected graph", result.Error);
     }
 
     [Fact]

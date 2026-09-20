@@ -25,7 +25,7 @@ public class QueryDiscoveryTests
     [InlineData("member")]
     public async Task BareQuery_ListsOnlyImplementedQuerySections(string command)
     {
-        var result = await Run(command, "-Q", "--json");
+        var result = await Run(command, "-Q", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
@@ -50,7 +50,7 @@ public class QueryDiscoveryTests
     public async Task NamedQuery_DescribesBindingsWithoutAcquiringTarget(string command, string section)
     {
         var result = await Run(command, "--package", "/missing/query-discovery.nupkg",
-            "-Q", section, "--json");
+            "-Q", section, "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
@@ -78,7 +78,7 @@ public class QueryDiscoveryTests
             "libraries",
             "-Q",
             sectionName,
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -112,7 +112,7 @@ public class QueryDiscoveryTests
             "libraries",
             "-S",
             $"Query: {sectionName}",
-            "--json");
+            "--format=json");
         Assert.Equal(0, companion.ExitCode);
         Assert.Empty(companion.Error);
         Assert.Equal(result.Output, companion.Output);
@@ -128,7 +128,7 @@ public class QueryDiscoveryTests
             "/missing/query-discovery.dll",
             "-Q",
             "Dependency Graph",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -160,7 +160,7 @@ public class QueryDiscoveryTests
             "depends",
             "-Q",
             "Dependency Graph",
-            "--table");
+            "--format=table");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -188,7 +188,7 @@ public class QueryDiscoveryTests
             "find",
             "-Q",
             sectionName,
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -210,7 +210,7 @@ public class QueryDiscoveryTests
             "library",
             "-Q",
             SectionNames.BodyShapes,
-            "--table");
+            "--format=table");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -227,12 +227,12 @@ public class QueryDiscoveryTests
             "depends",
             "-Q",
             "Dependency Hierarchy",
-            "--json");
+            "--format=json");
         var package = await Run(
             "package",
             "-Q",
             "Dependency Hierarchy",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, depends.ExitCode);
         Assert.Empty(depends.Error);
@@ -267,7 +267,7 @@ public class QueryDiscoveryTests
     [InlineData("member", false)]
     public async Task BodyShapes_ExposesExactKindsAndOnlySupportedComposition(string command, bool composed)
     {
-        var result = await Run(command, "-Q", "Body Shapes", "--json");
+        var result = await Run(command, "-Q", "Body Shapes", "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         JsonElement facets = json.RootElement.GetProperty("sections")[0].GetProperty("facets");
@@ -288,7 +288,7 @@ public class QueryDiscoveryTests
     [InlineData("member")]
     public async Task CloneCandidates_ExposesBreadthAndDiscovery(string command)
     {
-        var result = await Run(command, "-Q", SectionNames.CloneCandidates, "--json");
+        var result = await Run(command, "-Q", SectionNames.CloneCandidates, "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
 
@@ -315,7 +315,7 @@ public class QueryDiscoveryTests
             command,
             "-S",
             "Query: " + SectionNames.CloneCandidates,
-            "--json");
+            "--format=json");
         Assert.Equal(0, companion.ExitCode);
         Assert.Equal(result.Output, companion.Output);
     }
@@ -326,7 +326,7 @@ public class QueryDiscoveryTests
     [InlineData("Performance:*")]
     public async Task QuerySelectors_ReuseCategoriesAliasesAndGlobs(string selector)
     {
-        var result = await Run("library", "-Q", selector, "--json");
+        var result = await Run("library", "-Q", selector, "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Contains(json.RootElement.GetProperty("sections").EnumerateArray(),
@@ -425,7 +425,7 @@ public class QueryDiscoveryTests
         string mode, string option, string value)
     {
         string section = mode == "-Q" ? "Package Info" : "Query: Package Info";
-        var result = await Run("package", mode, section, option, value, "--json");
+        var result = await Run("package", mode, section, option, value, "--format=json");
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains($"Unrecognized option '{option}'", result.Error);
@@ -437,7 +437,7 @@ public class QueryDiscoveryTests
     [InlineData("library", "Top Leverage")]
     public async Task NonQueryableSection_IsExplicitNotUnknownOrCoreOnlyAdvertisement(string command, string section)
     {
-        var result = await Run(command, "-Q", section, "--json");
+        var result = await Run(command, "-Q", section, "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         JsonElement described = json.RootElement.GetProperty("sections")[0];
@@ -452,7 +452,7 @@ public class QueryDiscoveryTests
     public async Task IntegrationQuery_ExposesConceptAndEcosystemBindings(string section)
     {
         var result = await Run("library", "--package", "/missing/query-discovery.nupkg",
-            "-Q", section, "--json");
+            "-Q", section, "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
@@ -492,7 +492,7 @@ public class QueryDiscoveryTests
             "query",
             "-Q",
             "Packages",
-            "--json");
+            "--format=json");
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
@@ -555,11 +555,11 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task CompanionSelection_IsEquivalentAndSupportsSchemaDiscovery()
     {
-        var query = await Run("type", "-Q", "Body Shapes", "--json");
-        var selected = await Run("type", "-S", "Query: Body Shapes", "--json");
+        var query = await Run("type", "-Q", "Body Shapes", "--format=json");
+        var selected = await Run("type", "-S", "Query: Body Shapes", "--format=json");
         Assert.Equal(0, selected.ExitCode);
         Assert.Equal(query.Output, selected.Output);
-        var schema = await Run("type", "-D", "Query: Body Shapes", "--schema", "--json");
+        var schema = await Run("type", "-D", "Query: Body Shapes", "--schema", "--format=json");
         Assert.Equal(0, schema.ExitCode);
         Assert.Contains("Operators", schema.Output);
         Assert.Contains("Comparisons", schema.Output);
@@ -578,13 +578,13 @@ public class QueryDiscoveryTests
             ? [$"{option}=Query: Packages"]
             : [option, "Query: Packages"];
         var result = await Run(
-            ["package", "query", .. selector, "--json"]);
+            ["package", "query", .. selector, "--format=json"]);
         var query = await Run(
             "package",
             "query",
             "-Q",
             "Packages",
-            "--json");
+            "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(query.Output, result.Output);
@@ -605,7 +605,7 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task ProjectedJson_PreservesQuerySyntaxWithoutPresentationMarkup()
     {
-        var result = await Run("type", "-Q", "Performance Triage", "--fields", "Example", "--json");
+        var result = await Run("type", "-Q", "Performance Triage", "--fields", "Example", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
@@ -615,10 +615,10 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
-    [InlineData("--markdown")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=markdown")]
     public async Task CompanionSchemaDiscovery_RequiresOneSection(string format)
     {
         var result = await Run("type", "-D", "Query:*", format);
@@ -639,20 +639,20 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task OrdinarySchemaDiscovery_DoesNotAcquireQueryCompanions()
     {
-        var result = await Run("library", "-D", "--schema", "--json");
+        var result = await Run("library", "-D", "--schema", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("Query:", result.Output);
     }
 
     [Theory]
-    [InlineData("--tsv", "--columns")]
-    [InlineData("--jsonl", "--columns")]
-    [InlineData("--json", "--columns")]
-    [InlineData("--plaintext", "--columns")]
-    [InlineData("--tsv", "--fields")]
-    [InlineData("--jsonl", "--fields")]
-    [InlineData("--json", "--fields")]
-    [InlineData("--plaintext", "--fields")]
+    [InlineData("--format=tsv", "--columns")]
+    [InlineData("--format=jsonl", "--columns")]
+    [InlineData("--format=json", "--columns")]
+    [InlineData("--format=plaintext", "--columns")]
+    [InlineData("--format=tsv", "--fields")]
+    [InlineData("--format=jsonl", "--fields")]
+    [InlineData("--format=json", "--fields")]
+    [InlineData("--format=plaintext", "--fields")]
     public async Task QueryRows_UseSharedProjectionAndWindow(string format, string projection)
     {
         var result = await Run("type", "-Q", "Performance Triage",
@@ -668,7 +668,7 @@ public class QueryDiscoveryTests
     public async Task QueryProjection_CombinesFieldAndColumnAliases()
     {
         var result = await Run("type", "-Q", "Body Shapes",
-            "--fields", "facet", "--columns", "val*", "--json");
+            "--fields", "facet", "--columns", "val*", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
@@ -679,7 +679,7 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task BareQueryProjection_UsesFieldAlias()
     {
-        var result = await Run("library", "-Q", "--fields", "section", "--rows", "1", "--json");
+        var result = await Run("library", "-Q", "--fields", "section", "--rows", "1", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using var json = JsonDocument.Parse(result.Output);
@@ -741,7 +741,7 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task MultiSectionStreams_AreRejectedRatherThanFlattened()
     {
-        var result = await Run("type", "-Q", "Performance Triage,Body Shapes", "--jsonl");
+        var result = await Run("type", "-Q", "Performance Triage,Body Shapes", "--format=jsonl");
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("one section", result.Error);
@@ -750,8 +750,8 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task LongAliasAndAttachedSelector_AreEquivalent()
     {
-        var shortForm = await Run("type", "-Q", "Body Shapes", "--json");
-        var longForm = await Run("type", "--query-help=Body Shapes", "--json");
+        var shortForm = await Run("type", "-Q", "Body Shapes", "--format=json");
+        var longForm = await Run("type", "--query-help=Body Shapes", "--format=json");
         Assert.Equal(0, longForm.ExitCode);
         Assert.Equal(shortForm.Output, longForm.Output);
     }
@@ -783,8 +783,8 @@ public class QueryDiscoveryTests
     public async Task CommandlessRepeatedCompanionSelection_RetainsListMerging()
     {
         var result = await Run("/missing/query-discovery.dll",
-            "-S", "Query: Body Shapes", "-S", "Query: Performance: Arrays", "--json");
-        var query = await Run("library", "-Q", "Body Shapes,Performance: Arrays", "--json");
+            "-S", "Query: Body Shapes", "-S", "Query: Performance: Arrays", "--format=json");
+        var query = await Run("library", "-Q", "Body Shapes,Performance: Arrays", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(query.Output, result.Output);
@@ -793,7 +793,7 @@ public class QueryDiscoveryTests
     [Fact]
     public async Task ExplicitCompanionWildcard_DoesNotChangeOrdinaryDataWildcards()
     {
-        var result = await Run("type", "-S", "Query: Body*", "--json");
+        var result = await Run("type", "-S", "Query: Body*", "--format=json");
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Query: Body Shapes", result.Output);
         var sections = LibrarySections.CreateCatalog().Sections.SelectableSectionNames;

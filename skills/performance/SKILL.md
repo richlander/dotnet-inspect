@@ -41,14 +41,14 @@ Type/member scope keeps the focused `Performance Triage` lens.
 dnx dotnet-inspect -y -- library MyLib.dll -D @Performance
 dnx dotnet-inspect -y -- library MyLib.dll -D @Performance --effective
 dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Strings" --jsonl
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --format jsonl
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Strings" --format jsonl
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "Priority>=high" --top 20 --tsv
+  --where "Priority>=high" --top 20 --format tsv
 dnx dotnet-inspect -y -- library MyLib.dll \
   --triage-shape scan-method-in-loop-call,scan-method-in-recursive-traversal,linq-scan-in-loop,string-build-in-loop \
-  --top 20 --tsv
-dnx dotnet-inspect -y -- library MyLib.dll --triage-shape capturing-delegate --top 10 --jsonl
+  --top 20 --format tsv
+dnx dotnet-inspect -y -- library MyLib.dll --triage-shape capturing-delegate --top 10 --format jsonl
 ```
 
 Target IL-visible costs (allocations: box, newarr, delegate newobj,
@@ -62,7 +62,7 @@ the curated ranked prefix. Supplying any of those flags selects the applicable
 performance lens automatically. In library row formats, `Performance:*`
 flattens two or more populated kind sections into one table with a leading
 `Kind` column. If filtering leaves one populated kind, row formats use that
-kind's concrete schema without `Kind`; use structured `--json` when the kind
+kind's concrete schema without `Kind`; use structured `--format json` when the kind
 discriminator must remain explicit. `@Performance` also includes heterogeneous
 sections, so use it for discovery, counts, Markdown, or JSON documents instead.
 `--top` narrows ranked data before rendering; `--rows N` caps rendered rows
@@ -129,7 +129,7 @@ rewrite shape, opt into the aggregate allocation fanout:
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll \
   --triage-shape allocation-fanout \
-  --order-by "OncePaths desc" --top 20 --tsv
+  --order-by "OncePaths desc" --top 20 --format tsv
 ```
 
 `Direct Sites` is local to the method. `Once Paths` composes exact
@@ -158,9 +158,9 @@ without parsing `Evidence` text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "Finding=analysis.allocation" --where "Operation=box" --json
+  --where "Finding=analysis.allocation" --where "Operation=box" --format json
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "Finding=analysis.call-site" --json
+  --where "Finding=analysis.call-site" --format json
 ```
 
 To ask which source-facing methods with matching performance evidence also
@@ -171,7 +171,7 @@ dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=InvocationExpression" \
   --where "Finding=analysis.call-site" \
   --where "Shape=sync-call-in-async" \
-  --where "Confidence>=medium" --jsonl
+  --where "Confidence>=medium" --format jsonl
 ```
 
 This emits `Body Shapes`, not Performance rows. The typed performance
@@ -199,12 +199,12 @@ document and a trace captured from the same assembly build:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "Priority>=high" --json > triage.json
+  --where "Priority>=high" --format json > triage.json
 dotnet run --project src/runfaster -- \
   correlate --triage triage.json --trace workload.nettrace
 ```
 
-Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
+Compact `Performance:* --format jsonl` rows omit deep provenance and cannot support an
 exact trace join. `runfaster` keeps their operation `Token` separate from the
 source-facing `MethodToken`, uses `EvidenceMethod` as the physical body token
 when supplied, and reports missing runtime coordinates explicitly. Blank
@@ -245,7 +245,7 @@ Select rows with an exact direct invocation receipt:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "CallerLoop=direct" --json
+  --where "CallerLoop=direct" --format json
 ```
 
 `CallerLoopDepth` and `CallerLoopWitness` identify the deterministic invocation
@@ -267,7 +267,7 @@ acquisitions whose exact def-use path reaches an external-input boundary before
 modeled cleanup:
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Resource Triage" --jsonl
+dnx dotnet-inspect -y -- library MyLib.dll -S "Resource Triage" --format jsonl
 ```
 
 Treat `pool-churn-on-exception` as a profiling and hardening candidate, not a
@@ -336,13 +336,13 @@ points and outbound calls, centred on the selected member. Project per-node cost
 with `--fields` (alloc, copy, unsafe, reflection, throw/exception,
 catch/finally). Its default Markdown edge table is best for comparing
 relationships and cost cues. Use `--tree` when the path toward or away from the
-candidate matters, `--mermaid` for a standalone diagram, or
-`--markdown --mermaid` to embed the diagram. Use `--tsv` or `--jsonl` when a
+candidate matters, `--format mermaid` for a standalone diagram, or
+`--mermaid` to embed the diagram in Markdown. Use `--format tsv` or `--format jsonl` when a
 script will consume the same edge rows. Requested cost cues remain annotations
 in the node labels; they do not become separate machine columns.
 
-`Call Graph` has not adopted `--envelope`; use `--jsonl` or `--tsv` for edge
-rows. Document `--json` currently emits the surrounding Type result rather
+`Call Graph` has not adopted `--envelope`; use `--format jsonl` or `--format tsv` for edge
+rows. Document `--format json` currently emits the surrounding Type result rather
 than graph edges. Exact-member `--share url` is a separate public API Overview
 projection and does not retain the performance or Call Graph lens.
 
@@ -350,5 +350,5 @@ projection and does not retain the performance or Call Graph lens.
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Alloc,Loop" --tree
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --jsonl
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --format jsonl
 ```

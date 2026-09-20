@@ -142,7 +142,7 @@ public record LibraryOptions : IProjectionOptions
     public bool Jsonl { get; init; }
 
     /// <summary>
-    /// Suppress column headers (use with --table or --tsv).
+    /// Suppress column headers (use with --format table or --format tsv).
     /// </summary>
     public bool NoHeader { get; init; }
 
@@ -361,7 +361,7 @@ public record LibraryOptions : IProjectionOptions
     public bool IsDefaultInvocation => Tabular && !JsonOutput;
 
     /// <summary>
-    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// True when the user has opted into rich markdown output (via --format markdown or -v:*).
     /// </summary>
     public bool VerbosityEnabled => !Tabular && !JsonOutput;
 

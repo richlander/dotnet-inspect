@@ -300,7 +300,7 @@ public sealed class MatchCommandTests
             $"{typeof(MatchSampleA).FullName}.Greet",
             $"{typeof(MatchSampleA).FullName}.GreetFormal",
             "--library", typeof(MatchCommandTests).Assembly.Location,
-            "--body", "--json", "--compact", "--all",
+            "--body", "--format=json", "--compact", "--all",
         ];
         var root = CommandLineBuilder.CreateRootCommand();
         var (exitCode, output, error) =

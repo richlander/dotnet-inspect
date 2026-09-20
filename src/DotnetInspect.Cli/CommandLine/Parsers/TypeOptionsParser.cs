@@ -435,7 +435,7 @@ public static class TypeOptionsParser
         // Performance Triage row filters (--top/--loop/--min-confidence/--triage-shape/--where/
         // --order-by) surface the Performance Triage section only when the user did not already
         // pick sections with -S. Otherwise an explicit selection like -S "Top Leverage" would
-        // silently gain a second section and break single-section formats (--table/--tsv/--jsonl).
+        // silently gain a second section and break single-section formats (--format table/--format tsv/--format jsonl).
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
         if (cloneCandidateQuery.HasPredicates
@@ -500,8 +500,8 @@ public static class TypeOptionsParser
                 !envelopeOutput
                 && (tree || opts.IsFormatFlagExplicitlySet(parseResult)),
             Format = outputFormat,
-            MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
-            PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
+            MarkdownExplicitlySet = opts.IsMarkdownOutput(parseResult),
+            PlainText = !envelopeOutput && opts.IsPlainTextOutput(parseResult),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),

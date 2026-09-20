@@ -57,19 +57,19 @@ the IDs instead of guessing them:
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
 dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=ObjectCreationExpression" --jsonl
+  --where "Kind=ObjectCreationExpression" --format jsonl
 dnx dotnet-inspect -y -- library System.Text.Json \
   --where "Kind=TryStatement" --columns "Member;Token;Match" --rows 10
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=InvocationExpression" \
   --where "Finding=analysis.call-site" \
-  --where "Shape=sync-call-in-async" --jsonl
+  --where "Shape=sync-call-in-async" --format jsonl
 dnx dotnet-inspect -y -- type JsonDocument \
   --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --jsonl
+  --where "Kind=ObjectCreationExpression" --format jsonl
 dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
   --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --jsonl
+  --where "Kind=ObjectCreationExpression" --format jsonl
 ```
 
 `Kind=...` auto-selects the explicit-only section when no `-S` selection is

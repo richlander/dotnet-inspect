@@ -539,9 +539,9 @@ row family.
 For example:
 
 - `-S @Performance` is valid as Markdown or JSON.
-- `-S @Performance --table` is rejected because the category is
+- `-S @Performance --format table` is rejected because the category is
   heterogeneous.
-- `-S "Performance:*" --table` retains the homogeneous flattened performance
+- `-S "Performance:*" --format table` retains the homogeneous flattened performance
   row contract.
 
 The rejection must identify the incompatible category and suggest a concrete

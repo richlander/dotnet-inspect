@@ -57,7 +57,7 @@ Assert the IR invariant on accepted and declined results.
 ### Review evidence
 
 For the benchmark witness, acquire exact base/head `AnnotatedSourceDocument`
-values with `-S "Annotated Source Document" --json`, save each root document
+values with `-S "Annotated Source Document" --format json`, save each root document
 separately, and pass both product documents to
 `DecompilerHarness --structural-review`. Use a real corpus method when one
 exists and a compiler-produced fixture otherwise. This acquisition and command
@@ -70,7 +70,7 @@ full-body structural review introduced by #4092 from one
 `CSharpStructuralDiffDocument` and its derived `CSharpStructuralComparison`.
 Paste its Before/After caret overlays, structural rows, and any correspondence
 gaps verbatim when the claimed change has supported correspondence. Add
-`--json` to the harness command when the revision-bound diff document itself
+`--format json` to the harness command when the revision-bound diff document itself
 must be retained or replayed; never replace it with caller-authored
 correspondence.
 

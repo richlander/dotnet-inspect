@@ -660,13 +660,13 @@ public partial class PackageCommand
 
         if (options.ShowContent && options.JsonOutput)
         {
-            CommandError.Write("--content supports --jsonl for structured output, not --json.");
+            CommandError.Write("--content supports --format jsonl for structured output, not --format json.");
             return false;
         }
 
         if (options.ShowContent && options.Tabular && !options.Jsonl)
         {
-            CommandError.Write("--content supports separator output or --jsonl; it cannot be combined with --table or --tsv.");
+            CommandError.Write("--content supports separator output or --format jsonl; it cannot be combined with --format table or --format tsv.");
             return false;
         }
 

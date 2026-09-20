@@ -81,7 +81,7 @@ public static class CountOutput
 
     /// <summary>
     /// Writes a count to <paramref name="outputPath"/>, or to stdout when it is null. A count is
-    /// still the command's payload, so --out has to apply to it as it does to a full render.
+    /// still the command's payload, so --output has to apply to it as it does to a full render.
     /// </summary>
     public static void WriteCount(
         int count,

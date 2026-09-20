@@ -91,7 +91,7 @@ internal partial class DiffJsonContext : JsonSerializerContext
 }
 
 /// <summary>
-/// Serialization contract for <c>match --body --json</c>
+/// Serialization contract for <c>match --body --format json</c>
 /// (<see cref="MatchBodyDocument"/>): snake-case names, omitted nulls, and string enums
 /// to match <see cref="ILInspector.Analysis.StructuralCloneComparisonDocumentJsonContext"/>'s
 /// contract for the nested <see cref="ILInspector.Analysis.StructuralCloneComparisonDocument"/>.
@@ -118,7 +118,7 @@ internal partial class MatchBodyDocumentCompactJsonContext : JsonSerializerConte
 }
 
 /// <summary>
-/// Serialization contract for <c>match --similar --json</c>
+/// Serialization contract for <c>match --similar --format json</c>
 /// (<see cref="MatchDiscoveryDocument"/>). Structured output retains every query-returned
 /// candidate, outcome, blocker, limit, and receipt; <c>--top</c> bounds rendered text only.
 /// </summary>

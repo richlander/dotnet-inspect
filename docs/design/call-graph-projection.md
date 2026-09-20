@@ -338,7 +338,7 @@ other side pointing at it through a `↩` revisit leaf.
 No node and no edge is lost — the revisit leaf carries the edge — but a caller
 chain that re-enters through the callee side reads as two fragments rather than
 one path. That is a property of tree lowering, not of the projection, and the
-edge-table lowering (`--table`, `--tsv`, `--jsonl`) shows every edge in one
+edge-table lowering (`--format table`, `--format tsv`, `--format jsonl`) shows every edge in one
 place for readers who need it. Splitting the model back into two graphs to make
 the tree prettier would reintroduce exactly the duplicated walk this design
 removes, so the projection stays single and the lowering stays lossy-by-shape.
@@ -790,8 +790,8 @@ a direction-specific identity map.
 projection. `CallGraphSectionAdapter` lowers it to one Markout `Graph`, and
 Markout picks the lowering the sink can express: an edge table in Markdown by
 default, a standalone tree under `--tree`, an edge table under
-`--table`/`--tsv`/`--jsonl`, a standalone diagram under `--mermaid`, or a
-fenced diagram under `--markdown --mermaid`. The adapter is the only place that
+`--format table`/`--format tsv`/`--format jsonl`, a standalone diagram under
+`--format mermaid`, or a fenced diagram under `--mermaid`. The adapter is the only place that
 knows call-graph vocabulary; the section is a graph, not a pre-rendered tree or
 diagram, which is what lets one model serve every sink. `--count` reports the
 projection's edge-row count. `--rows` selects those same stable edge rows before

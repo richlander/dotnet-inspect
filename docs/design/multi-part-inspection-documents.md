@@ -232,14 +232,14 @@ concrete section or homogeneous family.
 For an adopted public transport:
 
 ```text
-unprojected --json
+unprojected --format json
   -> complete owner-issued Content
 
 --envelope
   -> the same complete Content + Share + diagnostics
 ```
 
-The decoded unprojected `--json` value equals `--envelope.content` under the
+The decoded unprojected `--format json` value equals `--envelope.content` under the
 owner's serializer. `--envelope` rejects section, row, field, column, Count,
 and competing format requests rather than ignoring them or filtering the
 already completed service value.

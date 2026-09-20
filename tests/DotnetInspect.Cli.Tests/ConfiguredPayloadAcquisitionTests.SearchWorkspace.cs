@@ -44,7 +44,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--all",
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ],
@@ -56,7 +56,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--all",
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ],
@@ -68,7 +68,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--all",
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ],
@@ -82,7 +82,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--all",
                 "--reachable",
                 "--depth", "1",
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ],
@@ -158,7 +158,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--rows", "1",
                 "--verbose",
                 "--tips", "q",
@@ -214,7 +214,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ]);
@@ -255,7 +255,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ]);
@@ -305,7 +305,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ]);
@@ -339,7 +339,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ]);
@@ -380,7 +380,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             ]);
 
@@ -421,7 +421,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             ]);
 
@@ -469,7 +469,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             ]);
 
@@ -532,7 +532,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{SecondVersion}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             };
             if (limit is not null)
@@ -579,7 +579,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             ]);
 
@@ -628,7 +628,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--package", $"{id}@{Version}",
             "--tfm", "net11.0",
             "--source", FirstFeed,
-            "--json",
+            "--format=json",
             "--tips", "q",
         };
         if (limit)
@@ -681,7 +681,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             ];
             if (forceCompatibility)
@@ -738,7 +738,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
                 "--tips", "q",
             ]);
 
@@ -772,7 +772,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
                 "--all",
-                "--json",
+                "--format=json",
                 "--verbose",
                 "--tips", "q",
             ]);
@@ -815,7 +815,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--package", $"{id}@{Version}",
                 "--tfm", "net11.0",
                 "--source", FirstFeed,
-                "--json",
+                "--format=json",
             };
             if (includeAll)
                 arguments.Add("--all");

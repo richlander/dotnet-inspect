@@ -45,7 +45,10 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(shareOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
-        typeCommand.Options.Add(opts.Json);
+        opts.AddFormatOptionTo(
+            typeCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.PlainText);
         typeCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(typeCommand);
         typeCommand.Options.Add(unsafeOption);
@@ -53,8 +56,6 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(typeCommand);
-        typeCommand.Options.Add(opts.Markdown);
-        typeCommand.Options.Add(opts.PlainText);
         typeCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);

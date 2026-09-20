@@ -85,9 +85,12 @@ public static class InspectionGraphCommandDefinitions
         command.Options.Add(allOption);
         command.Options.Add(depthOption);
         command.Options.Add(maxNodesOption);
-        command.Options.Add(opts.Json);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
         command.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(
@@ -116,12 +119,9 @@ public static class InspectionGraphCommandDefinitions
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
             if (result.GetValue(opts.Tree)
-                && (result.GetValue(opts.Json)
-                    || result.GetValue(opts.Markdown)
-                    || result.GetValue(opts.PlainText)
-                    || result.GetValue(opts.Table)
-                    || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
+                && (result.GetResult(opts.Format)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Mermaid)
                     || result.GetResult(opts.Verbosity)
                         is { Implicit: false }))
             {
@@ -240,9 +240,11 @@ public static class InspectionGraphCommandDefinitions
             AllowMultipleArgumentsPerToken = false,
         };
         command.Options.Add(libraryOption);
-        command.Options.Add(opts.Json);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(command);
         opts.AddSectionOptionsTo(command);
@@ -370,9 +372,12 @@ public static class InspectionGraphCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(relationshipOption);
         command.Options.Add(prereleaseOption);
-        command.Options.Add(opts.Json);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
         command.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(
@@ -406,12 +411,9 @@ public static class InspectionGraphCommandDefinitions
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
             if (result.GetValue(opts.Tree)
-                && (result.GetValue(opts.Json)
-                    || result.GetValue(opts.Markdown)
-                    || result.GetValue(opts.PlainText)
-                    || result.GetValue(opts.Table)
-                    || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
+                && (result.GetResult(opts.Format)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Mermaid)
                     || result.GetResult(opts.Verbosity)
                         is { Implicit: false }))
             {

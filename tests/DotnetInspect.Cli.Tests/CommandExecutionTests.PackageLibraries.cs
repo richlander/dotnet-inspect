@@ -45,7 +45,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--all-libraries", "-S", "@Library",
-                "--count", "--json", "--tips", "q");
+                "--count", "--format=json", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
@@ -77,7 +77,7 @@ public partial class CommandExecutionTests
                 "--count", "--tips", "q");
             var (renderExit, rendered, renderError) = await RunAppAsync(
                 "package", packagePath, "--all-libraries", "-S", "Metadata: TypeRef",
-                "--markdown", "--tips", "q");
+                "--format=markdown", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Equal(0, singleExit);
@@ -103,7 +103,7 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--all-libraries", "-S",
-                "--count", "--json", "--tips", "q");
+                "--count", "--format=json", "--tips", "q");
             var (renderExit, rendered, renderError) = await RunAppAsync(
                 "package", packagePath, "--all-libraries", "-S", "--tips", "q");
             var (treeExit, treeOutput, treeError) = await RunAppAsync(
@@ -404,7 +404,7 @@ public partial class CommandExecutionTests
             "--all-libraries",
             "-S",
             "@Integrations",
-            "--markdown",
+            "--format=markdown",
             "--tips",
             "q");
 
@@ -513,18 +513,18 @@ public partial class CommandExecutionTests
                 "-S", "Reference Hierarchy", "--tree", "--tips", "q");
             var explicitMarkdown = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "Reference Hierarchy", "--tree", "--markdown", "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--format=markdown", "--tips", "q");
             var bare = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "Reference Hierarchy", "--tree", "--bare", "--markdown", "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--bare", "--format=markdown", "--tips", "q");
             var file = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "Reference Hierarchy", "--tree", "--markdown",
-                "--out", outputPath, "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--format=markdown",
+                "--output", outputPath, "--tips", "q");
             var noHeader = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "Reference Hierarchy", "--tree", "--no-header",
-                "--markdown", "--tips", "q");
+                "--format=markdown", "--tips", "q");
 
             Assert.Equal(1, environment.Exit);
             Assert.Empty(environment.Output);
@@ -546,13 +546,13 @@ public partial class CommandExecutionTests
             var windowed = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "Reference Hierarchy", "--tree", "--markdown",
+                "-S", "Reference Hierarchy", "--tree", "--format=markdown",
                 "--lines", "-n", "2", "--tips", "q");
             var windowedFile = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "Reference Hierarchy", "--tree", "--markdown",
-                "--lines", "-n", "2", "--out", outputPath, "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--format=markdown",
+                "--lines", "-n", "2", "--output", outputPath, "--tips", "q");
 
             Assert.Equal(1, windowed.Exit);
             Assert.Equal(2, windowed.Output.Count(character => character == '\n'));
@@ -718,10 +718,10 @@ public partial class CommandExecutionTests
 
             foreach (var format in new[]
                      {
-                         "--json",
-                         "--table",
-                         "--tsv",
-                         "--jsonl",
+                         "--format=json",
+                         "--format=table",
+                         "--format=tsv",
+                         "--format=jsonl",
                      })
             {
                 var (formattedExit, formattedOutput, formattedError) =
@@ -741,9 +741,9 @@ public partial class CommandExecutionTests
                     formattedError,
                     StringComparison.OrdinalIgnoreCase);
 
-                if (format is "--json" or "--jsonl")
+                if (format is "--format=json" or "--format=jsonl")
                 {
-                    var documents = format == "--json"
+                    var documents = format == "--format=json"
                         ? JsonDocument.Parse(formattedOutput).RootElement
                             .EnumerateArray()
                             .Select(element => element.Clone())
@@ -764,7 +764,7 @@ public partial class CommandExecutionTests
                             document.GetProperty("count").GetInt32());
                     }
                 }
-                else if (format == "--tsv")
+                else if (format == "--format=tsv")
                 {
                     var rows = formattedOutput
                         .ReplaceLineEndings("\n")
@@ -884,7 +884,7 @@ public partial class CommandExecutionTests
                     "-S",
                     $"{SectionNames.IdentifierConfusion},{SectionNames.NonNormalizedPaths}",
                     "--count",
-                    "--json",
+                    "--format=json",
                     "--tips",
                     "q");
 
@@ -1009,7 +1009,7 @@ public partial class CommandExecutionTests
                 "--tfm",
                 "all",
                 "-S", "Integrations",
-                "--tsv");
+                "--format=tsv");
 
             Assert.Equal(0, exit);
             Assert.Contains("\tportable-net45+win8\t", output);
@@ -1221,9 +1221,9 @@ public partial class CommandExecutionTests
             string[][] outputOptions =
             [
                 [],
-                ["--json"],
+                ["--format=json"],
                 ["--count"],
-                ["--tsv"],
+                ["--format=tsv"],
             ];
             foreach (string[] outputOption in outputOptions)
             {
@@ -1249,7 +1249,7 @@ public partial class CommandExecutionTests
                             output,
                             StringComparison.Ordinal);
                         break;
-                    case "--json":
+                    case "--format=json":
                         Assert.StartsWith("[", output);
                         break;
                     case "--count":
@@ -1260,7 +1260,7 @@ public partial class CommandExecutionTests
                                 out int count));
                         Assert.True(count > 0);
                         break;
-                    case "--tsv":
+                    case "--format=tsv":
                         Assert.Contains(
                             "package\tversion\tlibrary\ttfm",
                             output,
@@ -1393,9 +1393,9 @@ public partial class CommandExecutionTests
             string[][] outputOptions =
             [
                 [],
-                ["--json"],
+                ["--format=json"],
                 ["--count"],
-                ["--tsv"],
+                ["--format=tsv"],
             ];
             foreach (string[] outputOption in outputOptions)
             {
@@ -1583,7 +1583,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Integrations", "--tsv");
+                "package", packagePath, "--all-libraries", "-S", "Integrations", "--format=tsv");
 
             Assert.Equal(0, exit);
             string[] lines = output.ReplaceLineEndings("\n").Split(
@@ -1643,7 +1643,7 @@ public partial class CommandExecutionTests
                 "Library Info",
                 "--rows",
                 "2",
-                "--tsv",
+                "--format=tsv",
                 "--tips",
                 "q");
             var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
@@ -1654,7 +1654,7 @@ public partial class CommandExecutionTests
                 "Library Info",
                 "--rows",
                 "2",
-                "--jsonl",
+                "--format=jsonl",
                 "--tips",
                 "q");
 
@@ -1727,7 +1727,7 @@ public partial class CommandExecutionTests
                 "--rows",
                 "2",
                 "--tail",
-                "--tsv",
+                "--format=tsv",
                 "--tips",
                 "q");
             var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
@@ -1739,7 +1739,7 @@ public partial class CommandExecutionTests
                 "--rows",
                 "2",
                 "--tail",
-                "--jsonl",
+                "--format=jsonl",
                 "--tips",
                 "q");
 
@@ -1809,7 +1809,7 @@ public partial class CommandExecutionTests
                 "-S", "Integrations",
                 "--rows",
                 "1",
-                "--tsv",
+                "--format=tsv",
                 "--tips",
                 "q");
 
@@ -1854,7 +1854,7 @@ public partial class CommandExecutionTests
                 "Switches",
                 "--rows",
                 "1",
-                "--tsv",
+                "--format=tsv",
                 "--tips",
                 "q");
 
@@ -1917,7 +1917,7 @@ public partial class CommandExecutionTests
                 "Integration Opportunities",
                 "--rows",
                 "2",
-                "--tsv",
+                "--format=tsv",
                 "--tips",
                 "q");
 
@@ -1970,7 +1970,7 @@ public partial class CommandExecutionTests
                 "Library Info",
                 "--rows",
                 "100..",
-                "--tsv",
+                "--format=tsv",
                 "--tips",
                 "q");
 
@@ -2004,7 +2004,7 @@ public partial class CommandExecutionTests
                 "Library Info",
                 "-S",
                 "Switches",
-                "--table",
+                "--format=table",
                 "--tips",
                 "q");
 
@@ -2031,7 +2031,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--tsv");
+                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--format=tsv");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -2052,7 +2052,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Integrations", "--jsonl");
+                "package", packagePath, "--all-libraries", "-S", "Integrations", "--format=jsonl");
 
             Assert.Equal(0, exit);
             var documents = SplitOutputLines(output)
@@ -2097,7 +2097,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json", "--library",
-            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--format=tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2234,10 +2234,10 @@ public partial class CommandExecutionTests
             var formats = new (string Name, string[] Arguments)[]
             {
                 ("markdown", ["-S", "Library Info", "--rows", "2"]),
-                ("json", ["--json"]),
-                ("table", ["-S", "Library Info", "--rows", "2", "--table"]),
-                ("tsv", ["-S", "Library Info", "--rows", "2", "--tsv"]),
-                ("jsonl", ["-S", "Library Info", "--rows", "2", "--jsonl"])
+                ("json", ["--format=json"]),
+                ("table", ["-S", "Library Info", "--rows", "2", "--format=table"]),
+                ("tsv", ["-S", "Library Info", "--rows", "2", "--format=tsv"]),
+                ("jsonl", ["-S", "Library Info", "--rows", "2", "--format=jsonl"])
             };
 
             foreach (var (name, arguments) in formats)
@@ -2260,7 +2260,7 @@ public partial class CommandExecutionTests
                         "--tips",
                         "q",
                         .. arguments,
-                        "--out",
+                        "--output",
                         outputPath
                     ]);
 
@@ -2307,7 +2307,7 @@ public partial class CommandExecutionTests
                         "--all-libraries",
                         "-S",
                         "Library Info",
-                        "--table",
+                        "--format=table",
                         "--tips",
                         "q",
                         .. lineWindow
@@ -2320,11 +2320,11 @@ public partial class CommandExecutionTests
                         "--all-libraries",
                         "-S",
                         "Library Info",
-                        "--table",
+                        "--format=table",
                         "--tips",
                         "q",
                         .. lineWindow,
-                        "--out",
+                        "--output",
                         outputPath
                     ]);
 
@@ -2360,7 +2360,7 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "Library Info",
-                "--table",
+                "--format=table",
                 "--info");
             var redirected = await RunAppInDirectoryAsync(
                 tempDir,
@@ -2369,9 +2369,9 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "Library Info",
-                "--table",
+                "--format=table",
                 "--info",
-                "--out",
+                "--output",
                 outputPath);
 
             Assert.Equal(0, baseline.Exit);
@@ -2425,7 +2425,7 @@ public partial class CommandExecutionTests
                         "-S",
                         "@Library",
                         "--count",
-                        "--jsonl",
+                        "--format=jsonl",
                         "--info",
                         .. lineWindow
                     ]);
@@ -2438,10 +2438,10 @@ public partial class CommandExecutionTests
                         "-S",
                         "@Library",
                         "--count",
-                        "--jsonl",
+                        "--format=jsonl",
                         "--info",
                         .. lineWindow,
-                        "--out",
+                        "--output",
                         outputPath
                     ]);
 
@@ -2492,8 +2492,8 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "Integration Opportunities",
-                "--tsv",
-                "--out",
+                "--format=tsv",
+                "--output",
                 outputPath,
                 "--tips",
                 "q");
@@ -2513,8 +2513,8 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "@Integrations",
-                "--tsv",
-                "--out",
+                "--format=tsv",
+                "--output",
                 outputPath,
                 "--tips",
                 "q");
@@ -2536,8 +2536,8 @@ public partial class CommandExecutionTests
                 "Library Info",
                 "-S",
                 "Inspection Failures",
-                "--tsv",
-                "--out",
+                "--format=tsv",
+                "--output",
                 outputPath,
                 "--tips",
                 "q");
@@ -2560,8 +2560,8 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "Integration Opportunities",
-                "--tsv",
-                "--out",
+                "--format=tsv",
+                "--output",
                 invalidPath,
                 "--tips",
                 "q");
@@ -2588,7 +2588,7 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "Library Info",
-                "--jsonl");
+                "--format=jsonl");
             var allCount = await RunAppAsync(
                 "package",
                 package,
@@ -2610,7 +2610,7 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "-S",
                 "Library Info",
-                "--jsonl",
+                "--format=jsonl",
                 "--rows",
                 "1");
             var count = await RunAppAsync(

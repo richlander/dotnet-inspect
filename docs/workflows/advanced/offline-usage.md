@@ -60,7 +60,7 @@ Source: NuGet
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --offline --markdown -v:q
+  --offline --format markdown -v:q
 ```
 
 ```expect

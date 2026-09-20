@@ -89,7 +89,7 @@ success.
 The Metadata result retains the input pattern, member name, declaring Type,
 kind, signature, return Type, digest, assembly, and whether the pattern was a
 glob. The CLI projection currently omits the match kind from rendered
-Markdown, table, TSV, JSONL, and projected JSON rows. Unprojected `--json`
+Markdown, table, TSV, JSONL, and projected JSON rows. Unprojected `--format json`
 serializes `MemberFindResult` directly and therefore exposes the
 `MemberFindMatchKind` enum name.
 
@@ -98,7 +98,7 @@ serializes `MemberFindResult` directly and therefore exposes the
 The real .NET Platform supplies both boundary cases:
 
 ```console
-dotnet-inspect find WriteLine --members --platform --tfm net10.0 --json
+dotnet-inspect find WriteLine --members --platform --tfm net10.0 --format json
 ```
 
 The result contains multiple `System.Console.WriteLine` overloads and members
@@ -106,7 +106,7 @@ on other declaring Types. Every non-glob row is `Direct`; none is a selected
 overload.
 
 ```console
-dotnet-inspect find 'this[]' --members --platform --tfm net10.0 --json
+dotnet-inspect find 'this[]' --members --platform --tfm net10.0 --format json
 ```
 
 The direct alias returns indexers whose Metadata member names include `Item`
@@ -117,7 +117,7 @@ describes the grammar path.
 The neighboring wildcard remains distinct:
 
 ```console
-dotnet-inspect find 'Write*' --members --platform --tfm net10.0 --json
+dotnet-inspect find 'Write*' --members --platform --tfm net10.0 --format json
 ```
 
 Those rows are `Glob`.

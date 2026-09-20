@@ -32,7 +32,7 @@ public sealed class EcosystemCommandTests
             "aspire",
             "-S",
             "Integrations",
-            "--json",
+            "--format=json",
             "--rows",
             "1..1",
         ];
@@ -91,7 +91,7 @@ public sealed class EcosystemCommandTests
             "Core Packages",
             "-n",
             "1",
-            "--tsv");
+            "--format=tsv");
         var tail = await ExecuteCommandLineAsync(
             "ecosystem",
             "microsoft-extensions",
@@ -100,7 +100,7 @@ public sealed class EcosystemCommandTests
             "-n",
             "1",
             "--tail",
-            "--tsv");
+            "--format=tsv");
         var count = await ExecuteCommandLineAsync(
             "ecosystem",
             "microsoft-extensions",
@@ -137,7 +137,7 @@ public sealed class EcosystemCommandTests
             "2..3",
             "-n",
             "1",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -158,7 +158,7 @@ public sealed class EcosystemCommandTests
             "1",
             "--rows",
             "2..3",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -174,7 +174,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteCommandLineAsync(
             "ecosystem",
             "aspire",
-            "--markdown");
+            "--format=markdown");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -228,7 +228,7 @@ public sealed class EcosystemCommandTests
             "ai",
             "-S",
             "Core Packages",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -252,7 +252,7 @@ public sealed class EcosystemCommandTests
             "azure",
             "-S",
             "Core Packages",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -280,7 +280,7 @@ public sealed class EcosystemCommandTests
             "blazor",
             "-S",
             "Core Packages",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -303,7 +303,7 @@ public sealed class EcosystemCommandTests
             "maui",
             "-S",
             "Core Packages",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -468,8 +468,8 @@ public sealed class EcosystemCommandTests
     }
 
     [Theory]
-    [InlineData("--jsonl")]
-    [InlineData("--json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=json")]
     public async Task UnboundIntegrations_RejectProjectionThatDropsDisclosure(
         string format)
     {
@@ -981,7 +981,7 @@ public sealed class EcosystemCommandTests
         var result = await ExecuteCommandLineAsync(
             "ecosystem",
             selector,
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);

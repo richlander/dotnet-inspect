@@ -203,7 +203,7 @@ public sealed class MatchDiscoveryTests
             "1",
             "--tail",
             "--count",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Equal("1", output.Trim());
@@ -239,7 +239,7 @@ public sealed class MatchDiscoveryTests
             "--all",
             "--rows",
             "999..999",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -280,7 +280,7 @@ public sealed class MatchDiscoveryTests
             "--all",
             "--top",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -304,7 +304,7 @@ public sealed class MatchDiscoveryTests
             "-n",
             "1",
             "--lines",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -325,7 +325,7 @@ public sealed class MatchDiscoveryTests
             Path.Combine(Path.GetTempPath(), "missing-pairwise-source.dll"),
             "-n",
             "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -472,7 +472,7 @@ public sealed class MatchDiscoveryTests
                 "--source",
                 Path.Combine(".", "feed"),
                 "--all",
-                "--json",
+                "--format=json",
             ];
             var (discoveryExit, discoveryOutput, discoveryError) =
                 await RunCliAsync(discoveryArguments);
@@ -500,7 +500,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
-                "--json",
+                "--format=json",
             ];
             Directory.SetCurrentDirectory(replayDirectory);
             var (replayExit, replayOutput, replayError) =
@@ -568,7 +568,7 @@ public sealed class MatchDiscoveryTests
                     "--library",
                     Path.GetFileName(TestAssembly),
                     "--all",
-                    "--json");
+                    "--format=json");
 
             Assert.True(
                 discoveryExit == 0,
@@ -599,7 +599,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
-                "--json",
+                "--format=json",
             ];
             Directory.SetCurrentDirectory(replayDirectory);
             var (replayExit, replayOutput, replayError) =
@@ -700,7 +700,7 @@ public sealed class MatchDiscoveryTests
                     "--library",
                     asset,
                     "--all",
-                    "--json");
+                    "--format=json");
 
             Assert.True(
                 discoveryExit == 0,
@@ -729,7 +729,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
-                "--json",
+                "--format=json",
             ];
             Directory.SetCurrentDirectory(replayDirectory);
             var (replayExit, replayOutput, replayError) =
@@ -1158,7 +1158,7 @@ public sealed class MatchDiscoveryTests
     }
 
     /// <summary>
-    /// <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c> require exactly one table shape
+    /// <c>--format table</c>, <c>--format tsv</c>, and <c>--format jsonl</c> require exactly one table shape
     /// (<c>docs/design/output-shapes.md</c>), and <c>match</c> carries no section-selection
     /// options. Emitting a field/value table followed by a candidate table gives a scripted
     /// consumer two incompatible row schemas on one stream.
@@ -1263,7 +1263,7 @@ public sealed class MatchDiscoveryTests
     {
         var (exitCode, output, error) = await RunCliAsync(
             "match", SampleSeed, "--similar", "--library", TestAssembly, "--all", "--top", "1",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -2178,7 +2178,7 @@ public sealed class MatchDiscoveryTests
                 "--library",
                 directFacade,
                 "--all",
-                "--json",
+                "--format=json",
             ];
 
             var (unauthorizedExit, unauthorizedOutput, unauthorizedError) =
@@ -2213,7 +2213,7 @@ public sealed class MatchDiscoveryTests
                     "--library",
                     "lib/net10.0/Facade.dll",
                     "--all",
-                    "--json");
+                    "--format=json");
 
             Assert.Equal(1, relativeRootExit);
             Assert.Empty(relativeRootOutput);
@@ -2237,7 +2237,7 @@ public sealed class MatchDiscoveryTests
                     "--library",
                     "lib/net10.0/Facade.dll",
                     "--all",
-                    "--json");
+                    "--format=json");
 
             Assert.Equal(0, directExit);
             Assert.Empty(directError);
@@ -2274,7 +2274,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
-                "--json",
+                "--format=json",
             ];
             Directory.SetCurrentDirectory(replayDirectory);
             var (replayExit, _, replayError) =
@@ -2797,7 +2797,7 @@ public sealed class MatchDiscoveryTests
                     "--library",
                     asset,
                     "--all",
-                    "--json",
+                    "--format=json",
                 ]);
 
             Assert.True(
@@ -2840,7 +2840,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
-                "--json",
+                "--format=json",
                 "--source",
                 feed.SourceB,
             ];
@@ -2918,7 +2918,7 @@ public sealed class MatchDiscoveryTests
             var (warmExit, _, warmError) = await RunCliAsync(
                 "match", "Replay.Other.Seed", "--similar",
                 "--package", $"{packageName}@2.0.0", "--library", asset,
-                "--source", otherFeedDirectory, "--all", "--json");
+                "--source", otherFeedDirectory, "--all", "--format=json");
             Assert.True(warmExit == 0, warmError);
             // The authority cache stays warm, but this folder no longer reports the selected version.
             File.Delete(otherSelectedPackage);
@@ -2935,7 +2935,7 @@ public sealed class MatchDiscoveryTests
             var (discoveryExit, discoveryOutput, discoveryError) = await RunCliAsync(
                 "match", seed, "--similar",
                 "--package", $"{packageName}@1.0.0..2.0.0", "--at", "last",
-                "--library", asset, "--source", otherFeedDirectory, "--source", source, "--all", "--json");
+                "--library", asset, "--source", otherFeedDirectory, "--source", source, "--all", "--format=json");
 
             Assert.True(discoveryExit == 0, discoveryError);
             Assert.Empty(discoveryError);
@@ -2956,7 +2956,7 @@ public sealed class MatchDiscoveryTests
             var (widenedExit, _, widenedError) = await RunCliAsync(
                 "match", seed, token, "--package", $"{packageName}@2.0.0",
                 "--library", asset, "--tfm", "net10.0",
-                "--source", otherFeedDirectory, "--source", feedDirectory, "--all", "--json");
+                "--source", otherFeedDirectory, "--source", feedDirectory, "--all", "--format=json");
             Assert.Equal(1, widenedExit);
             Assert.Contains("must name a Type.Member", widenedError);
 
@@ -2968,7 +2968,7 @@ public sealed class MatchDiscoveryTests
             var (replayExit, replayOutput, replayError) = await RunCliAsync(
                 "match", seed, token, "--package", $"{packageName}@2.0.0",
                 "--library", asset, "--tfm", "net10.0", "--source", feedDirectory,
-                "--nugetconfig-directory", discoveryDirectory, "--all", "--json");
+                "--nugetconfig-directory", discoveryDirectory, "--all", "--format=json");
 
             Assert.True(replayExit == 0, replayError);
             Assert.Empty(replayError);
@@ -3031,7 +3031,7 @@ public sealed class MatchDiscoveryTests
             var (discoveryExit, discoveryOutput, discoveryError) = await RunCliAsync(
                 "match", "Replay.Target.Seed", "--similar",
                 "--package", $"{packageName}@{version}..{version}", "--at", "last",
-                "--library", asset, "--nugetconfig", configFile, "--all", "--json");
+                "--library", asset, "--nugetconfig", configFile, "--all", "--format=json");
 
             Assert.Equal(1, feed.PayloadRequests(feed.SourceB, packageName, version));
             Assert.Equal(0, feed.PayloadRequests(feed.SourceA, packageName, version));
@@ -3052,7 +3052,7 @@ public sealed class MatchDiscoveryTests
             var (replayExit, replayOutput, replayError) = await RunCliAsync(
                 "match", "Replay.Target.Seed", "Replay.Target.ExactPeer",
                 "--package", $"{packageName}@{version}", "--library", asset,
-                "--tfm", "net10.0", "--nugetconfig", configFile, "--all", "--json");
+                "--tfm", "net10.0", "--nugetconfig", configFile, "--all", "--format=json");
 
             Assert.True(replayExit == 0, replayError);
             Assert.Empty(replayError);
@@ -3153,7 +3153,7 @@ public sealed class MatchDiscoveryTests
                 "--tfm",
                 "net10.0",
                 "--all",
-                "--json",
+                "--format=json",
             ];
             var (replayExit, replayOutput, replayError) =
                 await RunCliAsync(
@@ -3239,7 +3239,7 @@ public sealed class MatchDiscoveryTests
             "--library",
             TestAssembly,
             "--all",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3261,7 +3261,7 @@ public sealed class MatchDiscoveryTests
             "--library",
             TestAssembly,
             "--all",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, replayExit);
         Assert.Empty(replayError);

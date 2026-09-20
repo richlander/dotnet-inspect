@@ -962,20 +962,20 @@ is explicit; the current host's separate project-path locator convenience is
 not an authored-project input:
 
 ```console
-$ dotnet-inspect <dependency-evidence> --package Contoso.Root@1.0 --json \
+$ dotnet-inspect <dependency-evidence> --package Contoso.Root@1.0 --format json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
         constraint: .declaredConstraint.canonical
       })'
-$ dotnet-inspect <dependency-evidence> --nuspec ./Contoso.Root.nuspec --json \
+$ dotnet-inspect <dependency-evidence> --nuspec ./Contoso.Root.nuspec --format json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
         constraint: .declaredConstraint.canonical
       })'
 $ dotnet-inspect <dependency-evidence> \
-    --project ./obj/project.assets.json --json \
+    --project ./obj/project.assets.json --format json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
@@ -1043,7 +1043,7 @@ A broad prefix returns neutral evidence suitable for downstream predicates:
 
 ```console
 $ dotnet-inspect <dependency-evidence> \
-    --package-prefix Microsoft --json > evidence.json
+    --package-prefix Microsoft --format json > evidence.json
 
 $ jq '
     .dependencies[]

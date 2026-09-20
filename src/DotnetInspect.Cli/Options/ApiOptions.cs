@@ -261,7 +261,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool EffectiveDiscovery => Discover != null && !Schema;
 
     /// <summary>
-    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// True when the user has opted into rich markdown output (via --format markdown or -v:*).
     /// </summary>
     public bool VerbosityEnabled => !Tabular && !JsonOutput;
 

@@ -58,7 +58,7 @@ old selectors understandable.
 
 `canonical_signature` is the raw `Canonical Signature` cell value, not Markdown
 formatting. In Markdown output Markout may render the value as inline code, but
-the backticks are not part of the hash input. Prefer `--tsv` or `--jsonl` when
+the backticks are not part of the hash input. Prefer `--format tsv` or `--format jsonl` when
 copying canonical signatures for recomputation because those formats expose the
 raw value.
 

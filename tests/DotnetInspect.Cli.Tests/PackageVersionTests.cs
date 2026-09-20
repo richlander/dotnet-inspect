@@ -44,7 +44,7 @@ public class PackageVersionTests
             "package",
             "System.CommandLine",
             "--version",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -134,7 +134,7 @@ public class PackageVersionTests
             "--versions",
             "-n",
             "2",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -193,7 +193,7 @@ public class PackageVersionTests
             "System.Text.Json",
             "--versions",
             "--count",
-            "--json");
+            "--format=json");
         var envelope = await RunAppAsync(
             "package",
             "System.Text.Json",
@@ -312,7 +312,7 @@ public class PackageVersionTests
             "--versions-with-feed",
             "-n",
             "2",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -338,7 +338,7 @@ public class PackageVersionTests
                 "--versions-with-feed",
                 "-n",
                 "1",
-                "--tsv");
+                "--format=tsv");
         var (linesExit, linesOutput, linesError) =
             await RunAppAsync(
                 "package",
@@ -347,7 +347,7 @@ public class PackageVersionTests
                 "-n",
                 "1",
                 "--lines",
-                "--tsv");
+                "--format=tsv");
 
         Assert.Equal(0, semanticExit);
         Assert.Equal(0, linesExit);
@@ -414,7 +414,7 @@ public class PackageVersionTests
                 "2",
                 modifier,
                 .. followingInput is null ? Array.Empty<string>() : [followingInput],
-                "--json"
+                "--format=json"
             ]);
 
         Assert.Equal(1, exit);
@@ -497,7 +497,7 @@ public class PackageVersionTests
             string[] arguments =
             [
                 "--offline", "package", selector, "-Q", "-n", "1",
-                .. environmentJson ? Array.Empty<string>() : ["--json"],
+                .. environmentJson ? Array.Empty<string>() : ["--format=json"],
             ];
             var rejected = await RunAppAsync([.. arguments, modifier]);
 
@@ -513,7 +513,7 @@ public class PackageVersionTests
 
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "json");
             var text = await RunAppAsync(
-                "--offline", "package", selector, "-Q", "-n", "1", modifier, "--markdown");
+                "--offline", "package", selector, "-Q", "-n", "1", modifier, "--format=markdown");
             Assert.Equal(0, text.Exit);
             Assert.Empty(text.Error);
         }
@@ -547,11 +547,11 @@ public class PackageVersionTests
     public async Task Versions_QueryDiscoveryReportsConflictingFormats(string selector)
     {
         var (exit, output, error) = await RunAppAsync(
-            "--offline", "package", selector, "-Q", "-n", "1", "--lines", "--json", "--tsv");
+            "--offline", "package", selector, "-Q", "-n", "1", "--lines", "--format=json", "--format=tsv");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--json cannot be combined with --table, --tsv, or --jsonl.", error);
+        Assert.Contains("--format json cannot be combined with --format table, --format tsv, or --format jsonl.", error);
     }
 
     [Theory]
@@ -627,7 +627,7 @@ public class PackageVersionTests
                 "1",
                 modifier,
                 "-Q",
-                "--json"
+                "--format=json"
             ]);
 
         Assert.Equal(0, correctedExit);
@@ -865,7 +865,7 @@ public class PackageVersionTests
             "package",
             "System.Text.Json@8.0.0..8.0.5",
             "--count",
-            "--json");
+            "--format=json");
         var envelope = await RunAppAsync(
             "package",
             "System.Text.Json@8.0.0..8.0.5",
@@ -916,8 +916,8 @@ public class PackageVersionTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--table")]
+    [InlineData("--format=json")]
+    [InlineData("--format=table")]
     [InlineData("--rows")]
     public async Task RangeEnvelope_RejectsIncompatibleShapeBeforeExecution(
         string incompatible)
@@ -1090,7 +1090,7 @@ public class PackageVersionTests
     public async Task MultiPackage_InvalidPinnedVersion_ReturnsPerPackageHint()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.Text.Json@badversion", "Newtonsoft.Json", "--table" };
+        var args = new[] { "package", "System.Text.Json@badversion", "Newtonsoft.Json", "--format=table" };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));

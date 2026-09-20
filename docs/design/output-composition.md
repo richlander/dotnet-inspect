@@ -79,15 +79,15 @@ The writer (renderer) is selected independently from section selection:
 
 | Writer | Capabilities | Implied by |
 | --- | --- | --- |
-| Table/TSV | One table at a time, fields (inline), lists | Default when ≤1 section, or explicit `--table`/`--tsv` |
-| Markdown | Tables, fields, code blocks, trees, headings | `-v:d`, `--markdown` |
-| JSON | Full model serialization | `--json` |
+| Table/TSV | One table at a time, fields (inline), lists | Default when ≤1 section, or explicit `--format table`/`--format tsv` |
+| Markdown | Tables, fields, code blocks, trees, headings | `-v:d`, `--format markdown` |
+| JSON | Full model serialization | `--format json` |
 | Tree | Single hierarchical view | `--tree` |
 
 ### Format resolution rules
 
-1. `--json` → JSON (always)
-2. `--markdown` → Markdown (always)
+1. `--format json` → JSON (always)
+2. `--format markdown` → Markdown (always)
 3. `--tree` → Tree (always)
 4. `-v:d` → Markdown (multi-section content needs a multi-section writer)
 5. `-v:q`, `-v:m`, `-v:n` → do NOT imply markdown; use default writer
@@ -131,8 +131,8 @@ sections:
 - If section filter (`-S`) selects one section → render that section
 - If no filter and only one section in scope (e.g., `-v:m`) → render it
 - If no filter and multiple sections are computed → auto-promote to Markdown
-- If the user explicitly requested `--table`, `--tsv`, or `--jsonl` with multiple sections
-  → return a diagnostic and suggest `-S`, `--markdown`, or `--json`
+- If the user explicitly requested `--format table`, `--format tsv`, or `--format jsonl` with multiple sections
+  → return a diagnostic and suggest `-S`, `--format markdown`, or `--format json`
 
 This is grounded in the composition model: choose one section for row-oriented
 formats, or choose a multi-section renderer.

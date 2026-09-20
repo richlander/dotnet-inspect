@@ -28,9 +28,9 @@ public sealed class LibraryApiDiffCommandTests
     }
 
     [Theory]
-    [InlineData("--json")]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
+    [InlineData("--format=json")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
     public async Task DetailedFormats_RetainUnclassifiedTypeEvidence(string format)
     {
         var (exitCode, output, error) = await Run(
@@ -40,7 +40,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Empty(error);
         Assert.Contains("TypeDefinitionChanged", output);
         Assert.Contains("unclassified", output);
-        if (format == "--json")
+        if (format == "--format=json")
         {
             using JsonDocument document = JsonDocument.Parse(output);
             JsonElement row = Assert.Single(
@@ -55,7 +55,7 @@ public sealed class LibraryApiDiffCommandTests
     public async Task BreakingFilter_DoesNotClassifyUnassessedChangesAsBreaking()
     {
         var (exitCode, output, error) = await Run(
-            "--type", "TypeDefinitionOnly", "--breaking", "--json");
+            "--type", "TypeDefinitionOnly", "--breaking", "--format=json");
 
         Assert.Equal(0, exitCode);
         Assert.Contains("classification filter removed all changes", error);

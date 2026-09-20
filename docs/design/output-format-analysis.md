@@ -62,7 +62,7 @@ rather than nested if/else chains in OutputFormatter.
 ## Design direction
 
 1. **Decouple format from verbosity** — Format is chosen by flag
-   (`--table`, `--markdown`, `--json`, `--tree`) or by default.
+   (`--format table`, `--format markdown`, `--format json`, `--tree`) or by default.
    Verbosity only affects renderers that support it (markdown).
 
 2. **Centralize discovery** — `WriteDiscoveryLines` with overflow assertion.

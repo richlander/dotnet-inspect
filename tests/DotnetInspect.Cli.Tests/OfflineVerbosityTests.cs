@@ -72,7 +72,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task SingleType_MarkdownQuiet_Offline_Succeeds()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "JsonSerializer", "--platform", "System.Text.Json", "--markdown", "-v:q", "--offline");
+            "type", "JsonSerializer", "--platform", "System.Text.Json", "--format=markdown", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -149,7 +149,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task Router_QualifiedType_MarkdownQuiet_Offline_Succeeds()
     {
         var (exit, output, _) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer", "--markdown", "-v:q", "--offline");
+            "System.Text.Json.JsonSerializer", "--format=markdown", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -231,7 +231,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task SingleType_ForwardedType_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "HashSet", "--platform", "System.Collections", "--markdown", "-v:q", "--offline");
+            "type", "HashSet", "--platform", "System.Collections", "--format=markdown", "-v:q", "--offline");
 
         Assert.Equal(0, exit);
         Assert.Contains("HashSet", output);

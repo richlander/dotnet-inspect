@@ -19,7 +19,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     public async Task PairedJson_PreservesCompleteContentAndBaseline(bool compact)
     {
         string[] formatting = compact ? ["--compact"] : [];
-        var content = await Run(["--json", .. formatting]);
+        var content = await Run(["--format=json", .. formatting]);
         var envelope = await Run(["--envelope", .. formatting]);
 
         Assert.Equal(0, content.Exit);
@@ -50,7 +50,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     [InlineData("--envelope")]
     public async Task SameLibrary_ProducesAvailableEmptyDocument(string format)
     {
@@ -69,7 +69,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     [InlineData("--envelope")]
     public async Task LogicalMismatch_PreservesRejectedOutcomeAndFailureExit(string format)
     {
@@ -90,11 +90,11 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData("--json", null)]
-    [InlineData("--markdown", null)]
-    [InlineData("--table", null)]
-    [InlineData("--tsv", null)]
-    [InlineData("--jsonl", null)]
+    [InlineData("--format=json", null)]
+    [InlineData("--format=markdown", null)]
+    [InlineData("--format=table", null)]
+    [InlineData("--format=tsv", null)]
+    [InlineData("--format=jsonl", null)]
     [InlineData("--tree", null)]
     [InlineData("--name-only", null)]
     [InlineData("--no-headers", null)]
@@ -174,14 +174,14 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData("--json", "--head")]
-    [InlineData("--json", "--tail-lines")]
+    [InlineData("--format=json", "--head")]
+    [InlineData("--format=json", "--tail-lines")]
     [InlineData("--envelope", "--head")]
     [InlineData("--envelope", "--tail")]
     public async Task ServiceJson_RejectsRenderedLineClipping(string format, string direction)
     {
         string[] lineUnit =
-            format == "--json" && direction == "--head"
+            format == "--format=json" && direction == "--head"
                 ? ["--lines"]
                 : [];
         var result = await Run([
@@ -194,7 +194,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            format == "--json" ? "JSON" : format,
+            format == "--format=json" ? "JSON" : format,
             result.Error,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -229,7 +229,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     {
         var result = await Invoke([
             "--library", "missing-before.dll..missing-after.dll",
-            "--json", "--compact", option,
+            "--format=json", "--compact", option,
             .. value is null ? Array.Empty<string>() : [value]]);
 
         Assert.Equal(1, result.Exit);
@@ -246,7 +246,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     {
         var result = await Invoke([
             "--package", "Microsoft.NETCore.App.Ref@9.0.0..10.0.0", option,
-            .. option == "--compact" ? new[] { "--json" } : Array.Empty<string>()]);
+            .. option == "--compact" ? new[] { "--format=json" } : Array.Empty<string>()]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -262,7 +262,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
     public async Task SystemTextJson_PairedTransportPreservesRealApiAddition()
     {
         string[] source = ["--package", "System.Text.Json@9.0.0..10.0.0", "--tfm", "net8.0"];
-        var content = await Invoke([.. source, "--json", "--compact"]);
+        var content = await Invoke([.. source, "--format=json", "--compact"]);
         var envelope = await Invoke([.. source, "--envelope", "--compact"]);
 
         Assert.True(content.Exit == 0, content.Error);

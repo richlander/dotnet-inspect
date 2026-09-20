@@ -1,13 +1,13 @@
 ---
 id: json-output
 description: Machine-readable JSON output for tooling and agent integration
-commands: [--json, --compact]
+commands: [--format json, --compact]
 areas: [json, output, agents, scripting, integration]
 ---
 
 # JSON Output
 
-> The `--json` flag produces structured JSON output for programmatic consumption. Combined with `--compact` for minified output, or piped through `jq` for extraction. Available on most commands — `package`, `type`, `member`, `find`, `extensions`, `implements`.
+> The `--format json` flag produces structured JSON output for programmatic consumption. Combined with `--compact` for minified output, or piped through `jq` for extraction. Available on most commands — `package`, `type`, `member`, `find`, `extensions`, `implements`.
 
 ## Preconditions
 
@@ -38,7 +38,7 @@ Get System.CommandLine package info as JSON.
 ```
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -v:q --json --rows 1..10
+dotnet-inspect package System.CommandLine@2.0.3 -v:q --format json --rows 1..10
 ```
 
 ```expect
@@ -51,7 +51,7 @@ dotnet-inspect package System.CommandLine@2.0.3 -v:q --json --rows 1..10
 ### 1b. Compact JSON (single line)
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --format json --compact
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Get the JsonSerializer type info as structured JSON.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --json -v:q --rows 1..15
+dotnet-inspect type System.Text.Json JsonSerializer --format json -v:q --rows 1..15
 ```
 
 ```expect
@@ -91,7 +91,7 @@ dotnet-inspect type System.Text.Json JsonSerializer --json -v:q --rows 1..15
 > Goal: Search results as structured data, useful for feeding into other tools.
 
 ```bash
-dotnet-inspect find 'JsonSer*' --json --compact
+dotnet-inspect find 'JsonSer*' --format json --compact
 ```
 
 ```expect
@@ -106,7 +106,7 @@ dotnet-inspect find 'JsonSer*' --json --compact
 ### 4a. Extract type names
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)]"
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --format json --compact | python3 -c "import json,sys; [print(t['full_name']) for t in json.load(sys.stdin)]"
 ```
 
 ```expect
@@ -117,7 +117,7 @@ System.CommandLine.Parsing.CommandLineParser
 ### 4b. Count results
 
 ```bash
-dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --json --compact | python3 -c "import json,sys; print('nonempty' if json.load(sys.stdin) else 'empty')"
+dotnet-inspect find 'Command*' --package System.CommandLine@2.0.3 --format json --compact | python3 -c "import json,sys; print('nonempty' if json.load(sys.stdin) else 'empty')"
 ```
 
 ```expect

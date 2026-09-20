@@ -558,7 +558,7 @@ Core. Concretely:
   output-format selection only. L3 does not compute facts and does not decide
   what a term costs — the same rule that already governs every other command.
 
-  Unprojected `--json` serializes the complete owner-issued
+  Unprojected `--format json` serializes the complete owner-issued
   `PackageQueryDocument`; `--envelope` exposes the same Content inside the
   complete service value with result kind `package-query`. Query-planning
   controls such as `--where`, `--take`, and `--tfm` remain admitted service

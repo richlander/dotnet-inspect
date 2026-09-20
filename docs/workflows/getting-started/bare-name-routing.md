@@ -224,7 +224,7 @@ Tell me about System.Text.Json.JsonSerializer.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer -v:q --markdown
+dotnet-inspect System.Text.Json.JsonSerializer -v:q --format markdown
 ```
 
 ```expect
@@ -248,7 +248,7 @@ Show me JsonSerializer from the System.Text.Json 6.0.0 NuGet package.
 ```
 
 ```bash
-dotnet-inspect type --package System.Text.Json@6.0.0 JsonSerializer -v:q --markdown
+dotnet-inspect type --package System.Text.Json@6.0.0 JsonSerializer -v:q --format markdown
 ```
 
 ```expect

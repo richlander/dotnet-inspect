@@ -316,7 +316,7 @@ Tips:
 
 ```bash
 dotnet-inspect member --package System.CommandLine@2.0.3 Command \
-  -S Methods --table --columns Name,Digest,Signature --rows 1..5 --tips q
+  -S Methods --format table --columns Name,Digest,Signature --rows 1..5 --tips q
 ```
 
 ```expect
@@ -390,7 +390,7 @@ TValue?
 > Goal: Get columnar output suitable for piping to other tools.
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command --table --no-headers --rows 1..10 --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command --format table --no-headers --rows 1..10 --tips q
 ```
 
 ```expect

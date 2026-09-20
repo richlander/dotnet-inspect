@@ -654,7 +654,7 @@ A CLI route whose ordinary shaping or row-selection options cannot coexist
 with complete envelope transport rejects the combination rather than
 serializing a success-shaped partial Document.
 
-Unprojected `--json` serializes the complete
+Unprojected `--format json` serializes the complete
 `DependencyEcosystemRecognitionDocument`. `--envelope.content` serializes the
 same value under the same owner-issued serializer; envelope output adds only
 Share and diagnostics. The ordinary JSON document does not embed transport

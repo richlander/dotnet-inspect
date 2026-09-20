@@ -64,8 +64,8 @@ public partial class PackageCommand
             || countSections?.Any(IsPackageFileSection) == true;
         if (!options.Count && !options.JsonOutput && rowSection == null)
         {
-            CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
-            CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
+            CommandError.Write("Multiple package output requires --format json or a row format such as --format table, --format tsv, or --format jsonl.");
+            CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --format tsv");
             return 1;
         }
         if (!ValidateMultiPackagePackageInfoColumns(
@@ -373,7 +373,7 @@ public partial class PackageCommand
         }
 
         CommandError.Write($"Multiple package row output does not support section: {section}.");
-        CommandError.WriteLine("Use --json, or select Package Info, Signature, Package files, or a package file section (see -D @Files).");
+        CommandError.WriteLine("Use --format json, or select Package Info, Signature, Package files, or a package file section (see -D @Files).");
         return false;
     }
 

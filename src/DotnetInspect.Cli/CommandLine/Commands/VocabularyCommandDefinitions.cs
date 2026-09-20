@@ -24,7 +24,9 @@ public static class VocabularyCommandDefinitions
                 result.GetResult(opts.Discover) is { Implicit: false });
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.PlainText);
 
         command.SetAction((parseResult) =>
         {

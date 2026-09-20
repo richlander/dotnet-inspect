@@ -243,7 +243,7 @@ entrypoint, keeping discovery noise low while the sections stay selectable and
 drillable (`-D @Performance`). `ListedInCatalog` is a general section-descriptor
 flag (orthogonal to `ExplicitOnly` render gating), so any future curated group
 can hide its members behind a category with the same mechanism. Flattened
-tabular output (`--table`/`--tsv`/`--jsonl`) renders the group as one table with
+tabular output (`--format table`/`--format tsv`/`--format jsonl`) renders the group as one table with
 a leading `Kind` column so each row is self-describing. The
 `type`/`member` `Performance Triage` lens is a different, single-member view and
 keeps that name.

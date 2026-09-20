@@ -29,8 +29,10 @@ public static class EcosystemCommandDefinitions
             validateLegacyRowWindow: static _ => false);
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
 
         command.SetAction(parseResult =>
         {

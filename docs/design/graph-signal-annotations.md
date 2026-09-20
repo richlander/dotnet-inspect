@@ -206,7 +206,7 @@ implies the Analysis Diff section, so it works without an explicit `-S`.
 diff --package Newtonsoft.Json@12.0.3..13.0.3 --alloc-regressions
 ```
 
-Machine output honors `--tsv` and `--jsonl` (the section serializes through the
+Machine output honors `--format tsv` and `--format jsonl` (the section serializes through the
 projected-table writer, like every other tabular section), so an agent can consume
 the deltas directly instead of parsing markdown.
 

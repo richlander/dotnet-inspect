@@ -35,7 +35,7 @@ public partial class CacheInfoContext : MarkoutSerializerContext
 }
 
 /// <summary>
-/// Compatibility projection for <c>cache --json</c> and <c>cache --jsonl</c>.
+/// Compatibility projection for <c>cache --format json</c> and <c>cache --format jsonl</c>.
 /// </summary>
 public record CacheInfoJson(
     [property: JsonPropertyName("location")] string Location,

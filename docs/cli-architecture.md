@@ -680,7 +680,7 @@ existing query-discovery owner retains mode separation and format rules.
 
 The observed section lowers every matched signal to the stable `Integration`,
 `Kind`, `Shape`, and `Symbol` columns, so Markdown, table, TSV, and JSONL can
-represent several concepts together. Plain `--json` retains the full
+represent several concepts together. Plain `--format json` retains the full
 typed-library document, with narrowed Integration properties: `-S` scopes
 producer demand, not JSON member selection. Row, column, and count projections
 apply to the narrowed table. `@Integrations` remains heterogeneous because it

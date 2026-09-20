@@ -42,7 +42,7 @@ public partial class CommandExecutionTests
     {
         string path = FixtureCatalog.SourceLinkMalformed.AssemblyPath();
 
-        var result = await RunAppAsync("library", path, "--json");
+        var result = await RunAppAsync("library", path, "--format=json");
 
         Assert.Equal(0, result.Exit);
         using JsonDocument json = JsonDocument.Parse(result.Output);

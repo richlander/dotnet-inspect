@@ -206,17 +206,17 @@ Selected overloads expose implementation sections through the same detailed/enab
 | **Annotated Source** | Mixed view with hidden-fact comments and IL interleaved beneath each statement; opt-in via `-S "Annotated Source"` |
 | **PDB Source** | Checksum-matched source selected by Portable PDB evidence, when available; enabled at detailed verbosity |
 | **IL** | Raw IL disassembly with resolved tokens; enabled at normal verbosity |
-| **Facts** | Structured Research overlay table (member, IL offset, C# line, anchor, category/id/detail) for one method; opt-in via `-S "Facts"` / `--tsv` |
+| **Facts** | Structured Research overlay table (member, IL offset, C# line, anchor, category/id/detail) for one method; opt-in via `-S "Facts"` / `--format tsv` |
 
 ## 5. Source URLs
 
 SourceLink URLs are exposed on the command you are already using.
 
 ```bash
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --table
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --format table
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --jsonl
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --format jsonl
 ```
 
 ```expect
@@ -238,7 +238,7 @@ For stack-trace style diagnostics, `library coordinate` maps a MethodDef token p
 
 ```bash
 dotnet-inspect library coordinate 0x06000001+0x0 \
-  --platform System.Text.Json --json
+  --platform System.Text.Json --format json
 ```
 
 ```expect
@@ -450,10 +450,10 @@ across
 
 ## 10. JSON + pipelines
 
-The `--json` flag turns any command into structured data for pipelines. This is the primary scripting surface.
+The `--format json` flag turns any command into structured data for pipelines. This is the primary scripting surface.
 
 ```bash
-dotnet-inspect library Aspire.Hosting@13.4.6 -S Ex* --json | python3 -c "
+dotnet-inspect library Aspire.Hosting@13.4.6 -S Ex* --format json | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 types = [e['extended_type'] for e in d.get('extension_methods', [])]

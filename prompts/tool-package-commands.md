@@ -13,7 +13,7 @@ Look for "Tool Commands" in the Metadata section.
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect dotnet-ef --json | jq '.toolCommands'
+dotnet-inspect dotnet-ef --format json | jq '.toolCommands'
 ```
 
 ## Discovery Path (Learning)

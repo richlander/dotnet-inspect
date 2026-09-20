@@ -169,7 +169,7 @@ internal static class CommandError
     /// column 0, with the message interpolated raw -- the one writer of this
     /// stream that cannot be routed through here, because it is not product
     /// code. An exception message routinely quotes attacker-reachable text (an
-    /// <c>--out</c> path, a zip entry name, a nuspec fragment), so that printer
+    /// <c>--output</c> path, a zip entry name, a nuspec fragment), so that printer
     /// emitted forged unindented diagnostics for free.
     ///
     /// Nothing is dropped: the whole <see cref="Exception.ToString"/>, stack
@@ -180,7 +180,7 @@ internal static class CommandError
     /// Gated end to end by
     /// <c>UntrustedArgumentDiagnosticContainmentTests.EscapingException_IsContainedRatherThanPrintedByTheRuntime</c>,
     /// which reaches this method through a real escaping exception -- an
-    /// <c>--out</c> path under a missing directory, which is an ordinary user
+    /// <c>--output</c> path under a missing directory, which is an ordinary user
     /// mistake -- rather than by calling it. That test also asserts the absence
     /// of the runtime banner, so it fails if the default handler is ever
     /// re-enabled in <c>CommandLineBuilder.InvokeAsync</c>.

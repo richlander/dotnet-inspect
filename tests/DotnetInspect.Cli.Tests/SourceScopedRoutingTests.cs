@@ -411,7 +411,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--version",
-                    "--jsonl",
+                    "--format=jsonl",
                     "--source",
                     ExcludedSource,
                     "--source",
@@ -470,7 +470,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "package",
                 packageName,
                 "--version",
-                "--jsonl",
+                "--format=jsonl",
                 "--source",
                 ExcludedSource,
             ]);
@@ -491,7 +491,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "package",
                 $"{packageName}@1.0.0",
                 "--version",
-                "--jsonl",
+                "--format=jsonl",
             ]);
 
         Assert.Equal(0, exit);
@@ -515,7 +515,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     $"{packageName}@{requestedVersion}",
                     "--version",
-                    "--jsonl",
+                    "--format=jsonl",
                     "--source",
                     SecondSource,
                 ]);
@@ -545,7 +545,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "--versions",
                     "-n",
                     "1",
-                    "--json",
+                    "--format=json",
                     "--source",
                     SecondSource,
                 ]);
@@ -588,7 +588,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "--versions-with-feed",
                     "-n",
                     "1",
-                    "--json",
+                    "--format=json",
                     "--source",
                     SecondSource,
                 ]);
@@ -643,7 +643,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string[] ordinaryArgs =
         [
             "package", packageName, "--versions-with-feed", "-n", "1",
-            "--json", "--source", SecondSource,
+            "--format=json", "--source", SecondSource,
         ];
         var warm = await RunOnlineVersionFeedCommandAsync(
             packageName, "1.0.0", ordinaryArgs);
@@ -672,7 +672,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             publishedVersions,
             [
                 "package", $"{packageName}@latest", selector, "-n", "1",
-                "--json", "--source", SecondSource,
+                "--format=json", "--source", SecondSource,
             ]);
         Assert.Equal(0, fresh.Exit);
         Assert.Empty(fresh.Error);
@@ -822,7 +822,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             "1.0.0",
             [
                 "package", packageName, "--versions-with-feed", "-n", "1",
-                "--json", "--source", SecondSource,
+                "--format=json", "--source", SecondSource,
             ]);
         Assert.Equal(0, warm.Exit);
         Assert.Empty(warm.Error);
@@ -833,7 +833,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             "2.0.0",
             [
                 "package", $"{packageName}@latest", "--versions-with-feed",
-                "-n", "1", "--json", "--source", SecondSource,
+                "-n", "1", "--format=json", "--source", SecondSource,
             ],
             requireAuthorization: true);
         Assert.Equal(1, refused.Exit);
@@ -1341,7 +1341,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 packageName,
                 "-n",
                 "1",
-                "--json",
+                "--format=json",
                 "--source",
                 SecondSource
             ]);
@@ -1373,7 +1373,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "--include-unlisted",
                 "-n",
                 "1",
-                countProjection ? "--count" : "--json",
+                countProjection ? "--count" : "--format=json",
                 "--source",
                 RefusedSource,
                 "--source",
@@ -1426,7 +1426,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "-n",
                 "1",
                 .. includeUnlisted ? new[] { "--include-unlisted" } : Array.Empty<string>(),
-                countProjection ? "--count" : "--json",
+                countProjection ? "--count" : "--format=json",
                 "--source",
                 RefusedSource,
                 "--source",
@@ -2267,7 +2267,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 .. implicitCommand ? Array.Empty<string>() : ["package"],
                 selector, "--head", packageName, limit,
                 .. limit == "-n" ? new[] { "2" } : [],
-                "--json", "--source", source
+                "--format=json", "--source", source
             ]);
 
         Assert.Equal(0, exit);
@@ -2309,7 +2309,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     .. limit is { } count ? new[] { "-n", count.ToString() } : [],
                     "--source", sources[0], "--source", sources[1],
                     .. preview ? new[] { "--preview" } : [],
-                    "--jsonl",
+                    "--format=jsonl",
                 ]);
 
         string[] expected = preview
@@ -2387,7 +2387,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 PackageName,
                 "2.0.0",
                 [
-                    "package", PackageName, "--versions", "-n", "1", "--jsonl",
+                    "package", PackageName, "--versions", "-n", "1", "--format=jsonl",
                     "--source", local, "--source", SecondSource,
                 ]);
 
@@ -2414,7 +2414,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 PackageName,
                 "2.0.0",
                 [
-                    "package", PackageName, "--versions", "--jsonl",
+                    "package", PackageName, "--versions", "--format=jsonl",
                     "--source", RefusedSource, "--source", local,
                 ],
                 refusedStatus: HttpStatusCode.Unauthorized);
@@ -2772,7 +2772,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         var (exit, output, error, requests) =
             await RunOnlineVersionFeedCommandAsync(
             PackageName, "9.0.0",
-            ["package", PackageName + "@1.0", "--version", "--jsonl",
+            ["package", PackageName + "@1.0", "--version", "--format=jsonl",
                 "--source", RefusedSource, "--source", local],
             refusedStatus: HttpStatusCode.Unauthorized);
         Assert.Equal(0, exit);
@@ -2805,8 +2805,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
     public async Task CliVersionQueries_ListingLensesPreservePerAuthorityRows(string format)
     {
         const string PackageName = "listing-lenses";
@@ -2836,7 +2836,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string[] args = ["package", PackageName + "@3.0.0..1.0.0", "--versions", "-n", "2",
             "--include-unlisted", "--rows", "2..2", "--source", local];
         var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
-            PackageName, "9.0.0", [.. args, "--jsonl"]);
+            PackageName, "9.0.0", [.. args, "--format=jsonl"]);
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("""{"version":"2.0.0","listing":"listed"}""", output.Trim());

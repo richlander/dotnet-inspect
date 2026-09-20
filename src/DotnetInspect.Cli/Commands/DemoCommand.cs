@@ -27,8 +27,8 @@ public static class DemoCommand
 
     /// <summary>
     /// Rejects mermaid combinations that would otherwise resolve to another format
-    /// and silently drop the diagram request (e.g. <c>--json --mermaid</c>).
-    /// Allowed: <c>--mermaid</c> alone, or <c>--markdown --mermaid</c>.
+    /// and silently drop the diagram request (e.g. <c>--format json --mermaid</c>).
+    /// Allowed: <c>--format mermaid</c>, or <c>--mermaid</c> with Markdown.
     /// </summary>
     public static bool TryValidateMermaidCombinations(
         bool mermaid,
@@ -45,12 +45,12 @@ public static class DemoCommand
         if (json || plainText || tabular)
         {
             error =
-                "--mermaid cannot be combined with --json, --plaintext, --table, --tsv, or --jsonl. "
-                + "Use --mermaid alone or --markdown --mermaid on a Call Graph home demo.";
+                "--mermaid cannot be combined with --format json, --format plaintext, --format table, --format tsv, or --format jsonl. "
+                + "Use --format mermaid for standalone output or --mermaid with Markdown on a Call Graph home demo.";
             return false;
         }
 
-        // markdown + mermaid is embedded mode; mermaid alone is standalone.
+        // Markdown plus the modifier is embedded mode; --format mermaid is standalone.
         _ = markdown;
         return true;
     }
@@ -65,8 +65,9 @@ public static class DemoCommand
         if (format is OutputFormat.Mermaid || mermaidRequested)
         {
             CommandError.Write(
-                "--mermaid is not supported for demo list. "
-                + "Run a Call Graph home demo with --mermaid (for example 'demo extensions-callgraph --mermaid').");
+                "Mermaid output is not supported for demo list. "
+                + "Run a Call Graph home demo with --format mermaid "
+                + "(for example 'demo extensions-callgraph --format mermaid').");
             return 1;
         }
 
@@ -487,7 +488,7 @@ public static class DemoScenarioRunner
             return false;
 
         // Select mirrors -S so HasSectionQuery is true and TypeCommand cannot
-        // silently fall through to the default shape tree under --mermaid/etc.
+        // silently fall through to the default shape tree under graph formats.
         TypeOptions type = new()
         {
             TypeName = view.Type,
@@ -606,7 +607,7 @@ public static class DemoScenarioRunner
         if (wantsMermaid && !isCallGraph)
         {
             error =
-                $"--mermaid requires a Call Graph home demo (got bound section '{boundSection}'). "
+                $"Mermaid output requires a Call Graph home demo (got bound section '{boundSection}'). "
                 + "Use default Markdown or another format for Methods demos.";
             return false;
         }
@@ -620,8 +621,8 @@ public static class DemoScenarioRunner
         if (format is OutputFormat.Json && (isCallGraph || isCallers))
         {
             error =
-                "--json cannot represent Call Graph/Callers section output yet. "
-                + "Use default Markdown, --mermaid, or --table/--tsv/--jsonl.";
+                "--format json cannot represent Call Graph/Callers section output yet. "
+                + "Use default Markdown, --format mermaid, --format table, --format tsv, or --format jsonl.";
             return false;
         }
 

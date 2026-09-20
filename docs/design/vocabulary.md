@@ -12,7 +12,7 @@ Vocabulary uses the ordinary output model:
 dotnet-inspect vocabulary
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility
-dotnet-inspect vocabulary -S "C# Style Choices" --json
+dotnet-inspect vocabulary -S "C# Style Choices" --format json
 dotnet-inspect vocabulary -S "C# Body Kinds"
 dotnet-inspect vocabulary -S Accessibility -n 2 --tail
 dotnet-inspect vocabulary -S "C#*" --count
@@ -55,7 +55,7 @@ formats in Release, including
 `Command_PlainTextUsesThePlainTextFormatter`, and
 `Command_JsonlUsesProjectedRuntimeColumns`.
 
-Plain unprojected `--json` is an approved CLI-host exception to ordinary
+Plain unprojected `--format json` is an approved CLI-host exception to ordinary
 Markout lowering. Its typed input is the selected owner-issued
 `VocabularySection` sequence plus the catalog schema version, and its lowering
 boundary is `VocabularyWireDocument` through the generated
@@ -64,7 +64,7 @@ preserves the established schema-versioned document containing section
 metadata, field schemas, operators, accepted-command identities, and typed
 value cells; the lowered Markout table shape cannot represent that contract
 without discarding schema or changing typed values to display strings. The
-exception is limited to unprojected CLI `--json`; every human, tabular, stream,
+exception is limited to unprojected CLI `--format json`; every human, tabular, stream,
 and projected-JSON path uses the typed Markout view. The Release gates are
 `JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
 `Command_JsonCarriesTypedSchemaAndValues`, and

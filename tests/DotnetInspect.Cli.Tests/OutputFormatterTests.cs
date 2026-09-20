@@ -165,7 +165,7 @@ public partial class OutputFormatterTests
             Assert.Empty(absent.Output);
             Assert.Empty(existing.Output);
             Assert.Contains("line limit", absent.Error, StringComparison.Ordinal);
-            Assert.Contains("exact --out", absent.Error, StringComparison.Ordinal);
+            Assert.Contains("exact --output", absent.Error, StringComparison.Ordinal);
             Assert.False(File.Exists(absentPath));
             Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
             Assert.Equal(0, reads);

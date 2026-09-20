@@ -74,7 +74,7 @@ every key, so rows inside the envelope do not repeat it.
 `annotated_source_document` is serialized with the Decompiler-owned
 `AnnotatedSourceDocumentJsonContext`. The CLI owns only the outer envelope and
 does not rename, reshape, or independently serialize the nested document.
-Exact singleton `Annotated Source Document --json` retains its existing
+Exact singleton `Annotated Source Document --format json` retains its existing
 document-only shape.
 
 ### Format behavior
@@ -85,12 +85,12 @@ and JSONL output. Its two identity columns are an intentional schema addition.
 Finding Census is a non-tabular document payload:
 
 - Markdown renders the indented envelope in a JSON code fence.
-- Exact singleton `--json` renders the typed envelope directly; `--compact`
+- Exact singleton `--format json` renders the typed envelope directly; `--compact`
   selects compact JSON.
 - table, TSV, JSONL, count, row-window, field, and column projections fail
   explicitly because they cannot preserve the indivisible correlation
   envelope.
-- composing Finding Census with another exact section under `--json` fails
+- composing Finding Census with another exact section under `--format json` fails
   rather than choosing one payload or changing the envelope root.
 
 ## Admission and failure

@@ -746,7 +746,7 @@ public partial class ApiCommand
         // are carried on a latch and emitted at the exact point a decompiled-source
         // render consumes the config (see RenderConfigWarningSink), so a bad config
         // never dirties stderr for a run that does not show styled source — a
-        // metadata projection (--json/--count/tabular), a section that does not
+        // metadata projection (--format json/--count/tabular), a section that does not
         // read source (-S Facts), or a fidelity-only projection (whose result is
         // style-invariant, so the config is genuinely not consumed) — and always
         // surfaces once, never as a silent success, on a run that does.
@@ -890,8 +890,8 @@ public partial class ApiCommand
                 || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
         {
             CommandError.Write(
-                "--mermaid requires exactly one selected graph.",
-                "Use -S \"Call Graph\" --mermaid.");
+                "Mermaid output requires exactly one selected graph.",
+                "Use -S \"Call Graph\" --format mermaid.");
             return false;
         }
 
@@ -900,7 +900,7 @@ public partial class ApiCommand
                 || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)))
         {
             CommandError.Write(
-                "--markdown --mermaid requires the Call Graph section.",
+                "--format markdown --mermaid requires the Call Graph section.",
                 "Select it with -S \"Call Graph\"; other Markdown sections may be selected with it.");
             return false;
         }
@@ -1023,7 +1023,7 @@ public partial class ApiCommand
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
             CommandError.Write(
-                "--json-array cannot be combined with --json or --jsonl.");
+                "--json-array cannot be combined with --format json or --format jsonl.");
             return false;
         }
 

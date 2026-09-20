@@ -57,19 +57,19 @@ Why it is bad:
 - Prefer fidelity guidance: `PDB Source` is checksum-matched source selected by Portable PDB evidence when available; `Decompiled Source` is lowered C# readable best-effort; raw/annotated IL is highest fidelity.
 
 ```md
-Use `--plaintext` for text-only output.
+Use `--format plaintext` for text-only output.
 ```
 
 Why it is bad:
 
 - All CLI formats are text output.
-- Do not feature `--plaintext` in primary skill guidance unless a concrete agent workflow benefits from it.
+- Do not feature `--format plaintext` in primary skill guidance unless a concrete agent workflow benefits from it.
 
 ## Rules
 
 - Lead with the best first command for the task.
 - Prefer workflow guidance over implementation inventory.
-- Use familiar CLI analogies when they clarify behavior (`--table` as pretty-printed rows, `--tsv` as stable tab-separated rows, `-n`/`--tail` like `head`/`tail`).
+- Use familiar CLI analogies when they clarify behavior (`--format table` as pretty-printed rows, `--format tsv` as stable tab-separated rows, `-n`/`--tail` like `head`/`tail`).
 - Describe `-D`/`-S` as the uppercase cross-command query namespace when explaining discovery and section selection.
 - Explain `--preview` as the single prerelease opt-in alias in the skill, even when other aliases exist.
 - Keep SourceLink/PDB wording precise: PDBs carry SourceLink data; they are not SourceLink themselves.

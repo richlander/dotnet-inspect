@@ -90,10 +90,8 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("package", "Newtonsoft.Json", "--out")]
     [InlineData("package", "Newtonsoft.Json", "--output")]
     [InlineData("package", "Newtonsoft.Json", "-o")]
-    [InlineData("project", ".", "--out")]
     [InlineData("project", ".", "--output")]
     [InlineData("project", ".", "-o")]
     public void ProjectionOutputPath_RejectsExplicitEmptyValues(
@@ -105,7 +103,7 @@ public class CommandLineTests
             .Parse([command, target, option, ""]);
 
         var error = Assert.Single(result.Errors);
-        Assert.Equal("--out requires a non-empty path.", error.Message);
+        Assert.Equal("--output requires a non-empty path.", error.Message);
     }
 
     [Fact]
@@ -200,7 +198,7 @@ public class CommandLineTests
     public void VocabularyCommand_AcceptsSectionSelection()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["vocabulary", "-S", "Accessibility", "--json"]);
+            ["vocabulary", "-S", "Accessibility", "--format=json"]);
 
         Assert.Empty(result.Errors);
     }
@@ -209,7 +207,7 @@ public class CommandLineTests
     public void VocabularyCommand_AcceptsPlainText()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["vocabulary", "-S", "Accessibility", "--plaintext"]);
+            ["vocabulary", "-S", "Accessibility", "--format=plaintext"]);
 
         Assert.Empty(result.Errors);
     }
@@ -422,7 +420,7 @@ public class CommandLineTests
     [Fact]
     public void Router_WithCompactFlag_ParsesCorrectly()
     {
-        var args = CommandLineBuilder.PreprocessArgs(["System.Text.Json.JsonSerializer", "--json", "--compact"]);
+        var args = CommandLineBuilder.PreprocessArgs(["System.Text.Json.JsonSerializer", "--format=json", "--compact"]);
         var result = CommandLineBuilder.CreateRootCommand().Parse(args);
 
         Assert.Empty(result.Errors);
@@ -581,7 +579,7 @@ public class CommandLineTests
     [Fact]
     public void MemberCommand_WithTable_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--table"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--format=table"]);
 
         Assert.Empty(result.Errors);
     }
@@ -589,7 +587,7 @@ public class CommandLineTests
     [Fact]
     public void MemberCommand_WithTsvNoHeaders_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--tsv", "--no-headers"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--format=tsv", "--no-headers"]);
 
         Assert.Empty(result.Errors);
     }
@@ -597,15 +595,15 @@ public class CommandLineTests
     [Fact]
     public void MemberCommand_WithJsonl_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--jsonl"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--format=jsonl"]);
 
         Assert.Empty(result.Errors);
     }
 
     [Theory]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     [InlineData("--tree")]
     public void DependsCommand_WithGraphFormat_ParsesCorrectly(string format)
     {
@@ -615,13 +613,199 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--mermaid")]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    [InlineData("json")]
+    [InlineData("plaintext")]
+    [InlineData("mermaid")]
+    [InlineData("JsOnL")]
+    public void Format_AcceptsSupportedValuesCaseInsensitively(string format)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "--format", format]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void Format_IsLongOnly()
+    {
+        var command = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128"])
+            .CommandResult.Command;
+        Option<string?> format = Assert.Single(
+            command.Options.OfType<Option<string?>>(),
+            option => option.Name == "--format");
+
+        Assert.DoesNotContain("-f", format.Aliases);
+    }
+
+    [Fact]
+    public void Format_RequiresAKnownValue()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var missing = root.Parse(
+            ["depends", "System.Int128", "--format"]);
+        var unknown = root.Parse(
+            ["depends", "System.Int128", "--format", "yaml"]);
+
+        Assert.NotEmpty(missing.Errors);
+        Assert.Contains(
+            unknown.Errors,
+            error => error.Message.Contains(
+                "yaml",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            unknown.Errors,
+            error => error.Message.Contains(
+                "markdown",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("tree")]
+    [InlineData("envelope")]
+    public void Format_RejectsNonPresentationValues(string format)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "--format", format]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
+    public void Format_RejectsUnsupportedCommandValue()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["cache", "--format", "mermaid"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(
+            "cache does not support '--format mermaid'.",
+            error.Message);
+    }
+
+    [Theory]
     [InlineData("--json")]
     [InlineData("--markdown")]
     [InlineData("--plaintext")]
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
+    public void LegacyFormatFlags_AreRejected(string option)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", option]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "Unrecognized",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void FormatAndOutputDestination_AreIndependent()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "package",
+                "Newtonsoft.Json",
+                "--format", "json",
+                "-o", "result.json",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Option<string?> format =
+            Assert.Single(
+                result.CommandResult.Command.Options
+                    .OfType<Option<string?>>(),
+                option => option.Name == "--format");
+        Option<string?> output =
+            Assert.Single(
+                result.CommandResult.Command.Options
+                    .OfType<Option<string?>>(),
+                option => option.Name == "-o");
+        Assert.Equal("json", result.GetValue(format));
+        Assert.Equal("result.json", result.GetValue(output));
+    }
+
+    [Fact]
+    public void MemberProjectedJson_UsesTypedItemLimit()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "member",
+                "System.String",
+                "--platform", "System.Runtime",
+                "--format", "JSON",
+                "--fields", "Name",
+                "-n", "1",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.True(CommandLineBuilder.UsesTypedItemLimit(result));
+    }
+
+    [Fact]
+    public async Task LegacyOutputDestinationAlias_IsRejected()
+    {
+        string[] args =
+            ["package", "Newtonsoft.Json", "--out", "result.json"];
+        var root = CommandLineBuilder.CreateRootCommand();
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Unrecognized option '--out'.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MermaidFormatAndMarkdownModifier_HaveDistinctGrammar()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        Assert.Empty(
+            root.Parse(
+                ["depends", "System.Int128", "--format", "mermaid"])
+                .Errors);
+        Assert.Empty(
+            root.Parse(
+                [
+                    "depends",
+                    "System.Int128",
+                    "--format", "markdown",
+                    "--mermaid",
+                ])
+                .Errors);
+        Assert.NotEmpty(
+            root.Parse(
+                [
+                    "depends",
+                    "System.Int128",
+                    "--format", "json",
+                    "--mermaid",
+                ])
+                .Errors);
+    }
+
+    [Theory]
+    [InlineData("--mermaid")]
+    [InlineData("--format=json")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
+    [InlineData("--format=table")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     [InlineData("-v:q")]
     public void DependsCommand_TreeWithAnotherFormat_IsRejected(string format)
     {
@@ -664,7 +848,7 @@ public class CommandLineTests
     [Fact]
     public void TypeCommand_WithJson_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json", "--json"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json", "--format=json"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1005,8 +1189,9 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--out=-1")]
-    [InlineData("--out:-1")]
+    [InlineData("--format=json")]
+    [InlineData("--output=-1")]
+    [InlineData("--output:-1")]
     [InlineData("-o=-1")]
     [InlineData("-o:-1")]
     [InlineData("-o-1")]
@@ -1111,13 +1296,13 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--out", "-n1")]
+    [InlineData("--format", "-n1")]
     [InlineData("--output", "-n1")]
     [InlineData("-o", "-n1")]
     [InlineData("--nugetconfig", "-n1")]
     [InlineData("--tfm", "-n1")]
     [InlineData("-t", "-n1")]
-    [InlineData("--out", "-n:1")]
+    [InlineData("--output", "-n:1")]
     [InlineData("--", "-n1")]
     [InlineData("--", "-n:1")]
     public void PreprocessArgs_AttachedLineLimitOutsideOptionScopeIsIgnored(
@@ -1142,7 +1327,7 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--out")]
+    [InlineData("--output")]
     [InlineData("--nugetconfig")]
     public void PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection(string option)
     {
@@ -1184,10 +1369,10 @@ public class CommandLineTests
     public void PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues(string direction)
     {
         string[] result = CommandLineBuilder.PreprocessArgs(
-            ["--json", "false", "--versions", direction, "true", "-n", "1"]);
+            ["--format=json", "false", "--versions", direction, "true", "-n", "1"]);
 
         Assert.Equal(
-            ["package", "--json", "false", "--versions", direction, "true", "-n", "1"],
+            ["package", "--format=json", "false", "--versions", direction, "true", "-n", "1"],
             result);
     }
 
@@ -1340,18 +1525,18 @@ public class CommandLineTests
         string second,
         string canonical)
     {
-        var result = CommandLineBuilder.PreprocessArgs(["find", "Foo", first, second, "--json"]);
+        var result = CommandLineBuilder.PreprocessArgs(["find", "Foo", first, second, "--format=json"]);
 
-        Assert.Equal(["find", "Foo", canonical, "", "--json"], result);
+        Assert.Equal(["find", "Foo", canonical, "", "--format=json"], result);
     }
 
     [Fact]
     public void PreprocessArgs_RepeatedBareProjectionRemainsBare()
     {
         var result = CommandLineBuilder.PreprocessArgs(
-            ["find", "Foo", "--columns", "--columns", "--json"]);
+            ["find", "Foo", "--columns", "--columns", "--format=json"]);
 
-        Assert.Equal(["find", "Foo", "--columns", "--json"], result);
+        Assert.Equal(["find", "Foo", "--columns", "--format=json"], result);
     }
 
     [Theory]
@@ -1415,10 +1600,10 @@ public class CommandLineTests
     [Fact]
     public void PreprocessArgs_WithDllFile_PrependsLibrary()
     {
-        var args = new[] { "artifacts/bin/Foo/debug/Foo.dll", "--json" };
+        var args = new[] { "artifacts/bin/Foo/debug/Foo.dll", "--format=json" };
         var result = CommandLineBuilder.PreprocessArgs(args);
 
-        Assert.Equal(["library", "artifacts/bin/Foo/debug/Foo.dll", "--json"], result);
+        Assert.Equal(["library", "artifacts/bin/Foo/debug/Foo.dll", "--format=json"], result);
     }
 
     [Fact]
@@ -1705,7 +1890,7 @@ public class CommandLineTests
     [Fact]
     public void FindCommand_WithTable_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--table"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--format=table"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1713,7 +1898,7 @@ public class CommandLineTests
     [Fact]
     public void FindCommand_WithTsv_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--tsv"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--format=tsv"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1721,7 +1906,7 @@ public class CommandLineTests
     [Fact]
     public void FindCommand_WithJsonl_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--jsonl"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["find", "Json*", "--package", "System.Text.Json", "--format=jsonl"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1817,7 +2002,7 @@ public class CommandLineTests
     [Fact]
     public void DiffCommand_WithTable_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--table"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--format=table"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1825,7 +2010,7 @@ public class CommandLineTests
     [Fact]
     public void DiffCommand_WithTsvNoHeaderAlias_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--tsv", "--no-header"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--format=tsv", "--no-header"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1833,7 +2018,7 @@ public class CommandLineTests
     [Fact]
     public void DiffCommand_WithJsonl_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--jsonl"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--format=jsonl"]);
 
         Assert.Empty(result.Errors);
     }
@@ -1887,19 +2072,19 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ExtensionsCommand_WithJsonlAfterPackage_DoesNotTreatFlagAsPackage()
+    public void ExtensionsCommand_WithJsonlFormatAfterPackage_DoesNotTreatValueAsPackage()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var result = root.Parse(["extensions", "ILogger", "--package", "Microsoft.Extensions.Logging.Abstractions", "--jsonl"]);
+        var result = root.Parse(["extensions", "ILogger", "--package", "Microsoft.Extensions.Logging.Abstractions", "--format=jsonl"]);
 
         Assert.Empty(result.Errors);
         var command = result.CommandResult.Command;
         var packageOption = command.Options.OfType<Option<string[]>>().Single(option => option.Name == "--package");
-        var jsonlOption = command.Options.OfType<Option<bool>>().Single(option => option.Name == "--jsonl");
+        var formatOption = command.Options.OfType<Option<string?>>().Single(option => option.Name == "--format");
         var packages = result.GetValue(packageOption) ?? [];
 
         Assert.Equal(["Microsoft.Extensions.Logging.Abstractions"], packages);
-        Assert.True(result.GetValue(jsonlOption));
+        Assert.Equal("jsonl", result.GetValue(formatOption));
     }
 
     [Fact]
@@ -2084,7 +2269,7 @@ public class CommandLineTests
         NuGetCache.Initialize("dotnet-inspect");
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args = CommandLineBuilder.PreprocessArgs(
-            ["Missing.Type.Run", "--out", "--latest-version", "--help"]);
+            ["Missing.Type.Run", "--output", "--latest-version", "--help"]);
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeAsync(
                 root.Parse(args),

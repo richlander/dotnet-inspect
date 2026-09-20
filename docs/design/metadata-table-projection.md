@@ -326,7 +326,7 @@ dotnet-inspect library My.dll -S @Metadata
 dotnet-inspect library My.dll -S "Metadata: TypeRef"
 
 # Vector: one column of that table
-dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
+dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --format tsv
 
 # Scalar: collapse to a row count
 dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
@@ -335,7 +335,7 @@ dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
 dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows 20
 
 # structured, for tooling
-dotnet-inspect library My.dll -S "Metadata: TypeRef" --jsonl
+dotnet-inspect library My.dll -S "Metadata: TypeRef" --format jsonl
 ```
 
 This obeys the shape ladder in [output-shapes.md](output-shapes.md): a table is a

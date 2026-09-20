@@ -589,7 +589,7 @@ rather than only a hidden filter, so a surface can *mark* unlisted versions
 instead of silently omitting them. `package --versions --include-unlisted`
 opts into this: it lists every version, including unlisted ones, as a
 `Version`/`Listing` table (each row marked `listed` or `unlisted`) across the
-Markdown, `--tsv`, and `--jsonl` shapes. Hiding remains the default, so the bare
+Markdown, `--format tsv`, and `--format jsonl` shapes. Hiding remains the default, so the bare
 `--versions` output is unchanged.
 
 Because a pinned `Name@Version` names an explicit coordinate, the `--versions`

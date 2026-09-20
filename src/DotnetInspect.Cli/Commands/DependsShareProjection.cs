@@ -27,7 +27,7 @@ internal static class DependsShareProjection
 
         if (options.EnvelopeOutput || options.OutputPath is not null)
         {
-            return "--share cannot be combined with --envelope or --out while "
+            return "--share cannot be combined with --envelope or --output while "
                 + "Package Dependencies uses scalar-only Share output.";
         }
 

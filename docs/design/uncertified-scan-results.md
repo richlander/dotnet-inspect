@@ -109,5 +109,5 @@ The former `Depends_ExcludedCandidateDoesNotWithholdAnIndependentLibraryAnswer`
 gate was removed because its explicit `--library` input no longer permits
 fallback. Rule 4 with a preceding exclusion, warning-before-result ordering,
 and rule 6's cross-format parity are `unverified` by the focused gates above.
-The library-fallback path also emits a tree under `--json`; that pre-existing
+The library-fallback path also emits a tree under `--format json`; that pre-existing
 formatting limitation is not fixed by this exclusion-reporting contract.

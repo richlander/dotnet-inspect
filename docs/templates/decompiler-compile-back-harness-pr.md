@@ -300,5 +300,5 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly}
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- {assembly} --return-to-sender-ab --cap {N} --max-examples {N}
 
 /home/rich/git/dotnet-build-events-vmr-preview5-events/artifacts/preview5-events-sdk-test/dotnet build tools/DecompilerHarness --no-incremental --view types --event-log-stderr -c Release --nologo --verbosity quiet
-dotnet run --project /home/rich/git/dotnet-inspect-build-event-query/src/DotnetInspect.Cli -c Release --no-build -- build {before-log} -S Compare --compare {after-log} --tsv
+dotnet run --project /home/rich/git/dotnet-inspect-build-event-query/src/DotnetInspect.Cli -c Release --no-build -- build {before-log} -S Compare --compare {after-log} --format tsv
 ```

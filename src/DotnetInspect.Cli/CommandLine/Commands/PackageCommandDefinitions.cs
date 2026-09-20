@@ -79,7 +79,7 @@ public static class PackageCommandDefinitions
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
         var includeUnlistedOption = new Option<bool>("--include-unlisted") { Description = "Include unlisted versions in --versions output, marked as unlisted" };
-        var contentOption = new Option<bool>("--content") { Description = "Print contents of files selected by --path; use --jsonl for structured rows" };
+        var contentOption = new Option<bool>("--content") { Description = "Print contents of files selected by --path; use --format jsonl for structured rows" };
         var frontmatterOption = new Option<bool>("--frontmatter") { Description = "When printing markdown content, output only the leading YAML frontmatter block" };
         frontmatterOption.Aliases.Add("--yaml-header");
         var bodyOption = new Option<bool>("--body") { Description = "When printing markdown content, output only content after YAML frontmatter" };
@@ -138,9 +138,11 @@ public static class PackageCommandDefinitions
             skipEmptyOption, rootsOption, opts.NoHeaders);
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
-        packageCommand.Options.Add(opts.Json);
-        packageCommand.Options.Add(opts.Markdown);
-        packageCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            packageCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         opts.AddOutputOptionsTo(
             packageCommand,
             validateLegacyRowWindow: result =>
@@ -511,7 +513,7 @@ public static class PackageCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Minified JSON (use with --json or --envelope)"
+            Description = "Minified JSON (use with --format json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
         queryCommand.Options.Add(takeOption);
@@ -520,7 +522,7 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(libraryLiteralOption);
         queryCommand.Options.Add(queryTfmOption);
         queryCommand.Options.Add(opts.RowWhere);
-        queryCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(queryCommand);
         queryCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(queryCommand);
         queryCommand.Options.Add(opts.Limit);
@@ -552,18 +554,18 @@ public static class PackageCommandDefinitions
         queryCommand.Validators.Add(result =>
         {
             if (result.GetResult(compactOption) is { Implicit: false }
-                && !result.GetValue(opts.Json)
+                && !opts.IsJsonOutput(result)
                 && !result.GetValue(opts.Envelope))
             {
                 result.AddError(
-                    "--compact requires package query --json or --envelope.");
+                    "--compact requires package query --format json or --envelope.");
             }
-            if (result.GetValue(opts.Json)
+            if (opts.IsJsonOutput(result)
                 && result.GetValue(opts.Tree)
                 && result.GetResult(opts.Discover) is not { Implicit: false })
             {
                 result.AddError(
-                    "--tree with package query --json requires schema discovery.");
+                    "--tree with package query --format json requires schema discovery.");
             }
         });
 
@@ -572,11 +574,7 @@ public static class PackageCommandDefinitions
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Envelope,
-                opts.Json,
-                opts.Markdown,
-                opts.Table,
-                opts.Tsv,
-                opts.Jsonl,
+                opts.Format,
                 opts.NoHeaders,
                 opts.Info,
                 opts.Limit,
@@ -643,7 +641,7 @@ public static class PackageCommandDefinitions
                 && discover is null)
             {
                 CommandError.Write(
-                    "--tree with package query --json requires schema discovery.");
+                    "--tree with package query --format json requires schema discovery.");
                 return 1;
             }
             string? libraryLiteral =

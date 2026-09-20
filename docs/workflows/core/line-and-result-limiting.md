@@ -201,7 +201,7 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 
 ```bash
 dotnet-inspect member System.Text.Json JsonSerializer \
-  --table --no-headers -n 3 --tips q
+  --format table --no-headers -n 3 --tips q
 ```
 
 ```expect
@@ -259,7 +259,7 @@ wc -l | tr -d ' '
 `-3` is equivalent shorthand. Add `--tail` for the oldest three versions.
 Because this command has adopted semantic rows, use `-n 3 --lines` only when
 you intentionally want the first three rendered lines rather than three
-complete version rows. Rendered-line selection cannot combine with `--json`
+complete version rows. Rendered-line selection cannot combine with `--format json`
 because clipping would make the JSON document invalid.
 
 ## 9. Count rows in a section

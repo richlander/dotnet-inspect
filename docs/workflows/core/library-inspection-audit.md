@@ -352,7 +352,7 @@ Extracted
 > Goal: Get library metadata in machine-readable JSON format.
 
 ```bash
-dotnet-inspect library --package System.CommandLine@2.0.3 --json --rows 1..30
+dotnet-inspect library --package System.CommandLine@2.0.3 --format json --rows 1..30
 ```
 
 ```expect

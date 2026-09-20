@@ -598,7 +598,7 @@ public class DiffCommandTests
             "void Write(T? value)");
         var typeDiffs = new[] { new TypeDiff("Sample.Box`1", [change]) };
 
-        // The tabular views back --table/--tsv/--jsonl; the Type field must stay the
+        // The tabular views back --format table/--format tsv/--format jsonl; the Type field must stay the
         // canonical metadata name (arity backtick), not the C#-friendly display form.
         var tableRow = Assert.Single(DiffOutputFormatter.BuildTableView("Sample", typeDiffs, "1.0.0", "2.0.0").Rows!);
         Assert.Equal("Box`1", tableRow.Type);
@@ -2643,7 +2643,7 @@ public class DiffCommandTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains("Selection matches 2 sections", error, StringComparison.Ordinal);
-        Assert.Contains("--table, --tsv, and --jsonl display one section at a time", error, StringComparison.Ordinal);
+        Assert.Contains("--format table, --format tsv, and --format jsonl display one section at a time", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2692,7 +2692,7 @@ public class DiffCommandTests
         [
             "diff", "--library", $"{v1}..{v2}",
             "-S", "Analysis Diff,Implementation Diff",
-            "--json", "--type", "DiffSample"
+            "--format=json", "--type", "DiffSample"
         ]);
 
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
@@ -2750,7 +2750,7 @@ public class DiffCommandTests
             }
 
             string[] args = CommandLineBuilder.PreprocessArgs(
-                ["diff", "--library", $"{target}..{target}", "--json"]);
+                ["diff", "--library", $"{target}..{target}", "--format=json"]);
             var (exitCode, output, error) = await ConsoleCapture.RunAsync(
                 async () => await CommandLineBuilder.CreateRootCommand()
                     .Parse(args).InvokeAsync());

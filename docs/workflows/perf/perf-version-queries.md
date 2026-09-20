@@ -284,7 +284,7 @@ Prime the cache with explicit package routing:
 
 ```bash
 "$INSPECT" type --package System.CommandLine Command \
-  --markdown -v:q
+  --format markdown -v:q
 ```
 
 ```expect

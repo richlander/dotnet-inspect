@@ -91,7 +91,9 @@ public static class InspectionCommandDefinitions
         command.Options.Add(configDirectoryOption);
         opts.AddTableOptionsTo(command);
         opts.AddJsonOptionTo(command);
-        command.Options.Add(opts.Markdown);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Markdown);
         opts.AddOutputOptionsTo(
             command,
             validateLegacyRowWindow: static _ => false);
@@ -257,7 +259,7 @@ public static class InspectionCommandDefinitions
         };
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --format json or --envelope)" };
         var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
 
         diffCommand.Arguments.Add(argsArg);
@@ -270,8 +272,10 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(typeFilterOption);
         diffCommand.Options.Add(memberFilterOption);
         opts.AddTableOptionsTo(diffCommand);
-        diffCommand.Options.Add(opts.Json);
-        diffCommand.Options.Add(opts.Markdown);
+        opts.AddFormatOptionTo(
+            diffCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown);
         diffCommand.Options.Add(nameOnlyOption);
         diffCommand.Options.Add(breakingOption);
         diffCommand.Options.Add(additiveOption);
@@ -618,7 +622,7 @@ public static class InspectionCommandDefinitions
             }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
-            // a second section and break single-section formats (--table/--tsv/--jsonl). When the
+            // a second section and break single-section formats (--format table/--format tsv/--format jsonl). When the
             // filter is a single --triage-shape that maps to one kind section, target that section
             // directly. Otherwise select the homogeneous performance kind family, not the broader
             // @Performance category (which also contains Top Leverage and Resource Triage and
@@ -697,8 +701,8 @@ public static class InspectionCommandDefinitions
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-                Markdown = parseResult.GetValue(opts.Markdown),
-                PlainText = parseResult.GetValue(opts.PlainText),
+                Markdown = opts.IsMarkdownOutput(parseResult),
+                PlainText = opts.IsPlainTextOutput(parseResult),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),

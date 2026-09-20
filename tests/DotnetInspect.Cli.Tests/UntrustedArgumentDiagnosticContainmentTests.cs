@@ -310,7 +310,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         Directory.CreateDirectory(obsolete);
         File.WriteAllText(Path.Combine(obsolete, "stale.txt"), "stale");
 
-        var (output, error) = RunCli(["cache", "--json", "-T:q"]);
+        var (output, error) = RunCli(["cache", "--format=json", "-T:q"]);
 
         Assert.Empty(error);
         Assert.False(Directory.Exists(obsolete));
@@ -463,7 +463,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
     /// the source scans see no <c>Console.Error.Write</c> and no severity
     /// literal, because the code doing the writing is not in this repository.
     /// An exception message routinely quotes attacker-reachable text, so
-    /// <c>--out "&lt;missing&gt;/x\nError: ..."</c> forged a complete diagnostic
+    /// <c>--output "&lt;missing&gt;/x\nError: ..."</c> forged a complete diagnostic
     /// with no product code involved, and a hostile .nupkg reached the same
     /// printer through a zip-traversal or nuspec-parse throw. A plain user
     /// mistake -- writing to a directory that does not exist -- was enough to
@@ -505,7 +505,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             string destination = Path.Combine(
                 directory, "missing", $"HOSTILE{hazard}INJECTEDARG", "out.md");
 
-            var (output, error) = RunCli(["package", package, "--out", destination]);
+            var (output, error) = RunCli(["package", package, "--output", destination]);
             string combined = output + error;
 
             HostileOutputAssert.MarkersRendered(combined, "escaping-exception", "INJECTEDARG");

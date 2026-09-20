@@ -155,10 +155,12 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(lensOption);
         command.Options.Add(shareOption);
         command.Options.Add(makePackageDependenciesExplicitOption);
-        command.Options.Add(opts.Markdown);
-        command.Options.Add(opts.PlainText);
-        command.Options.Add(opts.Json);
-        command.Options.Add(opts.Envelope);
+        opts.AddFormatOptionTo(
+            command,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Json);
+        opts.AddEnvelopeOptionTo(command);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(
             command,

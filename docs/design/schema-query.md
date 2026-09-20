@@ -206,7 +206,7 @@ The CLI presents schema query results through `DiscoverOutput`.
 
 Discovery preserves explicit output intent. An explicit table, TSV, JSONL,
 JSON, or plaintext request is not replaced by an automatic tree. `--no-header`
-applies to formats with headers, and `--out` routes the complete discovery
+applies to formats with headers, and `--output` routes the complete discovery
 artifact to its destination instead of also writing it to standard output.
 Only eligible implicit table presentation or Markdown may promote to a tree.
 

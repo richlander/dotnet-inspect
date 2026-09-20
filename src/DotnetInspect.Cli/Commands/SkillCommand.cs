@@ -231,7 +231,7 @@ public class SkillCommand
 }
 
 /// <summary>
-/// One row of <c>skill list --json</c> output.
+/// One row of <c>skill list --format json</c> output.
 /// </summary>
 public record SkillListJsonRow(
     [property: JsonPropertyName("skill")] string Skill,

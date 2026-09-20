@@ -139,7 +139,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--tail",
                 "--rows", "1..1",
                 "--columns", "Version",
-                "--tsv",
+                "--format=tsv",
                 "--tips", "q"
             ]);
 
@@ -180,7 +180,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "-S", "Evaluations",
                 "-n", "2",
                 "--lines",
-                "--tsv",
+                "--format=tsv",
                 "--tips", "q"
             ]);
 
@@ -220,7 +220,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--at", "all",
                 "-n", "2",
                 "--lines",
-                "--json",
+                "--format=json",
                 "--tips", "q"
             ]);
 

@@ -427,7 +427,7 @@ metadata rows consume that currency, so package renderers cannot disagree about
 which metadata crossed containment. Markdown takes strings apart only in its
 sink properties; structured rows do so only in serializer-facing getters.
 Document bodies are visually encoded on terminal-facing stdout under the
-explicit contract described in `output-shapes.md`; `--out` preserves exact
+explicit contract described in `output-shapes.md`; `--output` preserves exact
 payloads, and structured modes preserve values behind format escaping. The package file
 collection is projected lazily, so an ordinary summary does not allocate one
 wrapper per archive entry; asking for its section or for the exhaustive

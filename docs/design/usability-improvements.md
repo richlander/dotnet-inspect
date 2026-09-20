@@ -51,7 +51,7 @@ This is the single highest-impact improvement. It directly enables correct code 
 
 ### 2. ~~Stale table-output flag referenced in docs~~ (FIXED)
 
-**Resolution:** Replaced the obsolete shape-specific flags with a unified `--table` flag across `api`, `find`, `diff`, and `implements` commands. Uses the tabular writer path for docker-style columnar output. Added `--no-header` to suppress column headers.
+**Resolution:** Replaced the obsolete shape-specific flags with a unified `--format table` flag across `api`, `find`, `diff`, and `implements` commands. Uses the tabular writer path for docker-style columnar output. Added `--no-header` to suppress column headers.
 
 ### 3. `diff` type filter uses exact match, not globs
 
@@ -141,7 +141,7 @@ release-note migrations.
 ## Priority Order
 
 1. **Show `params` and default values in signatures** — eliminates the worst LLM spiral
-2. ~~**Fix stale table-output flag**~~ — resolved: unified as `--table`
+2. ~~**Fix stale table-output flag**~~ — resolved: unified as `--format table`
 3. **Fix `-s` crash** — straightforward bug
 4. **Support globs in diff type filter** — consistency with find/api
 5. **Remove diff member truncation** — easy, high value for migrations

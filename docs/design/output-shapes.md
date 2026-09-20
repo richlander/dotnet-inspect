@@ -4,7 +4,7 @@ dotnet-inspect output narrows through a small ladder of **shapes**. Product
 producers define the rows and capabilities; Markout renders those shapes after
 dotnet-inspect flags choose which rung you land on. Naming the ladder gives a
 shared vocabulary for the output flags
-(`-S`, `--fields`/`--columns`, `--tsv`/`--jsonl`, `--count`, `-n`/`--rows`,
+(`-S`, `--fields`/`--columns`, `--format tsv`/`--format jsonl`, `--count`, `-n`/`--rows`,
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
@@ -67,13 +67,13 @@ ordinary Package Query, Package Query assembly-semantic evaluation, and exact
 package-backed Type and Library API inspection.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
-`TypeDependencySectionJsonContext` for both Content-only `--json` and the
+`TypeDependencySectionJsonContext` for both Content-only `--format json` and the
 Content subtree of `--envelope`.
 
 Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
 `DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
 It preserves the ordinary primary output, supports a distinct ordinary
-`--out` destination and paired baseline `--envelope`, and publishes the
+`--output` destination and paired baseline `--envelope`, and publishes the
 complete enriched frame atomically.
 
 `--depth` remains traversal, while `--rows` and
@@ -81,7 +81,7 @@ complete enriched frame atomically.
 both
 `queryResult.dependency.relationships` and the selected
 `rowSelection.relationships`. The service constructs Share for both JSON
-boundaries regardless of stderr projection; `--json` emits Content only, while
+boundaries regardless of stderr projection; `--format json` emits Content only, while
 `--envelope` exposes Share. Mixed-source plans and explicit `--depth` issue
 typed `Share.NonProjectable`. Explicit `--share` retains the existing final
 stderr line policy after host diagnostics.
@@ -92,7 +92,7 @@ empty or non-success Content retains its exit policy; acquisition failure
 without a result emits no manufactured envelope.
 
 Library API Diff registers `library-api-diff` at schema version `1` and uses
-the host-neutral `LibraryApiDiffJsonContext` for both unprojected `--json` and
+the host-neutral `LibraryApiDiffJsonContext` for both unprojected `--format json` and
 `--envelope.content`. Its root `outcome` is `available`, `unavailable`, or
 `rejected`; Available retains its `document`, and non-success cases retain
 numeric `kind` and both endpoint summaries. Presentation-owned properties
@@ -110,7 +110,7 @@ silently ignoring the option. Rendered-line clipping is rejected for complete Co
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
 Package Activity registers `ecosystem-change-report` at schema version `1`.
-Unprojected `--json` and `--envelope.content` share the owner-issued
+Unprojected `--format json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security
 selection, and semantic result limit remain service inputs. Projection, Count,
 row selection, discovery, section selection, and competing output formats are
@@ -119,7 +119,7 @@ visible before the command returns a nonzero exit.
 
 Ordinary Package Query registers `package-query`, while `--library-literal`
 registers `package-assembly-semantic-query`, both at schema version `1`.
-Unprojected `--json` and `--envelope.content` share each owner's complete
+Unprojected `--format json` and `--envelope.content` share each owner's complete
 Document serializer. Query planning inputs remain admitted, while row
 selection, projection, section selection, Count, discovery, and competing
 output formats are rejected with `--envelope`. Typed incomplete or failed
@@ -127,7 +127,7 @@ Documents remain visible before the command returns a nonzero exit.
 
 Exact package-backed Type inspection registers `exact-type`, while exact
 package-backed Library API inspection registers `exact-library-api`, both at
-schema version `1`. Unprojected `--json` and `--envelope.content` share the
+schema version `1`. Unprojected `--format json` and `--envelope.content` share the
 owner-issued `ExactTypeInspectionResult` or
 `ExactLibraryApiInspectionResult` serializer. Admission is limited to the
 complete quiet/minimal operation. Richer verbosity, tree or bare output,
@@ -184,12 +184,12 @@ or projection:
 | --- | --- | --- |
 | `--envelope` | Service | `envelope.ToJson()` |
 | `--evidence-envelope <path>` | Service attachment | `enrichedEnvelope.ToJson(path)` |
-| `--json` | Content | `envelope.Content.ToJson()` |
+| `--format json` | Content | `envelope.Content.ToJson()` |
 
 `ToJson()` is contract notation, not a required CLR instance method.
 `--envelope` selects the complete service value and fixes JSON as its encoding.
 It is JSON-only, not a format-independent wrapper that can be rendered as a
-Markdown document, table, TSV, or JSONL stream. `--json` selects JSON encoding
+Markdown document, table, TSV, or JSONL stream. `--format json` selects JSON encoding
 for content; with an admitted output projection it serializes that projected
 content under the [projected-JSON contract](projected-json.md).
 
@@ -200,7 +200,7 @@ the baseline envelope and the file receives the enriched envelope. Both values
 come from the same evidence-enabled invocation; the baseline stdout value is
 the enriched value's `Inspection` projection.
 
-The unprojected content value decoded from `--json` must equal the Content
+The unprojected content value decoded from `--format json` must equal the Content
 subtree decoded from `--envelope`. They use the same owner-issued content
 serialization contract, including native value kinds, nullability, sequence
 order, and owner-specific Outcome discrimination. JSON whitespace and object
@@ -238,7 +238,7 @@ For example, Count is a terminal semantic projection for package version
 populations rather than post-service output shaping. `package P@A..B
 --count --envelope` therefore serializes an `InspectionEnvelope<int>` whose
 Content is the owner-issued Count result. Ordinary `--count`, including
-`--count --json`, projects that same integer, so content-only JSON equals the
+`--count --format json`, projects that same integer, so content-only JSON equals the
 envelope's Content subtree. Without Count, the population envelope retains the
 complete Document and no redundant Count property. A row window already bound
 into the semantic Count plan selects the counted population cohort; it is not
@@ -258,7 +258,7 @@ the CLI flag adds no Browser interaction or private baseline extension.
 ### Adoption and evidence
 
 Public envelope adoption includes aligning that route's unprojected
-`--json` with its owner-issued Content. Some current commands serialize
+`--format json` with its owner-issued Content. Some current commands serialize
 host-specific presentation models. Merely consuming an envelope internally
 does not establish the equality above. Each adopter must deliberately migrate
 any differing machine schema, classify and disclose that change under
@@ -269,7 +269,7 @@ contracts.
 Debug evidence-attachment adoption alone is not public baseline-envelope
 adoption. An evidence adopter may bind baseline framing for the paired
 `--envelope --evidence-envelope` Debug path while leaving standalone
-`--envelope` unadopted and preserving the route's existing ordinary `--json`
+`--envelope` unadopted and preserving the route's existing ordinary `--format json`
 contract. That scoped compatibility path must name and gate the retained
 ordinary JSON serializer; attachment Content still uses the owner-issued
 Content serializer. A later public standalone-envelope adoption must resolve
@@ -366,7 +366,7 @@ native value kinds, optionality, ordering, and contained-text serialization.
 Each registration binds their concrete typed serializers; transport does not
 apply a second casing, enum, null-omission, or display-text conversion to their
 output. Public baseline adoption uses the same Content serializer for
-unprojected `--json` and `--envelope`; the scoped Debug attachment exception
+unprojected `--format json` and `--envelope`; the scoped Debug attachment exception
 above may retain a named ordinary JSON presentation serializer.
 A value without an established named serialization contract is an adoption
 gap, not permission to emit tuple positions, `Item1`/`Item2`, an empty object,
@@ -385,7 +385,7 @@ document is useful human output but is not `LibraryApiDiffOutcome`.
 
 `--envelope` remains a public presence-only option.
 `--evidence-envelope <path>` is a Debug-only option with exactly one required,
-non-empty file value. Neither has a short alias or requires `--json`.
+non-empty file value. Neither has a short alias or requires `--format json`.
 Missing, blank, or option-shaped evidence paths are rejected by
 [CLI option-value validation](cli-option-value-validation.md); `-` is not a
 stdout shorthand. URL preferences remain separate from evidence output.
@@ -415,7 +415,7 @@ Serialization never recaptures evidence or projects Share.
 | Input or modifier | With `--envelope` | With `--evidence-envelope <path>` |
 | --- | --- | --- |
 | The other envelope option | Admit: baseline envelope to stdout and enrichment to the file. | Admit the paired destinations. |
-| `--json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
+| `--format json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
 | `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
@@ -423,12 +423,12 @@ Serialization never recaptures evidence or projects Share.
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
-| `--out <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
+| `--output <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
 | Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
 
 During Package Dependencies' documented scalar-only migration window, an
 explicit Share cannot also select paired baseline `--envelope` or Debug
-`--out`; admission rejects either combination before acquisition. The scalar
+`--output`; admission rejects either combination before acquisition. The scalar
 fast path cannot honor a second stdout envelope or ordinary destination, and
 evidence transport does not silently drop either modifier or partially perform
 the broader #6725 migration.
@@ -520,7 +520,7 @@ this transport rather than publish another framing convention.
 
 The first runtime adoption is positional type dependencies; Library API Diff
 will supply the second content kind through the same CLI transport. Changing
-legacy unprojected `--json` from a graph/presentation document to shared
+legacy unprojected `--format json` from a graph/presentation document to shared
 Content is **intentionally breaking** where the schemas differ. Positional
 type dependencies have disclosed that break in current help, product
 guidance, and Breaking release notes; there is no compatibility-only JSON
@@ -543,7 +543,7 @@ likewise exercise their public command entry point:
 - when evidence is adopted, preserve the baseline subtree, deliver the
   concrete Evidence, and reject unavailable capture without fallback;
 - preserve ordinary primary output with and without the attachment, including
-  ordinary `--out`, `--json`, rendered shapes, and paired `--envelope`;
+  ordinary `--output`, `--format json`, rendered shapes, and paired `--envelope`;
 - prove atomic replace-on-success and unchanged or absent destinations after
   serialization and publication failures, including exact and case-only
   same-path preflight; and
@@ -605,7 +605,7 @@ edges across the non-count output modes. Count observes the same preceding
 semantic stages under
 [Section-row shaping](section-row-shaping.md#count-semantics).
 
-The `graph integrations --json` failure array preserves both presentation and
+The `graph integrations --format json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
 `target_kind`/`target_id`, and Integration failures retain structured producer,
 kind, assembly-reference, acquisition-failure, and exception fields. Opaque
@@ -647,8 +647,8 @@ of the ladder families contributes in one of four ways:
 - **Item/range selectors** narrow the rows without changing the shape rung
   (`--where`, `--order-by`, `-n`, `--top`, `--rows`).
 - **Presentation modifiers** change how a selected payload is rendered without
-  changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
-  `--jsonl`, `--plaintext`, `--no-headers`, and graph-supported `--tree` or
+  changing the shape (`--bare`, `--format markdown`, `--format json`, `--format table`, `--format tsv`,
+  `--format jsonl`, `--format plaintext`, `--no-headers`, and graph-supported `--tree` or
   `--mermaid`).
 - **URL-shape modifiers** prefer rendered browser views for emitted URLs
   (`--prefer-rendered-urls`). They are orthogonal to the output-shape ladder.
@@ -665,8 +665,8 @@ independent row sets. Count remains valid because it preserves the producer's
 declared aggregate or independent row-set scopes.
 
 For unreduced output, shape cardinality is evaluated after both section and
-subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
-shape; `--tree` requires exactly one tree shape; standalone `--mermaid`
+subject selection. `--format table`, `--format tsv`, and `--format jsonl` require exactly one table
+shape; `--tree` requires exactly one tree shape; `--format mermaid`
 requires exactly one graph shape. Selecting one section with `--tfm all` still
 produces one shape per inspection, so it does not satisfy any unreduced
 single-shape contract.
@@ -758,8 +758,8 @@ Formatters decide presentation, not content:
 - **`MarkdownFormatter`** — the rich, multi-section, verbosity-aware Document
   format. The canonical shape; everything else is a projection or reduction of
   it.
-- **`TableFormatter`** — a single-section tabular renderer (pretty table, `--tsv`,
-  `--jsonl`). Because it renders one section at a time, its output is always a
+- **`TableFormatter`** — a single-section tabular renderer (pretty table, `--format tsv`,
+  `--format jsonl`). Because it renders one section at a time, its output is always a
   single Table (or Vector).
 - Tree, Mermaid, and table writers render their own narrow shapes (a call graph
   tree or diagram, a table row) and have no verbosity dial — they either show a
@@ -784,7 +784,7 @@ These fields are the lowered table vocabulary used by Markdown, table, TSV,
 JSONL, and projected JSON. They are display text, not the typed interchange
 contract.
 
-Exact singleton `member ... -S Facts --json` selects the complete typed Facts
+Exact singleton `member ... -S Facts --format json` selects the complete typed Facts
 document. Each Finding retains its caller anchor and optional `callee_evidence`.
 Callee evidence contains the producer-owned subject plus ordered physical
 locations. A physical method is identified by assembly, module version id,
@@ -936,9 +936,9 @@ The CLI and Browser/Wasm production consumers remain
 completed-operation host boundaries rather than around this prerequisite
 projection.
 
-### Approved `extensions --json` compatibility boundary
+### Approved `extensions --format json` compatibility boundary
 
-The CLI host's `extensions --json` path is an approved bounded exception to
+The CLI host's `extensions --format json` path is an approved bounded exception to
 the ordinary Markout lowering rule. Its typed input is the final
 `List<ExtensionMethodResult>` produced by the extension query, and its lowering
 boundary is the generated `ExtensionMethodJsonResult` contract in
@@ -951,7 +951,7 @@ whitespace-only modifier.
 This boundary exists to preserve an established machine contract that the
 current lowered Markout formatter cannot represent without changing the
 top-level array shape and converting typed numeric/list values to string table
-cells. It is limited to this CLI host and this plain `--json` output; Markdown,
+cells. It is limited to this CLI host and this plain `--format json` output; Markdown,
 table, TSV, JSONL, count, and semantic row selection remain on the normal typed
 view/Markout path. The Release gates are
 `SearchJsonResultTests.ExtensionResult_PreservesPublicJsonFieldNames`,
@@ -977,9 +977,9 @@ do not establish cardinality. Producers outside Markout, such as metadata
 tables, expose the same declared logical rows to L2 that their renderers
 consume.
 
-### Approved `vocabulary --json` compatibility boundary
+### Approved `vocabulary --format json` compatibility boundary
 
-The CLI host's plain, unprojected `vocabulary --json` path is an approved
+The CLI host's plain, unprojected `vocabulary --format json` path is an approved
 bounded exception to ordinary Markout lowering. Its typed input is the selected
 owner-issued `VocabularySection` sequence plus the catalog schema version, and
 its lowering boundary is `VocabularyWireDocument` through the generated
@@ -992,7 +992,7 @@ This boundary exists because the lowered Markout table shape intentionally
 contains display rows, not the catalog's schema and typed values. Moving this
 path through Markout would discard that information or change the public wire
 contract. The exception is limited to this CLI host and plain unprojected
-`--json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
+`--format json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
 one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
 are
 `VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
@@ -1006,7 +1006,7 @@ The focused adoption is tracked by
 
 ### Approved cache JSON compatibility boundary
 
-The CLI host's `cache --json` and `cache --jsonl` paths are an approved bounded
+The CLI host's `cache --format json` and `cache --format jsonl` paths are an approved bounded
 exception to ordinary Markout lowering. Their typed input is the owner-issued
 `PackageCacheService.CacheInfo` snapshot, and their lowering boundary is
 `CacheInfoJson` through the generated `CacheInfoJsonContext`. Both formats
@@ -1035,7 +1035,7 @@ focused adoption is tracked by
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
-(`--table`, `--tsv`, `--jsonl`, and `--name-only`) cannot append a second
+(`--format table`, `--format tsv`, `--format jsonl`, and `--name-only`) cannot append a second
 failure table, so they emit an explicit incomplete-comparison diagnostic and
 exit nonzero.
 
@@ -1151,7 +1151,7 @@ to a neighbour. For projections that omit inapplicable rows, such as `--value`,
 `--urls`, and `--paths`, `first` and `last` remain the endpoints actually
 emitted by that projection, retaining their original numeric addresses.
 `--print` has no such gaps because every selected row emits a success or
-failure. Structured output makes the number explicit — `--jsonl` and `--json`
+failure. Structured output makes the number explicit — `--format jsonl` and `--format json`
 emit it as `row` — and error messages name the available addresses, so a
 projection with gaps stays navigable.
 
@@ -1172,8 +1172,8 @@ row that does not declare a printable payload, or whose payload cannot be
 acquired, is not omitted. Other rows continue, and any failure makes the command
 exit non-zero. Normal text frames every result with typed row identity; JSONL
 and JSON-array output retain that identity in one complete object per row.
-Plain `--json` retains its unary one-object contract and rejects multiple
-selected rows. Unary `--bare` and unstructured `--out` report acquisition or
+Plain `--format json` retains its unary one-object contract and rejects multiple
+selected rows. Unary `--bare` and unstructured `--output` report acquisition or
 transformation failures as diagnostics with no payload envelope.
 
 A printed document is the document the package shipped. Markdown conventions --
@@ -1223,7 +1223,7 @@ missing or unavailable.
 Normal `--print` stdout is a framed, visually encoded projection, even for one
 row. Unary `--bare` removes the frame but remains terminal-safe rather than an
 exact byte-transfer contract. A caller printing a manifest in order to hash or
-diff it uses unary `--out`, which preserves the package bytes exactly,
+diff it uses unary `--output`, which preserves the package bytes exactly,
 including any byte order mark.
 
 `-n N` and bare `-N` are semantic item windows applied independently to each
@@ -1333,7 +1333,7 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   text, so its count is the number of files matched.
 - A `--content` path that matches nothing in a package still renders a
   per-package placeholder — `(absent)` in the block render, a `found:false` row
-  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
+  in `--format jsonl` — and that placeholder is **not** counted. The count answers *how
   many files did I get content for*, so counting placeholders would report
   matches that did not happen. The placeholder is presentation, which is why
   `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
@@ -1366,18 +1366,18 @@ fence, a tree gutter, or a diagnostic line (issue #3319).
 
 Printing documents (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
-explicit unary file operation: add `--out <path>` to a selection that resolves
+explicit unary file operation: add `--output <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings, except for package skill
 documents: skills are agent instructions, so every route, including
 `project -S Skills --print`, `package -S "Package skill files" --print`,
 `--content`, and a package README declaration, classifies through a
 `TextPolicy.Prose` `InertString` and carries one containment-selected value
-through stdout, structured output, and `--out`. The raw scoped skill is
+through stdout, structured output, and `--output`. The raw scoped skill is
 classified before link normalization; concerning text becomes the standard
 placeholder, safe text retains its full presented spelling, and exact package
 bytes are not retained. The placeholder remains the selected stdout,
-structured-output, or `--out` value. A successful containment replacement also
+structured-output, or `--output` value. A successful containment replacement also
 writes one warning to stderr: it names the skill document and reports at most
 eight contiguous same-scalar source ranges by one-based line and column,
 Unicode code point, and category without reproducing the source text. A final
@@ -1388,21 +1388,21 @@ and `SkillDocuments_ReportBoundedContainmentRanges` gates the split-channel,
 bounded diagnostic. A Markdown scope exports projected text.
 Terminal-facing output never emits a live control or bidi scalar from package
 content. Multi-item
-`--print --out` and multi-file or multi-package `--content --out` are refused
+`--print --output` and multi-file or multi-package `--content --output` are refused
 unless a structured JSON shape owns the destination; global selection
 cardinality is resolved before any selected payload is read, and a unique exact
 payload is read from the same retained package acquisition that supplied its
 selection metadata. Narrow it with row
 or path selectors for exact transfer.
-Unstructured exact `--out` rejects line windows because clipping would no
+Unstructured exact `--output` rejects line windows because clipping would no
 longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
 unchanged.
 
 Every command that exposes `--print` also exposes and wires unary `--bare` and
-`--out`; this makes the payload-only and exact-destination paths properties of
+`--output`; this makes the payload-only and exact-destination paths properties of
 the projection rather than accidents of its parent command. Structured
-multi-item `--out` is a different mode: after atomic preflight it may publish
+multi-item `--output` is a different mode: after atomic preflight it may publish
 complete result records incrementally, including typed row failures, as
 described by the historical #4677 target. It remains pending focused L3
 payload-projection ownership and gates.
@@ -1413,7 +1413,7 @@ document to stdout and the `# Info` table to stderr.
 
 Two consequences define the boundary:
 
-- `--jsonl` preserves ordinary payloads as JSON string values. The wire format
+- `--format jsonl` preserves ordinary payloads as JSON string values. The wire format
   escapes control characters as required by JSON; parsing reconstructs the
   original ordinary payload. A package skill document that requires containment
   is omitted before serialization, so parsing returns
@@ -1428,7 +1428,7 @@ Two consequences define the boundary:
 
 These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
 a package whose README carries bidi, ESC, and LS hazards and asserts encoded
-stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
+stdout, contained stderr, parsed JSON payload fidelity, and exact `--output`
 export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
 gates both framed and `--bare` single-file content export with a UTF-16 payload
 that has no trailing newline. The target
@@ -1450,16 +1450,18 @@ the caller made.
 ### Presentation modifiers (render the chosen shape)
 
 These modifiers describe content output. For an adopted envelope-producing
-route, unprojected `--json` means the owner-issued Content value under
+route, unprojected `--format json` means the owner-issued Content value under
 [the content/service boundary](#service-and-content-serialization-boundaries),
 not a rendering of the service envelope.
 
 | Flag | Effect |
 | --- | --- |
-| `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
-| `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
-| `--table` | render the single selected section as a space-padded pretty table |
+| `--format markdown` | force the full Markdown Document format |
+| `--format json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--format json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--format jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--format tsv` / `--format jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
+| `--format table` | render the single selected section as a space-padded pretty table |
+| `--format mermaid` | render one graph shape as standalone Mermaid syntax |
+| `--mermaid` | embed supported diagrams in Markdown output |
 | `--no-header` (`--no-headers`) | drop the Table header row |
 | `-n N` / numeric shorthand such as `-20` | keep the first N declared items per row set |
 | `-n N --head` | keep the first N declared items with the default direction explicit |
@@ -1469,9 +1471,9 @@ not a rendering of the service envelope.
 | `-n N --lines --head` | keep the first N lines with the default direction explicit |
 | `-n N --tail-lines` | keep the last N lines; sugar for `--lines --tail` |
 | `--bare` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
-| `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
+| `--format plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
-`--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
+`--format tsv`/`--format jsonl`/`--format table` render **one section at a time**, so they require a
 Table-or-narrower selection; multi-section (Document) output stays in Markdown or
 JSON. `--print` likewise requires exactly one declared row set, though it may
 project every selected row in that set.
@@ -1538,7 +1540,7 @@ library MyLib.dll
 library MyLib.dll -S "Top Leverage"
 
 # Vector: one column of that table
-library MyLib.dll -S "Top Leverage" --fields Member --tsv
+library MyLib.dll -S "Top Leverage" --fields Member --format tsv
 
 # Scalar: collapse the table to a count …
 library MyLib.dll -S "Top Leverage" --count
@@ -1695,7 +1697,7 @@ active exception-handling regions, `Context: Callsite` shows the call-like
 operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
 document path, and `--print --bare` returns the visually encoded payload at the
-location without the normal frame or gutter. Use `--print --out <path>` instead
+location without the normal frame or gutter. Use `--print --output <path>` instead
 for exact payload export.
 
 ## Design discipline for future flags
@@ -1710,7 +1712,7 @@ The stable vocabulary is:
   `--tail` reverses it when the producer can establish a truthful suffix.
 - `--rows` selects absolute stable row ranges and carries no count-only form.
 - Normal `--print` projects every selected row to one framed or structured
-  success/failure result. Unary `--bare` and unstructured `--out` carry no
+  success/failure result. Unary `--bare` and unstructured `--output` carry no
   result envelope. None of these modes invents printability or evaluates new
   addresses.
 - `--lines` changes the `-n` unit to rendered lines. For multi-item print the
@@ -1726,7 +1728,7 @@ The stable vocabulary is:
   surrounding frame and payload gutter.
 - `--prefer-rendered-urls` is a URL-shape preference, not a payload-shape or
   decoration modifier.
-- `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
+- `--format plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
 - `library coordinate` supplies coordinate input that has no other expression
   and gates the sections it makes meaningful. Coordinate input does not narrow

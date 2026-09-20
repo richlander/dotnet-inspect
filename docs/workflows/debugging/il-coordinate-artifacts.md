@@ -122,7 +122,7 @@ Explain these debugger IL coordinates from my crash dump.
 "$INSPECT" library coordinate \
   --file "$COORD_WORKFLOW/debugger.coords" \
   --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
-  --markdown --tips q
+  --format markdown --tips q
 ```
 
 ```expect
@@ -265,7 +265,7 @@ Then run `dotnet-inspect` on the normalized coordinate file:
 "$INSPECT" library coordinate \
   --file "$COORD_WORKFLOW/crash.coords" \
   --library "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll" \
-  --markdown --tips q
+  --format markdown --tips q
 ```
 
 ```expect
@@ -290,7 +290,7 @@ Explain these profiler sample coordinates without doing a full triage.
 "$INSPECT" library coordinate \
   --file "$COORD_WORKFLOW/profiler.coords" \
   --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
-  --markdown --tips q
+  --format markdown --tips q
 ```
 
 ```expect
@@ -317,7 +317,7 @@ Explain this analyzer artifact and keep bad lines visible.
 "$INSPECT" library coordinate \
   --file "$COORD_WORKFLOW/analyzer.coords" \
   --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
-  --markdown --tips q
+  --format markdown --tips q
 ```
 
 ```expect-error

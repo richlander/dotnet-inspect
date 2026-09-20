@@ -270,7 +270,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                 .. targetFramework is null ? Array.Empty<string>() : ["--tfm", targetFramework],
                 "-S", "Integration Opportunities",
                 "--source", source,
-                "--markdown", "--verbose", "--tips", "q",
+                "--format=markdown", "--verbose", "--tips", "q",
             ];
             var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
             {
@@ -1148,7 +1148,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             [
                 "package", archive, "--all-libraries",
                 "--tfm", shape == "all-frameworks" ? "all" : "net11.0",
-                "-S", "Integration Opportunities", "--markdown",
+                "-S", "Integration Opportunities", "--format=markdown",
                 "--offline", "--no-nuget-cache", "--verbose", "--tips", "q",
             ];
             var start = new ProcessStartInfo(

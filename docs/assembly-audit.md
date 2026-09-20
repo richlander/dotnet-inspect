@@ -197,7 +197,7 @@ SourceLink PDB.
 `PackageAudit_MalformedStandaloneSourceLinkMapReportsPartial` gate the
 package-local PDB census and visible incompleteness.
 `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
-gates encoded stdout and byte-exact `--out` export.
+gates encoded stdout and byte-exact `--output` export.
 `PackageSignatureVerifierTests.VerifyPackage_MutatedSignedPackageFailsContentHash`
 gates signer trust against the signed archive bytes.
 `PackageSignatureVerifierTests.VerifyCertificateChain_RejectsTlsOnlyLeafForCodeSigning`,

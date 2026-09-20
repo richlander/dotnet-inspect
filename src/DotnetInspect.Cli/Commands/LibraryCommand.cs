@@ -516,13 +516,13 @@ public partial class LibraryCommand
                     SectionNames.ImplementationProfiles))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
-                    + "Use --jsonl, --tsv, or --table.");
+                    "Document --format json cannot represent Implementation Profiles analysis. "
+                    + "Use --format jsonl, --format tsv, or --format table.");
             }
             else
             {
                 CommandError.Write(
-                    "Document --json with Reference Hierarchy requires that section to be selected alone.");
+                    "Document --format json with Reference Hierarchy requires that section to be selected alone.");
             }
             return 1;
         }
@@ -574,8 +574,8 @@ public partial class LibraryCommand
                 options.IncludeSections is { Count: 1 }
                 && options.IncludeSections.Contains(
                     SectionNames.References)
-                    ? "References is direct evidence and has no Mermaid topology. Use '-S \"Reference Hierarchy\" --mermaid'."
-                    : "--mermaid requires exactly '-S \"Reference Hierarchy\"'.");
+                    ? "References is direct evidence and has no Mermaid topology. Use '-S \"Reference Hierarchy\" --format mermaid'."
+                    : "Mermaid output requires exactly '-S \"Reference Hierarchy\"'.");
             return 1;
         }
 
@@ -630,7 +630,7 @@ public partial class LibraryCommand
                 || !referenceHierarchySelected))
         {
             CommandError.Write(
-                "--out currently requires exactly '-S \"Reference Hierarchy\"' or --count for library inspection.");
+                "--output currently requires exactly '-S \"Reference Hierarchy\"' or --count for library inspection.");
             return 1;
         }
 
@@ -723,7 +723,7 @@ public partial class LibraryCommand
 
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
-            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
+            CommandError.Write("--json-array cannot be combined with --format json or --format jsonl.");
             return 1;
         }
 
@@ -2849,9 +2849,9 @@ public partial class LibraryCommand
 
         var tabularFormatName = options.Format switch
         {
-            OutputFormat.Table => "--table",
-            OutputFormat.Tsv => "--tsv",
-            OutputFormat.Jsonl => "--jsonl",
+            OutputFormat.Table => "--format table",
+            OutputFormat.Tsv => "--format tsv",
+            OutputFormat.Jsonl => "--format jsonl",
             _ => null
         };
         if (tabularFormatName is not null)
@@ -2863,8 +2863,8 @@ public partial class LibraryCommand
 
         var formatName = options.Format switch
         {
-            OutputFormat.PlainText => "plain-text output (--plaintext)",
-            OutputFormat.Mermaid => "Mermaid output (--mermaid)",
+            OutputFormat.PlainText => "plain-text output (--format plaintext)",
+            OutputFormat.Mermaid => "Mermaid output (--format mermaid)",
             _ => options.Format.ToString()
         };
 

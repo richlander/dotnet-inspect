@@ -57,11 +57,11 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | ---- | ---- | ----------- |
 | `--files` | File structure | Tree of DLLs (or all files with `--all`) |
 | `--path` | File resolution | Table of package-relative file paths and sizes; repeatable with `--match all` or `--match first` |
-| `--content` | File content | Contents for files selected by `--path`, with separator blocks or `--jsonl` rows |
+| `--content` | File content | Contents for files selected by `--path`, with separator blocks or `--format jsonl` rows |
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--out` remove that envelope |
+| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--output` remove that envelope |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -113,8 +113,8 @@ identity and members:
 | ---- | ---- | ----------- |
 | `--docs` | Documentation | XML doc comments fetched from source |
 | `--samples` | Code samples | Sample references from XML docs |
-| `--table` | Pretty table output | One table/section at a time, one result per line, space-padded columns |
-| `--tsv` | TSV output | One table/section at a time, one result per line, normalized tab-separated fields |
+| `--format table` | Pretty table output | One table/section at a time, one result per line, space-padded columns |
+| `--format tsv` | TSV output | One table/section at a time, one result per line, normalized tab-separated fields |
 
 `--docs` enriches the member table with a Description column rather than replacing the view, but it still functions as a lens -- it fetches external data (source files via SourceLink) that is not part of the library's identity metadata.
 
@@ -135,18 +135,18 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 The `--files` view renders a tree. The `--versions` view renders a list. In the
 multi-item target, `--print` requires one selected row set and projects every
 row to a framed document success or failure; `--row N` narrows that set to one
-stable address. `--jsonl`
+stable address. `--format jsonl`
 emits one complete success/failure object per selected row. `member -S "Call
-Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid`
-select standalone graph renderings, while `--markdown --mermaid` embeds the
-diagram in the composable Markdown document. These rendering choices are
+Graph"` renders a Markdown edge table by default; `--tree` and
+`--format mermaid` select standalone graph renderings, while `--mermaid`
+embeds the diagram in the composable Markdown document. These rendering choices are
 intrinsic to the lens, not controlled by verbosity. A lens may support its own
 sub-options (e.g. `--files --all` to include all files, not just DLLs) but those
 are scoped to that lens.
 
 ### Default rendering should be the most useful
 
-When a lens has multiple possible rendering modes, the default should be the most broadly useful one. For `--files`, tree rendering is the default because it conveys structure -- the primary reason you'd look at files. A call graph is not intrinsically hierarchical, so its Markdown default is an edge table; tree and Mermaid views remain explicit. Flat lists are available implicitly via other tools (`--json` piped through `jq`, for example) but the default serves the common case.
+When a lens has multiple possible rendering modes, the default should be the most broadly useful one. For `--files`, tree rendering is the default because it conveys structure -- the primary reason you'd look at files. A call graph is not intrinsically hierarchical, so its Markdown default is an edge table; tree and Mermaid views remain explicit. Flat lists are available implicitly via other tools (`--format json` piped through `jq`, for example) but the default serves the common case.
 
 ## Summary Table
 
@@ -158,4 +158,4 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |
-| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `-S "Finding Transitions"`, `--table`, `--tsv`, `--name-only` |
+| `diff` | API change summary | `-S "Analysis Diff"`, `-S "Implementation Diff"`, `-S "Finding Transitions"`, `--format table`, `--format tsv`, `--name-only` |

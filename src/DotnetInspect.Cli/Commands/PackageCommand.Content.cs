@@ -1220,7 +1220,7 @@ public partial class PackageCommand
             if (found.Count != 1)
             {
                 CommandError.Write(
-                    $"--content --out requires exactly one selected package content file; found {found.Count}.");
+                    $"--content --output requires exactly one selected package content file; found {found.Count}.");
                 return 1;
             }
 

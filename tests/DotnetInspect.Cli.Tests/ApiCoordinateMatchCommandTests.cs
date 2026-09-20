@@ -132,7 +132,7 @@ public sealed class ApiCoordinateMatchCommandTests
     [InlineData("type", "--count", null)]
     [InlineData("type", "--project", ".")]
     [InlineData("type", "--platform", "System.Text.Json")]
-    [InlineData("type", "--table", null)]
+    [InlineData("type", "--format=table", null)]
     [InlineData("member", "--rows", "1..1")]
     [InlineData("member", "-S", "IL")]
     [InlineData("member", "--repo", ".")]
@@ -190,12 +190,12 @@ public sealed class ApiCoordinateMatchCommandTests
             [
                 "type", "Example.Widget",
                 "--package", "never.acquire@1.0.0..2.0.0",
-                "--match", "--json", "--markdown",
+                "--match", "--format=json", "--format=markdown",
             ]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
-        Assert.Contains("only one", result.Error);
+        Assert.Contains("expects a single argument", result.Error);
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
     }
 
@@ -419,7 +419,7 @@ public sealed class ApiCoordinateMatchCommandTests
             "type", "Example.Widget",
             "--package", "Example@1.0.0",
             "--tfm", "net8.0",
-            "--json",
+            "--format=json",
             "--tree",
         ]);
 
@@ -498,7 +498,7 @@ public sealed class ApiCoordinateMatchCommandTests
             "--compact",
             "--tips", "q",
         ];
-        var content = await Invoke([.. request, "--json"]);
+        var content = await Invoke([.. request, "--format=json"]);
         var envelope = await Invoke([.. request, "--envelope"]);
 
         Assert.True(content.Exit == 0, content.Error);
@@ -540,7 +540,7 @@ public sealed class ApiCoordinateMatchCommandTests
                 "--package", "Avalonia@11.3.14..11.3.14",
                 "--tfm", "net8.0",
                 "--source", "https://api.nuget.org/v3/index.json",
-                "--match", "--json", "--compact", "--tips", "q",
+                "--match", "--format=json", "--compact", "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);

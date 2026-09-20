@@ -756,7 +756,7 @@ preserve their existing host contracts. Host JSON is a typed content projection,
 not an envelope transport.
 
 Ordinary `--count` output projects the already-bound Count component, including
-the scalar JSON produced by `--count --json`; that is an explicit Count
+the scalar JSON produced by `--count --format json`; that is an explicit Count
 projection, not unprojected `DiffHistoryOutcome` JSON. `--count --envelope`
 instead delivers the complete constructed Content with both Document and Count
 component. Count remains an executed semantic request in that envelope, not

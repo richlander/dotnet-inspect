@@ -101,7 +101,7 @@ public static class ArgumentPreprocessor
     /// Unlike the stale direction flag -- which parses cleanly and so has to be caught before
     /// parsing -- a removed option is something the parser itself rejects, so this answers the
     /// command's own unrecognized-option outcome rather than scanning raw tokens. That is what
-    /// keeps a run that parses from being second-guessed: in <c>--out --readme</c> the token is an
+    /// keeps a run that parses from being second-guessed: in <c>--output --readme</c> the token is an
     /// output file name and never reaches here, and a bare name that routes to a library or
     /// platform assembly gets that command's answer rather than package-specific advice.
     /// </summary>
@@ -395,6 +395,14 @@ public static class ArgumentPreprocessor
     public static bool HasParsedOption(ParseResult parseResult, string alias)
         => FindOptionResult(parseResult, alias) is { Implicit: false };
 
+    public static bool HasParsedOptionValue(
+        ParseResult parseResult,
+        string alias,
+        string value) =>
+        FindOptionResult(parseResult, alias)
+            is { Implicit: false, Tokens: [{ Value: string actual }] }
+        && string.Equals(actual, value, StringComparison.OrdinalIgnoreCase);
+
     private static OptionResult? FindOptionResult(
         ParseResult parseResult,
         string alias)
@@ -587,7 +595,7 @@ public static class ArgumentPreprocessor
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
         "--metadata-root", "--extract-resources", "--version",
-        "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
+        "--format", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",

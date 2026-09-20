@@ -303,7 +303,7 @@ dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
 ### 7a. With header
 
 ```bash
-dotnet-inspect implements Stream --table -n 3
+dotnet-inspect implements Stream --format table -n 3
 ```
 
 ```expect
@@ -317,7 +317,7 @@ Source
 ### 7b. Without header for piping
 
 ```bash
-dotnet-inspect implements Stream --table --no-headers -n 3
+dotnet-inspect implements Stream --format table --no-headers -n 3
 ```
 
 ```expect

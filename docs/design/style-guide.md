@@ -184,7 +184,7 @@ Note: The dotnet CLI uses minimal as the default verbosity level, not normal. Th
 
 Descriptions and optional fields depend on the view and available evidence.
 Focused section output may omit the identity header. For single-type section
-output, use `--markdown`; the default type tree supports `-v:m`, `-v:n`, and
+output, use `--format markdown`; the default type tree supports `-v:m`, `-v:n`, and
 `-v:d`, not `-v:q`.
 
 ### Documentation columns

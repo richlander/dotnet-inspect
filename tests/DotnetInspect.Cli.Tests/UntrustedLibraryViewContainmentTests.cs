@@ -653,9 +653,9 @@ public class UntrustedStringLiteralContainmentTests
 public class AttributeValueRetentionTests
 {
     [Theory]
-    [InlineData("--markdown")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=tsv")]
+    [InlineData("--format=jsonl")]
     public async Task SelectedMember_CustomAttributes_ContainsCompilerProducedAttributeValue(string format)
     {
         const string Marker = "INJECTEDOBSOLETEBIDI";
@@ -665,7 +665,7 @@ public class AttributeValueRetentionTests
             "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
             "-S", "Custom Attributes", format,
         ];
-        if (format == "--markdown")
+        if (format == "--format=markdown")
             args.Add("-v:d");
 
         var (exit, output, _) = await HostileCli.RunAsync([.. args]);
@@ -675,11 +675,11 @@ public class AttributeValueRetentionTests
         HostileOutputAssert.NoRenderingHazard(output, string.Join(' ', args));
         HostileOutputAssert.NoLineSplit(output, Marker);
 
-        if (format == "--markdown")
+        if (format == "--format=markdown")
         {
             Assert.Contains("| Name | Value |", output, StringComparison.Ordinal);
         }
-        else if (format == "--tsv")
+        else if (format == "--format=tsv")
         {
             Assert.StartsWith($"name\tvalue{Environment.NewLine}", output, StringComparison.Ordinal);
         }
@@ -859,11 +859,11 @@ public class UntrustedPackageContainmentTests : IDisposable
         Assert.True(exit == 0, error);
         HostileOutputAssert.MarkersRendered(
             output,
-            "package Signature --tsv",
+            "package Signature --format tsv",
             "INJECTEDPKGID");
         HostileOutputAssert.NoRenderingHazard(
             output,
-            "package Signature --tsv");
+            "package Signature --format tsv");
     }
 
     [Fact]

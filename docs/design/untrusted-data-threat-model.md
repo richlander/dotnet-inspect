@@ -1811,7 +1811,7 @@ and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`.
 Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are
-encoded on stdout; exact bytes require `--out` with a single-file selection.
+encoded on stdout; exact bytes require `--output` with a single-file selection.
 `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
 and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
 summary across single-package and survey modes;

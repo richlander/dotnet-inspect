@@ -30,8 +30,8 @@ internal static class DetailedDiscoverOutput
             || request.Format == OutputFormat.Mermaid)
         {
             CommandError.Write(
-                "--details discovery supports --markdown, --plaintext, --json, "
-                + "--table, --tsv, or --jsonl. Tree and Mermaid are reported "
+                "--details discovery supports --format markdown, --format plaintext, --format json, "
+                + "--format table, --format tsv, or --format jsonl. Tree and Mermaid are reported "
                 + "capabilities, not discovery renderers.");
             return 1;
         }

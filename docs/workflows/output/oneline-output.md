@@ -1,13 +1,13 @@
 ---
 id: table-output
 description: Compact table, TSV, and JSONL output for scripting and agents
-commands: [--table, --tsv, --jsonl]
+commands: [--format table, --format tsv, --format jsonl]
 areas: [output, agents, scripting]
 ---
 
 # Table, TSV, and JSONL Output
 
-> `--table` produces compact pretty-printed rows for humans. `--tsv` uses the same normalized tabular projection with tab-separated fields for agents and shell tools. `--jsonl` emits one JSON object per table row with the same stable projection. These formats render one table/section at a time; use Markdown or JSON for multi-section output. Combine `--table` or `--tsv` with `--no-headers` to suppress column headers.
+> `--format table` produces compact pretty-printed rows for humans. `--format tsv` uses the same normalized tabular projection with tab-separated fields for agents and shell tools. `--format jsonl` emits one JSON object per table row with the same stable projection. These formats render one table/section at a time; use Markdown or JSON for multi-section output. Combine `--format table` or `--format tsv` with `--no-headers` to suppress column headers.
 
 ## Preconditions
 
@@ -21,14 +21,14 @@ export DOTNET_INSPECT_ISOLATED=table-output
 
 > Goal: Show members in compact tabular format, one per line.
 
-### 1a. Using `--table`
+### 1a. Using `--format table`
 
 ```prompt
 List JsonSerializer members in a compact one-per-line format.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table -n 3 --no-headers
+dotnet-inspect type System.Text.Json JsonSerializer --format table -n 3 --no-headers
 ```
 
 ```expect
@@ -43,7 +43,7 @@ Tips:
 ### 1b. With header
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table -n 4
+dotnet-inspect type System.Text.Json JsonSerializer --format table -n 4
 ```
 
 ```expect
@@ -67,7 +67,7 @@ head -4
 ### 2a. Full listing
 
 ```bash
-dotnet-inspect type System.Text.Json --table
+dotnet-inspect type System.Text.Json --format table
 ```
 
 ```expect
@@ -91,7 +91,7 @@ wc -l
 ### 2b. Limited results
 
 ```bash
-dotnet-inspect type System.Text.Json --table -t 3 --no-headers
+dotnet-inspect type System.Text.Json --format table -t 3 --no-headers
 ```
 
 ```expect
@@ -114,7 +114,7 @@ wc -l
 ### 3a. Filter methods only
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table --no-headers | grep '^method'
+dotnet-inspect type System.Text.Json JsonSerializer --format table --no-headers | grep '^method'
 ```
 
 ```expect
@@ -136,7 +136,7 @@ wc -l
 ### 4a. Extract type names only
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $2}' | head -5
+dotnet-inspect type System.Text.Json --format tsv --no-headers | awk -F '\t' '{print $2}' | head -5
 ```
 
 ```expect
@@ -152,7 +152,7 @@ Members
 ### 4b. Sum member counts
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{sum += $3} END {print "Total members:", sum}'
+dotnet-inspect type System.Text.Json --format tsv --no-headers | awk -F '\t' '{sum += $3} END {print "Total members:", sum}'
 ```
 
 ```expect
@@ -166,7 +166,7 @@ grep -oE '[0-9]+'
 ### 4c. Filter by member count threshold
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
+dotnet-inspect type System.Text.Json --format tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
 ```
 
 ```expect
@@ -186,7 +186,7 @@ threshold-ok
 ### 4d. Sort structs by member count
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$1 == "struct" {print $3, $2}' | sort -rn | head -5
+dotnet-inspect type System.Text.Json --format tsv --no-headers | awk -F '\t' '$1 == "struct" {print $3, $2}' | sort -rn | head -5
 ```
 
 ```expect

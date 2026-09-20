@@ -932,11 +932,11 @@ machine payload's contract.
 
 The CLI exposes the envelope as the explicit-only `Annotated Source Document`
 member section. Markdown renders the source-generated JSON in a fenced block,
-while `-S "Annotated Source Document" --json` emits the envelope **directly** —
+while `-S "Annotated Source Document" --format json` emits the envelope **directly** —
 the document itself as the root object, using the normal snake-case JSON
 convention — rather than nesting it inside the ordinary API document. Repeating
 the exact literal selector (in any case) still routes to that direct envelope;
-combining it with any other section under `--json` is rejected as ambiguous
+combining it with any other section under `--format json` is rejected as ambiguous
 rather than silently picking one shape. Wildcard and category selections retain
 the ordinary document JSON shape, even when they resolve only to this section. A
 member whose printer emits no C# body still carries its instruction nodes and

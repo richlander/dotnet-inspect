@@ -310,7 +310,7 @@ public record InspectionOptions : IProjectionOptions
     public bool FormatExplicitlySet { get; init; }
 
     /// <summary>
-    /// Suppress column headers (use with --table or --tsv).
+    /// Suppress column headers (use with --format table or --format tsv).
     /// </summary>
     public bool NoHeader { get; init; }
 

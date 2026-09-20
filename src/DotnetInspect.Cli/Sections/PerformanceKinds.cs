@@ -94,7 +94,7 @@ public static class PerformanceKinds
     /// <summary>
     /// True when every section in <paramref name="sections"/> is a performance kind section. These
     /// sections share the single <c>PerformanceRow</c> view, so they can be rendered as one
-    /// concatenated tabular table (<c>--table</c>/<c>--tsv</c>/<c>--jsonl</c>).
+    /// concatenated tabular table (<c>--format table</c>/<c>--format tsv</c>/<c>--format jsonl</c>).
     /// </summary>
     public static bool AllShareCommonView(IReadOnlyCollection<string> sections)
     {

@@ -212,7 +212,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             : [],
         "--tfm", "net8.0",
         "--source", source,
-        envelope ? "--envelope" : "--json",
+        envelope ? "--envelope" : "--format=json",
         "--tips", "q",
     ];
 

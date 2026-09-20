@@ -14,16 +14,16 @@ dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize -
 
 ```bash
 # All Deserialize signatures
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members[] | .signature'
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --format json | jq '.members[] | .signature'
 
 # Filter to generic overloads (return TValue)
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members[] | select(.signature | contains("TValue")) | .signature'
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --format json | jq '.members[] | select(.signature | contains("TValue")) | .signature'
 
 # Count total
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --json | jq '.members | length'
+dotnet-inspect member JsonSerializer --package System.Text.Json -m Deserialize --format json | jq '.members | length'
 
 # Or use dotted syntax
-dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json --json | jq '.members | length'
+dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json --format json | jq '.members | length'
 ```
 
 ## Discovery Path (Learning)

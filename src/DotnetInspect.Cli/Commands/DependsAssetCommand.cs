@@ -388,7 +388,7 @@ public partial class DependsCommand
                     StringComparer.OrdinalIgnoreCase)))
         {
             CommandError.Write(
-                $"{(options.Tree ? "--tree" : "--mermaid")} requires exactly '-S \"{DependsAssetSections.DependencyHierarchy}\"'.");
+                $"{(options.Tree ? "--tree" : "--format mermaid")} requires exactly '-S \"{DependsAssetSections.DependencyHierarchy}\"'.");
             return false;
         }
         if (!discoveryMode
@@ -396,7 +396,7 @@ public partial class DependsCommand
             && (options.Count || IsColumnProjectionRequested(options)))
         {
             CommandError.Write(
-                $"{(options.Tree ? "--tree" : "--mermaid")} cannot combine with --count, --columns, or --fields.");
+                $"{(options.Tree ? "--tree" : "--format mermaid")} cannot combine with --count, --columns, or --fields.");
             return false;
         }
 
@@ -437,10 +437,10 @@ public partial class DependsCommand
             && !hierarchyFailuresJsonl)
         {
             string format = options.Jsonl
-                ? "--jsonl"
+                ? "--format jsonl"
                 : options.Tsv
-                    ? "--tsv"
-                    : "--table";
+                    ? "--format tsv"
+                    : "--format table";
             CommandError.Write(
                 $"{format} requires exactly one selected table section; this view selects {candidateSections.Count}.");
             return false;
@@ -1969,7 +1969,7 @@ public partial class DependsCommand
             && (options.JsonOutput || options.Jsonl))
         {
             CommandError.Write(
-                "Projected JSON and JSONL columns cannot represent typed traversal failure detail; use unprojected --json.");
+                "Projected JSON and JSONL columns cannot represent typed traversal failure detail; use unprojected --format json.");
             return false;
         }
         DependsAssetView view = BuildAssetView(

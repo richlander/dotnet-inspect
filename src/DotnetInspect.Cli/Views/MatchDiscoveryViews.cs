@@ -124,7 +124,7 @@ public class MatchDiscoveryView
 }
 
 /// <summary>
-/// The tabular projection of a discovery result. <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c>
+/// The tabular projection of a discovery result. <c>--format table</c>, <c>--format tsv</c>, and <c>--format jsonl</c>
 /// require exactly one table shape (see <c>docs/design/output-shapes.md</c>), and <c>match</c>
 /// carries no section-selection options, so the ranked candidates are that one shape. The seed,
 /// scope, receipt, blockers, and disclosure travel on stderr instead of adding a second row
@@ -349,7 +349,7 @@ internal static class MatchDiscoveryFormatter
     internal const string UnresolvedDisposition = "Unresolved";
 
     /// <summary>
-    /// The one table shape that <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c> may emit. A run
+    /// The one table shape that <c>--format table</c>, <c>--format tsv</c>, and <c>--format jsonl</c> may emit. A run
     /// that ranked nothing yields an empty table; its blockers and disposition reach the reader
     /// through <see cref="TabularContext"/> and the exit code.
     /// </summary>

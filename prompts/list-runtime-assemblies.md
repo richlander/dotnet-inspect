@@ -11,7 +11,7 @@ dotnet-inspect platform --framework runtime
 ## Optimal Path (Expert, JSON)
 
 ```bash
-dotnet-inspect platform --framework runtime --json | jq '.assemblies[].name'
+dotnet-inspect platform --framework runtime --format json | jq '.assemblies[].name'
 ```
 
 ## Why This Command
@@ -60,4 +60,4 @@ dotnet-inspect platform --framework aspnetcore
 - `platform` with no args shows installed frameworks
 - `--framework runtime` lists all runtime assemblies
 - `--framework aspnetcore` lists ASP.NET Core assemblies
-- Use `--json` for machine-parseable output
+- Use `--format json` for machine-parseable output

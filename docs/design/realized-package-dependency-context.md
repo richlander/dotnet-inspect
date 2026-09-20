@@ -227,9 +227,9 @@ Observed with production `dotnet-inspect` 0.25.0:
 
 ```console
 dotnet-inspect dependency-evidence \
-  --package Polly.Core@8.8.0 --tfm netstandard2.0 --tsv
+  --package Polly.Core@8.8.0 --tfm netstandard2.0 --format tsv
 dotnet-inspect package Polly.Core@8.8.0 \
-  --library --tfm netstandard2.0 -S References --json
+  --library --tfm netstandard2.0 -S References --format json
 ```
 
 A pinned real-package gate preserves the behavior, with deterministic fixtures

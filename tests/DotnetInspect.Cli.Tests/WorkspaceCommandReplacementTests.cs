@@ -199,10 +199,10 @@ public sealed partial class WorkspaceCommandTests
     [InlineData("--replace-package 1 --to-version 12.1.2 --count --share packet", "inventory")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --make-package-dependencies-explicit --share packet", "not both")]
     [InlineData("--replace-package 1 --to-version 12.1.2 --preview --share packet", "exact")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --envelope", "--json")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --envelope --json --share packet", "Choose")]
+    [InlineData("--replace-package 1 --to-version 12.1.2 --envelope --format json", "cannot be combined")]
+    [InlineData("--replace-package 1 --to-version 12.1.2 --envelope --share packet", "Choose")]
     [InlineData("--replace-package 1 --to-version not-a-version --share packet", "InvalidDestination")]
-    [InlineData("--envelope --json", "--replace-package")]
+    [InlineData("--envelope", "--replace-package")]
     public async Task Replacement_InvalidOptionsRefuseBeforeAcquisition(
         string arguments, string diagnostic)
     {
@@ -216,11 +216,11 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Theory]
-    [InlineData("--rows 1", "--json --envelope", "inventory")]
+    [InlineData("--rows 1", "--envelope", "inventory")]
     [InlineData("--rows 1", "--share packet", "inventory")]
-    [InlineData("--rows ..1", "--json --envelope", "has no start row")]
-    [InlineData("-n 1", "--json --envelope", "Rendered-line selection")]
-    [InlineData("-n 1 --tail", "--json --envelope", "Rendered-line selection")]
+    [InlineData("--rows ..1", "--envelope", "has no start row")]
+    [InlineData("-n 1", "--envelope", "Rendered-line selection")]
+    [InlineData("-n 1 --tail", "--envelope", "Rendered-line selection")]
     public async Task Replacement_RowControlsDoNotUseInventorySelection(
         string selection, string output, string diagnostic)
     {

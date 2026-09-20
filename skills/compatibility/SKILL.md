@@ -34,7 +34,7 @@ the same assembly name, culture, and public-key token; assembly versions may
 differ. The CLI uses the portable Library comparison contract intended for
 website Compare. Type-definition or member changes without a compatibility
 assessment remain visible as **Other API Changes** (`unclassified` in
-`-S Changes --json`/`--jsonl`/`--tsv`). Do not treat them as safe or breaking;
+`-S Changes --format json`/`--format jsonl`/`--format tsv`). Do not treat them as safe or breaking;
 `--breaking` and `--additive` select only their assessed classifications.
 
 An incomplete or rejected comparison returns nonzero and reports **not
@@ -44,7 +44,7 @@ stderr. Do not interpret these outcomes as “no API changes.” Multi-Library
 packages, `-m` filtering, Analysis Diff, Implementation Diff, Finding
 Transitions, and mixed-section requests retain their existing routes.
 
-For a complete shared single-Library API result, use unprojected `--json`.
+For a complete shared single-Library API result, use unprojected `--format json`.
 It emits `LibraryApiDiffOutcome`: `outcome` is `available`, `unavailable`, or
 `rejected`, with the complete Document or typed non-success endpoint evidence.
 This replaces the former unprojected `{changes: ...}` view. Explicitly
@@ -81,7 +81,7 @@ An ordinal selecting among overloaded indexer declarations remains valid.
 `--tfm` selects one API surface, optional `--library` narrows only the source
 Library, and `--all` widens only source selection to the existing IncludeAll
 API scope. Destination declaration matching remains strict and independent of
-ordinary accessibility changes. Use `--json` for complete Content or
+ordinary accessibility changes. Use `--format json` for complete Content or
 `--envelope` for Content, Share, and diagnostics. Do not combine this mode with
 History, `--at`, row projections, projection filters, sections,
 body/source/Analysis requests, or non-package sources. Root `match` is
@@ -160,7 +160,7 @@ the default API compatibility view. Rows identify the member, producer (`C#`,
 decompiled text; `PDB Source` is Portable-PDB-selected, checksum-verified text
 acquired locally or through SourceLink. The lanes are peers: PDB-source absence
 or failure stays visible and never replaces the C# lane. Narrow with `-t` and
-`-m`; use `--table`, `--tsv`, or `--jsonl` for columnar output.
+`-m`; use `--format table`, `--format tsv`, or `--format jsonl` for columnar output.
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \

@@ -483,16 +483,16 @@ public static class LibraryCallUseCommand
 
         string format = options.Format switch
         {
-            OutputFormat.Tsv => "--tsv",
-            OutputFormat.Jsonl => "--jsonl",
-            _ => "--table",
+            OutputFormat.Tsv => "--format tsv",
+            OutputFormat.Jsonl => "--format jsonl",
+            _ => "--format table",
         };
         CommandError.Write(
             $"{format} requires exactly one selected table section; "
             + $"this view selects {selectedNames.Count}: "
             + $"{string.Join(", ", selectedNames)}.");
         CommandError.WriteLine(
-            "Use -S with one section name, or --markdown/--json for multi-section output.");
+            "Use -S with one section name, or --format markdown or --format json for multi-section output.");
         return false;
     }
 

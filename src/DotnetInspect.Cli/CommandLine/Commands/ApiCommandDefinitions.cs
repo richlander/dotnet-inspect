@@ -52,7 +52,7 @@ public static class ApiCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
-        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json or --envelope where supported)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --format json or --envelope where supported)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var repoOption = new Option<string[]>("--repo")
         {
@@ -84,7 +84,7 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(shareOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
-        typeCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(typeCommand);
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(opts.PreferRenderedUrls);
         opts.AddTableOptionsTo(typeCommand);
@@ -97,8 +97,10 @@ public static class ApiCommandDefinitions
         opts.AddPrintOptionTo(typeCommand);
         opts.AddShapeProjectionOptionsTo(typeCommand);
         opts.AddPerformanceTriageOptionsTo(typeCommand);
-        typeCommand.Options.Add(opts.Markdown);
-        typeCommand.Options.Add(opts.PlainText);
+        opts.AddFormatOptionTo(
+            typeCommand,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText);
         opts.AddEnvelopeOptionTo(
             typeCommand,
             opts.Discover,
@@ -194,7 +196,7 @@ public static class ApiCommandDefinitions
                 && opts.ResolveFormat(parseResult) != OutputFormat.Json
                 && !parseResult.GetValue(opts.Envelope))
             {
-                CommandError.Write("--compact requires --json or --envelope.");
+                CommandError.Write("--compact requires --format json or --envelope.");
                 return 1;
             }
 
@@ -340,7 +342,7 @@ public static class ApiCommandDefinitions
         };
         memberOption.Aliases.Add("--member");
         var ctorOption = new Option<bool>("--ctor") { Description = "Filter members to constructors (shorthand for -m .ctor)" };
-        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json or --envelope where supported)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --format json or --envelope where supported)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
         var sourcePartsOption = new Option<bool>("--source-parts")
@@ -399,7 +401,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
         memberCommand.Options.Add(opts.Limit);
-        memberCommand.Options.Add(opts.Json);
+        opts.AddJsonOptionTo(memberCommand);
         memberCommand.Options.Add(compactOption);
         memberCommand.Options.Add(opts.PreferRenderedUrls);
         opts.AddTableOptionsTo(memberCommand);
@@ -420,9 +422,12 @@ public static class ApiCommandDefinitions
         opts.AddShapeProjectionOptionsTo(memberCommand);
         opts.AddPerformanceTriageOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
-        memberCommand.Options.Add(opts.Markdown);
-        memberCommand.Options.Add(opts.PlainText);
-        memberCommand.Options.Add(opts.Envelope);
+        opts.AddFormatOptionTo(
+            memberCommand,
+            CliPresentationFormat.Markdown,
+            CliPresentationFormat.PlainText,
+            CliPresentationFormat.Mermaid);
+        opts.AddEnvelopeOptionTo(memberCommand);
         memberCommand.Options.Add(opts.Bare);
         memberCommand.Options.Add(opts.Taste);
         memberCommand.Options.Add(opts.ReadableNames);

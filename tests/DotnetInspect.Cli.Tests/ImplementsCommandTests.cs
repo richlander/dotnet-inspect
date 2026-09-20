@@ -138,7 +138,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json");
+            "--format=json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -160,7 +160,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "-t",
             "1");
 
@@ -195,7 +195,7 @@ public sealed class ImplementsCommandTests
         var result = await ExecuteCommandLineAsync(
             "implements",
             nameof(IDisposable),
-            "--json",
+            "--format=json",
             "-n",
             "1",
             "--lines");
@@ -241,7 +241,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "-n",
             "1",
             "--tail",
@@ -275,7 +275,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "--rows",
             "..3");
 
@@ -300,7 +300,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "--rows",
             "2..");
 
@@ -325,7 +325,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "-n",
             "1",
             "--rows",
@@ -348,7 +348,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "--rows",
             "2..3",
             "-n",
@@ -400,7 +400,7 @@ public sealed class ImplementsCommandTests
             "--library",
             assembly,
             "--all",
-            "--json",
+            "--format=json",
             "--rows",
             "1..10",
         ];

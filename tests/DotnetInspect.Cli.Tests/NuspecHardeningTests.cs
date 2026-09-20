@@ -138,7 +138,7 @@ public sealed class NuspecHardeningTests : IDisposable
         Assert.True(rawBidiIndex < 0, $"Raw bidi scalar at output index {rawBidiIndex}.");
 
         var (jsonExit, json, jsonError) =
-            await RunAppAsync("package", package, "--json", "--tips", "q");
+            await RunAppAsync("package", package, "--format=json", "--tips", "q");
 
         Assert.Equal(0, jsonExit);
         Assert.Empty(jsonError);

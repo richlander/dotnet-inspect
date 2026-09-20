@@ -459,7 +459,7 @@ public sealed class VocabularyCommandTests
             "Accessibility",
             "--columns",
             "ID,Default",
-            "--jsonl");
+            "--format=jsonl");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -588,7 +588,7 @@ public sealed class VocabularyCommandTests
             "--tail",
             "--columns",
             "ID",
-            "--tsv");
+            "--format=tsv");
         var head = await RunCliAsync(
             "vocabulary",
             "-S",
@@ -596,7 +596,7 @@ public sealed class VocabularyCommandTests
             "-2",
             "--columns",
             "ID",
-            "--tsv");
+            "--format=tsv");
         string[] expectedIds =
         [
             .. VocabularyCatalog.GetById("api.accessibility")
@@ -622,7 +622,7 @@ public sealed class VocabularyCommandTests
             "-n",
             "2",
             "--lines",
-            "--tsv");
+            "--format=tsv");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -643,7 +643,7 @@ public sealed class VocabularyCommandTests
             "-n",
             "2",
             "--lines",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
@@ -666,7 +666,7 @@ public sealed class VocabularyCommandTests
             "2..3",
             "--columns",
             "ID",
-            "--tsv");
+            "--format=tsv");
         string[] expectedIds =
         [
             .. VocabularyCatalog.GetById("api.accessibility")

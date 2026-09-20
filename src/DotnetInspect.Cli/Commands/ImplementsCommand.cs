@@ -200,7 +200,7 @@ public class ImplementsCommand
 
             // Output results
             // --count reduces the payload, so it is resolved before the format flags that
-            // render it. Ordering these the other way lets --json answer a count request
+            // render it. Ordering these the other way lets --format json answer a count request
             // with the full unprojected result set.
             if (options.Count)
             {

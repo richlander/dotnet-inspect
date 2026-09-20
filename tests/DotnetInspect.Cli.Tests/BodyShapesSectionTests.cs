@@ -98,7 +98,7 @@ public sealed class BodyShapesSectionTests
                     "Kind;Token",
                     "--rows",
                     "1",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -175,7 +175,7 @@ public sealed class BodyShapesSectionTests
                     FixturePath,
                     "--where",
                     "Kind=ObjectCreationExpression",
-                    "--json",
+                    "--format=json",
                 ])
                 .InvokeAsync());
 
@@ -354,7 +354,7 @@ public sealed class BodyShapesSectionTests
                     "Shape=small-array",
                     "--where",
                     "Confidence>=low",
-                    "--jsonl",
+                    "--format=jsonl",
                     "--trace",
                 ])
                 .InvokeAsync());
@@ -418,7 +418,7 @@ public sealed class BodyShapesSectionTests
                     "Kind=ArrayCreationExpression",
                     "--where",
                     "Shape=small-array",
-                    "--json",
+                    "--format=json",
                 ])
                 .InvokeAsync());
 
@@ -448,7 +448,7 @@ public sealed class BodyShapesSectionTests
                     "Kind=ArrayCreationExpression",
                     "--where",
                     "Shape=small-array",
-                    "--json",
+                    "--format=json",
                 ]))
                 .InvokeAsync());
 
@@ -507,7 +507,7 @@ public sealed class BodyShapesSectionTests
                     "Kind=InvocationExpression",
                     "--where",
                     "Shape=generic-parameter-object-box",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -610,7 +610,7 @@ public sealed class BodyShapesSectionTests
                     FixturePath,
                     "--where",
                     "Kind=ObjectCreationExpression",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -676,7 +676,7 @@ public sealed class BodyShapesSectionTests
                     FixturePath,
                     "--where",
                     "Kind=ObjectCreationExpression",
-                    "--plaintext",
+                    "--format=plaintext",
                     "--columns",
                     "Kind;Member",
                     "--rows",
@@ -722,8 +722,8 @@ public sealed class BodyShapesSectionTests
 
     [Theory]
     [InlineData("--count")]
-    [InlineData("--markdown")]
-    [InlineData("--plaintext")]
+    [InlineData("--format=markdown")]
+    [InlineData("--format=plaintext")]
     [InlineData("--no-header")]
     public async Task TypeKindPredicate_QuietVerbosityWithOutputModifierFailsVisibly(
         string outputOption)
@@ -787,7 +787,7 @@ public sealed class BodyShapesSectionTests
                     typeof(MemberAccessorModifierFixture).Assembly.Location,
                     "--where",
                     "Kind=AssignmentStatement",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -812,7 +812,7 @@ public sealed class BodyShapesSectionTests
                     "--where",
                     "Kind=ObjectCreationExpression",
                     "--all",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -845,7 +845,7 @@ public sealed class BodyShapesSectionTests
     }
 
     [Theory]
-    [InlineData("--jsonl")]
+    [InlineData("--format=jsonl")]
     [InlineData("--count")]
     public async Task TypeKindPredicate_UnresolvedTypeDoesNotFallBackToPrefixBrowse(
         string outputOption)
@@ -1267,7 +1267,7 @@ public sealed class BodyShapesSectionTests
             "ObjectCreationExpression",
             "--columns",
             "Kind;Token",
-            "--jsonl");
+            "--format=jsonl");
 
         Assert.Equal(0, result.ExitCode);
         using var row = JsonDocument.Parse(result.Output);
@@ -1299,11 +1299,11 @@ public sealed class BodyShapesSectionTests
         var result = await RunMemberAsync(
             nameof(BodyShapeFixture.PublicCreation),
             "ObjectCreationExpression",
-            "--json");
+            "--format=json");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
-            "Document --json cannot represent Body Shapes analysis.",
+            "Document --format json cannot represent Body Shapes analysis.",
             result.Error,
             StringComparison.Ordinal);
     }
@@ -1419,7 +1419,7 @@ public sealed class BodyShapesSectionTests
                     assemblyPath,
                     "--where",
                     "Kind=AssignmentStatement",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -1439,7 +1439,7 @@ public sealed class BodyShapesSectionTests
                     assemblyPath,
                     "--where",
                     "Kind=AssignmentStatement",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -1482,7 +1482,7 @@ public sealed class BodyShapesSectionTests
                     FixturePath,
                     "--where",
                     "Kind=InvocationExpression",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 
@@ -1503,7 +1503,7 @@ public sealed class BodyShapesSectionTests
                     FixturePath,
                     "--where",
                     "Kind=InvocationExpression",
-                    "--jsonl",
+                    "--format=jsonl",
                 ])
                 .InvokeAsync());
 

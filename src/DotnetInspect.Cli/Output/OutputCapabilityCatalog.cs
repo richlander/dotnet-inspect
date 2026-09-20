@@ -115,14 +115,14 @@ public sealed class OutputCapabilityCatalog
     public static string CliOption(OutputMode format) =>
         format switch
         {
-            OutputMode.Markdown => "--markdown",
-            OutputMode.PlainText => "--plaintext",
-            OutputMode.Json => "--json",
-            OutputMode.Table => "--table",
-            OutputMode.Tsv => "--tsv",
-            OutputMode.Jsonl => "--jsonl",
+            OutputMode.Markdown => "--format markdown",
+            OutputMode.PlainText => "--format plaintext",
+            OutputMode.Json => "--format json",
+            OutputMode.Table => "--format table",
+            OutputMode.Tsv => "--format tsv",
+            OutputMode.Jsonl => "--format jsonl",
             OutputMode.Tree => "--tree",
-            OutputMode.Mermaid => "--mermaid",
+            OutputMode.Mermaid => "--format mermaid",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(format),
                 format,

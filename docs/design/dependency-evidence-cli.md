@@ -361,7 +361,7 @@ a synthetic edge row.
 
 ## Tabular arity
 
-`--table`, `--tsv`, and `--jsonl` carry exactly one row schema. The command
+`--format table`, `--format tsv`, and `--format jsonl` carry exactly one row schema. The command
 derives its structural candidate section set before acquisition, so a request
 that cannot produce a single-schema row stream fails before it downloads a
 manifest or reads an assets document. A non-`--count` tabular request requires
@@ -439,7 +439,7 @@ The projection keeps typed identity and display evidence separate:
 - composed display labels use inert composition rather than concatenating raw
   strings after unwrapping.
 
-Plain `--json` uses a source-generated typed document with native numbers,
+Plain `--format json` uses a source-generated typed document with native numbers,
 booleans, enums, nullability, nested identities, completion, and selected
 sections. Every identity is an explicit concrete DTO — package and restored
 root identity, package and restored group identity, group occurrences,

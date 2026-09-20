@@ -109,7 +109,7 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public bool MermaidOutput { get; init; }
 
     /// <summary>
-    /// Embed mermaid diagrams in markdown output (--markdown --mermaid).
+    /// Embed mermaid diagrams in markdown output (--format markdown --mermaid).
     /// </summary>
     public bool EmbeddedMermaid { get; init; }
 

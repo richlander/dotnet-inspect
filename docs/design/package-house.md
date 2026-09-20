@@ -359,7 +359,7 @@ CLI `package Package --versions`, `--versions-with-feed`,
 human, JSON, JSONL, and TSV output remains a host projection. Explicit
 `--envelope` publishes the complete detached listing Content. Count is a
 terminal projection over the selected version or version/source collection:
-ordinary `--count` and `--count --json` emit the scalar, while `--count
+ordinary `--count` and `--count --format json` emit the scalar, while `--count
 --envelope` makes the same scalar the Content of an
 `InspectionEnvelope<int>`. Listing Content has no redundant Count property.
 

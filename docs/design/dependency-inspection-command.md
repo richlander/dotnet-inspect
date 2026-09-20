@@ -972,7 +972,7 @@ The CLI's complete machine transport is
 `EvidenceInspectionEnvelope<DependencyInspectionContent,
 DependencyInspectionEvidenceDocument>` in the file named by
 `--evidence-envelope <path>`. The option preserves the ordinary primary
-presentation on stdout or its distinct `--out` destination. Section selection
+presentation on stdout or its distinct `--output` destination. Section selection
 and row shaping continue to affect that ordinary presentation without shaping
 Content or Evidence inside the attachment. When paired with `--envelope`, the
 baseline envelope on stdout equals the attachment's `Inspection` value and
@@ -993,7 +993,7 @@ than reuse of `asset-dependencies` version `1`.
 
 This adoption admits the baseline form only when paired with
 `--evidence-envelope`; standalone asset-mode `--envelope` remains unadopted.
-Ordinary asset-mode `--json`, with or without the sidecar, retains the existing
+Ordinary asset-mode `--format json`, with or without the sidecar, retains the existing
 `DependsAssetDocument` serializer, including selected-section presence and row
 windows. It is a named host presentation, not attachment Content. The sidecar
 and paired baseline instead serialize `DependencyInspectionContent` without
@@ -1066,7 +1066,7 @@ occurrence. The same selected non-root occurrence sequence supplies:
 - standalone `--tree`;
 - standalone or embedded Mermaid;
 - the `Dependency Hierarchy` occurrence table;
-- `--table`, `--tsv`, and `--jsonl`;
+- `--format table`, `--format tsv`, and `--format jsonl`;
 - typed and lowered JSON hierarchy occurrences; and
 - `--count`.
 
@@ -1413,14 +1413,14 @@ transfer relationship, scope, evidence, or failure ownership from this
 document.
 
 This selected-Type cutover intentionally changes the presentation and machine
-contract. Current `depends <type> --json` and `--envelope` expose the versioned
+contract. Current `depends <type> --format json` and `--envelope` expose the versioned
 `type-dependencies` result whose Content is `TypeDependencySectionResult`.
 That Content carries the complete `AssemblyContextTypeDependencyResult`—the
 matched dependency relationships plus ordered completed/rejected participant
 outcomes and their provenance—and the separate
 `TypeDependencyRowSelectionResult`. `DependencyGraphDocument` is only the
 later human-rendering projection and is not the current machine content.
-Target `type graph --json` and `--envelope` expose the same
+Target `type graph --format json` and `--envelope` expose the same
 `TypeDependencyGraphContent`; envelope mode wraps it in
 `InspectionEnvelope<TypeDependencyGraphContent>`. The Dependency owner defines
 this wrapper:
@@ -1459,7 +1459,7 @@ schema_version: 1
 content: TypeDependencyGraphContent
 ```
 
-It does not reuse `type-dependencies` version 1. Plain `--json` serializes the
+It does not reuse `type-dependencies` version 1. Plain `--format json` serializes the
 same `TypeDependencyGraphContent` without envelope framing.
 
 Structural discovery uses the Graph section and field schemas rather than the
@@ -1565,7 +1565,7 @@ occurrence currency:
 ```console
 dotnet-inspect graph dependencies \
   --package Microsoft.Extensions.Hosting@10.0.0 \
-  --depth 1 --table
+  --depth 1 --format table
 ```
 
 The DAG case must not erase a repeated dependency:
@@ -1604,7 +1604,7 @@ The selected-Type workflow instead begins with its local subject:
 
 ```console
 dotnet-inspect type graph System.Int128 --platform --tfm net10.0 \
-  --depth 2 --table
+  --depth 2 --format table
 ```
 
 Package, library, project, platform, platform-library, Extensions-package, and

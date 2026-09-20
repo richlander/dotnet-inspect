@@ -2067,7 +2067,7 @@ public partial class CommandExecutionTests
         List<string> args = [.. command];
         args.AddRange(section == SectionNames.FindingCensus
             ? ["-S", section, "--tips", "q"]
-            : ["-S", section, "--table", "--tips", "q", "-n", "40"]);
+            : ["-S", section, "--format=table", "--tips", "q", "-n", "40"]);
         return [.. args];
     }
 

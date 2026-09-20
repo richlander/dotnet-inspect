@@ -64,7 +64,7 @@ public partial class CommandExecutionTests
             [
                 "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
                 "MaxDepth", "-S", "Source Locations", "--tips", "q",
-                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+                .. print ? new[] { "--print", "--row", "first", "--format=json" } : [],
             ]);
 
         Assert.Equal(0, exit);
@@ -188,7 +188,7 @@ public partial class CommandExecutionTests
             var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
                 "--library", assemblyPath,
-                "-S", "PDB Source", "--json", "--print", "--tips", "q");
+                "-S", "PDB Source", "--format=json", "--print", "--tips", "q");
 
             Assert.Equal(0, jsonExit);
             Assert.Empty(jsonError);
@@ -215,7 +215,7 @@ public partial class CommandExecutionTests
 
             var locations = await RunAppAsync(
                 "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
-                "--library", assemblyPath, "-S", "Source Locations", "--json", "--tips", "q");
+                "--library", assemblyPath, "-S", "Source Locations", "--format=json", "--tips", "q");
             Assert.Equal(0, locations.Exit);
             Assert.Empty(locations.Error);
             using var json = JsonDocument.Parse(locations.Output);
@@ -655,7 +655,7 @@ public partial class CommandExecutionTests
         ];
 
         var detailed = await RunAppAsync(
-            [.. target, "--json", "-v:d", "--tips", "q"]);
+            [.. target, "--format=json", "-v:d", "--tips", "q"]);
 
         Assert.Equal(0, detailed.Exit);
         Assert.Empty(detailed.Error);
@@ -667,7 +667,7 @@ public partial class CommandExecutionTests
         }
 
         var selected = await RunAppAsync(
-            [.. target, "-S", "PDB Source", "--json", "--tips", "q"]);
+            [.. target, "-S", "PDB Source", "--format=json", "--tips", "q"]);
 
         Assert.Equal(1, selected.Exit);
         Assert.Empty(selected.Output);
@@ -689,7 +689,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
             "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
-            "-S", selector, "--json", "--tips", "q");
+            "-S", selector, "--format=json", "--tips", "q");
 
         if (exact)
         {
@@ -1055,7 +1055,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--count")]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     public async Task Member_SourceDiff_BodylessMemberUnderExactOutputFailsVisibly(
         string outputOption)
     {
@@ -1073,7 +1073,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--count")]
-    [InlineData("--json")]
+    [InlineData("--format=json")]
     public async Task Member_SourceDiff_NoVouchedDeclarationUnderExactOutputFailsVisibly(
         string outputOption)
     {
@@ -1161,7 +1161,7 @@ public partial class CommandExecutionTests
             "Item:1", "--all", "--tips", "q",
         ];
         var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
-            [.. command, "-S", SectionNames.AnnotatedSourceDocument, "--json"]);
+            [.. command, "-S", SectionNames.AnnotatedSourceDocument, "--format=json"]);
         var (togetherExit, togetherOutput, togetherError) = await RunAppAsync(
             [.. command, "-S", $"{SectionNames.FindingCensus},{SectionNames.SourceDiff}"]);
 
@@ -1584,7 +1584,7 @@ public partial class CommandExecutionTests
             target.Assembly.Location,
             "-S",
             $"{SectionNames.Signature},{SectionCategoryNames.Source}",
-            "--json",
+            "--format=json",
             "--tips",
             "q");
 
@@ -1605,7 +1605,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "--print", "--json",
+            "MaxDepth:2", "-S", "Source Diff", "--print", "--format=json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -1787,7 +1787,7 @@ public partial class CommandExecutionTests
                 ["library", "coordinate", "--file", path, "--library", TestAssemblyPath];
             string[] tail = ["--tips", "q"];
 
-            var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
+            var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--format=jsonl", .. tail]);
             var (countExit, counted, countError) = await RunAppAsync([.. head, .. window, "--count", .. tail]);
 
             Assert.Equal(0, renderExit);
@@ -1795,7 +1795,7 @@ public partial class CommandExecutionTests
             Assert.Empty(renderError);
             Assert.Empty(countError);
 
-            // --jsonl emits exactly one object per rendered data row, so it states the
+            // --format jsonl emits exactly one object per rendered data row, so it states the
             // payload size without depending on how the table is formatted.
             var renderedRows = rendered
                 .Split('\n')
@@ -1947,7 +1947,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--urls", "--row", "2", "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1989,7 +1989,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--jsonl", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--print", "--row", "1", "--format=jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2005,7 +2005,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--format=tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2026,7 +2026,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--prefer-rendered-urls", "--format=tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2039,7 +2039,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConvert", "--package", "Newtonsoft.Json@13.0.4",
-            "-m", "SerializeObject", "-S", "Source Locations", "--tsv", "--no-headers", "--tips", "q");
+            "-m", "SerializeObject", "-S", "Source Locations", "--format=tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2261,7 +2261,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source Document", "--json", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source Document", "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2450,7 +2450,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.",
+            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --format json.",
             result.Error);
     }
 
@@ -2537,7 +2537,7 @@ public partial class CommandExecutionTests
                 methodName,
                 "-S",
                 "Annotated Source Document",
-                "--json",
+                "--format=json",
                 "--tips",
                 "q");
 
@@ -2574,11 +2574,11 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Signature,Annotated Source Document", "--json", "--tips", "q");
+            "Pump:1", "-S", "Signature,Annotated Source Document", "--format=json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("must be the only selected section under --json", error);
+        Assert.Contains("must be the only selected section under --format json", error);
     }
 
     [Fact]
@@ -2586,12 +2586,12 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source Document", "--json",
+            "Pump:1", "-S", "Annotated Source Document", "--format=json",
             "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("must be the only selected section under --json", error);
+        Assert.Contains("must be the only selected section under --format json", error);
     }
 
     [Fact]
@@ -2602,7 +2602,7 @@ public partial class CommandExecutionTests
             "Pump:1",
             "-S", "Annotated Source Document",
             "-S", "annotated source document",
-            "--json", "--tips", "q");
+            "--format=json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2994,8 +2994,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
     public async Task Member_SourceDiff_TabularOutputKeepsMetadataAndSummaryStructured(
         string format)
     {
@@ -3020,7 +3020,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Changed lines", output);
         Assert.Contains("Moved lines", output);
 
-        if (format == "--jsonl")
+        if (format == "--format=jsonl")
         {
             foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
@@ -3035,8 +3035,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--jsonl")]
-    [InlineData("--tsv")]
+    [InlineData("--format=jsonl")]
+    [InlineData("--format=tsv")]
     public async Task Member_SourceDiff_IdenticalTabularOutputRetainsZeroStatistics(
         string format)
     {
@@ -3054,7 +3054,7 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Dictionary<string, string?> fields = new(StringComparer.Ordinal);
         string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        if (format == "--jsonl")
+        if (format == "--format=jsonl")
         {
             foreach (string line in lines)
             {
@@ -3171,7 +3171,7 @@ public partial class CommandExecutionTests
             $"{nameof(FactsTableFixture.BoxInt)}:1",
         ];
         var (exit, output, error) = await RunAppAsync(
-            [.. command, "-S", "Finding Census", "--json", "--tips", "q"]);
+            [.. command, "-S", "Finding Census", "--format=json", "--tips", "q"]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3221,7 +3221,7 @@ public partial class CommandExecutionTests
         });
 
         var (documentExit, documentOutput, documentError) = await RunAppAsync(
-            [.. command, "-S", "Annotated Source Document", "--json", "--tips", "q"]);
+            [.. command, "-S", "Annotated Source Document", "--format=json", "--tips", "q"]);
         Assert.Equal(0, documentExit);
         Assert.Empty(documentError);
         using var document = JsonDocument.Parse(documentOutput);

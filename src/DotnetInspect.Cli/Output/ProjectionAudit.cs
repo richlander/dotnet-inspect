@@ -78,8 +78,8 @@ public static class ProjectionAudit
         }
 
         CommandError.Write(
-            "--fields/--columns with --json requires lowered JSON, which this command "
-            + "does not support yet. Use --table, --tsv, or --jsonl for projected rows, "
+            "--fields/--columns with --format json requires lowered JSON, which this command "
+            + "does not support yet. Use --format table, --format tsv, or --format jsonl for projected rows, "
             + "or omit --fields/--columns to keep the typed JSON document.");
         return true;
     }

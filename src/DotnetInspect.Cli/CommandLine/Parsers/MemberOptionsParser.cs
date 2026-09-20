@@ -649,9 +649,8 @@ public static class MemberOptionsParser
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
             Format = outputFormat,
-            MarkdownExplicitlySet =
-                parseResult.GetResult(opts.Markdown) is { Implicit: false },
-            PlainText = parseResult.GetValue(opts.PlainText),
+            MarkdownExplicitlySet = opts.IsMarkdownOutput(parseResult),
+            PlainText = opts.IsPlainTextOutput(parseResult),
             MermaidOutput = outputFormat == OutputFormat.Mermaid,
             EmbeddedMermaid = embeddedMermaid,
             Bare = parseResult.GetValue(opts.Bare),
@@ -963,18 +962,16 @@ public static class MemberOptionsParser
         bool embeddedMermaid =
             options.IsEmbeddedMermaid(parseResult);
         if (parseResult.GetValue(options.Mermaid)
-            && (parseResult.GetValue(options.Json)
-                || parseResult.GetValue(options.PlainText)
-                || parseResult.GetValue(options.Bare)
-                || parseResult.GetValue(options.Table)
-                || parseResult.GetValue(options.Tsv)
-                || parseResult.GetValue(options.Jsonl)
+            && (parseResult.GetValue(options.Bare)
+                || (parseResult.GetResult(options.Format)
+                        is { Implicit: false }
+                    && !embeddedMermaid)
                 || (!embeddedMermaid
                     && parseResult.GetResult(options.Verbosity)
                         is { Implicit: false })))
         {
             return new OptionError(
-                "--mermaid is standalone unless paired with --markdown; it cannot combine with another output format.");
+                "--mermaid modifies Markdown output and cannot combine with another format.");
         }
 
         return null;
