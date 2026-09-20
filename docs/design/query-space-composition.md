@@ -35,7 +35,7 @@ implementation slice lands and runs in Release.
 **Query Space Composition** owns this exact claim:
 
 > One query-capable route exposes one closed, host-neutral query space that
-> composes an operation-owned query plan, zero or more declared row spaces, and
+> composes an operation-owned query plan, one or more declared row spaces, and
 > one terminal requirement without merging their semantic ownership. The same
 > executable registrations produce its capability descriptor, structural
 > plans, host lowering, source-delegation input, and optional generated
@@ -161,7 +161,7 @@ One query space is an immutable effective binding containing:
 | --- | --- |
 | Identity | Stable owner-issued identity for discovery and portable intent resolution. |
 | Operation route | One Query Operation definition, subject role, result grain, and operation profile. |
-| Row spaces | Zero or more declared row-set identities paired with their row vocabularies and supported shaping capabilities. |
+| Row spaces | One or more declared row-set identities paired with their row vocabularies and supported shaping capabilities. |
 | Terminal space | The supported terminal requirements, initially Rows and exact Count, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
@@ -181,6 +181,12 @@ subject binding
 There is no universal executable query-plan type. The query-space binding
 retains the association among the owner-issued plans and the stage at which
 each one executes.
+
+A terminal resolution selects a non-empty list of participating declared row
+sets. An operation route with no declared row set may still use Query Operation
+Infrastructure, but it does not form a Rows-or-Count query space under this
+owner and cannot advertise those terminal capabilities. Composition never
+invents an implicit operation-result row set or an undefined zero-entry Count.
 
 ## Facet definitions and bindings
 
@@ -370,6 +376,13 @@ typed rows plus their row-set identity, source, and completion outcomes. The
 assembled result preserves participating declaration order. A source-bound or
 otherwise incomplete result may remain usable when the owning row contract
 permits it, but it stays visibly incomplete.
+
+Rows preserves independent source outcomes. A usable or incomplete set may
+contribute shaped rows while a failed, `Absent`, or Rows-unavailable companion
+remains a disposition-and-evidence-only outcome; the unavailable set neither
+disappears nor suppresses healthy companion rows. Once residual row-query or
+semantic execution begins, publication is atomic: a later cohort failure
+publishes no earlier Row-outcomes.
 
 **Count** validates cell-projection intent but does not execute it, because the
 terminal result has no row cells. A successful result contains one exact
@@ -602,6 +615,12 @@ The eventual implementation and adopter gates must preserve these cases:
   Count-insufficient. The result preserves both source dispositions and
   completion evidence, executes no residual shaping, and publishes no Count
   entries for either set.
+- A route declares no row sets. It may expose its operation capabilities but
+  cannot form a terminal query space or advertise Rows or Count.
+- A Rows request receives one incomplete-but-usable set and one failed set. It
+  preserves the first set's shaped rows and incompleteness plus the second
+  set's disposition and evidence. If a later residual cohort instead fails,
+  neither cohort publishes Row-outcomes.
 - A generated consumer omits a control. The runtime descriptor remains
   complete and another host can expose the capability.
 - A source advertises prefix filtering but cannot preserve the required
@@ -649,7 +668,7 @@ slices:
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates in different binding scopes cannot combine, conflict, satisfy, or collapse one another. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
-| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; Count validates but never executes cell projection, successful results preserve one ordered entry per participating row set without inventing an aggregate, and a blocking source or semantic outcome publishes no partial Count. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
