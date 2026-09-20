@@ -276,6 +276,28 @@ public static class PackageCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
+            result => PackageOptionsParser.IsCloneCandidateRowSelection(
+                result,
+                opts,
+                commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
             result =>
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption)
