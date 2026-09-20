@@ -210,16 +210,35 @@ public sealed record PackageImplementationRealization
         PackagePlatformSourceGeneration generation,
         PackageImplementationPlatformCoordinate coordinate,
         ImmutableArray<PackageImplementationFramework> frameworks,
-        ImmutableArray<PackageImplementationLibrary> libraries)
+        ImmutableArray<PackageImplementationLibrary> libraries,
+        long consumedBytes)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(consumedBytes);
+        long unassignedBytes = consumedBytes;
+        foreach (PackageImplementationLibrary library in libraries)
+        {
+            if (library.ContentLength > unassignedBytes)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(consumedBytes));
+            }
+            unassignedBytes -= library.ContentLength;
+        }
         Generation = generation;
         Coordinate = coordinate;
         Frameworks = frameworks;
         Libraries = libraries;
+        ConsumedBytes = consumedBytes;
     }
 
     public PackagePlatformSourceGeneration Generation { get; }
     public PackageImplementationPlatformCoordinate Coordinate { get; }
     public ImmutableArray<PackageImplementationFramework> Frameworks { get; }
     public ImmutableArray<PackageImplementationLibrary> Libraries { get; }
+
+    /// <summary>
+    /// Bytes consumed by selected manifests and realized assemblies. Package
+    /// archive admission and transport are outside this observation.
+    /// </summary>
+    public long ConsumedBytes { get; }
 }

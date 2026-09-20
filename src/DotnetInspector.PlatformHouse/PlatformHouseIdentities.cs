@@ -81,6 +81,24 @@ public sealed class PlatformSourceCapabilityIdentity
     public override string ToString() => Name;
 }
 
+/// <summary>
+/// Opaque owner-issued route binding discovery associations to one source
+/// adapter's realization path.
+/// </summary>
+public sealed class PlatformSourceAssociationRouteIdentity
+{
+    private PlatformSourceAssociationRouteIdentity(string name) =>
+        Name = name;
+
+    public string Name { get; }
+
+    public static PlatformSourceAssociationRouteIdentity Create(
+        string name) =>
+        new(PlatformHouseIdentityName.Validate(name));
+
+    public override string ToString() => Name;
+}
+
 /// <summary>Opaque identity for one immutable source generation.</summary>
 public sealed class PlatformSourceGeneration
 {
