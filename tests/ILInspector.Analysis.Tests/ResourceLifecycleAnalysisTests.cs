@@ -13,6 +13,8 @@ public sealed class ResourceLifecycleAnalysisTests
         new("test.resource-lifecycle-throws-never");
     static readonly ResourceEffectModelIdentity InterfaceLifecycleModel =
         new("test.resource-lifecycle-interface");
+    static readonly ResourceEffectModelIdentity SuccessfulAwaitReleaseModel =
+        new("test.resource-lifecycle-successful-await");
     static readonly ResourceKindIdentity InterfaceBufferKind =
         new("test.resource-lifecycle.interface-buffer");
 
@@ -331,6 +333,67 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void LifecycleRequest_DoesNotCreditUnobservedAsyncRelease()
+    {
+        ResourceEffectAdmissionOutcome outcome =
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    ArrayPoolResourceEffectModel.Definition(),
+                    SuccessfulAwaitReleaseDefinition(),
+                ]);
+        ResourceEffectAdmission admission = Assert.IsType<
+            ResourceEffectAdmissionOutcome.Admitted>(outcome).Admission;
+
+        ResourceLifecycleRootResult root = Root(
+            Analyze(
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    admission)),
+            "RentAndReleaseAsyncUnobserved");
+
+        Assert.False(root.IsComplete);
+        Assert.Contains(
+            root.Limitations,
+            limitation =>
+                limitation.Kind
+                    == ResourceLifecycleLimitationKind.UnsupportedFlow
+                && limitation.Detail.Contains(
+                    "Conditional release",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .MissingReleaseOnNormalPath);
+    }
+
+    [Fact]
+    public void LifecycleRequest_ReportsNormalAndExceptionalLeakExits()
+    {
+        ResourceLifecycleRootResult root =
+            Root(Analyze(), "RentAcrossNormalAndExceptionalExit");
+
+        Assert.Contains(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .MissingReleaseOnNormalPath);
+        Assert.Contains(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .MissingReleaseOnExceptionalPath);
+        Assert.Contains(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+    }
+
+    [Fact]
     public void IntrinsicNoThrow_RequiresExactKeepAliveSignature()
     {
         var keepAlive = new MemberRef(
@@ -637,6 +700,63 @@ public sealed class ResourceLifecycleAnalysisTests
                             new InertString(
                                 TextPolicy.Field,
                                 "resource-lifecycle-guarded-test:0"),
+                            0),
+                    ]),
+            ]);
+    }
+
+    static ResourceEffectModelDefinition SuccessfulAwaitReleaseDefinition()
+    {
+        ResourceEffectGenericVariable element =
+            new(ResourceEffectGenericVariableKind.Method, 0);
+        ResourceTypeExpression.Variable elementType = new(element);
+        ResourceTypeExpression.Named task = new(
+            new ResourceAssemblySelector(
+                "System.Runtime",
+                "b03f5f7f11d50a3a",
+                ResourceAssemblyVersionPolicy.Any,
+                allowCoreLibraryFacade: true),
+            "System.Threading.Tasks",
+            [new ResourceTypeNameSegment("Task", 0)]);
+        ResourceKindReference buffer =
+            new(ArrayPoolResourceEffectModel.BufferKind, [element]);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            SuccessfulAwaitReleaseModel,
+            [],
+            [],
+            [
+                new ResourceEffectTypedDeclaration(
+                    new ResourceEffectTargetSelector.Member(
+                        new ResourceEffectMemberSelector(
+                            FixtureEntryType(),
+                            "ReleaseRentedArrayAsync",
+                            ResourceEffectMemberKind.Method,
+                            isStatic: true,
+                            genericArity: 1,
+                            ResourceEffectCallingConvention.Default,
+                            hasThis: false,
+                            explicitThis: false,
+                            [
+                                new ResourceEffectParameterSelector(
+                                    new ResourceTypeExpression.SzArray(
+                                        elementType),
+                                    ResourceEffectRefKind.Value),
+                            ],
+                            task)),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.SuccessfulAwait(),
+                        buffer,
+                        Correspondence: null,
+                        Observation: new ResourceEffectLocation.Return()),
+                    [
+                        new ResourceDeclarationProvenance(
+                            SuccessfulAwaitReleaseModel,
+                            ResourceDeclarationAuthority.CallerSupplied,
+                            new InertString(
+                                TextPolicy.Field,
+                                "resource-lifecycle-await-release:0"),
                             0),
                     ]),
             ]);

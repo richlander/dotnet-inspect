@@ -28,14 +28,35 @@ internal static class ResourceExceptionPathAnalyzer
         int startOffset,
         ImmutableArray<int> releases)
     {
+        LeakExitFacts facts = LeakExitsWithoutRelease(
+            instructions,
+            graph,
+            calls,
+            startOffset,
+            releases);
+        return facts.Normal
+            ? LeakExitKind.Normal
+            : facts.Exception
+                ? LeakExitKind.Exception
+                : LeakExitKind.None;
+    }
+
+    internal static LeakExitFacts LeakExitsWithoutRelease(
+        ImmutableArray<DecodedInstruction> instructions,
+        BlockGraph graph,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int startOffset,
+        ImmutableArray<int> releases)
+    {
         int startBlock = graph.BlockIndexAt(startOffset);
         if (startBlock < 0)
-            return LeakExitKind.None;
+            return default;
 
         var releaseSet = releases.ToHashSet();
         var visited = new HashSet<(int Block, bool Released)>();
         var stack = new Stack<(int Block, bool Released, int StartOffset)>();
         stack.Push((startBlock, Released: false, StartOffset: startOffset));
+        bool sawNormalExit = false;
         bool sawExceptionExit = false;
 
         while (stack.Count > 0)
@@ -52,13 +73,13 @@ internal static class ResourceExceptionPathAnalyzer
                 if (BlockExitsByException(instructions, calls, block))
                     sawExceptionExit = true;
                 else
-                    return LeakExitKind.Normal;
+                    sawNormalExit = true;
             }
             foreach (int successor in successors)
                 stack.Push((successor, released, graph.Blocks[successor].Start));
         }
 
-        return sawExceptionExit ? LeakExitKind.Exception : LeakExitKind.None;
+        return new(sawNormalExit, sawExceptionExit);
     }
 
     static bool ProcessBlockForRelease(
@@ -965,4 +986,8 @@ internal static class ResourceExceptionPathAnalyzer
         Normal,
         Exception,
     }
+
+    internal readonly record struct LeakExitFacts(
+        bool Normal,
+        bool Exception);
 }

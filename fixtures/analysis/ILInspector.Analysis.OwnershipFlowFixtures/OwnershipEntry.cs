@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Threading.Tasks;
 
 namespace Ownership;
 
@@ -324,6 +325,9 @@ public static class Entry
     {
     }
 
+    static Task ReleaseRentedArrayAsync<T>(T[] buffer) =>
+        Task.CompletedTask;
+
     public static void RentAndReturnDirectly()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -412,6 +416,23 @@ public static class Entry
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    public static void RentAndReleaseAsyncUnobserved()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        _ = ReleaseRentedArrayAsync(buffer);
+        s_ownershipProbe += buffer.Length;
+    }
+
+    public static void RentAcrossNormalAndExceptionalExit(bool fail)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        if (fail)
+            throw new InvalidOperationException();
+        s_ownershipProbe += buffer.Length;
     }
 
     public static void RentAcrossConditionalFinally(

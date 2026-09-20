@@ -198,12 +198,33 @@ internal static class ResourceLifecycleAnalysisService
     {
         var outcomes =
             ImmutableArray.CreateBuilder<ResourceLifecycleOutcome>();
+        var releaseOffsets = ImmutableArray.CreateBuilder<int>();
+        foreach (ResourceOccurrence release in occurrences.Where(
+            occurrence => occurrence.Operations.Contains(
+                ResourceOccurrenceOperationKind.Release)))
+        {
+            if (release.Effects.Any(effect =>
+                effect.Effect is ResourceEffect.Release
+                && effect.Guard is null
+                && effect.Completion is
+                    ResourceEffectCompletion.Entry
+                        or ResourceEffectCompletion.NormalReturn))
+            {
+                releaseOffsets.Add(release.ILOffset);
+            }
+            else
+            {
+                limitations.Add(new(
+                    ResourceLifecycleLimitationKind.UnsupportedFlow,
+                    $"Conditional release at IL_{release.ILOffset:X4} "
+                    + "is not supported by lifecycle analysis version 1.",
+                    context.Method,
+                    root));
+            }
+        }
         ImmutableArray<int> releases =
         [
-            .. occurrences
-                .Where(occurrence => occurrence.Operations.Contains(
-                    ResourceOccurrenceOperationKind.Release))
-                .Select(static occurrence => occurrence.ILOffset)
+            .. releaseOffsets
                 .Distinct()
                 .Order(),
         ];
@@ -404,29 +425,32 @@ internal static class ResourceLifecycleAnalysisService
         }
         else if (acquisitionDefinition is not null)
         {
-            ResourceExceptionPathAnalyzer.LeakExitKind exit =
-                ResourceExceptionPathAnalyzer.PathExitsWithoutRelease(
+            ResourceExceptionPathAnalyzer.LeakExitFacts exits =
+                ResourceExceptionPathAnalyzer.LeakExitsWithoutRelease(
                     context.Instructions.Instructions,
                     context.Blocks,
                     callsByOffset,
                     pathStartOffset,
                     releases);
-            if (exit != ResourceExceptionPathAnalyzer.LeakExitKind.None)
+            if (exits.Normal)
             {
                 outcomes.Add(new(
-                    exit
-                        == ResourceExceptionPathAnalyzer.LeakExitKind.Exception
-                            ? ResourceLifecycleOutcomeKind
-                                .MissingReleaseOnExceptionalPath
-                            : ResourceLifecycleOutcomeKind
-                                .MissingReleaseOnNormalPath,
+                    ResourceLifecycleOutcomeKind.MissingReleaseOnNormalPath,
                     root.Call.ILOffset,
                     root.Call.ILOffset,
                     SecondaryOffset: null,
                     Boundaries: []));
-                if (exit
-                    == ResourceExceptionPathAnalyzer.LeakExitKind.Exception
-                    && !outcomes.Any(outcome =>
+            }
+            if (exits.Exception)
+            {
+                outcomes.Add(new(
+                    ResourceLifecycleOutcomeKind
+                        .MissingReleaseOnExceptionalPath,
+                    root.Call.ILOffset,
+                    root.Call.ILOffset,
+                    SecondaryOffset: null,
+                    Boundaries: []));
+                if (!outcomes.Any(outcome =>
                         outcome.Kind
                             == ResourceLifecycleOutcomeKind
                                 .ExceptionalCleanupMissing))

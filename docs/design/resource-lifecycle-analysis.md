@@ -126,6 +126,11 @@ Terminal-exit analysis with multiple release sites remains explicitly
 incomplete until predicate correlation can prove that alternative releases
 cover every path. Same-block double-release and other sound positive outcomes
 remain available for that root.
+Normal and exceptional unreleased exits are independent facts; a method that
+can reach both publishes both outcomes. Version 1 credits release effects only
+at `entry` or `normal-return` completion. Await-, exceptional-, and
+outcome-dependent release completion remains a typed root limitation until its
+observation or discriminator can be proven.
 
 An unconditional `operation throws=never` effect suppresses that exact
 direct-call boundary as an exceptional-cleanup candidate. A guarded effect
@@ -238,6 +243,8 @@ The Release `ILInspector.Analysis.Tests` gate establishes:
 - same-block use after release and double release;
 - exceptional cleanup protected, unprotected, conditionally protected, or
   preceded by modeled throwing setup in `finally`;
+- simultaneous normal and exceptional unreleased exits;
+- unsupported conditional release completion;
 - unprotected roots remain reportable beside unrelated or leading
   method-group construction while the legacy-suppressed trailing shape remains
   incomplete;
