@@ -115,12 +115,15 @@ A **key** is a canonical query key from the named vocabulary's declared key
 namespace: a bounded ordinal token. It is not a display label, heading, column
 name, or CLI option spelling.
 
-An **operator** is one of four identities — equality, inequality, at-least,
-at-most — whose canonical texts are `eq`, `ne`, `gte`, and `lte`. As with a key,
-the text *is* the identity: it is what a vocabulary admits, what orders a term,
-and what any encoding carries, never an enum name or a CLI spelling. A
-vocabulary declares which operators each key admits; intent does not widen that
-set, and this design introduces no nesting, grouping, or solver.
+An **operator** is one of eight identities — equality, inequality, starts-with,
+negated starts-with, contains, negated contains, at-least, and at-most — whose
+canonical texts are `eq`, `ne`, `starts-with`, `not-starts-with`, `contains`,
+`not-contains`, `gte`, and `lte`. As with a key, the text *is* the identity: it
+is what a vocabulary admits, what orders a term, and what any encoding carries,
+never an enum name or a CLI spelling. A vocabulary declares which operators
+each key admits and owns the value domain's comparison behavior; intent does
+not widen that set, normalize text, or introduce nesting, grouping, or a
+solver.
 
 The same holds for every other fixed identity in an intent. **Identity texts**
 are the model's: directions `asc` and `desc`; stage kinds `head`, `tail`,
