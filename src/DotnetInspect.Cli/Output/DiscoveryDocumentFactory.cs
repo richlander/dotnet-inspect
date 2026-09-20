@@ -226,18 +226,28 @@ internal static class DiscoveryDocumentFactory
                 return null;
             }
 
-            var resolution = SelectResolver.ResolveSingleWithProvenance(
-                selector,
-                schema.SectionNames,
-                singleGlob: true);
-            if (requireExactSelection
-                && (!resolution.IsExact
-                    || resolution.Matches.Count != 1))
+            if (requireExactSelection)
             {
-                CommandError.Write(
-                    "--details requires an exact category or section selector; "
-                    + "glob expansion is not supported.");
-                return null;
+                var resolution =
+                    SelectResolver.ResolveSingleWithProvenance(
+                        selector,
+                        schema.SectionNames);
+                if (resolution.Miss is not null)
+                {
+                    SelectOutput.WriteUnresolved(
+                        new SelectResult(
+                            null,
+                            [resolution.Miss]));
+                    return null;
+                }
+                if (!resolution.IsExact
+                    || resolution.Matches.Count != 1)
+                {
+                    CommandError.Write(
+                        "--details requires an exact category or section "
+                        + "selector; glob expansion is not supported.");
+                    return null;
+                }
             }
 
             var (matches, miss) = ResolveMatches(

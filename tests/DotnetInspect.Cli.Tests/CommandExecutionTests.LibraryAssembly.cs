@@ -1376,6 +1376,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(new string[] { "--details" }, "--details requires -D/--discover")]
     [InlineData(new string[] { "-D", "References", "-D", "Signals", "--details" }, "expects a single argument")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details" }, "Select value 'NoSuchSection' not found.")]
     [InlineData(new string[] { "-D", "Reference*", "--details" }, "--details requires an exact category or section selector")]
     [InlineData(new string[] { "-D", "References", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
     [InlineData(new string[] { "-D", "References", "--details", "-S", "References" }, "--details cannot be combined with -S/--select")]
