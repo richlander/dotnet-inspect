@@ -500,7 +500,7 @@ public static class CSharpAuthoredDocumentation
             }
 
             bool overlappingUncertainty = index.Declarations.Any(declaration =>
-                declaration.TextCoordinates is { IsKnown: false }
+                declaration.TextCoordinates is { DeclarationKnown: false }
                 && index.GetOwnedDeclarationTextParts(declaration) is { } parts
                 && Overlaps(parts.Declaration, request.DeclarationSpan));
             return overlappingUncertainty
@@ -713,7 +713,10 @@ public static class CSharpAuthoredDocumentation
 
             ConditionalBranchSpan[] activeBranches =
                 [.. group.Branches.Where(branch =>
-                    activeLines.Any(branch.Contains))];
+                    ContainsLine(
+                        activeLines,
+                        branch.ContentStartLine,
+                        branch.ContentEndLineExclusive))];
             if (activeBranches.Length > 1)
                 return BranchSelection.Uncertain;
 
@@ -732,6 +735,25 @@ public static class CSharpAuthoredDocumentation
         }
 
         return new(false, selected.ToImmutable());
+    }
+
+    private static bool ContainsLine(
+        IReadOnlyList<int> sortedLines,
+        int startInclusive,
+        int endExclusive)
+    {
+        int lower = 0;
+        int upper = sortedLines.Count;
+        while (lower < upper)
+        {
+            int middle = lower + ((upper - lower) / 2);
+            if (sortedLines[middle] < startInclusive)
+                lower = middle + 1;
+            else
+                upper = middle;
+        }
+
+        return lower < sortedLines.Count && sortedLines[lower] < endExclusive;
     }
 
     private static int PhysicalLine(

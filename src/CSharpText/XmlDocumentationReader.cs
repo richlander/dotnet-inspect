@@ -362,12 +362,26 @@ static class XmlDocumentationParser
                     string? parameterName =
                         retain ? reader.GetAttribute("name") : null;
                     string? parameterText =
-                        ReadText(reader, budget, retain, observe);
+                        ReadText(
+                            reader,
+                            budget,
+                            retain,
+                            observe,
+                            chargeBudget: false);
                     if (parameterName is not null
                         && parameterText is not null)
                     {
-                        if (budget.Retain(parameterName))
+                        parameters!.TryGetValue(
+                            parameterName,
+                            out string? previousText);
+                        if (budget.Replace(
+                                previousText is null ? null : parameterName,
+                                previousText,
+                                parameterName,
+                                parameterText))
+                        {
                             parameters![parameterName] = parameterText;
+                        }
                     }
                     break;
 
@@ -424,7 +438,8 @@ static class XmlDocumentationParser
         XmlReader reader,
         RetainedTextBudget budget,
         bool retain,
-        Action<XmlReader>? observe)
+        Action<XmlReader>? observe,
+        bool chargeBudget = true)
     {
         if (!retain)
         {
@@ -439,7 +454,7 @@ static class XmlDocumentationParser
                 observe));
         if (text.Length == 0)
             return null;
-        return budget.Retain(text) ? text : null;
+        return !chargeBudget || budget.Retain(text) ? text : null;
     }
 
     static void ReadSamples(
@@ -550,23 +565,55 @@ static class XmlDocumentationParser
                 return !Exceeded;
             if (Exceeded)
                 return false;
-            retained += value.Length;
-            if (retained > maximum)
+            long completed = retained;
+            long observed = checked(retained + value.Length);
+            if (observed > maximum)
             {
-                Exceeded = true;
-                if (throwOnExceeded)
-                {
-                    throw new XmlDocumentationLimitException(
-                        XmlDocumentationLimitKind.RetainedText,
-                        "XML documentation exceeds the retained-text character limit.",
-                        maximum,
-                        retained,
-                        retained - value.Length);
-                }
-                return false;
+                return Exceed(observed, completed);
             }
+            retained = observed;
             return true;
         }
+
+        public bool Replace(
+            string? oldFirst,
+            string? oldSecond,
+            string? newFirst,
+            string? newSecond)
+        {
+            if (Exceeded)
+                return false;
+
+            long completed = retained;
+            long observed = checked(
+                retained
+                    - Length(oldFirst)
+                    - Length(oldSecond)
+                    + Length(newFirst)
+                    + Length(newSecond));
+            if (observed > maximum)
+                return Exceed(observed, completed);
+
+            retained = observed;
+            return true;
+        }
+
+        bool Exceed(long observed, long completed)
+        {
+            Exceeded = true;
+            if (throwOnExceeded)
+            {
+                throw new XmlDocumentationLimitException(
+                    XmlDocumentationLimitKind.RetainedText,
+                    "XML documentation exceeds the retained-text character limit.",
+                    maximum,
+                    observed,
+                    completed);
+            }
+            return false;
+        }
+
+        static int Length(string? value) => value?.Length ?? 0;
     }
 
     internal enum XmlDocumentationLimitKind

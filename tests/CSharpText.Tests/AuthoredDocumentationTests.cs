@@ -747,6 +747,35 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void BranchDependentDocumentation_DoesNotUnvouchKnownDeclarationMismatch()
+    {
+        const string source = """
+            class C
+            {
+            #if DOCUMENTATION
+                /// <summary>Conditional.</summary>
+            #endif
+                void M() { }
+            }
+            """;
+        CSharpSourceSpan method = MethodSpan(source, "M");
+
+        var exact = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(new(source, method)));
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty
+                .DocumentationAttachmentUnvouched,
+            exact.Reason);
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.NoDeclaration>(
+            CSharpAuthoredDocumentation.Read(
+                new(
+                    source,
+                    new(method.Start, method.Length - 1))));
+    }
+
+    [Fact]
     public void DetachedConditionalDocumentation_DoesNotPoisonNearestRun()
     {
         const string source = """
@@ -925,6 +954,51 @@ public sealed class AuthoredDocumentationTests
         Assert.Equal(
             memberCount + 1,
             result.Work.DeclarationsCompared);
+    }
+
+    [Fact]
+    public void DenseConditionalEvidence_SelectsBranchesWithSortedLookup()
+    {
+        const int groupCount = 10_000;
+        string conditionals = string.Concat(
+            Enumerable.Range(0, groupCount).Select(index =>
+                $"#if C{index}\nint F{index};\n#endif\n"));
+        string source = $"class C\n{{\n{conditionals}void M() {{ }}\n}}";
+        int[] activeLines =
+            [.. Enumerable.Range(0, groupCount).Select(index => 4 + (3 * index))];
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Absent>(
+            CSharpAuthoredDocumentation.Read(
+                new(
+                    source,
+                    MethodSpan(source, "M"),
+                    activePhysicalLines: activeLines)));
+    }
+
+    [Fact]
+    public void DuplicateParameterNames_UseFinalRetainedTextAtThreshold()
+    {
+        const string source = """
+            class C
+            {
+                /// <param name="x">A</param>
+                /// <param name="x">B</param>
+                void M() { }
+            }
+            """;
+        CSharpSourceSpan span = MethodSpan(source, "M");
+        var limits = CSharpAuthoredDocumentationLimits.Default with
+        {
+            MaxRetainedTextCharacters = 2,
+        };
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                CSharpAuthoredDocumentation.Read(
+                    new(source, span, limits: limits)));
+
+        Assert.Equal("B", Assert.Single(result.Documentation.Parameters).Value);
+        Assert.Equal(2, result.Work.RetainedTextCharacters);
     }
 
     [Fact]
