@@ -49,7 +49,7 @@ This owner defines:
 - the closed query-language boundary shared by hosts;
 - the requirement that resolved plans preserve inspectable structural meaning
   beside executable machinery;
-- the terminal position of Rows and exact Count;
+- preservation of the owner-issued Rows and exact Count terminal branch;
 - the distinction among semantic selection, work bounds, source continuation,
   delivery demand, and rendering windows;
 - preservation of an adjacent source owner's continuation without interpreting
@@ -298,18 +298,27 @@ the closed algebra, not arbitrary executable content carried in an intent.
 
 ## Fixed stages
 
-The observable order remains fixed:
+Query Space preserves the stage order issued by the operation, row, selection,
+and section-row owners. For a section-shaped row set, the observable order is:
 
 ```text
 subject or population binding
   -> operation qualification or selection
   -> declared result rows
+  -> membership projection
   -> row predicates
   -> effective baseline order
   -> semantic Head, Tail, Window, or Top
-  -> projection
-  -> Rows or Count
+  -> one terminal branch:
+     -> selected rows -> cell projection -> Rows
+     -> selected rows -> exact Count
 ```
+
+This is the [Section-row shaping](section-row-shaping.md#reference-composition)
+branch, not a projection contract defined by Query Space. A row space without
+projection support treats the two projection positions as absent. Count still
+validates applicable cell-projection intent through the section-row owner but
+does not execute cell projection.
 
 An owner may perform equivalent work earlier only through source delegation or
 another owner-approved optimization contract. The structural plan continues
@@ -350,15 +359,19 @@ runtime-authored query shape is not encoded as nested generic types.
 
 ## Terminal requirements
 
-Rows and exact Count are peer terminal requirements over the same preceding
-semantic plan.
+Rows and exact Count are peer terminal requirements over the same selected-row
+sequence after membership projection, predicates, effective order, and semantic
+selection.
 
-**Rows** returns the selected typed rows plus their source and completion
-outcomes. A source-bound or otherwise incomplete result may remain usable when
-the owning row contract permits it, but it stays visibly incomplete.
+**Rows** then applies any validated cell projection and returns the selected
+typed rows plus their source and completion outcomes. A source-bound or
+otherwise incomplete result may remain usable when the owning row contract
+permits it, but it stays visibly incomplete.
 
-**Count** returns an exact cardinality or a typed non-count outcome. It never
-returns an observed row count as though it were exact. Count may be satisfied:
+**Count** validates cell-projection intent but does not execute it, because the
+terminal result has no row cells. It returns an exact cardinality or a typed
+non-count outcome and never returns an observed row count as though it were
+exact. Count may be satisfied:
 
 - by logical exhaustion after local or delegated execution;
 - by an owner-accepted exact source Count witness; or
@@ -612,6 +625,7 @@ slices:
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates in different binding scopes cannot combine, conflict, satisfy, or collapse one another. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, and `CountObservesPrecedingSemanticStages`; Count validates but never executes cell projection. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
