@@ -956,6 +956,91 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageCacheAccountingIsAtomicAcrossConcurrentReservations()
+    {
+        await Task.WhenAll(
+            Enumerable.Range(0, 8).Select(worker => Task.Run(
+                async () =>
+                {
+                    for (int iteration = 0; iteration < 200; iteration++)
+                    {
+                        using BrowserPackageWorkspace.PackageDownloadReservation reservation =
+                            await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                                $"reservation.concurrent.{worker}.{iteration}.{Guid.NewGuid():N}",
+                                declaredLength: 0);
+                        _ = BrowserPackageWorkspace.Stats();
+                    }
+                })));
+
+        BrowserPackageCacheSnapshot settled = BrowserPackageWorkspace.Stats();
+        Assert.InRange(settled.Resident, 0, settled.MaxPackageEntries);
+        Assert.InRange(settled.ResidentBytes, 0, settled.MaxResidentBytes);
+    }
+
+    [Fact]
+    public async Task WorkspaceAdmissionPublishesConstructionLeaseBeforeReleasingCacheLedger()
+    {
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"reservation.construction-lease.drain.{Guid.NewGuid():N}", 128L * MiB))
+        {
+        }
+
+        byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            $"construction.lease.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Construction.Lease.dll"));
+        var validated = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseValidation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var reservationAttempted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = new BrowserPackageWorkspaceTestHooks
+        {
+            CoordinatesValidatedBeforeConstructionLease = () =>
+            {
+                validated.TrySetResult();
+                releaseValidation.Task.GetAwaiter().GetResult();
+            },
+        };
+
+        Task<BrowserScopeLease<BrowserInspectionScope>> opening = Task.Run(
+            () => BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                hooks,
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        await validated.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        Task reservation = Task.Run(
+            async () =>
+            {
+                reservationAttempted.TrySetResult();
+                using BrowserPackageWorkspace.PackageDownloadReservation ignored =
+                    await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                        $"reservation.construction-lease.{Guid.NewGuid():N}",
+                        128L * MiB);
+            },
+            TestContext.Current.CancellationToken);
+        await reservationAttempted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+
+        bool reservationWaitedForRetention = !reservation.IsCompleted;
+        releaseValidation.TrySetResult();
+
+        Assert.True(reservationWaitedForRetention);
+        await using BrowserScopeLease<BrowserInspectionScope> scope =
+            await opening.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => reservation);
+        Assert.Contains("package-cache limit", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate()
     {
         using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(

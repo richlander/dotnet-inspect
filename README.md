@@ -922,6 +922,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls -n 1 --tail --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all \
   -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
@@ -941,14 +942,23 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
 
+With exact `member -S Calls`, `-n`, `--tail`, and strict `--rows A..B`
+select complete direct call-site rows after analysis of the selected overload
+and its generated evidence methods. Repeated calls to the same target remain
+distinct. Markdown, table, TSV, JSONL, structured JSON, and Count observe the
+same selected call sites in their existing IL-offset order. Add `--lines` only
+to clip rendered text. `Callers`, `Call Graph`, `@Calls`, mixed sections,
+discovery, and Calls included only by verbosity retain their existing row
+contracts or rendered-line fallback.
+
 With exact `member -S Callers`, `-n`, `--tail`, and strict `--rows A..B`
 select complete deduplicated caller-site rows after the selected target
 overload and all authorized caller scopes have been scanned. Markdown, table,
 TSV, JSONL, structured JSON, and Count observe the same selected call sites,
 including Source when the completed caller rows came from multiple assemblies.
-Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed
-sections, discovery, and scope-implied Callers without the exact selector retain
-their existing row contracts or rendered-line fallback.
+Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
+mixed sections, discovery, and scope-implied Callers without the exact selector
+retain their existing row contracts or rendered-line fallback.
 
 Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
@@ -1049,9 +1059,27 @@ Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Finding Transitions` remains an exact-name section because its
-focused endpoint-confirmation semantics do not compose with those comparison
+Diff` views. `Complexity Context` and `Finding Transitions` remain exact-name
+sections because their focused semantics do not compose with those comparison
 views.
+
+Select `Implementation Diff` directly to inspect body-level C#, IL, and
+normal-flow complexity evidence. Select `Complexity Context` directly for a
+focused view with nullable `Old`, `New`, `Delta`, `Population Size`, and
+`Percentile Rank` fields. The rank is the inclusive percentage of
+delta-bearing methods in this diff whose absolute complexity delta is no
+greater than the row's. It is positional context, not an unusualness or
+quality judgment; an all-equal population gives every row 100. Use column
+projection with JSON Lines to emit dedicated cells instead of parsing
+`Evidence`:
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriter \
+  -S "Complexity Context" \
+  --columns Member,State,Delta,PopulationSize,PercentileRank,Kind \
+  --jsonl
+```
 
 ### Structural matching
 
@@ -1310,14 +1338,20 @@ show `4.3.2` and `4.3.1`, respectively, the disposition is
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call
-sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete physical call sites before
+Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Use `--lines`
+for explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
+`Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
 Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category.
+does not compose with the pair-wide category. These summary, cluster, path,
+wildcard, category, and multi-section views retain rendered-line `-n` because
+their independent row schemas do not form one semantic sequence.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains

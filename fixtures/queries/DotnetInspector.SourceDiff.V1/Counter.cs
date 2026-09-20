@@ -14,6 +14,23 @@ public sealed class Counter
 
     public int SameSource() => BuildValue;
 
+    public int Property => 1;
+
+    int Hidden() => 1;
+
+    public int LocalFunction(int value)
+    {
+        int Adjust(int input) => input + 1;
+        return Adjust(value) + Hidden();
+    }
+
+    public int MultipleLocalFunctions(int value)
+    {
+        int Increment(int input) => input + 1;
+        int Scale(int input) => input * 2;
+        return Increment(value) + Scale(value);
+    }
+
     public int Reordered()
     {
         int first = 1;
