@@ -219,7 +219,10 @@ public static class AssemblyContextOptimizationOpportunitiesQuery
                             OptimizationOpportunityRanking
                                 .IncludePerformanceOpportunity(
                                     opportunity,
-                                    index.GeneratedFrameworkTypes)));
+                                    index.GeneratedFrameworkTypes)
+                            && OptimizationOpportunityRanking
+                                .IncludeInMemberTriage(
+                                    opportunity)));
             var result = new AssemblyOptimizationOpportunityRanking(
                 AggregatePublicMembers(
                     rankings,

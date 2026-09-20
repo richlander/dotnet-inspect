@@ -65,7 +65,7 @@ public static class ReferenceOwnership
         return false;
     }
 
-    static IEnumerable<int> TransferTargets(IrNode node)
+    internal static IEnumerable<int> TransferTargets(IrNode node)
     {
         switch (node)
         {

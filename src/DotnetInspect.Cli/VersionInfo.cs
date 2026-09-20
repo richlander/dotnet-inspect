@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Reflection.Metadata;
 
 namespace DotnetInspect.Cli;
 
@@ -9,6 +8,8 @@ namespace DotnetInspect.Cli;
 public static class VersionInfo
 {
     public const string ToolName = "dotnet-inspect";
+    private const string NativeAotRuntimeFlavorSwitch =
+        "DotnetInspect.RuntimeFlavor.NativeAOT";
 
     private static string? _version;
 
@@ -20,9 +21,13 @@ public static class VersionInfo
     /// <summary>
     /// Gets the runtime flavor: "NativeAOT" or "CoreCLR".
     /// </summary>
-    // CoreCLR retains CoreLib metadata even in single-file builds; NativeAOT does not.
-    public static unsafe string Flavor =>
-        typeof(object).Assembly.TryGetRawMetadata(out _, out _) ? "CoreCLR" : "NativeAOT";
+    public static string Flavor =>
+        AppContext.TryGetSwitch(
+            NativeAotRuntimeFlavorSwitch,
+            out bool nativeAot)
+        && nativeAot
+            ? "NativeAOT"
+            : "CoreCLR";
 
     /// <summary>
     /// Gets the runtime flavor and .NET version (e.g., "CoreCLR; .NET 10.0").

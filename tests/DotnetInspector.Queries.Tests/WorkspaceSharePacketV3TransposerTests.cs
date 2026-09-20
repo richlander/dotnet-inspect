@@ -31,7 +31,7 @@ public sealed class WorkspaceSharePacketV3TransposerTests
                     selectedContextName: "g2"),
                 TestContext.Current.CancellationToken);
 
-        Assert.True(projection.Succeeded);
+        Assert.True(projection.Succeeded, projection.Failure?.Message);
         WorkspaceSharePacket packet =
             Assert.IsType<WorkspaceSharePacket>(projection.Packet);
         Assert.Equal(
@@ -74,6 +74,50 @@ public sealed class WorkspaceSharePacketV3TransposerTests
         Assert.Equal("net10.0", inactivePackage.Framework);
         Assert.Equal("linux-x64", inactivePackage.RuntimeIdentifier);
         Assert.Equal([2], packet.Contexts[2].TabIndexes);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_AdmitsLogicalCoordinateLimit()
+    {
+        DefinitionMemberCoordinate.PackageCoordinate[] packages =
+        [
+            .. Enumerable.Range(
+                0,
+                WorkspaceSharePacketCodec.MaxFormat3Tabs)
+                .Select(index =>
+                    new DefinitionMemberCoordinate.PackageCoordinate(
+                        $"Package.{index}",
+                        "1.0.0",
+                        "net11.0")),
+        ];
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                DefinitionSet(
+                    [
+                        new WorkspaceContextDefinition(
+                            "g0",
+                            "net11.0",
+                            members: packages),
+                    ],
+                    [
+                        .. packages.Select((package, index) =>
+                            new NavigationTabDefinition(
+                                $"t{index}",
+                                coordinate: package)),
+                    ],
+                    focus: "t0",
+                    context: "g0"),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded, projection.Failure?.Message);
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.MaxFormat3Tabs,
+            packet.Tabs.Count);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.MaxFormat3Tabs,
+            Assert.Single(packet.Contexts).TabIndexes.Count);
     }
 
     [Fact]

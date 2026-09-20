@@ -88,15 +88,23 @@ internal static class BrowserFrameworkText
     internal static string[] Available(BrowserPackageCoordinate coordinate)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        return Available(coordinate.Selection, coordinate.Framework);
+    }
+
+    internal static string[] Available(
+        PackageCompileAssetSelection selection,
+        string? activeFramework)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
         string[] available =
         [
-            .. coordinate.Selection.AvailableTargetFrameworks
+            .. selection.AvailableTargetFrameworks
                 .Select(Project)
                 .OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
-        string active = Active(coordinate);
-        return coordinate.Selection.IsSelected
+        string active = Project(activeFramework) ?? "";
+        return selection.IsSelected
             && active.Length > 0
             && !available.Contains(active, StringComparer.OrdinalIgnoreCase)
                 ? [active, .. available]

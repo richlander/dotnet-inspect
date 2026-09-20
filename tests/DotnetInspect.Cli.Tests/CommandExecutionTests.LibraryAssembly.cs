@@ -2338,6 +2338,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_StringPerformance_IncludesTopLevelProgramOccurrences()
+    {
+        string probePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RuntimeFlavorProbe.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            probePath,
+            "-S",
+            SectionNames.PerformanceStrings,
+            "--triage-shape",
+            AnalysisFindings.StringMaterializationShape,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] occurrences =
+        [
+            .. document.RootElement
+                .GetProperty("performance")
+                .GetProperty("strings")
+                .EnumerateArray()
+                .Where(row => row
+                    .GetProperty("member")
+                    .GetString()!
+                    .Contains("Program.<Main>$", StringComparison.Ordinal)),
+        ];
+
+        Assert.Equal(2, occurrences.Length);
+        Assert.All(
+            occurrences,
+            row =>
+            {
+                Assert.Equal(
+                    "0x06000001",
+                    row.GetProperty("method_token").GetString());
+                Assert.Equal(
+                    "string.interpolation-handler",
+                    row.GetProperty("operation").GetString());
+            });
+        Assert.Equal(
+            ["IL_00E6", "IL_0146"],
+            occurrences
+                .Select(row => row.GetProperty("il").GetString())
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically()
     {
         // Drilling into a category door (-D @Category) lists its members alphabetically, the same
@@ -2557,7 +2608,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
-        Assert.Equal("10", countOutput.Trim());
+        Assert.Equal("11", countOutput.Trim());
 
         Assert.Equal(0, effectiveExit);
         AssertOnlyPerformanceAnalysisWarnings(effectiveError);
