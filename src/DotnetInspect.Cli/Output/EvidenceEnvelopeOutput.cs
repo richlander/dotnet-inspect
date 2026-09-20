@@ -116,4 +116,55 @@ internal static class EvidenceEnvelopeOutput
 
         return published;
     }
+
+    internal static bool PathsMayIdentifySameFile(
+        string first,
+        string second)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(first);
+        ArgumentException.ThrowIfNullOrWhiteSpace(second);
+        if (!OperatingSystem.IsWindows())
+        {
+            return string.Equals(
+                first,
+                second,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        string? normalizedFirst = NormalizeWindowsPath(first);
+        string? normalizedSecond = NormalizeWindowsPath(second);
+        return normalizedFirst is null
+            || normalizedSecond is null
+            || string.Equals(
+                normalizedFirst,
+                normalizedSecond,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string? NormalizeWindowsPath(string path)
+    {
+        if (path.StartsWith(
+                @"\\?\UNC\",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + path[8..];
+        }
+
+        if (path.StartsWith(
+                @"\\?\",
+                StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(
+                @"\\.\",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return path.Length >= 7
+                && char.IsAsciiLetter(path[4])
+                && path[5] == ':'
+                && path[6] is '\\' or '/'
+                    ? path[4..]
+                    : null;
+        }
+
+        return path;
+    }
 }

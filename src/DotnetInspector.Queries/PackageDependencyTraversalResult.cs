@@ -89,6 +89,12 @@ public enum PackageDependencyTraversalEdgeEmissionAuthority
     /// <summary>Produced by recursive source authorization that issued an exact candidate.</summary>
     ResolvedCandidate,
 
+    /// <summary>
+    /// Produced by an exact declaration matching a supplied root whose owner
+    /// authorized exact-coordinate recurrence.
+    /// </summary>
+    SuppliedRoot,
+
     /// <summary>Produced by recursive source authorization when #5765 issued no exact candidate.</summary>
     FailedResolution,
 

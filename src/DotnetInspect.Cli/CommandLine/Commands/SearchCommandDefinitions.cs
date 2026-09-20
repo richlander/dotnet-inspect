@@ -874,10 +874,9 @@ public static class SearchCommandDefinitions
                         return 1;
                     }
 
-                    if (string.Equals(
+                    if (EvidenceEnvelopeOutput.PathsMayIdentifySameFile(
                             evidenceEnvelopePath,
-                            outputPath,
-                            StringComparison.OrdinalIgnoreCase))
+                            outputPath))
                     {
                         CommandError.Write(
                             "--out and --evidence-envelope must name distinct files.");
