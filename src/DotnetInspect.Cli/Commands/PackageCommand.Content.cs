@@ -350,6 +350,7 @@ public partial class PackageCommand
                     pipeline);
             NuspecData? nuspec = FindPackageNuspecForInspection(
                 extractPath,
+                resolution,
                 wantsEcosystemDependencies);
 
             long? packageSize = null;
@@ -400,7 +401,7 @@ public partial class PackageCommand
                 await ApplyPackageEcosystemDependenciesAsync(
                     result,
                     resolution,
-                    SelectsOnlyPackageEcosystemDependencies(
+                    RequiresPackageEcosystemDiagnosticDisclosure(
                         producerOptions),
                     logger.Log);
             }

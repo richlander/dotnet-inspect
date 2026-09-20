@@ -161,17 +161,30 @@ public partial class PackageCommand
 
     private static NuspecData? FindPackageNuspecForInspection(
         string extractPath,
+        PackageExtractionResult resolution,
         bool ecosystemRecognitionRequested)
     {
         try
         {
             return NuspecParser.FindAndParse(extractPath);
         }
-        catch (NuspecParseException) when (ecosystemRecognitionRequested)
+        catch (NuspecParseException) when (
+            ecosystemRecognitionRequested
+            && CanAttributePackageEcosystemRecognition(resolution))
         {
             return null;
         }
     }
+
+    private static bool CanAttributePackageEcosystemRecognition(
+        PackageExtractionResult resolution) =>
+        resolution.HouseSettlement is PackageHouseSettlement.Acquired
+        || PackageEcosystemDependencyRecognitionInspection
+            .TryCreateUnavailableWithoutAcquiredSettlement(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ProducerKey,
+                out _);
 
     private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
@@ -281,10 +294,11 @@ public partial class PackageCommand
         }
     }
 
-    private static bool SelectsOnlyPackageEcosystemDependencies(
+    private static bool RequiresPackageEcosystemDiagnosticDisclosure(
         InspectionOptions options) =>
-        options.IncludeSections is { Count: 1 } sections
-        && sections.Contains(PackageSections.EcosystemDependencies);
+        options.IncludeSections is { } sections
+        && sections.Contains(PackageSections.EcosystemDependencies)
+        && !sections.Contains(PackageSections.PackageInfo);
 
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {

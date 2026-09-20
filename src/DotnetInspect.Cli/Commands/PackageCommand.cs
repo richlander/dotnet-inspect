@@ -1096,6 +1096,7 @@ public partial class PackageCommand
             // Parse nuspec for full package inspection.
             NuspecData? nuspec = FindPackageNuspecForInspection(
                 extractPath,
+                resolution,
                 wantsEcosystemDependencies);
 
             // Handle file content modes and exit early.
@@ -1221,7 +1222,7 @@ public partial class PackageCommand
                 await ApplyPackageEcosystemDependenciesAsync(
                     result,
                     resolution,
-                    SelectsOnlyPackageEcosystemDependencies(
+                    RequiresPackageEcosystemDiagnosticDisclosure(
                         producerOptions),
                     logger.Log);
             }

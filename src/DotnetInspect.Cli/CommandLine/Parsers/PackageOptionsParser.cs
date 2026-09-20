@@ -196,6 +196,17 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        if (opts.IsJsonDocumentOutput(parseResult)
+            && IsMultiSectionEcosystemDependencySelection(
+                parseResult.CommandResult,
+                opts,
+                args)
+            && HasExplicitRowSelection(parseResult, opts))
+        {
+            return new InvalidArguments(
+                "Rendered-line selection cannot be combined with JSON output.");
+        }
+
         bool selectsCloneCandidateRows =
             IsCloneCandidateRowSelection(
                 parseResult,
@@ -588,28 +599,8 @@ public static class PackageOptionsParser
         SharedOptions opts,
         PackageCommandArgs args)
     {
-        string[] packageArgs =
-            result.GetValue(args.PackageNameArg) ?? [];
-        if (packageArgs.Length != 1
-            || result.GetResult(opts.Discover)
-                is { Implicit: false }
-            || result.GetValue(args.DependenciesOption)
-            || result.GetValue(args.LayoutOption)
-            || result.GetResult(args.PathOption)
-                is { Implicit: false }
-            || result.GetValue(args.TfmsOption)
-            || result.GetResult(args.LibraryOption)
-                is { Implicit: false }
-            || result.GetValue(args.AllLibrariesOption)
-            || result.GetValue(args.VersionsOption)
-            || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(args.ContentOption)
-            || (result.GetResult(args.VersionOption)
-                is { Implicit: false }
-                && result.GetValue(args.VersionOption) is null))
-        {
+        if (!IsOrdinaryPackageInspection(result, opts, args))
             return false;
-        }
 
         string[]? selectors =
             ParseSelectors(result.GetValue(opts.Select));
@@ -630,6 +621,70 @@ public static class PackageOptionsParser
             && selected.Contains(
                 Views.PackageSections.EcosystemDependencies);
     }
+
+    internal static bool IsMultiSectionEcosystemDependencySelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        if (!IsOrdinaryPackageInspection(result, opts, args))
+            return false;
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sections = catalog.Sections;
+        var resolved =
+            SelectResolver.ResolveSelectAsSections(
+                selectors,
+                sections.SelectableSectionNames,
+                sections.InfoSectionNames,
+                sections.SelectionCategoryMap,
+                selectDefault: false);
+        return !resolved.HasError
+            && resolved.Sections is { Count: > 1 } selected
+            && selected.Contains(
+                Views.PackageSections.EcosystemDependencies);
+    }
+
+    private static bool IsOrdinaryPackageInspection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        return packageArgs.Length == 1
+            && result.GetResult(opts.Discover)
+                is not { Implicit: false }
+            && !result.GetValue(args.DependenciesOption)
+            && !result.GetValue(args.LayoutOption)
+            && result.GetResult(args.PathOption)
+                is not { Implicit: false }
+            && !result.GetValue(args.TfmsOption)
+            && result.GetResult(args.LibraryOption)
+                is not { Implicit: false }
+            && !result.GetValue(args.AllLibrariesOption)
+            && !result.GetValue(args.VersionsOption)
+            && !result.GetValue(args.VersionsWithFeedOption)
+            && !result.GetValue(args.ContentOption)
+            && (result.GetResult(args.VersionOption)
+                is not { Implicit: false }
+                || result.GetValue(args.VersionOption) is not null);
+    }
+
+    private static bool HasExplicitRowSelection(
+        ParseResult result,
+        SharedOptions opts) =>
+        result.GetResult(opts.Limit) is { Implicit: false }
+        || result.GetResult(opts.Rows) is { Implicit: false }
+        || result.GetResult(opts.Head) is { Implicit: false }
+        || result.GetResult(opts.Tail) is { Implicit: false }
+        || result.GetResult(opts.Lines) is { Implicit: false }
+        || result.GetResult(opts.TailLines) is { Implicit: false };
 
     internal static bool IsPackageLayoutRowSelection(
         ParseResult parseResult,

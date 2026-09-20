@@ -66,6 +66,37 @@ public sealed class NuspecHardeningTests : IDisposable
     }
 
     [Fact]
+    public async Task MalformedNuspec_WithoutCanonicalCoordinateRetainsTypedDiagnostic()
+    {
+        string package = WritePackage(
+            "Malformed.Package",
+            """
+            <package>
+              <metadata>
+                <id>SHOULD-NOT-REACH-THE-DIAGNOSTIC</metadata>
+              </metadata>
+            </package>
+            """,
+            fileName: "payload.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "-S",
+            "Ecosystem Dependencies",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: Package manifest is not well-formed XML at line ", error);
+        Assert.DoesNotContain("SHOULD-NOT-REACH-THE-DIAGNOSTIC", error);
+        Assert.DoesNotContain(nameof(InvalidOperationException), error);
+        Assert.DoesNotContain(" at DotnetInspector.", error);
+        Assert.Single(error.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n'));
+    }
+
+    [Fact]
     public async Task HostileDescription_RemainsQuotedInMarkdownAndContainedInJson()
     {
         const string bidi = "\u202E";
@@ -120,9 +151,14 @@ public sealed class NuspecHardeningTests : IDisposable
         Assert.False(serializedDescription.StartsWith("> ", StringComparison.Ordinal));
     }
 
-    private string WritePackage(string name, string nuspec)
+    private string WritePackage(
+        string name,
+        string nuspec,
+        string? fileName = null)
     {
-        string path = Path.Combine(_directory, $"{name}.1.0.0.nupkg");
+        string path = Path.Combine(
+            _directory,
+            fileName ?? $"{name}.1.0.0.nupkg");
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
         using var writer = new StreamWriter(
             archive.CreateEntry($"{name}.nuspec").Open(),

@@ -1114,6 +1114,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.Contains(
             "ecosystem-dependency-recognition.package-compile-selection-unavailable",
             details.Error);
+
+        var multiSectionDetails = await RunCommandAsync(
+            ["package", packagePath,
+                "-S",
+                $"{PackageSections.EcosystemDependencies},{PackageSections.Dependencies}",
+                "--tips", "q"]);
+
+        Assert.True(
+            multiSectionDetails.Exit == 0,
+            $"Exit {multiSectionDetails.Exit}: {multiSectionDetails.Error}");
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-manifest-unavailable",
+            multiSectionDetails.Error);
     }
 
     [Fact]
@@ -1238,6 +1251,38 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.DoesNotContain(
             "| Ecosystem |",
             result.Output);
+
+        var multiSectionResult = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S",
+                $"{PackageSections.EcosystemDependencies},{PackageSections.Dependencies}",
+                "--tips", "q"]);
+
+        Assert.True(
+            multiSectionResult.Exit == 0,
+            $"Exit {multiSectionResult.Exit}: {multiSectionResult.Error}");
+        Assert.Contains(
+            "Warning: ecosystem-dependency-recognition.package-",
+            multiSectionResult.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_MultiSectionJsonRejectsEcosystemRowWindow()
+    {
+        string id = $"Pinned.MultiSectionEcosystemJson.{Guid.NewGuid():N}";
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S",
+                $"{PackageSections.PackageInfo},{PackageSections.EcosystemDependencies}",
+                "--rows", "2..2",
+                "--json", "--tips", "q"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            result.Error);
     }
 
     [Fact]
