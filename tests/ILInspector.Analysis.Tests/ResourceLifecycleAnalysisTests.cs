@@ -305,6 +305,65 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void LifecycleRequest_DoesNotCreditGuardedThrowsNeverWithoutProof()
+    {
+        ResourceEffectAdmissionOutcome outcome =
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    ArrayPoolResourceEffectModel.Definition(),
+                    GuardedStreamReadThrowsNeverDefinition(),
+                ]);
+        ResourceEffectAdmission admission = Assert.IsType<
+            ResourceEffectAdmissionOutcome.Admitted>(outcome).Admission;
+
+        ResourceLifecycleRootResult root = Root(
+            Analyze(
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    admission)),
+            "RentReadBeforeReturn");
+
+        Assert.Contains(
+            root.Outcomes,
+            candidate =>
+                candidate.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+    }
+
+    [Fact]
+    public void IntrinsicNoThrow_RequiresExactKeepAliveSignature()
+    {
+        var keepAlive = new MemberRef(
+            TypeRef.CoreLib("System", "GC"),
+            "KeepAlive",
+            [TypeRef.CoreLib("System", "Object")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+        MemberRef fabricated = keepAlive with
+        {
+            ParameterTypes =
+                [TypeRef.SzArray(TypeRef.CoreLib("System", "Byte"))],
+        };
+
+        Assert.True(
+            ResourceLifecycleAnalysisService.IsIntrinsicallyNonThrowing(
+                keepAlive,
+                CallKind.Call));
+        Assert.False(
+            ResourceLifecycleAnalysisService.IsIntrinsicallyNonThrowing(
+                fabricated,
+                CallKind.Call));
+        Assert.False(
+            ResourceLifecycleAnalysisService.IsIntrinsicallyNonThrowing(
+                keepAlive,
+                CallKind.CallVirtual));
+        Assert.False(
+            ResourceLifecycleAnalysisService.IsIntrinsicallyNonThrowing(
+                keepAlive with { SignatureHeader = 0x05 },
+                CallKind.Call));
+    }
+
+    [Fact]
     public void LifecycleRequest_PreservesLegacyNonThrowingSetupBoundary()
     {
         ResourceLifecycleRootResult root =
@@ -518,6 +577,66 @@ public sealed class ResourceLifecycleAnalysisTests
                             new InertString(
                                 TextPolicy.Field,
                                 "resource-lifecycle-test:0"),
+                            0),
+                    ]),
+            ]);
+    }
+
+    static ResourceEffectModelDefinition
+        GuardedStreamReadThrowsNeverDefinition()
+    {
+        ResourceTypeExpression.Named stream = new(
+            new ResourceAssemblySelector(
+                "System.Runtime",
+                "b03f5f7f11d50a3a",
+                ResourceAssemblyVersionPolicy.Any,
+                allowCoreLibraryFacade: true),
+            "System.IO",
+            [new ResourceTypeNameSegment("Stream", 0)]);
+        ResourceTypeExpression.Named byteType = CoreType("Byte");
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            ThrowsNeverModel,
+            [],
+            [],
+            [
+                new ResourceEffectTypedDeclaration(
+                    new ResourceEffectTargetSelector.Member(
+                        new ResourceEffectMemberSelector(
+                            stream,
+                            "Read",
+                            ResourceEffectMemberKind.Method,
+                            isStatic: false,
+                            genericArity: 0,
+                            ResourceEffectCallingConvention.Default,
+                            hasThis: true,
+                            explicitThis: false,
+                            [
+                                new ResourceEffectParameterSelector(
+                                    new ResourceTypeExpression.SzArray(
+                                        byteType),
+                                    ResourceEffectRefKind.Value),
+                                new ResourceEffectParameterSelector(
+                                    CoreType("Int32"),
+                                    ResourceEffectRefKind.Value),
+                                new ResourceEffectParameterSelector(
+                                    CoreType("Int32"),
+                                    ResourceEffectRefKind.Value),
+                            ],
+                            CoreType("Int32"))),
+                    new ResourceEffect.Operation(
+                        ResourceOperationBoundary.Ordinary,
+                        ResourceOperationThrows.Never,
+                        new ResourceEffectGuard.ExactRuntimeType(
+                            new ResourceEffectLocation.Receiver(),
+                            new ResourceEffectSignatureLocation.Receiver())),
+                    [
+                        new ResourceDeclarationProvenance(
+                            ThrowsNeverModel,
+                            ResourceDeclarationAuthority.CallerSupplied,
+                            new InertString(
+                                TextPolicy.Field,
+                                "resource-lifecycle-guarded-test:0"),
                             0),
                     ]),
             ]);

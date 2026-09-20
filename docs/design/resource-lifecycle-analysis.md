@@ -127,11 +127,12 @@ incomplete until predicate correlation can prove that alternative releases
 cover every path. Same-block double-release and other sound positive outcomes
 remain available for that root.
 
-An `operation throws=never` effect suppresses that exact direct-call boundary
-as an exceptional-cleanup candidate. Other participating direct-call
-boundaries are conservatively potentially throwing. A call contributes to one
-root only when Resource Occurrence Analysis associated that exact root with the
-call.
+An unconditional `operation throws=never` effect suppresses that exact
+direct-call boundary as an exceptional-cleanup candidate. A guarded effect
+remains potentially throwing until Analysis can prove the guard at the call
+site. Other participating direct-call boundaries are conservatively
+potentially throwing. A call contributes to one root only when Resource
+Occurrence Analysis associated that exact root with the call.
 
 Cleanup in an enclosing `finally` or credited catch-all handler is guaranteed
 only when every control-flow path from the handler entry reaches a release
@@ -147,12 +148,13 @@ setup-boundary traversal so transparent framework wrappers retain their
 reported boundary sequence. Legacy setup classification controls traversal,
 not no-throw proof: only an exact `throws=never` effect or a narrow intrinsic
 rule suppresses a throwing boundary, and an otherwise fallible setup makes the
-root incomplete. Intrinsically nonthrowing setup calls, address-taken
-flows, and method-group or indirect-dispatch shapes encountered after the
-tracked load remain suppressed or incomplete exactly as the legacy oracle
-requires. Dispatch outside that root-use interval does not suppress sound
-boundary evidence. Other resource kinds continue to use occurrence-derived
-direct-call boundaries.
+root incomplete. The intrinsic rule matches only the exact static,
+non-generic, default-convention `void System.GC.KeepAlive(object)` call.
+Intrinsically nonthrowing setup calls, address-taken flows, and method-group or
+indirect-dispatch shapes encountered after the tracked load remain suppressed
+or incomplete exactly as the legacy oracle requires. Dispatch outside that
+root-use interval does not suppress sound boundary evidence. Other resource
+kinds continue to use occurrence-derived direct-call boundaries.
 
 The result preserves positive outcomes even when another root or another part
 of the method is incomplete. A root is complete only when:
@@ -192,6 +194,8 @@ later generalized Resource Triage product work decides how to expose them.
 Typed producer failures remain failed query outcomes. Root-local limitations
 remain visible on the focused Analysis result while sound positive
 exceptional-cleanup outcomes can still be projected.
+Finding projection requires a full-method-evidence receipt; a scoped lifecycle
+result cannot stand in for the whole-library Resource Triage census.
 
 ## Pathological case
 

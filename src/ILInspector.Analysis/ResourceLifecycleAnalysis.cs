@@ -79,6 +79,13 @@ public static class ResourceLifecycleAnalysis
                 subject,
                 "Resource Lifecycle Analysis was not requested.");
         }
+        if (!result.Receipt.HasFullMethodEvidenceScope)
+        {
+            return Failed(
+                subject,
+                "Resource lifecycle Finding projection requires "
+                + "full method evidence scope.");
+        }
         if (result.Methods.IsEmpty && !result.Limitations.IsEmpty)
         {
             ResourceLifecycleLimitation first = result.Limitations[0];

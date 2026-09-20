@@ -131,6 +131,42 @@ public sealed class ResourceTriageQueryTests
             InspectionCost.Unbounded,
             ResourceTriageQuery.Definition.Cost);
 
+    [Fact]
+    public void Execute_RejectsPartialMethodScope()
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+            });
+        LibraryBodyAnalysisExecution full =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        int cleanMethod = Assert.Single(
+            full.ResourceLifecycle.Methods,
+            method => method.Method.Name == "RentAndReturnDirectly")
+            .Method.MetadataToken;
+        LibraryResourceLifecycleAnalysisResult scoped =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create(),
+                    bodyScope: new HashSet<int> { cleanMethod }),
+                resolver)
+            .ResourceLifecycle;
+
+        Assert.False(scoped.Receipt.HasFullMethodEvidenceScope);
+        Assert.IsType<ResourceTriageResult.Failed>(
+            ResourceTriageQuery.Execute(
+                scoped,
+                new FindingSubject("query-tests", "query-tests")));
+    }
+
     static string AssessmentKey(ResourceTriageAssessment assessment) =>
         $"{assessment.Source.Payload.Method.MetadataToken:X8}:"
         + $"{assessment.Source.Payload.AcquireOffset:X8}";

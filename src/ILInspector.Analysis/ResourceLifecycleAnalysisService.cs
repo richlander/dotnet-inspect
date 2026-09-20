@@ -51,7 +51,9 @@ internal static class ResourceLifecycleAnalysisService
                         or CallKind.CallVirtual
                         or CallKind.NewObject
                     && !throwsNeverOffsets.Contains(call.ILOffset)
-                    && !IsIntrinsicallyNonThrowing(call.Callee)
+                    && !IsIntrinsicallyNonThrowing(
+                        call.Callee,
+                        call.Kind)
                     && !IsArrayPoolSharedGetter(call.Callee)))
             .Select(static call => call.ILOffset)
             .Concat(
@@ -534,11 +536,16 @@ internal static class ResourceLifecycleAnalysisService
                     or CallKind.LoadVirtualFunction
                     or CallKind.CallIndirect);
             bool provenNonThrowing =
-                IsIntrinsicallyNonThrowing(boundary.Operation)
-                || occurrencesByOffset.TryGetValue(
-                    boundary.ILOffset,
-                    out ResourceOccurrence? occurrence)
-                    && !CanThrow(occurrence);
+                (directCalls.TryGetValue(
+                        boundary.ILOffset,
+                        out DirectCall? boundaryCall)
+                    && IsIntrinsicallyNonThrowing(
+                        boundary.Operation,
+                        boundaryCall.Kind))
+                || (occurrencesByOffset.TryGetValue(
+                        boundary.ILOffset,
+                        out ResourceOccurrence? occurrence)
+                    && !CanThrow(occurrence));
             if (!provenNonThrowing
                 && classification.NonThrowingSetupBoundary)
             {
@@ -608,12 +615,28 @@ internal static class ResourceLifecycleAnalysisService
                 "System.Buffers",
                 "ArrayPool`1"));
 
-    static bool IsIntrinsicallyNonThrowing(MemberRef member) =>
-        member.Name == "KeepAlive"
+    internal static bool IsIntrinsicallyNonThrowing(
+        MemberRef member,
+        CallKind kind) =>
+        kind == CallKind.Call
+        && member.Kind == MemberKind.Method
+        && !member.HasThis
+        && member.GenericArity == 0
+        && (member.SignatureHeader & 0x0F) == 0
+        && member.Name == "KeepAlive"
         && FrameworkIdentity.IsCoreLibraryType(
             member.DeclaringType,
             "System",
-            "GC");
+            "GC")
+        && member.ParameterTypes is [var parameter]
+        && FrameworkIdentity.IsCoreLibraryType(
+            parameter,
+            "System",
+            "Object")
+        && FrameworkIdentity.IsCoreLibraryType(
+            member.ReturnType,
+            "System",
+            "Void");
 
     static bool IsArrayPoolRoot(
         ResourceOccurrenceRoot.Acquisition root) =>
@@ -622,15 +645,17 @@ internal static class ResourceLifecycleAnalysisService
 
     static bool CanThrow(ResourceOccurrence occurrence)
     {
-        ImmutableArray<ResourceEffect.Operation> operations =
+        ImmutableArray<ResourceOccurrenceEffect> operations =
         [
             .. occurrence.Effects
-                .Select(static effect => effect.Effect)
-                .OfType<ResourceEffect.Operation>(),
+                .Where(static effect =>
+                    effect.Effect is ResourceEffect.Operation),
         ];
         return operations.IsEmpty
-            || operations.Any(operation =>
-                operation.Throws == ResourceOperationThrows.Possible);
+            || operations.Any(effect =>
+                effect.Guard is not null
+                || ((ResourceEffect.Operation)effect.Effect).Throws
+                    == ResourceOperationThrows.Possible);
     }
 
     static bool TryFindAcquisitionDefinition(
