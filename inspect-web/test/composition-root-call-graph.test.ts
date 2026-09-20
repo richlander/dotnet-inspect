@@ -1090,6 +1090,11 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(
     appSource,
     /async function runLibraryQuery\([\s\S]*inspectLibraries\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*JSON\.stringify\(\[reference\]\)\)[\s\S]*state\.libraryQuerySequence === sequence[\s\S]*packageIdentityEquals\(state\.package, pkg\)/);
+  const activatePackage =
+    appSource.match(/function activatePackage\([\s\S]*?\n}\n\nfunction isDefaultAccessibility/)?.[0]
+    ?? "";
+  assert.match(activatePackage,
+    /const changed = !packageIdentityEquals\(state\.package, pkg\)[\s\S]*if \(changed\) \{[\s\S]*clearLibraryQuery\(\)/);
   assert.match(renderOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageVersionField\(\),[\s\S]*contentHtml,/);
   const renderLibraryOverview =

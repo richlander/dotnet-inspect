@@ -168,6 +168,26 @@ public sealed class LibraryQueryCliTests
         }
     }
 
+    [Fact]
+    public async Task InvalidIntentRejectsBeforeSourceAdmission()
+    {
+        var result = await RunAsync(
+            "library",
+            "query",
+            "/missing/not-a-library.txt",
+            "--where",
+            "unknown=value");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "does not define term 'unknown'",
+            result.Error);
+        Assert.DoesNotContain(
+            "must be a .dll or .exe file or a directory",
+            result.Error);
+    }
+
     private static Task<(int ExitCode, string Output, string Error)> RunAsync(
         params string[] arguments) =>
         ConsoleCapture.RunAsync(() =>

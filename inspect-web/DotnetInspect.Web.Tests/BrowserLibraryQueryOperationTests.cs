@@ -45,6 +45,35 @@ public sealed class BrowserLibraryQueryOperationTests
         Assert.True(inspection.Content.Summary.IsExact);
     }
 
+    [Fact]
+    public async Task QueryLibrariesEmptyPopulationReturnsExactEnvelope()
+    {
+        string id =
+            "Browser.Library.Query.Empty."
+            + Guid.NewGuid().ToString("N");
+        var package = new BrowserPackage(
+            id,
+            Version,
+            Archive(($"ref/{Framework}/_._", [])),
+            fromCache: false);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(package);
+
+        BrowserLibraryQueryInspection inspection = Read(
+            await PackageExports.QueryLibraries(
+                id,
+                Version,
+                Framework,
+                """["System.Runtime"]"""));
+
+        Assert.Empty(inspection.Content.Results);
+        Assert.Empty(inspection.Content.Failures);
+        Assert.Equal(0, inspection.Content.Summary.Population);
+        Assert.Equal(0, inspection.Content.Summary.Evaluated);
+        Assert.Equal(0, inspection.Content.Summary.Matches);
+        Assert.Equal("Complete", inspection.Content.Summary.Completion);
+        Assert.True(inspection.Content.Summary.IsExact);
+    }
+
     static BrowserLibraryQueryInspection Read(string json) =>
         JsonSerializer.Deserialize(
             json,

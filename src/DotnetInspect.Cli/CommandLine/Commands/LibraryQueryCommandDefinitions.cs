@@ -142,6 +142,18 @@ internal static class LibraryQueryCommandDefinitions
                 return Task.FromResult(1);
             }
 
+            if (!LibraryQueryOptions.TryCreate(
+                    sources,
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    parseResult.GetValue(takeOption)
+                        ?? LibraryQuery.DefaultMaximumCandidates,
+                    out LibraryQueryOptions? options,
+                    out OptionError error))
+            {
+                CommandError.Write(error);
+                return Task.FromResult(1);
+            }
+
             string? invalidSource = discover is null
                 ? sources.FirstOrDefault(source =>
                     !Directory.Exists(source)
@@ -157,18 +169,6 @@ internal static class LibraryQueryCommandDefinitions
                 CommandError.Write(
                     $"Library Query source '{invalidSource}' must be a "
                     + ".dll or .exe file or a directory.");
-                return Task.FromResult(1);
-            }
-
-            if (!LibraryQueryOptions.TryCreate(
-                    sources,
-                    parseResult.GetValue(opts.RowWhere) ?? [],
-                    parseResult.GetValue(takeOption)
-                        ?? LibraryQuery.DefaultMaximumCandidates,
-                    out LibraryQueryOptions? options,
-                    out OptionError error))
-            {
-                CommandError.Write(error);
                 return Task.FromResult(1);
             }
 

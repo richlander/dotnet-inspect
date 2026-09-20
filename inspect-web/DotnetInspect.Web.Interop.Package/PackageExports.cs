@@ -254,6 +254,8 @@ public static partial class PackageExports
                 nameof(requiredReferencesJson));
         }
 
+        LibraryQueryPlan plan =
+            ((LibraryQueryPlanResult.Accepted)planResult).Plan;
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
@@ -261,25 +263,29 @@ public static partial class PackageExports
                 targetFramework);
         BrowserInspectionScope scope = scopeLease.Scope;
         InspectionEnvelope<LibraryQueryDocument> envelope =
-            scope.UseSurface(group =>
-            {
-                if (group.Participants.Length
-                    != scope.SurfaceParticipants.Length
-                    || group.Participants.Where((participant, index) =>
-                        !ReferenceEquals(
-                            participant.Assembly.Registration,
-                            scope.SurfaceParticipants[index]
-                                .Assembly.Registration)).Any())
+            scope.SurfaceParticipants.IsEmpty
+                ? LibraryQueryInspection.Execute(
+                    new LibraryQueryPopulation(null, []),
+                    plan)
+                : scope.UseSurface(group =>
                 {
-                    throw new InvalidOperationException(
-                        "The Browser surface occurrence order does not match "
-                        + "the Library Query population.");
-                }
+                    if (group.Participants.Length
+                        != scope.SurfaceParticipants.Length
+                        || group.Participants.Where((participant, index) =>
+                            !ReferenceEquals(
+                                participant.Assembly.Registration,
+                                scope.SurfaceParticipants[index]
+                                    .Assembly.Registration)).Any())
+                    {
+                        throw new InvalidOperationException(
+                            "The Browser surface occurrence order does not "
+                            + "match the Library Query population.");
+                    }
 
-                return LibraryQueryInspection.Execute(
-                    LibraryQueryPopulation.FromGroup(group),
-                    ((LibraryQueryPlanResult.Accepted)planResult).Plan);
-            });
+                    return LibraryQueryInspection.Execute(
+                        LibraryQueryPopulation.FromGroup(group),
+                        plan);
+                });
         BrowserLibraryQueryInspection inspection =
             ProjectLibraryQuery(scope, envelope);
         return inspection;

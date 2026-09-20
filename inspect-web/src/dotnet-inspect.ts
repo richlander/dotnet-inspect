@@ -3993,8 +3993,10 @@ function activatePackage(
   const changed = !packageIdentityEquals(state.package, pkg);
   state.workspaceSubjectOpen = false;
   state.package = pkg;
-  if (changed)
+  if (changed) {
+    clearLibraryQuery();
     state.dependenciesGroupIndex = null;
+  }
   state.rootKind = pkg.source.kind === "platform" ? "platform" : "package";
   if (state.rootKind === "platform"
     && (state.platformSelection?.tfm !== pkg.activeFramework
