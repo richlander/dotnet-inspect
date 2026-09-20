@@ -300,6 +300,37 @@ public sealed class InstalledPlatformHouseAdapterTests
         Assert.Single(succeeded.Value.Libraries);
     }
 
+    [Fact]
+    public async Task MissingImplementationMemberRetainsClosureWork()
+    {
+        using var hive = new TestHive();
+        string directory = hive.CreateImplementationFramework();
+        hive.CopyAssembly(
+            directory,
+            typeof(InstalledPlatformHouseAdapterTests).Assembly.Location);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = ImplementationRequest(
+            adapter,
+            Target(),
+            new PlatformPopulationDemand.Library(
+                new PlatformLibraryDemand.Assembly(
+                    new AssemblyReferenceIdentity(
+                        "Missing",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null))),
+            TestContext.Current.CancellationToken);
+
+        var terminal = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.NotSucceeded>(
+                    await adapter.RealizeImplementationAsync(request));
+
+        Assert.NotNull(terminal.SourceWork);
+        Assert.Equal(1, terminal.SourceWork.Assemblies);
+        Assert.True(terminal.SourceWork.Bytes > 0);
+    }
+
     static PlatformHouseRequest SelectingRequest(
         InstalledPlatformHouseAdapter adapter,
         bool authorizeCapability = true,

@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -11,6 +12,7 @@ public sealed record LibraryCallUseOptions : IProjectionOptions
     public int? Cluster => QueryPlan.Cluster;
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }
+    public RowSelectionIntent<string>? RowSelection { get; init; }
     public RowWindow? Rows { get; init; }
     public bool NoHeader { get; init; }
     public bool Verbose { get; init; }
