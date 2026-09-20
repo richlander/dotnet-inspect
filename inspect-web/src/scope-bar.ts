@@ -49,9 +49,16 @@ export interface NavigationDescriptorBarItem {
   evidence: string | null;
 }
 
+export interface NavigationLensOutcomeBar {
+  status: "Lens unavailable" | "Lens failed";
+  evidence: string | null;
+}
+
 export interface RenderNavigationDescriptorBarOptions {
   subjects: readonly NavigationDescriptorBarItem[];
   inspectors: readonly NavigationDescriptorBarItem[];
+  subjectLabel: string;
+  lensOutcome: NavigationLensOutcomeBar | null;
   subjectPanelId?: string;
   inspectorPanelId?: string;
   memberChoicesPanelId?: string;
@@ -116,6 +123,7 @@ export type ScopeBarFocusTarget =
   | {
       kind: "product-navigation";
       value: string;
+      group: NavigationGroupName;
       presentation?: NavigationItemPresentation;
     };
 
@@ -271,11 +279,14 @@ export function captureScopeBarFocus(
 
   const presentation = itemPresentation(element);
   const productNavigation = element.dataset.navigationId;
+  const productGroup = element.dataset.navigationGroup;
   if (element.dataset.productNavigationItem !== undefined
-    && productNavigation !== undefined) {
+    && productNavigation !== undefined
+    && isNavigationGroupName(productGroup)) {
     return {
       kind: "product-navigation",
       value: productNavigation,
+      group: productGroup,
       ...(presentation ? { presentation } : {}),
     };
   }
@@ -349,7 +360,10 @@ function focusTargetSelector(
             ? ["[data-lens]", target.value]
             : target.kind === "member-section"
               ? ["[data-member-section]", target.value]
-              : ["[data-product-navigation-item]", target.value];
+              : [
+                  `[data-product-navigation-item][data-navigation-group="${target.group}"]`,
+                  target.value,
+                ];
 }
 
 function elementIdentity(element: HTMLElement): string | undefined {
@@ -657,6 +671,7 @@ function descriptorStateLabel(state: string): string {
 function descriptorAttributes(
   item: NavigationDescriptorBarItem,
   escapeHtml: (value: unknown) => string,
+  group?: NavigationGroupName,
 ): string {
   const action = item.action === null
     ? ""
@@ -667,7 +682,10 @@ function descriptorAttributes(
   const identity = item.identity === null
     ? ""
     : ` data-product-navigation-id="${escapeHtml(item.identity)}"`;
-  return `data-product-navigation-item data-navigation-id="${escapeHtml(item.key)}"${identity} data-navigation-current="${item.current}" data-navigation-state="${escapeHtml(item.state)}"${action}${localAction}`;
+  const groupAttribute = group
+    ? ` data-navigation-group="${group}"`
+    : "";
+  return `data-product-navigation-item${groupAttribute} data-navigation-id="${escapeHtml(item.key)}"${identity} data-navigation-current="${item.current}" data-navigation-state="${escapeHtml(item.state)}"${action}${localAction}`;
 }
 
 function descriptorLabel(
@@ -685,13 +703,61 @@ function descriptorLabel(
 
 function descriptorAccessibleLabel(
   item: NavigationDescriptorBarItem,
+  includeSummary: boolean,
 ): string {
   const description = [
-    item.summary,
+    includeSummary ? item.summary : null,
     descriptorStateLabel(item.state),
     item.evidence,
   ].filter(value => value).join(". ");
   return description ? `${item.label}: ${description}` : item.label;
+}
+
+interface DescriptorDescription {
+  readonly id: string;
+  readonly text: string;
+}
+
+function descriptorDescription(
+  items: readonly NavigationDescriptorBarItem[],
+  item: NavigationDescriptorBarItem,
+  index: number,
+  group: NavigationGroupName,
+  presentation: NavigationItemPresentation,
+): DescriptorDescription | null {
+  const sameTitle = items.filter(candidate => candidate.label === item.label);
+  if (sameTitle.length < 2) return null;
+
+  const sameSummary = sameTitle.filter(candidate =>
+    candidate.summary === item.summary);
+  const identity = sameSummary.length > 1
+    ? item.identity ?? item.key
+    : null;
+  const text = [item.summary, identity].filter(value => value).join(" · ");
+  return text
+    ? {
+        id: `${group}-${presentation}-${index}-navigation-description`,
+        text,
+      }
+    : null;
+}
+
+function descriptorDescriptionAttributes(
+  description: DescriptorDescription | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return description
+    ? ` aria-describedby="${escapeHtml(description.id)}"`
+    : "";
+}
+
+function descriptorDescriptionElement(
+  description: DescriptorDescription | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return description
+    ? `<span id="${escapeHtml(description.id)}" class="navigation-item-description">${escapeHtml(description.text)}</span>`
+    : "";
 }
 
 function descriptorTab(
@@ -700,29 +766,36 @@ function descriptorTab(
   panelId: string,
   memberChoicesPanelId: string,
   group: NavigationGroupName,
+  description: DescriptorDescription | null,
   escapeHtml: (value: unknown) => string,
 ): string {
   const label = descriptorLabel(item, escapeHtml);
-  const accessibleLabel = descriptorAccessibleLabel(item);
+  const accessibleLabel = descriptorAccessibleLabel(item, description === null);
   const disabled = item.action === null
     && item.localAction === null
     && !item.current;
   const controls = item.localAction === "choose-member"
     ? memberChoicesPanelId
-    : panelId;
+    : group === "inspector" && !item.current
+      ? null
+      : panelId;
   const current = group === "subject" && item.current
     ? ' aria-current="page"'
     : "";
-  return `<button type="button" class="adaptive-navigation-tab ${group === "subject" ? "scope-seg" : "lens"} ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="tab" ${group === "subject" ? "data-subject-tab" : "data-inspector-tab"} role="tab" aria-selected="${item.current}" aria-disabled="${disabled}" tabindex="${tabStop ? "0" : "-1"}"${item.current ? ` id="active-${group}-tab"` : ""}${current} aria-controls="${escapeHtml(controls)}" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}"><span${group === "inspector" ? ' class="lens-label"' : ""}>${label}</span></button>`;
+  const title = description
+    ? `${item.label}: ${description.text}`
+    : accessibleLabel;
+  return `<button type="button" class="adaptive-navigation-tab ${group === "subject" ? "scope-seg" : "lens"} ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml, group)} data-navigation-item="tab" ${group === "subject" ? "data-subject-tab" : "data-inspector-tab"} role="tab" aria-selected="${item.current}" aria-disabled="${disabled}" tabindex="${tabStop ? "0" : "-1"}"${item.current ? ` id="active-${group}-tab"` : ""}${current}${controls ? ` aria-controls="${escapeHtml(controls)}"` : ""} aria-label="${escapeHtml(accessibleLabel)}"${descriptorDescriptionAttributes(description, escapeHtml)} title="${escapeHtml(title)}"><span${group === "inspector" ? ' class="lens-label"' : ""}>${label}</span>${descriptorDescriptionElement(description, escapeHtml)}</button>`;
 }
 
 function descriptorMenuItem(
   item: NavigationDescriptorBarItem,
   memberChoicesPanelId: string,
   group: NavigationGroupName,
+  description: DescriptorDescription | null,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const accessibleLabel = descriptorAccessibleLabel(item);
+  const accessibleLabel = descriptorAccessibleLabel(item, description === null);
   const selectionRequired = item.localAction === "choose-member";
   const disabled = item.action === null
     && !selectionRequired
@@ -737,7 +810,10 @@ function descriptorMenuItem(
   const current = group === "subject" && item.current
     ? ' aria-current="page"'
     : "";
-  return `<button type="button" class="adaptive-navigation-menu-item ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="menuitem" role="${role}"${checked}${current} aria-disabled="${disabled}"${controls} tabindex="-1" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}">${descriptorLabel(item, escapeHtml)}</button>`;
+  const title = description
+    ? `${item.label}: ${description.text}`
+    : accessibleLabel;
+  return `<button type="button" class="adaptive-navigation-menu-item ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml, group)} data-navigation-item="menuitem" role="${role}"${checked}${current} aria-disabled="${disabled}"${controls} tabindex="-1" aria-label="${escapeHtml(accessibleLabel)}"${descriptorDescriptionAttributes(description, escapeHtml)} title="${escapeHtml(title)}">${descriptorLabel(item, escapeHtml)}${descriptorDescriptionElement(description, escapeHtml)}</button>`;
 }
 
 function navigationGroup(options: {
@@ -808,6 +884,8 @@ export function renderNavigationDescriptorBar(
   const {
     subjects,
     inspectors,
+    subjectLabel,
+    lensOutcome,
     subjectPanelId = "subject-panel",
     inspectorPanelId = "inspector-panel",
     memberChoicesPanelId = "content-navigation-pane",
@@ -823,25 +901,27 @@ export function renderNavigationDescriptorBar(
     const fallback = current ?? items[0]!;
     return navigationGroup({
       name,
-      label: name === "subject" ? "Subjects" : "Inspectors",
+      label: name === "subject" ? "Subjects" : `${subjectLabel} lenses`,
       chooserLabel: current?.label
         ?? (name === "subject" ? "Choose subject" : "Choose inspector"),
       key: items.map(item => item.key).join(","),
       committedId: current?.key ?? null,
       panelId,
-      tabHtml: items.map(item =>
+      tabHtml: items.map((item, index) =>
         descriptorTab(
           item,
           item.key === fallback.key,
           panelId,
           memberChoicesPanelId,
           name,
+          descriptorDescription(items, item, index, name, "tab"),
           escapeHtml)).join(""),
-      menuHtml: items.map(item =>
+      menuHtml: items.map((item, index) =>
         descriptorMenuItem(
           item,
           memberChoicesPanelId,
           name,
+          descriptorDescription(items, item, index, name, "menuitem"),
           escapeHtml)).join(""),
       escapeHtml,
     });
@@ -852,8 +932,12 @@ export function renderNavigationDescriptorBar(
     "inspector",
     inspectors,
     inspectorPanelId);
-  if (!subjectHtml && !inspectorHtml) return "";
-  return `<div class="scope-bar" data-scope-bar>${subjectHtml}${subjectHtml && inspectorHtml ? '<span class="navigation-separator" aria-hidden="true"></span>' : ""}${inspectorHtml}</div>`;
+  const lensOutcomeHtml = lensOutcome
+    ? `<span class="lens-context navigation-lens-outcome" role="status" aria-label="${escapeHtml(`${subjectLabel}: ${lensOutcome.status}${lensOutcome.evidence ? `: ${lensOutcome.evidence}` : ""}`)}">${escapeHtml(lensOutcome.status)}${lensOutcome.evidence ? `: ${escapeHtml(lensOutcome.evidence)}` : ""}</span>`
+    : "";
+  if (!subjectHtml && !inspectorHtml && !lensOutcomeHtml) return "";
+  const hasTrailingContent = Boolean(inspectorHtml || lensOutcomeHtml);
+  return `<nav class="lensbar" data-scope-bar aria-label="Subjects and inspectors">${subjectHtml}${subjectHtml && hasTrailingContent ? '<span class="lens-separator" aria-hidden="true"></span>' : ""}${inspectorHtml}${lensOutcomeHtml}</nav>`;
 }
 
 export function renderApplicationScopeBar(
@@ -1041,20 +1125,14 @@ function groupItemId(item: HTMLElement | null): string | null {
   return item?.dataset.navigationId ?? null;
 }
 
-function firstEnabledItem(
-  items: readonly HTMLButtonElement[],
-): HTMLButtonElement | null {
-  return items.find(item => !item.disabled
-    && item.getAttribute("aria-disabled") !== "true") ?? null;
-}
-
 function committedOrFirst(
   group: AdaptiveNavigationGroup,
   items: readonly HTMLButtonElement[],
 ): HTMLButtonElement | null {
   return items.find(item =>
     groupItemId(item) === group.committedId)
-    ?? firstEnabledItem(items);
+    ?? items[0]
+    ?? null;
 }
 
 function syncGroupState(
@@ -1311,6 +1389,8 @@ class ScopeBarController implements ScopeBarBinding {
       ? target.value
       : target.kind === "scope"
         ? "subject"
+        : target.kind === "product-navigation"
+          ? target.group
         : target.kind === "application-scope"
           ? null
           : "inspector";

@@ -464,6 +464,40 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   color: var(--text);
   background: rgba(127,127,127,.12);
 }
+.navigation-item-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.adaptive-navigation-tab:is(:hover, :focus-visible)
+  .navigation-item-description,
+.adaptive-navigation-menu-item:is(:hover, :focus-visible)
+  .navigation-item-description {
+  position: fixed;
+  inset: 42px auto auto 50%;
+  z-index: 50;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  height: auto;
+  padding: 6px 8px;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  transform: translateX(-50%);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: var(--shadow-menu);
+  white-space: normal;
+  pointer-events: none;
+}
 .adaptive-navigation-menu-item.active::before {
   content: "✓";
   margin-right: 7px;

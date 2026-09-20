@@ -150,26 +150,32 @@ export function renderWorkspaceView(
   } = options;
   const packageRows = navigationPackages
     ? navigationPackages.map(item => {
-      const surface = item.surface;
+      const framework = item.framework
+        ?? item.summary.selectedCompileFramework
+        ?? "";
       const key = packageIdentityKey({
-        id: surface.package,
-        version: surface.version,
-        activeFramework: surface.activeFramework,
+        id: item.package,
+        version: item.version,
+        activeFramework: framework,
       });
-      const framework = item.framework ?? surface.activeFramework;
       const runtimeIdentifier = item.runtimeIdentifier
         ? ` · ${item.runtimeIdentifier}`
         : "";
       const status = item.subject.state.toLowerCase() === "available"
         ? ""
         : ` · ${item.subject.state}`;
+      const evidence = item.subject.evidence ?? item.realizationFailure;
       const label =
         `${item.package} ${item.version} ${framework}${runtimeIdentifier}`;
+      const accessibleLabel = `Inspect ${label}`
+        + (item.subject.current ? ". Current" : "")
+        + (status ? `. ${item.subject.state}` : "")
+        + (evidence ? `. ${evidence}` : "");
       return `<li class="workspace-occurrence-row" data-navigation-order="${item.order}">
-        <button class="workspace-occurrence${item.subject.current ? " active" : ""}" type="button" ${item.subject.action ? `data-product-navigation-action="${escapeHtml(item.subject.action)}"` : item.subject.current ? "" : "disabled"} data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}"${item.subject.current ? ' aria-current="page"' : ""} aria-label="Inspect ${escapeHtml(label)}">
+        <button class="workspace-occurrence${item.subject.current ? " active" : ""}" type="button" ${item.subject.action ? `data-product-navigation-action="${escapeHtml(item.subject.action)}"` : item.subject.current ? "" : "disabled"} data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}"${item.subject.current ? ' aria-current="page"' : ""} aria-label="${escapeHtml(accessibleLabel)}">
           <span>NuGet package</span>
           <strong>${escapeHtml(item.package)}</strong>
-          <small>${escapeHtml(item.version)} · ${escapeHtml(framework)}${escapeHtml(runtimeIdentifier)}${item.subject.current ? " · Current" : ""}${escapeHtml(status)}</small>
+          <small>${escapeHtml(item.version)} · ${escapeHtml(framework)}${escapeHtml(runtimeIdentifier)}${item.subject.current ? " · Current" : ""}${escapeHtml(status)}${evidence ? ` · ${escapeHtml(evidence)}` : ""}</small>
         </button>
         ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
       </li>`;

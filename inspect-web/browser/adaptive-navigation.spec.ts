@@ -487,3 +487,18 @@ test("Workspace with no committed subject uses an honest focus origin", async ({
     "aria-labelledby",
     "application-scope-workspace");
 });
+
+test("Chooser focus starts at the first owner-ordered disabled item", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 220, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const packageItem = page.locator(
+    "[data-navigation-menu='subject'] [data-scope='package']");
+  await packageItem.evaluate(element =>
+    element.setAttribute("aria-disabled", "true"));
+  await page.locator("[data-navigation-trigger='subject']").click();
+
+  await expect(packageItem).toBeFocused();
+});

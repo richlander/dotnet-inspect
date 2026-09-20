@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
-  BrowserPackageSurface,
   BrowserRetainedNavigationAction,
   BrowserRetainedNavigationSnapshot,
   BrowserRetainedNavigationSubject,
   BrowserRetainedWorkspacePosting,
+  BrowserRetainedWorkspaceSurfaceSummary,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import { fakeDom } from "./fake-dom.ts";
 import {
@@ -51,30 +51,16 @@ function action(
   };
 }
 
-function packageSurface(
-  packageId: string,
-  version: string,
+function packageSummary(
   framework: string,
-): BrowserPackageSurface {
+): BrowserRetainedWorkspaceSurfaceSummary {
   return {
-    package: packageId,
-    version,
-    frameworks: [framework],
-    activeFramework: framework,
-    icon: null,
-    defaultAssemblyId: null,
-    compileLibrary: {
-      status: "Selected",
-      targetFramework: framework,
-      message: null,
-    },
-    assemblies: [],
-    types: [],
-    accessibility: [],
-    totalMembers: 0,
-    documents: [],
-    inspectionErrors: [],
-    inspectionError: null,
+    selectedCompileFramework: framework,
+    libraryCount: 1,
+    typeCount: 1,
+    memberCount: 1,
+    documentCount: 1,
+    hasInspectionNotices: false,
   };
 }
 
@@ -218,6 +204,13 @@ function posting(): BrowserRetainedWorkspacePosting {
     canonicalPacket: "packet",
     realizationId: "realization",
     publicationOrdinal: 1,
+    definition: {
+      tabs: [],
+      contexts: [],
+      registrations: [],
+      activeTabId: null,
+      selectedContextId: null,
+    },
     navigation: {
       operation: "Initialize",
       request: "request",
@@ -243,13 +236,16 @@ function posting(): BrowserRetainedWorkspacePosting {
     },
     packages: [{
       navigationId: "navigation-1",
+      contextIndex: 0,
       consumerPackageSubjectId: packageOne.id,
-      surface: packageSurface("First", "1.0.0", "net10.0"),
+      summary: packageSummary("net10.0"),
     }, {
       navigationId: "navigation-2",
+      contextIndex: 1,
       consumerPackageSubjectId: packageTwo.id,
-      surface: packageSurface("Second", "2.0.0", "net11.0"),
+      summary: packageSummary("net11.0"),
     }],
+    platforms: [],
     predecessor: null,
     cleanup: null,
   };
@@ -288,10 +284,22 @@ test("descriptor bar preserves duplicate labels by identity and shows failures",
       },
       ...presentation.subjects.slice(1),
     ],
-    inspectors: presentation.inspectors,
+    inspectors: [
+      ...presentation.inspectors,
+      {
+        ...presentation.inspectors[1]!,
+        key: "library.compare.other",
+        identity: "library.compare.other",
+      },
+    ],
+    subjectLabel: presentation.subjectLabel,
+    lensOutcome: presentation.lensOutcome,
     escapeHtml,
   });
 
+  assert.match(
+    html,
+    /^<nav class="lensbar" data-scope-bar aria-label="Subjects and inspectors">/);
   assert.match(
     html,
     /data-product-navigation-id="package-2"[\s\S]*>Duplicate</);
@@ -313,6 +321,18 @@ test("descriptor bar preserves duplicate labels by identity and shows failures",
   assert.match(
     html,
     /data-local-navigation-action="choose-member"[^>]*role="menuitem"(?!radio)/);
+  assert.match(
+    html,
+    /aria-describedby="inspector-tab-1-navigation-description"/);
+  assert.match(
+    html,
+    /id="inspector-tab-1-navigation-description"[^>]*>Library comparison · library\.compare</);
+  assert.match(
+    html,
+    /id="inspector-tab-2-navigation-description"[^>]*>Library comparison · library\.compare\.other</);
+  assert.doesNotMatch(
+    html,
+    /data-navigation-id="library\.compare"[^>]*aria-controls="inspector-panel"/);
 });
 
 test("Workspace entry and Package rows render product labels, order, and status", () => {
@@ -355,10 +375,124 @@ test("Workspace entry and Package rows render product labels, order, and status"
   assert.match(workspace, /data-workspace-platform/);
 });
 
+test("no-effective-lens outcomes retain status and exact evidence", () => {
+  const source = posting();
+  const unavailable = {
+    ...source,
+    navigation: {
+      ...source.navigation,
+      snapshot: {
+        ...source.navigation.snapshot,
+        lenses: source.navigation.snapshot.lenses.map(descriptor => ({
+          ...descriptor,
+          isCurrent: false,
+          target: null,
+        })),
+        lensOutcome: {
+          ...source.navigation.snapshot.lensOutcome,
+          kind: "Unavailable",
+          effectiveLens: null,
+          resolution: {
+            kind: "Unavailable",
+            descriptor: null,
+            unavailability: "No compatible lens",
+            message: null,
+          },
+        },
+      },
+    },
+  };
+  const unavailablePresentation =
+    createNavigationDescriptorPresentation(unavailable);
+  const unavailableHtml = renderNavigationDescriptorBar({
+    subjects: unavailablePresentation.subjects,
+    inspectors: unavailablePresentation.inspectors,
+    subjectLabel: unavailablePresentation.subjectLabel,
+    lensOutcome: unavailablePresentation.lensOutcome,
+    escapeHtml,
+  });
+
+  assert.deepEqual(unavailablePresentation.lensOutcome, {
+    status: "Lens unavailable",
+    evidence: "No compatible lens",
+  });
+  assert.match(
+    unavailableHtml,
+    /role="status" aria-label="Library: Lens unavailable: No compatible lens">Lens unavailable: No compatible lens/);
+  assert.doesNotMatch(unavailableHtml, /aria-controls="inspector-panel"/);
+
+  const failed = {
+    ...unavailable,
+    navigation: {
+      ...unavailable.navigation,
+      snapshot: {
+        ...unavailable.navigation.snapshot,
+        lensOutcome: {
+          ...unavailable.navigation.snapshot.lensOutcome,
+          kind: "Failed",
+          policyFailure: "EmptyOptions",
+          resolution: null,
+        },
+      },
+    },
+  };
+  const failedPresentation = createNavigationDescriptorPresentation(failed);
+  const failedHtml = renderNavigationDescriptorBar({
+    subjects: failedPresentation.subjects,
+    inspectors: failedPresentation.inspectors,
+    subjectLabel: failedPresentation.subjectLabel,
+    lensOutcome: failedPresentation.lensOutcome,
+    escapeHtml,
+  });
+
+  assert.deepEqual(failedPresentation.lensOutcome, {
+    status: "Lens failed",
+    evidence: "EmptyOptions",
+  });
+  assert.match(failedHtml, /Lens failed: EmptyOptions/);
+});
+
+test("Workspace Package rows retain realization-failure evidence", () => {
+  const source = posting();
+  const failed = {
+    ...source,
+    navigation: {
+      ...source.navigation,
+      snapshot: {
+        ...source.navigation.snapshot,
+        packages: source.navigation.snapshot.packages.map(
+          (descriptor, index) => index === 0
+            ? {
+                ...descriptor,
+                state: "Failed",
+                realization: "Failed",
+                realizationFailure: "Exact realization failure",
+              }
+            : descriptor),
+      },
+    },
+  };
+  const presentation = createNavigationDescriptorPresentation(failed);
+  const html = renderWorkspaceView({
+    occurrences: [],
+    navigationPackages: presentation.packages,
+    packages: [],
+    loading: false,
+    error: "",
+    escapeHtml,
+  });
+
+  assert.match(html, /Failed · Exact realization failure/);
+  assert.match(
+    html,
+    /aria-label="Inspect First 1\.0\.0 net10\.0\. Failed\. Exact realization failure"/);
+});
+
 test("descriptor focus capture uses product identity rather than label", () => {
   const target = captureScopeBarFocus(fakeDom.htmlElement({
     dataset: {
       productNavigationItem: "",
+      navigationGroup: "subject",
       navigationId: "package-2",
       navigationItem: "tab",
     },
@@ -367,6 +501,7 @@ test("descriptor focus capture uses product identity rather than label", () => {
   assert.deepEqual(target, {
     kind: "product-navigation",
     value: "package-2",
+    group: "subject",
     presentation: "tab",
   });
 });

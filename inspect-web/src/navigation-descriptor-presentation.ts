@@ -1,12 +1,13 @@
 import type {
-  BrowserPackageSurface,
   BrowserRetainedNavigationAction,
   BrowserRetainedNavigationLensDescriptor,
+  BrowserRetainedNavigationLensOutcome,
   BrowserRetainedNavigationPackageDescriptor,
   BrowserRetainedNavigationSnapshot,
   BrowserRetainedNavigationSubjectDescriptor,
-  BrowserRetainedWorkspacePackage,
+  BrowserRetainedWorkspacePackageInventory,
   BrowserRetainedWorkspacePosting,
+  BrowserRetainedWorkspaceSurfaceSummary,
 } from "./facades/inspect-web-catalog.d.ts";
 
 interface NavigationDescriptorPresentationItem {
@@ -32,13 +33,20 @@ export interface NavigationPackagePresentationItem {
   readonly runtimeIdentifier: string | null;
   readonly realization: string;
   readonly realizationFailure: string | null;
-  readonly surface: BrowserPackageSurface;
+  readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
+}
+
+interface NavigationLensOutcomePresentation {
+  readonly status: "Lens unavailable" | "Lens failed";
+  readonly evidence: string | null;
 }
 
 export interface NavigationDescriptorPresentation {
   readonly workspace: NavigationDescriptorPresentationItem;
+  readonly subjectLabel: string;
   readonly subjects: readonly NavigationDescriptorPresentationItem[];
   readonly inspectors: readonly NavigationDescriptorPresentationItem[];
+  readonly lensOutcome: NavigationLensOutcomePresentation | null;
   readonly packages: readonly NavigationPackagePresentationItem[];
   readonly actions: ReadonlyMap<string, BrowserRetainedNavigationAction>;
 }
@@ -59,9 +67,11 @@ export function createNavigationDescriptorPresentation(
 
   return {
     workspace,
+    subjectLabel: snapshot.activeSubject.label,
     subjects: hierarchy.filter(item =>
       item.kind.toLowerCase() !== "workspace"),
     inspectors: snapshot.lenses.map(lensPresentation),
+    lensOutcome: lensOutcomePresentation(snapshot.lensOutcome),
     packages: packagePresentation(snapshot.packages, posting.packages),
     actions,
   };
@@ -143,18 +153,45 @@ function lensPresentation(
   };
 }
 
+function lensOutcomePresentation(
+  outcome: BrowserRetainedNavigationLensOutcome,
+): NavigationLensOutcomePresentation | null {
+  if (outcome.effectiveLens !== null) return null;
+
+  const status = outcome.kind.toLowerCase() === "unavailable"
+    ? "Lens unavailable"
+    : outcome.kind.toLowerCase() === "failed"
+      ? "Lens failed"
+      : null;
+  if (status === null) {
+    throw new Error(
+      `Navigation supplied '${outcome.kind}' without an effective lens.`);
+  }
+
+  return {
+    status,
+    evidence: outcome.suspension?.failure
+      ?? outcome.policyFailure
+      ?? outcome.resolution?.message
+      ?? outcome.resolution?.unavailability
+      ?? outcome.suspension?.kind
+      ?? null,
+  };
+}
+
 function packagePresentation(
   descriptors: readonly BrowserRetainedNavigationPackageDescriptor[],
-  surfaces: readonly BrowserRetainedWorkspacePackage[],
+  inventories: readonly BrowserRetainedWorkspacePackageInventory[],
 ): readonly NavigationPackagePresentationItem[] {
-  const surfacesBySubject = new Map<string, BrowserRetainedWorkspacePackage>();
-  for (const surface of surfaces) {
-    if (surfacesBySubject.has(surface.consumerPackageSubjectId)) {
+  const inventoriesBySubject =
+    new Map<string, BrowserRetainedWorkspacePackageInventory>();
+  for (const inventory of inventories) {
+    if (inventoriesBySubject.has(inventory.consumerPackageSubjectId)) {
       throw new Error(
-        `The retained Workspace supplied duplicate Package presentation '${surface.consumerPackageSubjectId}'.`,
+        `The retained Workspace supplied duplicate Package presentation '${inventory.consumerPackageSubjectId}'.`,
       );
     }
-    surfacesBySubject.set(surface.consumerPackageSubjectId, surface);
+    inventoriesBySubject.set(inventory.consumerPackageSubjectId, inventory);
   }
 
   const projected = descriptors
@@ -163,13 +200,13 @@ function packagePresentation(
       left.descriptor.order - right.descriptor.order
       || left.index - right.index)
     .map(({ descriptor }) => {
-      const surface = surfacesBySubject.get(descriptor.subject.id);
-      if (surface === undefined) {
+      const inventory = inventoriesBySubject.get(descriptor.subject.id);
+      if (inventory === undefined) {
         throw new Error(
           `The retained Workspace omitted Package presentation '${descriptor.subject.id}'.`,
         );
       }
-      surfacesBySubject.delete(descriptor.subject.id);
+      inventoriesBySubject.delete(descriptor.subject.id);
       return {
         order: descriptor.order,
         subject: {
@@ -191,11 +228,11 @@ function packagePresentation(
         runtimeIdentifier: descriptor.runtimeIdentifier,
         realization: descriptor.realization,
         realizationFailure: descriptor.realizationFailure,
-        surface: surface.surface,
+        summary: inventory.summary,
       };
     });
 
-  if (surfacesBySubject.size > 0) {
+  if (inventoriesBySubject.size > 0) {
     throw new Error(
       "The retained Workspace supplied Package presentations without matching Navigation descriptors.",
     );
