@@ -52,6 +52,7 @@ public partial class PackageCommand
             preResolved: null,
             admittedPackageManifest: null,
             admittedPackageInfoMeasurements: null,
+            admittedPackageEcosystemDependencies: null,
             inspectionObserver: null,
             workspaceLoadOptions: null).ConfigureAwait(false);
 
@@ -65,6 +66,7 @@ public partial class PackageCommand
             preResolved: null,
             admittedPackageManifest: null,
             admittedPackageInfoMeasurements: null,
+            admittedPackageEcosystemDependencies: null,
             inspectionObserver: null,
             workspaceLoadOptions).ConfigureAwait(false);
 
@@ -75,6 +77,9 @@ public partial class PackageCommand
         byte[]? admittedPackageManifest,
         Func<InspectionEnvelope<PackageInfoMeasurements>>?
             admittedPackageInfoMeasurements,
+        Func<Task<
+            InspectionEnvelope<EcosystemDependencyRecognitionOutcome>>>?
+            admittedPackageEcosystemDependencies,
         Action<InspectionResult>? inspectionObserver,
         WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
@@ -1305,12 +1310,26 @@ public partial class PackageCommand
 
             if (wantsEcosystemDependencies)
             {
-                await ApplyPackageEcosystemDependenciesAsync(
-                    result,
-                    resolution,
+                bool discloseDiagnostics =
                     RequiresPackageEcosystemDiagnosticDisclosure(
-                        producerOptions),
-                    logger.Log);
+                        producerOptions);
+                if (admittedPackageEcosystemDependencies is not null)
+                {
+                    ApplyPackageEcosystemDependencies(
+                        result,
+                        await admittedPackageEcosystemDependencies()
+                            .ConfigureAwait(false),
+                        discloseDiagnostics,
+                        logger.Log);
+                }
+                else
+                {
+                    await ApplyPackageEcosystemDependenciesAsync(
+                        result,
+                        resolution,
+                        discloseDiagnostics,
+                        logger.Log);
+                }
             }
 
             await PopulatePackageSignatureAsync(

@@ -490,6 +490,69 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task EcosystemDependenciesUseAdmittedRoot()
+    {
+        const string dependencyPackage =
+            "Microsoft.Extensions.AI.Abstractions";
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            await PackageAsync(
+                SelectedPackage,
+                typeof(ApiType).Assembly.Location,
+                dependencyPackage));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextLoadOptions loadOptions = LoadOptions(client, store);
+        var infoOptions = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            Select = [PackageSections.PackageInfo],
+            SelectExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var info = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                infoOptions,
+                new CommandContext(verbose: false),
+                loadOptions));
+
+        Assert.Equal(0, info.ExitCode);
+        Assert.Contains("Microsoft.Extensions", info.Output);
+        Assert.Contains("AI", info.Output);
+        Assert.DoesNotContain(
+            "| Ecosystem Dependency Status |",
+            info.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(info.Error);
+
+        InspectionOptions detailOptions = infoOptions with
+        {
+            Select = [PackageSections.EcosystemDependencies],
+        };
+        var details = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                detailOptions,
+                new CommandContext(verbose: false),
+                loadOptions));
+
+        Assert.Equal(0, details.ExitCode);
+        Assert.Contains(dependencyPackage, details.Output);
+        Assert.Contains("Microsoft.Extensions", details.Output);
+        Assert.Contains("Package declaration", details.Output);
+        Assert.Empty(details.Error);
+    }
+
+    [Fact]
     public async Task DeclaredToolPackageInfoUsesAdmittedToolSlice()
     {
         var store = new InMemoryPackageStore();

@@ -274,6 +274,19 @@ public partial class PackageCommand
                     .ConfigureAwait(false);
         }
 
+        ApplyPackageEcosystemDependencies(
+            result,
+            inspection,
+            discloseEmptyDetailDiagnostics,
+            log);
+    }
+
+    private static void ApplyPackageEcosystemDependencies(
+        InspectionResult result,
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection,
+        bool discloseEmptyDetailDiagnostics,
+        Action<string>? log)
+    {
         result.EcosystemDependencyRecognitionInspection = inspection;
         bool discloseDiagnostics =
             discloseEmptyDetailDiagnostics

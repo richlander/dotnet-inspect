@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -205,6 +206,10 @@ public partial class PackageCommand
                     target.Root,
                     workspaceResolution.ManifestBytes,
                     ordinaryOptions.Tfm),
+                () => PackageEcosystemDependencyRecognitionInspection
+                    .ExecuteAsync(
+                        target.Root,
+                        ordinaryOptions.Tfm),
                 result => inspection = result,
                 workspaceLoadOptions: null).ConfigureAwait(false);
             return new(inspection, exitCode);
