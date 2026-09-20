@@ -433,8 +433,9 @@ public partial class ReturnToSenderPrototypeTests
             Assert.Contains(type.Members, member =>
                 member.Name == "_value"
                 && member.Kind == CompileBackMemberKind.Field
+                && member.IsReadOnly
                 && member.SourceFacts.Any(fact => fact.Id == "typed-closure-field" && fact.Detail == "_value"));
-            Assert.Contains("public int _value;", result.Source);
+            Assert.Contains("public readonly int _value;", result.Source);
         }
         finally
         {
