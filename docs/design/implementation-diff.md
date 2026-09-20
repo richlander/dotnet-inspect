@@ -2053,6 +2053,61 @@ Use `ImplementationDiff.UnifiedLines(change)` only at presentation boundaries.
 The durable model keeps the producer-owned typed display rows rather than a
 third implementation-specific row family.
 
+## Exact-pair document and inspection envelope
+
+`ILInspector.Research` owns `ImplementationDiffDocument`, the settled,
+resource-free result for one exact Library assembly on each endpoint. It is the
+authoritative multi-part content described by
+[Multi-part inspection documents](multi-part-inspection-documents.md), not a
+serialization of `ResearchComparison` and not a copy of the CLI's current row
+view.
+
+The document contains:
+
+- the requested C#, IL/body, and complexity mechanisms plus normalized type and
+  member selectors;
+- one Before and one After endpoint carrying exact assembly identity, MVID, and
+  acquisition provenance without paths, streams, sessions, or resolver state;
+- changed members keyed by `ResearchSubjectKey`, with detached scalar transition
+  facts and the producer-owned C# and IL rows or typed failures that support
+  them;
+- complexity changes with endpoint completeness and image-issued method
+  evidence coordinates; and
+- per-mechanism coverage that distinguishes evaluated, exact, changed,
+  unavailable, incomplete, and failed work.
+
+The exact-pair scope is deliberate. The legacy assembly-wide Research join uses
+member selectors that do not include assembly identity, so a document spanning
+several assembly pairs could not yet prove every member/evidence join
+unambiguous. Broader populations require an owner-issued assembly-pair currency
+before they can reuse this document contract.
+
+`DotnetInspector.ResearchQueries` exposes the exact-pair L1 query while
+preserving the broader `ImplementationComparisonQuery` for existing consumers.
+The optional L2 `DotnetInspector.ResearchSections` companion returns
+`InspectionEnvelope<ImplementationDiffDocument>`. The envelope has exactly that
+document as Content and initially reports Share as non-projectable at
+`comparison/endpoints`; Inspect Web does not yet have a route that can restore
+the ordered pair faithfully. Diagnostics remain envelope-level operation
+diagnostics, not a second home for member evidence.
+
+The first host adoption is complete CLI transport for
+`diff --library before.dll..after.dll -S "Implementation Diff" --json` and
+`--envelope`. Exact section selection selects this operation; it does not
+project or truncate Content. Type and member selectors remain semantic request
+inputs recorded in the document. Row windows, fields, columns, row formats,
+PDB Source enrichment, categories, and additional sections remain incompatible
+with complete transport. A pre-comparison admission or acquisition failure does
+not manufacture an envelope; per-member unavailable or failed evidence remains
+inside a successfully constructed document.
+
+This envelope-first adoption intentionally leaves ordinary Markdown, table,
+TSV, JSONL, and selected-section JSON on the existing projection. A subsequent
+focused adoption moves those formats to host-neutral lowering from
+`ImplementationDiffDocument`, adds endpoint and coverage sections plus an
+authored category, and then retires the duplicate CLI view. Complete Content
+lands first so format migration cannot redefine the semantic result.
+
 The `diff` command exposes this component through the explicit-only
 `Implementation Diff` section. The CLI projects one row per producer-owned
 unified line with `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`

@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -31,11 +32,25 @@ public class DiffCommand
     {
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
+        bool implementationTransport =
+            RequestsCompleteImplementationDiff(options);
+        if (implementationTransport
+            && HasIncompatibleImplementationTransportProjection(options))
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport cannot be combined "
+                    + "with presentation projection or another diff operation.");
+            return 1;
+        }
         if (transportOption is not null
-            && (options.HasContentProjection
+            && ((!implementationTransport
+                    && options.HasContentProjection)
+                || implementationTransport
+                    && HasIncompatibleImplementationTransportProjection(options)
                 || options.EnvelopeOutput && options.JsonOutput
                 || options.Discover is not null
-                || options.MemberFilter.Count > 0
+                || !implementationTransport
+                    && options.MemberFilter.Count > 0
                 || options.Finding is not null
                 || options.IncludePdbSource
                 || options.SourceRepositories.Length > 0
@@ -91,6 +106,8 @@ public class DiffCommand
         }
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
+        implementationTransport =
+            RequestsCompleteImplementationDiff(options);
         if (options.Finding is not null && options.IncludeSections is null)
         {
             options = options with
@@ -105,6 +122,13 @@ public class DiffCommand
         var hasPlatform = !string.IsNullOrEmpty(options.PlatformVersionRange);
         var hasPackage = !string.IsNullOrEmpty(options.PackageVersionRange);
         var hasLibrary = !string.IsNullOrEmpty(options.LibraryVersionRange);
+        if (implementationTransport && !hasLibrary)
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport currently requires "
+                    + "one local --library pair.");
+            return 1;
+        }
 
         // Discovery mode: -D/--discover lists schema
         if (options.Discover != null)
@@ -274,13 +298,35 @@ public class DiffCommand
 
             try
             {
-                if (transportOption is not null && !UsesSharedLibraryApiDiff(inputs, options))
+                if (transportOption is not null
+                    && !UsesSharedLibraryApiDiff(inputs, options)
+                    && !implementationTransport)
                 {
                     CommandError.Write(
                         $"{transportOption} currently requires exactly one Library at each API diff endpoint; "
                         + $"resolved {inputs.From.AssemblySet.Assemblies.Count} before and "
                         + $"{inputs.To.AssemblySet.Assemblies.Count} after.");
                     return 1;
+                }
+                if (implementationTransport)
+                {
+                    if (inputs.From.AssemblySet.Assemblies.Count != 1
+                        || inputs.To.AssemblySet.Assemblies.Count != 1)
+                    {
+                        CommandError.Write(
+                            "Complete Implementation Diff transport requires "
+                                + "exactly one assembly on each endpoint.");
+                        return 1;
+                    }
+
+                    InspectionEnvelope<ImplementationDiffDocument> envelope =
+                        ImplementationDiffInspection.Execute(
+                            CreateImplementationComparisonInput(
+                                inputs,
+                                options));
+                    return ImplementationDiffOutput.Write(
+                        envelope,
+                        options);
                 }
                 if (UsesSharedLibraryApiDiff(inputs, options))
                 {
@@ -1059,6 +1105,64 @@ public class DiffCommand
 
     private static bool SelectsComplexityContext(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ComplexityContext.Name) == true;
+
+    private static bool RequestsCompleteImplementationDiff(
+        DiffOptions options)
+    {
+        if (!options.JsonOutput && !options.EnvelopeOutput)
+            return false;
+
+        bool selectsOnlyImplementationDiff;
+        if (options.IncludeSections is not null)
+        {
+            selectsOnlyImplementationDiff = options.IncludeSections.SetEquals(
+                [DiffSections.ImplementationDiff.Name]);
+        }
+        else
+        {
+            selectsOnlyImplementationDiff =
+                options.Select is { Length: 1 }
+                && string.Equals(
+                    options.Select[0],
+                    DiffSections.ImplementationDiff.Name,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (!selectsOnlyImplementationDiff)
+            return false;
+
+        if (options.EnvelopeOutput)
+            return true;
+
+        return !string.IsNullOrEmpty(options.LibraryVersionRange)
+            && !options.IncludePdbSource
+            && options.SourceRepositories.Length == 0;
+    }
+
+    private static bool HasIncompatibleImplementationTransportProjection(
+        DiffOptions options)
+        => options.Breaking
+            || options.Additive
+            || options.SelectDefault
+            || options.Columns is not null
+            || options.Fields is not null
+            || options.Rows is not null
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.NoHeader
+            || options.NameOnly
+            || options.Tree
+            || options.VerbosityExplicitlySet
+            || options.Discover is not null
+            || options.Schema
+            || options.Finding is not null
+            || options.IncludePdbSource
+            || options.SourceRepositories.Length > 0
+            || options.ChangedOnly
+            || options.AllocRegressionsOnly
+            || options.Legend
+            || options.EnvelopeOutput && options.JsonOutput;
 
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;

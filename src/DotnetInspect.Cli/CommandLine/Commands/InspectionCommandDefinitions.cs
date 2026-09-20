@@ -257,7 +257,7 @@ public static class InspectionCommandDefinitions
         };
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified complete diff JSON (use with an adopted --json or --envelope route)" };
         var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
 
         diffCommand.Arguments.Add(argsArg);
@@ -292,9 +292,9 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
             diffCommand,
-            opts.Discover, opts.Select, opts.Verbosity, opts.Rows,
+            opts.Discover, opts.Verbosity, opts.Rows,
             opts.Limit, opts.Head, opts.Tail,
-            typeFilterOption, memberFilterOption, nameOnlyOption,
+            nameOnlyOption,
             breakingOption, additiveOption, changedOption,
             allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
             repoOption, findingOption, legendOption);
@@ -303,12 +303,33 @@ public static class InspectionCommandDefinitions
             if (!result.GetValue(opts.Envelope))
                 return;
 
+            string? selector = result.GetValue(opts.Select);
+            bool implementationTransport =
+                string.Equals(
+                    selector,
+                    DiffSections.ImplementationDiff.Name,
+                    StringComparison.OrdinalIgnoreCase);
+            if (!implementationTransport)
+            {
+                if (result.GetResult(opts.Select) is { Implicit: false })
+                {
+                    result.AddError(
+                        "--envelope cannot be combined with --select unless "
+                            + "Implementation Diff is selected by itself.");
+                }
+                if (result.GetResult(typeFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --type.");
+                if (result.GetResult(memberFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --member.");
+            }
+
             bool explicitSource =
                 result.GetValue(packageOption) is not null
                 || result.GetValue(platformOption) is not null
                 || result.GetValue(libraryOption) is not null;
             int positionalCount = result.GetValue(argsArg)?.Length ?? 0;
-            if (positionalCount > (explicitSource ? 0 : 1))
+            if (!implementationTransport
+                && positionalCount > (explicitSource ? 0 : 1))
             {
                 result.AddError(
                     "--envelope cannot be combined with positional type filters.");
