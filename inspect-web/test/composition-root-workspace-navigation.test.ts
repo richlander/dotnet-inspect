@@ -408,6 +408,9 @@ test("canonical restoration is atomic and history adopts the active packet basis
     restore,
     /canonicalViewRestorationFailure\(\s*targetModel,\s*deep,\s*loc\.lens,\s*loc\.libraryLens,\s*loc\.atPackageRoot && !loc\.workspaceSubjectOpen\s*\? loc\.packageLens\s*: null\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
+    validateView,
+    /const aggregateLibrarySubject =\s*state\.rootKind !== "platform"\s*&& state\.libraryScope === null\s*&& aggregateLibrarySubjectIsAvailable\(\)/);
+  assert.match(
     restore,
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
   assert.match(

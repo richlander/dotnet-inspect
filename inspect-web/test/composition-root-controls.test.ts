@@ -575,10 +575,10 @@ test("typed package view owns package navigation bindings", () => {
     /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;/);
   assert.match(
     appSource,
-    /async function pickSpotlightMember[\s\S]*spotlightPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
+    /async function pickSpotlightMember[\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*spotlightPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)/);
+    /async function pickSpotlight\([\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)/);
   for (const spotlightEntry of [
     appSource.match(/async function pickSpotlightMember[\s\S]*?\n}/)?.[0] ?? "",
     appSource.match(/async function pickSpotlight\([\s\S]*?\n}/)?.[0] ?? "",
@@ -926,7 +926,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /unavailableLabel:[\s\S]*not uniquely available in the loaded Workspace surfaces/);
   assert.match(
     appSource,
-    /function navigateToWorkspaceType\([\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target\)/);
+    /function navigateToWorkspaceType\([\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target, \{ preserveAggregate \}\)/);
+  assert.match(
+    appSource,
+    /function navigateToType\([\s\S]*preserveAggregate\?: boolean[\s\S]*enterTypeSubject\(target, options\)/);
   assert.match(
     typeGraph,
     /const candidate = graphNode\.role === "self"[\s\S]*\{ pkg: currentPackage\(\), type: currentType \}[\s\S]*uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>\([\s\S]*state\.packages,[\s\S]*fullName\)/);

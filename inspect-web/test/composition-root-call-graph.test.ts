@@ -803,7 +803,10 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /else if \(disposition === "resident"\)[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     navigation,
-    /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+    /navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";/);
+  assert.match(
+    navigation,
+    /enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
   assert.match(
     navigation,
     /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
@@ -837,7 +840,7 @@ test("restored selections reveal their accessibility bucket", () => {
     /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
-    /function navigateToType\([^)]*\) \{[\s\S]*?revealTypeInFilters\(target\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
+    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
 });
 
 test("runtime lookup refuses ambiguous or unresolved exact targets", () => {

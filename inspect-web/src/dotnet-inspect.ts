@@ -10386,7 +10386,7 @@ function activateSpotlightTypePackage(pkg: AppPackage) {
     withPlatformRootParentHistory(history.state, platformRootParent));
 }
 
-function spotlightPreservesAggregateLibraryScope(pkg: AppPackage) {
+function navigationPreservesAggregateLibraryScope(pkg: AppPackage) {
   return packageIdentityEquals(state.package, pkg)
     && aggregateLibrarySubjectIsActive();
 }
@@ -10414,7 +10414,7 @@ async function pickSpotlightMember(
   const rollbackSnapshot = retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
-  const preserveAggregate = spotlightPreservesAggregateLibraryScope(pkg);
+  const preserveAggregate = navigationPreservesAggregateLibraryScope(pkg);
   state.home = false;
   activateSpotlightTypePackage(pkg);
   enterTypeSubject(type, { preserveAggregate });
@@ -10461,7 +10461,7 @@ async function pickSpotlight(
   const rollbackSnapshot = retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
-  const preserveAggregate = spotlightPreservesAggregateLibraryScope(pkg);
+  const preserveAggregate = navigationPreservesAggregateLibraryScope(pkg);
   state.home = false;
   activateSpotlightTypePackage(pkg);
   enterTypeSubject(type, { preserveAggregate });
@@ -11077,7 +11077,9 @@ function canonicalViewRestorationFailure(
       return `The shared Library '${requestedLibraryLens}' inspector is not available for ${pkg.id}.`;
     }
     const aggregateLibrarySubject =
-      state.rootKind !== "platform" && state.libraryScope === null;
+      state.rootKind !== "platform"
+      && state.libraryScope === null
+      && aggregateLibrarySubjectIsAvailable();
     if (!aggregateLibrarySubject
       && (state.libraryScope?.size !== 1 || !selectedLibrary())) {
       return "The shared Library view requires one available library.";
@@ -13673,21 +13675,20 @@ function navigateToWorkspaceType(
   pkg: AppPackage,
   target: AppTypeSurface,
 ) {
+  const preserveAggregate = navigationPreservesAggregateLibraryScope(pkg);
   if (state.package !== pkg)
     selectWorkspacePackage(pkg, { renderSelection: false });
-  navigateToType(target);
+  navigateToType(target, { preserveAggregate });
 }
 
-function navigateToType(target: AppTypeSurface) {
+function navigateToType(
+  target: AppTypeSurface,
+  options: { preserveAggregate?: boolean } = {},
+) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
-  revealTypeInFilters(target);
-  state.workspaceSubjectOpen = false;
-  state.atPackageRoot = false;
-  state.atLibraryRoot = false;
-  state.libraryScope = new Set([libraryKey(target)]);
-  state.selectedTypeId = target.id;
+  enterTypeSubject(target, options);
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
@@ -15646,6 +15647,7 @@ function navigateToMember(
 ) {
   closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
+  const preserveAggregate = navigationPreservesAggregateLibraryScope(pkg);
   let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
     const overload = group.overloads[overloadIndex];
@@ -15659,18 +15661,14 @@ function navigateToMember(
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.libraryScope = new Set([libraryKey(type)]);
   state.accessibilityFilter = accessibilityFilterIncludingType(
     state.accessibilityFilter,
     type);
-  state.atPackageRoot = false;
-  state.atLibraryRoot = false;
-  state.lens = "api";
-  state.selectedTypeId = type.id;
+  enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
-  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex;
+  if (!enterMemberScope({ preserveAggregate })) return;
   state.memberSection = section;
   state.memberSource = { status: "idle" };
   state.memberCallGraph = null;

@@ -847,6 +847,38 @@ test("browser history restores each retained Workspace Library", async ({ page }
   await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
+test("related Type navigation preserves aggregate Library ancestry", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator('#type-list [data-type="asset:core:Example.Widget"]').click();
+  await chooseInspector(page, "data-lens", "metadata", "Metadata");
+  await page.locator('[data-graph-type="Example.Neighbor"]').click();
+  await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("All libraries");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+});
+
+test("call-graph Member navigation preserves aggregate Library ancestry", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await chooseSubject(page, "type", "Type");
+  await page.locator('#type-list [data-type="asset:core:Example.Widget"]').click();
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(page, "data-member-section", "call-graph", "Call graph");
+  const target = page.locator("#call-graph-diagram .node", {
+    hasText: "Neighbor.Run",
+  });
+  await expect(target).toBeVisible();
+  await target.click();
+  await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("All libraries");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+});
+
 test("browser history restores the incoming retained Library ancestry", async ({ page }) => {
   const secondLibrary = library("asset:second", "Second.Core", 1);
   await page.addInitScript(() => localStorage.setItem(

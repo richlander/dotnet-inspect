@@ -16,6 +16,32 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+function packageWorkspaceUrl(lens: string) {
+  const state = {
+    tabs: [{
+      id: "t0",
+      kind: "package",
+      source: surface.package,
+      version: surface.version,
+      framework: surface.activeFramework,
+      runtimeIdentifier: null,
+    }],
+    contexts: [{ id: "g0", tabIds: ["t0"] }],
+    activeTabId: "t0",
+    selectedContextId: "g0",
+    view: {
+      lens,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  };
+  const packet = Buffer.from(JSON.stringify(state)).toString("base64");
+  return `/?w=${encodeURIComponent(packet)}`;
+}
+
 for (const preferred of [other, empty]) {
   for (const width of [900, 480]) {
     test(`implicit package entry selects product-default ${preferred.name} at ${width}px`, async ({ page }) => {
@@ -36,6 +62,29 @@ for (const preferred of [other, empty]) {
     });
   }
 }
+
+test("canonical aggregate Library links reject zero-compile packages", async ({ page }) => {
+  await installFacades(page, {
+    ...surface,
+    defaultAssemblyId: null,
+    compileLibrary: {
+      status: "NoCompileAssets",
+      targetFramework: "net10.0",
+      message: null,
+    },
+    assemblies: [],
+    types: [],
+    accessibility: [],
+    totalMembers: 0,
+  });
+  await page.goto(packageWorkspaceUrl("library:overview"));
+  await expect(page.locator(".load-error strong"))
+    .toHaveText("Workspace restore failed");
+  await expect(page.locator(".load-error-message"))
+    .toContainText("requires one available library");
+  await expect(page.locator(".library-overview-surface")).toHaveCount(0);
+  await expect(subjectTab(page, "library")).toHaveCount(0);
+});
 
 for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
   test(`implicit ${status} package entry retains the Package subject`, async ({ page }) => {

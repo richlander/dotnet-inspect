@@ -332,6 +332,85 @@ async function installFacades(
         && (!framework || item.activeFramework === framework))
         ?? surfaces.find(item => item.package === id) ?? surfaces[0];
     }`;
+  const graphTargetType =
+    model.types.find(item => item.queryId === "Example.Neighbor") ?? null;
+  const graphTargetLibrary = graphTargetType
+    ? model.assemblies.find(item => item.id === graphTargetType.assemblyId) ?? null
+    : null;
+  const graphTarget = graphTargetType && graphTargetLibrary
+    ? {
+        id: "n1",
+        assembly: graphTargetLibrary.name,
+        assemblyVersion: graphTargetLibrary.version,
+        assemblyCulture: graphTargetLibrary.culture,
+        assemblyPublicKeyToken: graphTargetLibrary.publicKeyToken,
+        typeFullName: graphTargetType.queryId,
+        typeMetadataId: graphTargetType.metadataId,
+        typeDefinitionId: graphTargetType.definitionId,
+        memberName: "Run",
+        parameterTypes: [],
+        returnType: "void",
+        genericArity: 0,
+        metadataToken: 0x06000001,
+        selectorKey: "Run",
+        kind: "method",
+        platformPack: null,
+        surfaceAssemblyId: graphTargetLibrary.id,
+      }
+    : null;
+  const graphTargetNode = graphTarget
+    ? {
+        label: "Neighbor.Run",
+        status: "Analyzed",
+        inLoop: false,
+        source: null,
+        children: [],
+        assembly: graphTarget.assembly,
+        typeFullName: graphTarget.typeFullName,
+        memberName: graphTarget.memberName,
+      }
+    : null;
+  const fixtureCallGraph: BrowserCallGraph = {
+    mermaid: graphTarget
+      ? 'flowchart TD\n  n0["Widget.Run"] --> n1["Neighbor.Run"]'
+      : 'flowchart TD\n  n0["Widget.Run"]',
+    callers: {
+      label: "Widget.Run",
+      status: "Analyzed",
+      inLoop: false,
+      source: null,
+      children: [],
+      assembly: core.name,
+      typeFullName: "Example.Widget",
+      memberName: "Run",
+    },
+    callees: {
+      label: "Widget.Run",
+      status: "Analyzed",
+      inLoop: false,
+      source: null,
+      children: graphTargetNode ? [graphTargetNode] : [],
+      assembly: core.name,
+      typeFullName: "Example.Widget",
+      memberName: "Run",
+    },
+    scope: {
+      packages: 1,
+      assemblies: model.assemblies.length,
+      callerAssemblies: model.assemblies.length,
+      calleeScope: "Workspace",
+    },
+    targets: graphTarget ? [graphTarget] : [],
+    diagnostics: {
+      incompleteNodes: 0,
+      incompleteEdges: 0,
+      bindingIdentityConflicts: 0,
+      hasUnexploredTraversalBoundary: false,
+      hasAnalysisFailureBoundary: false,
+      isIncomplete: false,
+    },
+    noBody: false,
+  };
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -725,6 +804,68 @@ async function installFacades(
         id, version, framework, asset, metadataRoot, index, startRowId) {
         document.documentElement.dataset.tableRequest = asset;
         return { index, name: "Module", rowCount: 1, startRowId, columns: [], rows: [], error: null };
+      }
+      export async function queryTypeProjection(
+        id, version, framework, assembly, typeQueryId, typeDefinitionId) {
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.types.find(item =>
+          item.definitionId === typeDefinitionId || item.queryId === typeQueryId);
+        if (!selected) throw new Error("Unknown type: " + typeDefinitionId);
+        const related = selected.queryId === "Example.Widget"
+          ? surface.types.find(item => item.queryId === "Example.Neighbor")
+          : null;
+        return {
+          exactTypeInspection: {
+            content: {
+              outcome: 0,
+              isAvailable: true,
+              isComplete: true,
+              type: {
+                fullName: selected.queryId,
+                namespace: selected.namespace,
+                name: selected.name,
+                definitionIdentity: {
+                  assembly: selected.assemblyName,
+                  metadataId: selected.metadataId
+                },
+                introducedTypeParameterCounts: [],
+                kind: selected.kind,
+                accessibility: selected.accessibility,
+                attributes: [],
+                isSealed: false,
+                isAbstract: false,
+                isStatic: false,
+                isByRefLike: false,
+                isReadOnly: false,
+                baseType: null,
+                interfaces: related ? [related.queryId] : [],
+                derivedTypes: [],
+                typeParameters: [],
+                members: [],
+                enumUnderlyingType: null,
+                isForwarded: false
+              },
+              supplierAssembly: {
+                identity: {
+                  name: selected.assemblyName,
+                  version: "1.0.0.0",
+                  culture: null,
+                  publicKeyToken: null
+                }
+              },
+              failures: []
+            },
+            share: {
+              kind: "NonProjectable", fullUrl: null, packet: null,
+              path: "type-metadata/share", reason: "Fixture projection."
+            },
+            diagnostics: []
+          },
+          derivedTypes: [],
+          graphNodes: [],
+          graphEdges: [],
+          inspectionFailures: []
+        };
       }`,
     analysis: `
       ${surfaceLookup}
@@ -928,7 +1069,14 @@ async function installFacades(
           surface, selected, version, framework, selected.id));
       }`,
     source: "",
-    "call-graph": "",
+    "call-graph": `
+      const callGraph = ${JSON.stringify(fixtureCallGraph)};
+      export async function queryMemberCallGraph() {
+        return callGraph;
+      }
+      export async function expandPlatformCallGraph() {
+        return callGraph;
+      }`,
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
