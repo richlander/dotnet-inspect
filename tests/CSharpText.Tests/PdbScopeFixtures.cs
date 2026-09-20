@@ -194,6 +194,64 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int NestedScopeLocalsWithEntryLabels(bool secondPath, int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int currentPos = 0;
+            int splitIdx = 0;
+            string currentSplit = value.ToString();
+            int typeIndex = 0;
+            goto FirstCheck;
+        FirstLoop:
+            {
+                Type type = typeof(int);
+                int splitPoint = currentPos + currentSplit.Length;
+                Increment(ref splitPoint);
+                total += type.Name.Length + splitIdx;
+                currentPos = splitPoint;
+            }
+            splitIdx++;
+            typeIndex++;
+        FirstCheck:
+            if (typeIndex < value)
+                goto FirstLoop;
+            total += currentPos;
+        }
+        if (total < -value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            int currentPos = value;
+            int splitIdx = value;
+            string currentSplit = value.ToString();
+            int typeIndex = value;
+            goto SecondCheck;
+        SecondLoop:
+            {
+                Type type = typeof(string);
+                int splitPoint = currentPos - currentSplit.Length;
+                Increment(ref splitPoint);
+                total += type.Name.Length + splitIdx;
+                currentPos = splitPoint;
+            }
+            splitIdx--;
+            typeIndex--;
+        SecondCheck:
+            if (typeIndex > 0)
+                goto SecondLoop;
+            total += currentPos;
+        }
+        if (total < -value)
+            goto First;
+    Done:
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;

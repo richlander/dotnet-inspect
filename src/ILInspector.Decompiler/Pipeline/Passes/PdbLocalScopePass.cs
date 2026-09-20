@@ -20,24 +20,37 @@ public sealed class PdbLocalScopePass : IIrPass
         if (duplicates.Length == 0)
             return;
 
+        var nodeOrder = function.DescendantsOutsideNestedFunctions
+            .Select((node, position) => (node, position))
+            .ToDictionary(pair => pair.node, pair => pair.position);
+        var candidates = duplicates
+            .SelectMany(group => group.Select(index => (
+                SameName: group,
+                Index: index,
+                Order: IrFunction.LocalSlotReferencesInScope(function, index)
+                    .Select(reference => nodeOrder[reference])
+                    .DefaultIfEmpty(-1)
+                    .Min())))
+            .OrderByDescending(candidate => candidate.Order)
+            .ToArray();
+
         var reserved = ExactLocalNameAllocation.ReservedNames(
             function, function.Signature.Parameters, function.Signature.GenericParameterNames);
-        foreach (var group in duplicates)
+        foreach (var candidate in candidates)
         {
-            if (reserved.Contains(function.LocalNames[group[0]]!))
+            int[] group = candidate.SameName;
+            int index = candidate.Index;
+            if (reserved.Contains(function.LocalNames[index]!))
                 continue;
-            foreach (int index in group)
+            if (!function.IsLocalDeclaredInNestedScope(index))
+                continue;
+            var scopes = CSharpPrinter.LocalDeclarationScopes(function, function.Locals.Length);
+            if (!group.Any(other => other != index
+                && ExactLocalNameAllocation.ScopesOverlap(scopes[index], scopes[other])))
             {
-                if (!function.IsLocalDeclaredInNestedScope(index))
-                    continue;
-                var scopes = CSharpPrinter.LocalDeclarationScopes(function, function.Locals.Length);
-                if (!group.Any(other => other != index
-                    && ExactLocalNameAllocation.ScopesOverlap(scopes[index], scopes[other])))
-                {
-                    continue;
-                }
-                TryRetainBlock(function, index, group, context);
+                continue;
             }
+            TryRetainBlock(function, index, group, context);
         }
     }
 
