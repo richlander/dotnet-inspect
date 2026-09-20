@@ -326,9 +326,10 @@ public sealed record MethodRef(
     internal MetadataFactState TypeArgumentElisionOverloadSafety { get; init; }
 
     /// <summary>
-    /// Same-name overload signatures that explicit type arguments and receiver
-    /// inference both admit. Their non-receiver arguments must independently
-    /// preserve the recorded method instantiation before elision is safe.
+    /// Same-name overload signatures that explicit type arguments and the
+    /// supported inference sources both admit. Their non-receiver arguments
+    /// must independently preserve the recorded method instantiation before
+    /// elision is safe.
     /// </summary>
     internal ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters { get; init; } = [];
 
