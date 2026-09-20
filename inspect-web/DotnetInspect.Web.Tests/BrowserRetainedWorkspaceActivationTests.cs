@@ -28,7 +28,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
 
-        BrowserRetainedWorkspaceInstallation first =
+        BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "workspace-1", firstPacket);
         NavigationEffectAuthority firstAuthority =
             Assert.IsType<NavigationEffectAuthority>(
@@ -40,7 +40,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             firstOperation,
             [foo, bar],
             selectedIndex: 1);
-        BrowserRetainedWorkspaceInstallation second =
+        BrowserRetainedWorkspacePosting second =
             await ActivateAsync(owner, "workspace-2", secondPacket);
         using (WorkspaceRealizationOperationLease secondOperation =
             await EnterAsync(owner, "workspace-2"))
@@ -72,7 +72,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             WorkspaceRealizationRetirementReason.Replaced,
             settled.Settlement.Reason);
 
-        BrowserRetainedWorkspaceInstallation third =
+        BrowserRetainedWorkspacePosting third =
             await ActivateAsync(owner, "workspace-1", firstPacket);
         using WorkspaceRealizationOperationLease thirdOperation =
             await EnterAsync(owner, "workspace-1");
@@ -98,7 +98,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation first =
+        BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "a", packet);
         NavigationEffectAuthority authority =
             Assert.IsType<NavigationEffectAuthority>(
@@ -110,11 +110,11 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     Request("a", packet),
                     TestContext.Current.CancellationToken));
 
-        Assert.Equal(first.RealizationId, noEffect.Installation.RealizationId);
+        Assert.Equal(first.RealizationId, noEffect.Posting.RealizationId);
         Assert.Equal(
             first.PublicationOrdinal,
-            noEffect.Installation.PublicationOrdinal);
-        Assert.Same(first.Navigation, noEffect.Installation.Navigation);
+            noEffect.Posting.PublicationOrdinal);
+        Assert.Same(first.Navigation, noEffect.Posting.Navigation);
         Assert.True(
             owner.ValidateNavigationAuthority(
                 first.RealizationId,
@@ -124,50 +124,50 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
-    public async Task InitialNavigationAuthority_RequiresExactInstallationTuple()
+    public async Task InitialNavigationAuthority_RequiresExactPostingTuple()
     {
         CompleteRestorationExecutionOptions options = await OptionsAsync();
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting posting =
             await ActivateAsync(owner, "a", packet);
         NavigationEffectAuthority authority =
             Assert.IsType<NavigationEffectAuthority>(
-                installation.Navigation.Authority);
+                posting.Navigation.Authority);
 
         Assert.False(
             owner.ValidateNavigationAuthority(
                 "workspace-realization-other",
-                installation.PublicationOrdinal,
+                posting.PublicationOrdinal,
                 authority));
         Assert.Equal(
             NavigationAuthorityResult.InvalidAuthority,
-            owner.RecordConsumerInstallation(
-                installation.RealizationId,
-                installation.PublicationOrdinal + 1,
+            owner.RecordConsumerPosting(
+                posting.RealizationId,
+                posting.PublicationOrdinal + 1,
                 authority));
         Assert.True(
             owner.ValidateNavigationAuthority(
-                installation.RealizationId,
-                installation.PublicationOrdinal,
+                posting.RealizationId,
+                posting.PublicationOrdinal,
                 authority));
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
-            owner.RecordConsumerInstallation(
-                installation.RealizationId,
-                installation.PublicationOrdinal,
+            owner.RecordConsumerPosting(
+                posting.RealizationId,
+                posting.PublicationOrdinal,
                 authority));
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
             owner.Acknowledge(
-                installation.RealizationId,
-                installation.PublicationOrdinal,
+                posting.RealizationId,
+                posting.PublicationOrdinal,
                 authority));
         Assert.False(
             owner.ValidateNavigationAuthority(
-                installation.RealizationId,
-                installation.PublicationOrdinal,
+                posting.RealizationId,
+                posting.PublicationOrdinal,
                 authority));
     }
 
@@ -178,14 +178,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation first =
+        BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "a", packet);
         NavigationEffectAuthority authority =
             Assert.IsType<NavigationEffectAuthority>(
                 first.Navigation.Authority);
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
-            owner.RecordConsumerInstallation(
+            owner.RecordConsumerPosting(
                 first.RealizationId,
                 first.PublicationOrdinal,
                 authority));
@@ -232,7 +232,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 TestContext.Current.CancellationToken).AsTask();
         await started.Task;
 
-        BrowserRetainedWorkspaceInstallation replacement;
+        BrowserRetainedWorkspacePosting replacement;
         try
         {
             replacement = await ActivateAsync(owner, "b", packet);
@@ -262,7 +262,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation incumbent =
+        BrowserRetainedWorkspacePosting incumbent =
             await ActivateAsync(owner, "a", packet);
 
         var invalid = Assert.IsType<
@@ -298,7 +298,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
 
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting posting =
             await ActivateAsync(owner, $"format-{version}", packet);
 
         Assert.Equal(
@@ -306,7 +306,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             WorkspaceSharePacketCodec.Decode(
                 packet,
                 TestContext.Current.CancellationToken).FormatVersion);
-        Assert.Equal(packet, installation.CanonicalPacket);
+        Assert.Equal(packet, posting.CanonicalPacket);
     }
 
     [Fact]
@@ -345,7 +345,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         var activated = Assert.IsType<
             BrowserRetainedWorkspaceActivationResult.Activated>(
                 await replacement);
-        Assert.Equal("b", activated.Installation.RetainedDefinitionId);
+        Assert.Equal("b", activated.Posting.RetainedDefinitionId);
         Assert.Equal("b", activationOwner.Active!.RetainedDefinitionId);
     }
 
@@ -356,11 +356,11 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting posting =
             await ActivateAsync(owner, "a", packet);
         NavigationEffectAuthority authority =
             Assert.IsType<NavigationEffectAuthority>(
-                installation.Navigation.Authority);
+                posting.Navigation.Authority);
 
         var deactivated = Assert.IsType<
             BrowserRetainedWorkspaceDeactivationResult.Deactivated>(
@@ -372,11 +372,11 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(0, owner.Capacity.Charged);
         Assert.False(
             owner.ValidateNavigationAuthority(
-                installation.RealizationId,
-                installation.PublicationOrdinal,
+                posting.RealizationId,
+                posting.PublicationOrdinal,
                 authority));
 
-        BrowserRetainedWorkspaceInstallation replacement =
+        BrowserRetainedWorkspacePosting replacement =
             await ActivateAsync(owner, "b", packet);
         Assert.Equal("b", replacement.RetainedDefinitionId);
     }
@@ -454,7 +454,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         string packet) =>
         new(id, $"Workspace {id}", $"/workspace/{id}", packet);
 
-    static async Task<BrowserRetainedWorkspaceInstallation> ActivateAsync(
+    static async Task<BrowserRetainedWorkspacePosting> ActivateAsync(
         BrowserRetainedWorkspaceActivationOwner owner,
         string id,
         string packet)
@@ -464,12 +464,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 await owner.ActivateAsync(
                     Request(id, packet),
                     TestContext.Current.CancellationToken));
-        Assert.Equal(packet, activated.Installation.CanonicalPacket);
-        return activated.Installation;
+        Assert.Equal(packet, activated.Posting.CanonicalPacket);
+        return activated.Posting;
     }
 
     static void AssertWorkspace(
-        BrowserRetainedWorkspaceInstallation installation,
+        BrowserRetainedWorkspacePosting posting,
         WorkspaceRealizationOperationLease operation,
         IReadOnlyList<string> expectedPackages,
         int selectedIndex)
@@ -482,15 +482,15 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(
             expectedPackages[selectedIndex],
             Assert.Single(
-                installation.Navigation.Snapshot.Packages,
+                posting.Navigation.Snapshot.Packages,
                 package => package.IsCurrent).PackageId);
         Assert.Equal(
             expectedPackages.Count,
-            installation.Packages.Length);
+            posting.Packages.Length);
         Assert.Equal(
-            installation.Navigation.Snapshot.Packages
+            posting.Navigation.Snapshot.Packages
                 .Select(package => package.Subject.Id),
-            installation.Packages
+            posting.Packages
                 .Select(package => package.ConsumerPackageSubjectId));
         Assert.Equal(
             expectedPackages[selectedIndex],

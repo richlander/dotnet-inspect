@@ -57,7 +57,12 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                     rootSnapshot.Snapshot);
             }
         }
+
     }
+
+    internal IAssemblyBindingPolicy? BindingPolicy => _bindingPolicy;
+
+    internal ResolvedAssemblyReference? RootAssembly => _rootAssembly;
 
     public void Dispose()
     {

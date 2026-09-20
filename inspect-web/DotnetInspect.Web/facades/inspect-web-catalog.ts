@@ -432,7 +432,7 @@ export interface BrowserRetainedWorkspaceActivationFailure {
 
 export interface BrowserRetainedWorkspaceActivationResult {
   readonly status: string;
-  readonly installation: BrowserRetainedWorkspaceInstallation | null;
+  readonly posting: BrowserRetainedWorkspacePosting | null;
   readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
 }
 
@@ -476,21 +476,6 @@ export interface BrowserRetainedWorkspaceExactLibrary {
   readonly platformFamily: string | null;
 }
 
-export interface BrowserRetainedWorkspaceInstallation {
-  readonly retainedDefinitionId: string;
-  readonly label: string;
-  readonly canonicalLocation: string;
-  readonly canonicalPacket: string;
-  readonly realizationId: string;
-  readonly publicationOrdinal: number;
-  readonly definition: BrowserRetainedWorkspaceDefinitionState;
-  readonly navigation: BrowserRetainedNavigationResult;
-  readonly packages: ReadonlyArray<BrowserRetainedWorkspacePackage>;
-  readonly platforms: ReadonlyArray<BrowserRetainedWorkspacePlatform>;
-  readonly predecessor: BrowserRetainedWorkspacePredecessor | null;
-  readonly cleanup: BrowserRetainedWorkspaceCleanup | null;
-}
-
 export interface BrowserRetainedWorkspaceLibraryIdentity {
   readonly name: string;
   readonly version: string;
@@ -517,6 +502,21 @@ export interface BrowserRetainedWorkspacePlatform {
   readonly family: string;
   readonly runtimeIdentifier: string | null;
   readonly surface: BrowserPackageSurface;
+}
+
+export interface BrowserRetainedWorkspacePosting {
+  readonly retainedDefinitionId: string;
+  readonly label: string;
+  readonly canonicalLocation: string;
+  readonly canonicalPacket: string;
+  readonly realizationId: string;
+  readonly publicationOrdinal: number;
+  readonly definition: BrowserRetainedWorkspaceDefinitionState;
+  readonly navigation: BrowserRetainedNavigationResult;
+  readonly packages: ReadonlyArray<BrowserRetainedWorkspacePackage>;
+  readonly platforms: ReadonlyArray<BrowserRetainedWorkspacePlatform>;
+  readonly predecessor: BrowserRetainedWorkspacePredecessor | null;
+  readonly cleanup: BrowserRetainedWorkspaceCleanup | null;
 }
 
 export interface BrowserRetainedWorkspacePredecessor {
@@ -650,7 +650,7 @@ type $ManagedExports = {
             readonly "ListHomeDemos.1310674786": () => string;
             readonly "ListVocabulary.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
-            readonly "RecordRetainedWorkspaceNavigationInstallation.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
+            readonly "RecordRetainedWorkspaceNavigationPosting.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
             readonly "ResolveHomeDemo.304094707": (scenarioId: string) => string;
             readonly "RunHomeDemo.976702342": (scenarioId: string) => Promise<string>;
             readonly "ValidateRetainedWorkspaceNavigationAuthority.1044747233": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => boolean;
@@ -842,9 +842,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
-    value = $ownDataProperty(value, "RecordRetainedWorkspaceNavigationInstallation.1618630472");
+    value = $ownDataProperty(value, "RecordRetainedWorkspaceNavigationPosting.1618630472");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.RecordRetainedWorkspaceNavigationInstallation.1618630472\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.RecordRetainedWorkspaceNavigationPosting.1618630472\u0027 is not callable.");
     }
   }
   {
@@ -996,8 +996,8 @@ export async function observeRetainedWorkspaceSettlement(settlementId: string): 
   return $parsed as BrowserRetainedWorkspaceSettlementResult;
 }
 
-export function recordRetainedWorkspaceNavigationInstallation(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): string {
-  return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["RecordRetainedWorkspaceNavigationInstallation.1618630472"](realizationId, publicationOrdinal, session, revision, intent, epoch);
+export function recordRetainedWorkspaceNavigationPosting(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): string {
+  return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["RecordRetainedWorkspaceNavigationPosting.1618630472"](realizationId, publicationOrdinal, session, revision, intent, epoch);
 }
 
 export function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult {

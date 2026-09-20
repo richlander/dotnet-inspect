@@ -20,7 +20,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await DetachedInventoryOptionsAsync();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting installation =
             await ActivateAsync(owner, "package", Packet(schemaVersion: format));
         await owner.DisposeAsync();
 
@@ -46,7 +46,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await DetachedInventoryOptionsAsync(includePlatform: true);
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting installation =
             await ActivateAsync(owner, "mixed", MixedInventoryPacket(reverseContexts));
         int mixedIndex = reverseContexts ? 1 : 0;
         Assert.Equal("t1", installation.Definition.Navigation!.Focus);
@@ -87,7 +87,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await DetachedInventoryOptionsAsync(includePlatform: true);
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting installation =
             await ActivateAsync(owner, "platform", EncodeInventoryPacket(
                 """
                 {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
@@ -109,7 +109,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await DetachedInventoryOptionsAsync();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting installation =
             await ActivateAsync(owner, "registrations", EncodeInventoryPacket(
                 """
                 {"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
@@ -131,7 +131,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
         string packet = Packet();
-        BrowserRetainedWorkspaceInstallation first =
+        BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "a", packet);
         var admitted =
             Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Admitted>(
@@ -148,7 +148,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 "other", first.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
         _ = await ActivateAsync(owner, "b", packet);
-        BrowserRetainedWorkspaceInstallation replacement =
+        BrowserRetainedWorkspacePosting replacement =
             await ActivateAsync(owner, "a", packet);
         Assert.NotEqual(first.RealizationId, replacement.RealizationId);
         Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Superseded>(
@@ -199,8 +199,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     Catalog.BrowserCatalogJsonContext.Default
                         .BrowserRetainedWorkspaceActivationResult));
             Assert.Equal("activated", result.Status);
-            var installation = Assert.IsType<Catalog.BrowserRetainedWorkspaceInstallation>(
-                result.Installation);
+            var installation = Assert.IsType<Catalog.BrowserRetainedWorkspacePosting>(
+                result.Posting);
             Assert.Empty(installation.Packages);
             Assert.Empty(installation.Platforms);
             Assert.Empty(installation.Definition.Tabs);
@@ -293,9 +293,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         Catalog.BrowserCatalogJsonContext.Default
                             .BrowserRetainedWorkspaceActivationResult));
             Assert.Equal("activated", result.Status);
-            Catalog.BrowserRetainedWorkspaceInstallation installation =
-                Assert.IsType<Catalog.BrowserRetainedWorkspaceInstallation>(
-                    result.Installation);
+            Catalog.BrowserRetainedWorkspacePosting installation =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePosting>(
+                    result.Posting);
             Assert.Equal(packet, installation.CanonicalPacket);
             Assert.Equal(activeTab, installation.Definition.ActiveTabId);
             Assert.Equal("g0", installation.Definition.SelectedContextId);

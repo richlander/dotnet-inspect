@@ -15,6 +15,7 @@ public sealed class PdbLocalScopeFidelityTests
             nameof(PdbScopeFixtures.DisjointScopeLocals),
             nameof(PdbScopeFixtures.SequentialScopeLocals),
             nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto),
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryLabels),
             nameof(PdbScopeFixtures.SequentialValueTypeScopeLocals),
         ];
         var results = FidelityCheck.Evaluate(
@@ -32,17 +33,23 @@ public sealed class PdbLocalScopeFidelityTests
     [Fact]
     public void InternalLabelScopes_CompileBackSuccessfully()
     {
-        var result = Assert.Single(FidelityCheck.Evaluate(
+        string[] methods =
+        [
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels),
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels),
+        ];
+        var results = FidelityCheck.Evaluate(
             typeof(PdbScopeFixtures).Assembly.Location,
             type => type == typeof(PdbScopeFixtures).FullName,
-            method => method.Method
-                == nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels)));
+            method => methods.Contains(method.Method, StringComparer.Ordinal));
 
-        Assert.True(
+        Assert.Equal(methods.Order(StringComparer.Ordinal),
+            results.Select(result => result.Method).Order(StringComparer.Ordinal));
+        Assert.All(results, result => Assert.True(
             result.Status is FidelityCheck.CompileBackStatus.Exact
                 or FidelityCheck.CompileBackStatus.OpcodeDiff
                 or FidelityCheck.CompileBackStatus.OperandDiff,
-            $"{result.Method}: {result.Status}: {result.Detail}");
+            $"{result.Method}: {result.Status}: {result.Detail}"));
     }
 
     [Fact]

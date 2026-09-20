@@ -43,6 +43,10 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             catalog.AllocationExceptionPaths.UnavailableReason);
+        Assert.False(catalog.LocalThrowPaths.Available);
+        Assert.Equal(
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            catalog.LocalThrowPaths.UnavailableReason);
     }
 
     [Theory]
@@ -154,6 +158,15 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 Available: false,
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
                 Observations: []);
+        var unavailableLocalThrowPaths =
+            new BrowserAnnotatedSourceLocalThrowPathInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                IsComplete: false,
+                Boundaries: [],
+                Limits: null,
+                Receipt: null,
+                Paths: []);
         var catalog = new BrowserAnnotatedSourceViewerCatalog(
             defaultFindingIds,
             supportedMedia,
@@ -165,6 +178,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             unavailableSynchronousCompletions,
             unavailableAwaitCompletionPaths,
             unavailableAllocationExceptionPaths,
+            unavailableLocalThrowPaths,
             []);
 
         defaultFindingIds[0] = 99;
@@ -352,6 +366,106 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                     observations[0],
                     observations[0],
                 ]));
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesLocalThrowPathEvidence()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        BrowserAnnotatedSourceCallRelationship[] relationships =
+        [
+            new(
+                EdgeRow: 1,
+                FactId: 1,
+                ModuleVersionId:
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CallerToken: 0x06000001,
+                IlOffset: 0,
+                OperandToken: 0x0A000001,
+                BrowserAnnotatedSourceCallKind.Call,
+                InLoop: false,
+                Target("n1", "Forward")),
+        ];
+        var path = new BrowserAnnotatedSourceLocalThrowPath(
+            FactIds: [1],
+            Targets:
+            [
+                Target("n1", "Forward"),
+                Target("n2", "Throw"),
+            ],
+            TerminalThrows:
+            [
+                new BrowserAnnotatedSourceLocalThrowSite(
+                    "System.ArgumentNullException",
+                    Guid.Parse(
+                        "11111111-1111-1111-1111-111111111111"),
+                    DefinitionToken: 0x02000002,
+                    ConstructionOffset: 2,
+                    ConstructorToken: 0x0A000002,
+                    ThrowOffset: 7),
+            ]);
+        var inspection =
+            new BrowserAnnotatedSourceLocalThrowPathInspection(
+                Available: true,
+                UnavailableReason: null,
+                IsComplete: true,
+                Boundaries: [],
+                Limits: new BrowserAnnotatedSourceLocalThrowPathLimits(
+                    MaximumDepth: 3,
+                    MaximumNodes: 25,
+                    MaximumEdges: 100,
+                    MaximumPaths: 25),
+                Receipt: new BrowserAnnotatedSourceLocalThrowPathReceipt(
+                    DestinationSearches: 1,
+                    SearchNodes: 3,
+                    SearchedEdges: 2,
+                    ObservedReachablePairs: 1,
+                    ReturnedPaths: 1),
+                Paths: [path]);
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                localThrowPaths: inspection);
+
+        Assert.True(catalog.LocalThrowPaths.Available);
+        Assert.True(catalog.LocalThrowPaths.IsComplete);
+        Assert.Single(catalog.LocalThrowPaths.Paths);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                localThrowPaths:
+                    new BrowserAnnotatedSourceLocalThrowPathInspection(
+                        Available: true,
+                        UnavailableReason: null,
+                        IsComplete: true,
+                        Boundaries: [],
+                        Limits: inspection.Limits,
+                        Receipt: inspection.Receipt,
+                        Paths:
+                        [
+                            new BrowserAnnotatedSourceLocalThrowPath(
+                                FactIds: [0],
+                                Targets: path.Targets,
+                                TerminalThrows: path.TerminalThrows),
+                        ])));
+        Assert.Throws<ArgumentException>(() =>
+            new BrowserAnnotatedSourceLocalThrowPathInspection(
+                Available: true,
+                UnavailableReason: null,
+                IsComplete: true,
+                Boundaries:
+                [
+                    new(
+                        BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                            .DepthLimit,
+                        3),
+                ],
+                Limits: inspection.Limits,
+                Receipt: inspection.Receipt,
+                Paths: []));
     }
 
     [Fact]

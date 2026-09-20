@@ -23,8 +23,8 @@ graph edges, a single package's layout lens, `Package files`, or
 `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
-for Library, Type, or Member, plus exact Member `Callers`, have semantic `-n`
-adoption. Their supported Window and direction capabilities remain
+for Library, Type, or Member, plus exact Member `Calls` and `Callers`, have
+semantic `-n` adoption. Their supported Window and direction capabilities remain
 command-specific. These adopters also accept explicit rendered-line selection
 where their output format permits it. Unselected modes of a partially adopted
 command use the rendered-line fallback.
@@ -956,6 +956,54 @@ receipt, and disclosure are companion evidence, not additional selectable row
 sets. A rejected, unsupported, limit-reached, or failed retrieval remains
 visible and nonzero rather than being replaced by a row-selection failure.
 
+## Library References adoption
+
+An exact `library -S References` request declares one semantic row per complete
+direct `AssemblyReference`. The legacy `--references` alias reaches the same
+declaration. Local-file, package-backed, and platform-library resolution,
+metadata acquisition, and the complete assembly-reference Finding census
+finish before the references are ordered by ordinal assembly name and
+Head/Tail or strict Window stages select from that vector.
+
+```console
+$ dotnet-inspect library System.Text.Json \
+    -S References -n 1 --tail --json
+{
+  ...
+  "assembly_info": {
+    ...
+    "references": [
+      {
+        "name": "System.Threading",
+        ...
+      }
+    ]
+  }
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, complete JSON, and Count consume
+the same selected direct-reference identities. Complete JSON selects
+`assembly_info.references`; the complete Finding census and typed reference
+identities remain acquisition evidence, so selection does not claim that
+metadata inspection observed fewer references. A failed reference inspection
+remains visible and nonzero rather than becoming an empty selected vector.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Complete
+JSON rejects rendered-line selection before library resolution. One
+unavailable strict Window withholds every output shape:
+
+```console
+$ dotnet-inspect library System.Text.Json \
+    -S References --rows 999..1000 --json
+Error: Library reference row selection stage 1 requires row 1000, but only 6 direct reference rows are available.
+```
+
+`Reference Hierarchy`, mixed sections, discovery/schema, `--tfm all`,
+print and shape projections, and embedded or aggregate Package Library modes
+remain outside this declaration. Those surfaces retain their existing row
+contracts and use rendered-line fallback for bare `-n`.
+
 ## Clone Candidates adoption
 
 An exact `Clone Candidates` section on `library`, including the delegated
@@ -1013,6 +1061,52 @@ Other Library, Type, and Member sections remain outside this declaration.
 Type-catalog and projected Member Facts adoptions retain their existing
 activation rules; all other neighboring surfaces use their existing row
 contracts or rendered-line fallback.
+
+## Member Calls adoption
+
+An exact `member -S Calls` request declares one semantic row per direct
+call-site occurrence in the completed `CallSiteRow` vector. The request retains
+Member's existing requirement for one selected target overload. Direct-call
+analysis completes for that method and its generated evidence methods before
+selection. Repeated calls to the same target remain distinct occurrences, and
+the completed vector retains its existing IL-offset order.
+
+```console
+$ dotnet-inspect member JsonSerializer --package System.Text.Json \
+    Serialize:1 -S Calls -n 1 --tail --json
+{
+  "calls": [
+    {
+      "il_offset": "IL_000A",
+      "opcode": "call",
+      "call_kind": "direct",
+      "callee": "System.Text.Json.JsonSerializer.WriteString<TValue>(ref TValue, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>)",
+      "operand_token": "0x2B00005E",
+      "return_address": "IL_000F"
+    }
+  ]
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, structured JSON, and Count consume
+the same selected call-site occurrences. Exact Calls JSON lowers the section
+row model rather than returning the surrounding Member document. Evidence
+Method remains companion evidence for rows contributed by generated bodies;
+semantic selection does not reduce analysis work.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Structured
+JSON rejects rendered-line selection before source resolution. One unavailable
+strict Window withholds every output shape:
+
+```console
+$ dotnet-inspect member Widget --library ./app.dll \
+    -m Run -S Calls --rows 4..4 --json
+Error: Member Calls row selection stage 1 requires call row 4, but only 3 call rows are available.
+```
+
+`Callers`, `Call Graph`, `@Calls`, mixed section selections, discovery, query
+help, and Calls included only by verbosity remain outside this declaration.
+They retain their current row contracts or rendered-line fallback.
 
 ## Member Callers adoption
 
@@ -1363,6 +1457,14 @@ The Match candidate adoption is enforced by:
 | `MatchDiscoveryTests.Similar_CountObservesTheSelectedCandidateSequence`, `Similar_CliCountObservesSemanticTail`, `Similar_UnavailableSemanticWindowWithholdsOutput`, `Similar_CliUnavailableSemanticWindowWithholdsOutput`, `Similar_SemanticSelectionDoesNotHideRetrievalFailure`, and `Similar_JsonLineSelectionRejectsBeforeSourceResolution` | Count observes selected candidates through both the typed handoff and real CLI; one strict unavailable Window after completed retrieval emits no partial payload; a retrieval failure remains visible instead of becoming a selection failure; complete-JSON line clipping fails before source resolution. |
 | `MatchDiscoveryTests.Similar_MaximumResultsBoundsTheProductRetrievalAndIsReported`, `Similar_MethodOutcomes_AreNotBoundedByTop`, `Similar_Json_IdentifiesEveryMethodOutcomeBehindTheReceiptCounts`, `PairwiseMatch_IsUnchangedWhenSimilarIsNotRequested`, and `Pairwise_InferredLimitRetainsRenderedLineFallback` | Product retrieval limits remain distinct from candidate selection; complete method outcomes and the query receipt remain truthful companion evidence; pairwise Match stays outside the semantic candidate declaration and retains inferred rendered-line selection. |
 
+The Library References adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.LibraryCommand_ReferenceRows_SemanticTailSelectsTheSameReferenceAcrossFormats` and `LibraryCommand_ReferenceRows_PackageBackedSelectionUsesTheCompleteReferenceVector` | One exact References section applies semantic Head/Tail after complete direct-reference acquisition and deterministic ordering; Markdown, table, TSV, JSONL, complete JSON, and Count consume the same selected identity for platform and package-backed libraries. |
+| `CommandExecutionTests.LibraryCommand_ReferenceRows_UnavailableWindowWithholdsOutput`, `LibraryCommand_ReferenceRows_ExplicitLinesClipsRenderedText`, `LibraryCommand_ReferenceRows_ExplicitLinesRejectJsonBeforeAcquisition`, and `LibraryCommand_DirectReferenceFailure_RemainsVisible` | One unavailable strict Window emits no partial payload, explicit Lines clips rendered table text, complete-JSON line selection fails before library resolution, and semantic selection does not hide a failed Finding inspection. |
+| `CommandExecutionTests.LibraryCommand_ReferenceRows_SynthesizedMixedSelectionRetainsRenderedLineFallback`, exact activation checks in `LibraryReferenceRowSelectionAdoption`, and existing Reference Hierarchy and all-TFM Library command tests | Explicit or legacy-alias References combined with a synthesized Source Files section, Reference Hierarchy, and all-TFM package inspection remain outside the declaration and retain their existing row contracts. |
+
 The Clone Candidates adoption is enforced by:
 
 | Gate | Property |
@@ -1378,6 +1480,14 @@ The Member Callers adoption is enforced by:
 | `MemberCallersSectionTests.CallersSection_SemanticTailSelectsTheSameCallSiteAcrossFormats` and `CallersSection_ScansAuthorizedScopesBeforeSemanticSelection` | The completed, deduplicated, deterministically ordered caller-site vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; authorized external caller scopes finish before selection, structured JSON exposes the selected Callers rows instead of the surrounding Member document, and a selected subset preserves Source when the completed vector contained rows from multiple source assemblies. |
 | `MemberCallersSectionTests.CallersSection_UnavailableWindowWithholdsOutput` and `CallersSection_ExplicitLinesRejectJsonBeforeAcquisition` | One unavailable strict Window emits no partial payload, while explicit rendered-line selection under structured JSON fails before source resolution. |
 | `MemberCallersSectionTests.CallersSection_MultiSectionSelectionRetainsRenderedLineFallback` | Mixed Callers/Calls and `@Calls` selection remain outside the declaration and infer rendered-line selection for bare `-n`. |
+
+The Member Calls adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `MemberCallsSectionTests.CallsSection_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `CallsSection_GeneratedEvidenceCompletesBeforeSemanticSelection`, and `CallsSection_EmptyStructuredJsonPreservesRowArray` | The completed IL-offset-ordered direct-call vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; generated evidence methods finish before selection, exact Calls JSON exposes the selected Calls rows instead of the surrounding Member document, an empty selected vector remains an array, and repeated direct calls remain distinct occurrences. |
+| `MemberCallsSectionTests.CallsSection_UnavailableWindowWithholdsOutput` and `CallsSection_ExplicitLinesRejectJsonBeforeAcquisition` | One unavailable strict Window emits no partial payload, while explicit rendered-line selection under structured JSON fails before source resolution. |
+| `MemberCallsSectionTests.CallsSection_NeighboringSelectionsRetainRenderedLineFallback` and `CallsSection_SemanticSelectionRetainsSingleOverloadRequirement` | Mixed Calls/Callers and `@Calls` selection remain outside the declaration, while semantic selection retains Member's existing one-selected-overload boundary. |
 
 The Project document row adoption is enforced by:
 

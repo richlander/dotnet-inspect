@@ -207,6 +207,11 @@ interchange format. Each success mints a fresh opaque
 - each member's supplying framework, manifest coordinate, canonical assembly
   identity, and source-attestation digest.
 
+The result also retains the exact source-observed byte total consumed by
+selected runtime-configuration and dependency manifests plus realized
+assemblies. This total is finite-work evidence, not content identity or a claim
+about directory enumeration, parsing effort, or peak memory.
+
 The generation identity and bound evidence form the proof required by #5139.
 The proof and every member lease are issued as one owner-bound aggregate and
 cannot be rebound across platform generations. Equal content in a later

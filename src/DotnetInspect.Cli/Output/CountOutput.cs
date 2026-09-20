@@ -105,12 +105,19 @@ public static class CountOutput
         string? outputPath,
         RowWindow? rows = null)
     {
-        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-        var text = result.TrimEnd('\r', '\n') + '\n';
         OutputDestination.Write(
             outputPath,
             rows,
-            writer => writer.Write(text));
+            writer => WriteCountResult(result, writer));
+    }
+
+    internal static void WriteCountResult(
+        string result,
+        TextWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+        output.Write(result.TrimEnd('\r', '\n') + '\n');
     }
 
     internal static string Render(
@@ -133,6 +140,16 @@ public static class CountOutput
             Render(projection, orderedSections, format, noHeader),
             outputPath,
             rows);
+
+    internal static void Write(
+        CountProjection projection,
+        IReadOnlyList<string>? orderedSections,
+        OutputFormat format,
+        bool noHeader,
+        TextWriter output)
+        => WriteCountResult(
+            Render(projection, orderedSections, format, noHeader),
+            output);
 
     internal static bool TryWriteProjected<T>(
         T value,

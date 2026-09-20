@@ -113,7 +113,93 @@ public static class ImplementationComplexityService
             changes.AddRange(CompareProfiles(oldProfiles, newProfiles, request));
         }
 
-        return new ImplementationComplexityDiff(true, null, changes);
+        return new ImplementationComplexityDiff(true, null, WithLocalContext(changes));
+    }
+
+    /// <summary>
+    /// Adds local context to already-paired changes. Complexity deltas are
+    /// ranked against every delta-bearing change. Complete, unambiguous
+    /// profile pairs are also partitioned by their direction-only structural
+    /// signature.
+    /// </summary>
+    static IReadOnlyList<ImplementationComplexityChange> WithLocalContext(
+        IReadOnlyList<ImplementationComplexityChange> changes)
+    {
+        int[] absoluteDeltas = changes
+            .Where(change => change.Delta is not null)
+            .Select(change => Math.Abs(change.Delta!.Value))
+            .Order()
+            .ToArray();
+        ImplementationStructuralChange[] structuralChanges =
+        [
+            .. changes
+                .Where(change => change.StructuralChange is not null)
+                .Select(change => change.StructuralChange!),
+        ];
+        Dictionary<ImplementationStructuralChangeSignature, int> cohortSizes =
+            structuralChanges
+                .GroupBy(change => change.Signature)
+                .ToDictionary(group => group.Key, group => group.Count());
+
+        return changes
+            .Select(change =>
+            {
+                ImplementationComplexityPopulationContext?
+                    populationContext = null;
+                if (change.Delta is not null)
+                {
+                    int absoluteDelta = Math.Abs(change.Delta.Value);
+                    int countAtOrBelow =
+                        UpperBound(absoluteDeltas, absoluteDelta);
+                    populationContext =
+                        new ImplementationComplexityPopulationContext(
+                            absoluteDeltas.Length,
+                            100.0 * countAtOrBelow
+                                / absoluteDeltas.Length);
+                }
+
+                ImplementationStructuralChangeCohortContext?
+                    structuralCohortContext = null;
+                if (change.StructuralChange is not null)
+                {
+                    structuralCohortContext =
+                        new ImplementationStructuralChangeCohortContext(
+                            structuralChanges.Length,
+                            cohortSizes[
+                                change.StructuralChange.Signature]);
+                }
+
+                return change with
+                {
+                    PopulationContext = populationContext,
+                    StructuralCohortContext = structuralCohortContext,
+                };
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Count of elements in a sorted array that are less than or equal to
+    /// <paramref name="value"/>.
+    /// </summary>
+    static int UpperBound(int[] sortedValues, int value)
+    {
+        int low = 0;
+        int high = sortedValues.Length;
+        while (low < high)
+        {
+            int middle = low + ((high - low) / 2);
+            if (sortedValues[middle] <= value)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
     }
 
     static string AssemblyKey(
@@ -204,6 +290,13 @@ public static class ImplementationComplexityService
                         : ImplementationComplexityChangeKind.Changed;
             }
 
+            ImplementationStructuralChange? structuralChange =
+                (kind is ImplementationComplexityChangeKind.Changed
+                    or ImplementationComplexityChangeKind.Unchanged)
+                    && oldProfile is not null
+                    && newProfile is not null
+                    ? CreateStructuralChange(oldProfile, newProfile)
+                    : null;
             changes.Add(new ImplementationComplexityChange(
                 subject,
                 kind,
@@ -215,11 +308,33 @@ public static class ImplementationComplexityService
                 oldEntry?.Profile.EvidenceMethod,
                 newEntry?.Profile.EvidenceMethod,
                 oldProfile,
-                newProfile));
+                newProfile,
+                StructuralChange: structuralChange));
         }
 
         return changes;
     }
+
+    static ImplementationStructuralChange CreateStructuralChange(
+        MethodImplementationProfile oldProfile,
+        MethodImplementationProfile newProfile)
+        => new(
+            newProfile.InstructionCount - oldProfile.InstructionCount,
+            newProfile.NormalFlowCyclomaticComplexity
+                - oldProfile.NormalFlowCyclomaticComplexity,
+            newProfile.LoopCount - oldProfile.LoopCount,
+            ExceptionRegionCount(newProfile)
+                - ExceptionRegionCount(oldProfile),
+            newProfile.DirectCallCount - oldProfile.DirectCallCount,
+            newProfile.AllocationCount - oldProfile.AllocationCount,
+            Convert.ToInt32(newProfile.Async)
+                - Convert.ToInt32(oldProfile.Async));
+
+    static int ExceptionRegionCount(MethodImplementationProfile profile)
+        => profile.CatchCount
+            + profile.FilterCount
+            + profile.FinallyCount
+            + profile.FaultCount;
 
     static ComplexityProfileEntry CreateProfileEntry(
         MethodImplementationProfile profile)

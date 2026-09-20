@@ -28,7 +28,8 @@ public sealed record ILOffsetProjectionRequest(
     ILOffsetProjectionCapabilities Capabilities,
     bool BrowsableUrls = false,
     Action<string>? Log = null,
-    ResolvedAssemblyReference? Assembly = null,
+    ILOffsetAnalysisInput? Analysis = null,
+    string? AnalysisFailure = null,
     bool AllowNonBoundaryContextAbsence = false);
 
 /// <summary>The stage that prevented an IL-offset projection from being produced.</summary>

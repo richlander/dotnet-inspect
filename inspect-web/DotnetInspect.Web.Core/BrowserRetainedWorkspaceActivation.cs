@@ -78,7 +78,7 @@ internal sealed record BrowserRetainedWorkspacePredecessor(
     string SettlementId,
     BrowserWorkspaceRealizationRetirement Retirement);
 
-internal sealed record BrowserRetainedWorkspaceInstallation(
+internal sealed record BrowserRetainedWorkspacePosting(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
@@ -106,11 +106,11 @@ internal abstract record BrowserRetainedWorkspaceActivationResult
     private protected BrowserRetainedWorkspaceActivationResult() { }
 
     internal sealed record Activated(
-        BrowserRetainedWorkspaceInstallation Installation)
+        BrowserRetainedWorkspacePosting Posting)
         : BrowserRetainedWorkspaceActivationResult;
 
     internal sealed record NoEffect(
-        BrowserRetainedWorkspaceInstallation Installation)
+        BrowserRetainedWorkspacePosting Posting)
         : BrowserRetainedWorkspaceActivationResult;
 
     internal sealed record Superseded
@@ -162,12 +162,12 @@ internal sealed record BrowserRetainedWorkspaceActivationRejection(
                 nameof(Message));
 }
 
-internal sealed record BrowserRetainedWorkspaceNonInstallResult(
+internal sealed record BrowserRetainedWorkspaceNonPostingResult(
     WorkspaceRealizationSettlement? Settlement,
     CompleteRestorationFailure? Failure);
 
 [SupportedOSPlatform("browser")]
-internal sealed record BrowserRetainedWorkspaceInstallationDraft(
+internal sealed record BrowserRetainedWorkspacePostingDraft(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
@@ -178,7 +178,7 @@ internal sealed record BrowserRetainedWorkspaceInstallationDraft(
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
     ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms)
 {
-    internal static BrowserRetainedWorkspaceInstallationDraft Create(
+    internal static BrowserRetainedWorkspacePostingDraft Create(
         BrowserRetainedWorkspaceActivationRequest request,
         CompleteWorkspaceActivation workspace,
         CompleteRestorationReadyProjection ready)
@@ -268,7 +268,7 @@ internal sealed record BrowserRetainedWorkspaceInstallationDraft(
             ]);
     }
 
-    internal BrowserRetainedWorkspaceInstallation Install(
+    internal BrowserRetainedWorkspacePosting Publish(
         InspectionWorkspaceIdentity realization,
         string realizationId,
         long publicationOrdinal,
@@ -310,15 +310,15 @@ internal sealed class BrowserPreparedWorkspaceActivation
         BrowserWorkspaceRealizationHost host,
         BrowserWorkspaceRealizationCandidate candidate,
         CompleteWorkspaceActivation workspace,
-        BrowserRetainedWorkspaceInstallationDraft installation)
+        BrowserRetainedWorkspacePostingDraft posting)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _candidate = candidate
             ?? throw new ArgumentNullException(nameof(candidate));
         Workspace = workspace
             ?? throw new ArgumentNullException(nameof(workspace));
-        Installation = installation
-            ?? throw new ArgumentNullException(nameof(installation));
+        Posting = posting
+            ?? throw new ArgumentNullException(nameof(posting));
         if (!ReferenceEquals(
                 candidate.Realization,
                 workspace.Workspace))
@@ -328,19 +328,19 @@ internal sealed class BrowserPreparedWorkspaceActivation
                 nameof(workspace));
         }
         if (!ReferenceEquals(
-                installation.Navigation,
+                posting.Navigation,
                 workspace.Snapshot.Navigation))
         {
             throw new ArgumentException(
-                "The Browser installation must retain the exact completed "
+                "The Browser posting must retain the exact completed "
                     + "Navigation initialization.",
-                nameof(installation));
+                nameof(posting));
         }
     }
 
     internal CompleteWorkspaceActivation Workspace { get; }
 
-    internal BrowserRetainedWorkspaceInstallationDraft Installation { get; }
+    internal BrowserRetainedWorkspacePostingDraft Posting { get; }
 
     internal bool IsPending
     {
@@ -390,7 +390,7 @@ internal sealed class BrowserPreparedWorkspaceActivation
         return result;
     }
 
-    internal async ValueTask<BrowserRetainedWorkspaceNonInstallResult>
+    internal async ValueTask<BrowserRetainedWorkspaceNonPostingResult>
         SettleAsync()
     {
         bool abandon;
@@ -463,7 +463,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         _settlements = new(StringComparer.Ordinal);
     BrowserWorkspaceRealizationHost _host;
     BrowserRetainedWorkspaceActivationIntent? _latestIntent;
-    BrowserRetainedWorkspaceInstallation? _active;
+    BrowserRetainedWorkspacePosting? _active;
     long _nextRealization;
     long _nextSettlement;
     bool _deactivating;
@@ -482,7 +482,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         _host = _hostFactory();
     }
 
-    internal BrowserRetainedWorkspaceInstallation? Active
+    internal BrowserRetainedWorkspacePosting? Active
     {
         get
         {
@@ -491,7 +491,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         }
     }
 
-    internal NavigationAuthorityResult RecordConsumerInstallation(
+    internal NavigationAuthorityResult RecordConsumerPosting(
         string realizationId,
         long publicationOrdinal,
         NavigationEffectAuthority authority) =>
@@ -500,7 +500,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             publicationOrdinal,
             authority,
             static (slot, effect) =>
-                slot.RecordConsumerInstallation(effect));
+                slot.RecordConsumerPosting(effect));
 
     internal bool ValidateNavigationAuthority(
         string realizationId,
@@ -630,7 +630,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         {
             if (preparedActivation is { IsPending: true })
             {
-                BrowserRetainedWorkspaceNonInstallResult cleanup =
+                BrowserRetainedWorkspaceNonPostingResult cleanup =
                     await preparedActivation.SettleAsync()
                         .ConfigureAwait(false);
                 if (cleanup.Failure is not null)
@@ -663,7 +663,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         BrowserWorkspaceRealizationHost host;
         InspectionWorkspaceIdentity expectedRealization;
-        BrowserRetainedWorkspaceInstallation expectedInstallation;
+        BrowserRetainedWorkspacePosting expectedPosting;
         lock (_gate)
         {
             if (_active?.RetainedDefinitionId != retainedDefinitionId)
@@ -672,8 +672,8 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                     WorkspaceRealizationOperationUnavailableReason.NoActiveRealization);
             }
             host = _host;
-            expectedInstallation = _active;
-            expectedRealization = expectedInstallation.Realization;
+            expectedPosting = _active;
+            expectedRealization = expectedPosting.Realization;
         }
         WorkspaceRealizationOperationAdmission admission =
             await host.EnterOperationAsync(
@@ -688,7 +688,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
 
         lock (_gate)
         {
-            if (ReferenceEquals(_active, expectedInstallation))
+            if (ReferenceEquals(_active, expectedPosting))
                 return admission;
         }
         admitted.Lease.Dispose();
@@ -745,7 +745,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         BrowserWorkspaceRealizationHost retiredHost;
         InspectionWorkspaceIdentity activeRealization;
-        BrowserRetainedWorkspaceInstallation activeInstallation;
+        BrowserRetainedWorkspacePosting activePosting;
         lock (_gate)
         {
             if (_closing)
@@ -773,7 +773,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                     "A different retained Workspace definition is active.");
             }
 
-            activeInstallation = _active;
+            activePosting = _active;
             retiredHost = _host;
             activeRealization = retiredHost.Current?.Identity
                 ?? throw new InvalidOperationException(
@@ -785,7 +785,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         string? navigationFailure = null;
         try
         {
-            activeInstallation.NavigationState.Retire();
+            activePosting.NavigationState.Retire();
         }
         catch (Exception failure)
         {
@@ -935,7 +935,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
     }
 
     internal BrowserSpotlightRetainedWorkspacePublicationResult<
-        BrowserRetainedWorkspaceInstallation,
+        BrowserRetainedWorkspacePosting,
         BrowserRetainedWorkspaceActivationRejection>
         PublishSpotlightActivation(
             BrowserSpotlightRetainedWorkspacePublicationRequest<
@@ -956,14 +956,14 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             authority.Intent,
             request.Activation.Workspace,
             request.Activation,
-            authority.SourceInstallation);
+            authority.SourcePosting);
         return commit switch
         {
             BrowserRetainedWorkspaceCommitResult.Committed committed =>
                 new BrowserSpotlightRetainedWorkspacePublicationResult<
-                    BrowserRetainedWorkspaceInstallation,
+                    BrowserRetainedWorkspacePosting,
                     BrowserRetainedWorkspaceActivationRejection>.Published(
-                        committed.Installation),
+                        committed.Posting),
             BrowserRetainedWorkspaceCommitResult.Superseded =>
                 RejectedSpotlight(
                     "The Spotlight retained Workspace activation is no longer current."),
@@ -994,17 +994,17 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         BrowserRetainedWorkspaceActivationIntent intent,
         CompleteWorkspaceActivation workspace,
         BrowserPreparedWorkspaceActivation prepared,
-        BrowserRetainedWorkspaceInstallation? requiredIncumbent)
+        BrowserRetainedWorkspacePosting? requiredIncumbent)
     {
         ArgumentNullException.ThrowIfNull(intent);
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(prepared);
-        BrowserRetainedWorkspaceInstallationDraft draft =
-            prepared.Installation;
+        BrowserRetainedWorkspacePostingDraft draft =
+            prepared.Posting;
         if (!ReferenceEquals(prepared.Workspace, workspace))
         {
             throw new ArgumentException(
-                "The prepared Browser installation belongs to a different "
+                "The prepared Browser posting belongs to a different "
                     + "complete Workspace.",
                 nameof(workspace));
         }
@@ -1056,16 +1056,16 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             }
 
             long publicationOrdinal = ++_nextRealization;
-            BrowserRetainedWorkspaceInstallation installation = draft.Install(
+            BrowserRetainedWorkspacePosting posting = draft.Publish(
                 activated.Realization.Identity,
                 $"workspace-realization-{publicationOrdinal}",
                 publicationOrdinal,
                 predecessor,
                 navigationCleanup);
-            _active = installation;
+            _active = posting;
             return new BrowserRetainedWorkspaceCommitResult.Committed(
                 activated,
-                installation);
+                posting);
         }
     }
 
@@ -1110,7 +1110,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         BrowserRetainedWorkspaceActivationIntent intent,
         CompleteRestorationResult<
             BrowserPreparedWorkspaceActivation>.Activated activated,
-        BrowserRetainedWorkspaceInstallation? requiredIncumbent)
+        BrowserRetainedWorkspacePosting? requiredIncumbent)
     {
         if (!ReferenceEquals(
                 activated.Workspace.Intent,
@@ -1132,10 +1132,10 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             is BrowserRetainedWorkspaceCommitResult.Committed committed)
         {
             return new BrowserRetainedWorkspaceActivationResult.Activated(
-                committed.Installation);
+                committed.Posting);
         }
 
-        BrowserRetainedWorkspaceNonInstallResult cleanup =
+        BrowserRetainedWorkspaceNonPostingResult cleanup =
             await activated.Activation.SettleAsync().ConfigureAwait(false);
         if (cleanup.Failure is not null)
         {
@@ -1166,7 +1166,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             _closing = true;
             _latestIntent?.Cancel();
             _latestIntent = null;
-            BrowserRetainedWorkspaceInstallation? active = _active;
+            BrowserRetainedWorkspacePosting? active = _active;
             _active = null;
             _disposeCompletion = DisposeHostAsync(_host, active);
             return new(_disposeCompletion);
@@ -1175,7 +1175,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
 
     static async Task DisposeHostAsync(
         BrowserWorkspaceRealizationHost host,
-        BrowserRetainedWorkspaceInstallation? active)
+        BrowserRetainedWorkspacePosting? active)
     {
         Exception? navigationFailure = null;
         try
@@ -1237,11 +1237,11 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
     }
 
     static BrowserSpotlightRetainedWorkspacePublicationResult<
-        BrowserRetainedWorkspaceInstallation,
+        BrowserRetainedWorkspacePosting,
         BrowserRetainedWorkspaceActivationRejection>
         RejectedSpotlight(string message) =>
         new BrowserSpotlightRetainedWorkspacePublicationResult<
-            BrowserRetainedWorkspaceInstallation,
+            BrowserRetainedWorkspacePosting,
             BrowserRetainedWorkspaceActivationRejection>.Rejected(
                 new(message));
 
@@ -1255,7 +1255,7 @@ internal abstract record BrowserRetainedWorkspaceCommitResult
 
     internal sealed record Committed(
         BrowserWorkspaceRealizationCutoverResult.Activated Cutover,
-        BrowserRetainedWorkspaceInstallation Installation)
+        BrowserRetainedWorkspacePosting Posting)
         : BrowserRetainedWorkspaceCommitResult;
 
     internal sealed record Superseded
@@ -1310,7 +1310,7 @@ internal sealed class BrowserCompleteRestorationProjectionCapture(
     BrowserRetainedWorkspaceActivationRequest request)
 {
     readonly object _gate = new();
-    BrowserRetainedWorkspaceInstallationDraft? _installation;
+    BrowserRetainedWorkspacePostingDraft? _posting;
 
     internal ValueTask CaptureAsync(
         CompleteWorkspaceActivation activation,
@@ -1318,43 +1318,43 @@ internal sealed class BrowserCompleteRestorationProjectionCapture(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        BrowserRetainedWorkspaceInstallationDraft installation =
-            BrowserRetainedWorkspaceInstallationDraft.Create(
+        BrowserRetainedWorkspacePostingDraft posting =
+            BrowserRetainedWorkspacePostingDraft.Create(
                 request,
                 activation,
                 projection);
         lock (_gate)
         {
-            if (_installation is not null)
+            if (_posting is not null)
             {
                 throw new InvalidOperationException(
                     "Complete restoration projected Browser presentation "
                         + "more than once.");
             }
-            _installation = installation;
+            _posting = posting;
         }
         return ValueTask.CompletedTask;
     }
 
-    internal BrowserRetainedWorkspaceInstallationDraft Take(
+    internal BrowserRetainedWorkspacePostingDraft Take(
         CompleteWorkspaceActivation activation)
     {
         lock (_gate)
         {
-            BrowserRetainedWorkspaceInstallationDraft installation =
-                _installation
+            BrowserRetainedWorkspacePostingDraft posting =
+                _posting
                 ?? throw new InvalidOperationException(
                     "Complete restoration omitted Browser presentation.");
             if (!ReferenceEquals(
-                    installation.Navigation,
+                    posting.Navigation,
                     activation.Snapshot.Navigation))
             {
                 throw new InvalidOperationException(
                     "Complete restoration projected a different Navigation "
                         + "initialization.");
             }
-            _installation = null;
-            return installation;
+            _posting = null;
+            return posting;
         }
     }
 }
@@ -1500,10 +1500,10 @@ internal sealed class BrowserCompleteRestorationHost(
                     BrowserPreparedWorkspaceActivation>.Failed(cleanup);
         }
 
-        BrowserRetainedWorkspaceInstallationDraft installation;
+        BrowserRetainedWorkspacePostingDraft posting;
         try
         {
-            installation = projection.Take(preparedWorkspace.Activation);
+            posting = projection.Take(preparedWorkspace.Activation);
         }
         catch (Exception failure)
         {
@@ -1525,7 +1525,7 @@ internal sealed class BrowserCompleteRestorationHost(
                     host,
                     prepared.Candidate,
                     preparedWorkspace.Activation,
-                    installation),
+                    posting),
                 preparedWorkspace.Activation);
     }
 

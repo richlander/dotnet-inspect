@@ -403,15 +403,15 @@ substrates, and inspection producers that will extend that space.
   Definitions retains demo records, resolution, run plans, and execution. Only
   the CLI and the managed inspect-web facade may consume this application
   assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
-  not reference it. The proposed
+  not reference it. The
   [Ecosystem Dependency Recognition](design/ecosystem-dependency-recognition.md)
-  owner separately defines a product-authored Package and assembly association
+  owner now implements the product-authored Package and assembly association
   profile, classification of already-issued direct-dependency observations,
-  Package/Library recognition Documents, and the application-owned composition
-  that pairs exact lower Dependency inspection Content with recognition
-  evidence while preserving the existing dependency direction. Recognition
-  performs no traversal, provenance inference, or reinterpretation of discovery
-  metadata.
+  and Package/Library recognition Documents and envelopes. The later
+  application-owned dependency-inspection composition will pair exact lower
+  Content with the same classification while preserving the existing
+  dependency direction. Recognition performs no traversal, provenance
+  inference, or reinterpretation of discovery metadata.
   The
   [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
   is the focused one-way projection from a selected application pack and the

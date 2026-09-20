@@ -617,9 +617,9 @@ public sealed record BrowserRetainedWorkspacePredecessor(
     string Reason);
 
 /// <summary>
-/// Detached managed evidence TypeScript installs after a successful cutover.
+/// Detached managed evidence TypeScript posts after a successful cutover.
 /// </summary>
-public sealed record BrowserRetainedWorkspaceInstallation(
+public sealed record BrowserRetainedWorkspacePosting(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
@@ -644,7 +644,7 @@ public sealed record BrowserRetainedWorkspaceActivationFailure(
 /// </summary>
 public sealed record BrowserRetainedWorkspaceActivationResult(
     string Status,
-    BrowserRetainedWorkspaceInstallation? Installation,
+    BrowserRetainedWorkspacePosting? Posting,
     BrowserRetainedWorkspaceActivationFailure? Failure);
 
 /// <summary>

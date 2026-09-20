@@ -14,7 +14,7 @@ format-1 Browser URL projection remains intentionally partial and cannot enter
 this transaction. The uncovered-Spotlight Package managed adoption boundary
 now composes a captured schema-version-3 Definitions request with the real
 retained owner, including unpublished completion, source-basis revalidation,
-synchronous cutover, and one-shot non-install settlement. Its final
+synchronous cutover, and one-shot non-posting settlement. Its final
 interaction binding, the other producer migrations, and retirement of the
 compatibility snapshot collection remain
 [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
@@ -33,7 +33,7 @@ selection with browser history and presentation. It consumes:
 - [Stateless Core Services](stateless-core-services.md) for the repository-wide
   one-active-realization rule, and
 - [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) for
-  browser-history classification, atomic Navigation-result installation,
+  browser-history classification, atomic Navigation-result posting,
   canonical location commitment, focus, announcement, acknowledgement, and
   abandonment ordering.
 
@@ -217,10 +217,10 @@ Navigation focus among its complete package membership. This is separate from
 the Browser's selected Workspace identity.
 
 For the active Workspace, complete restoration evaluates that focus into the
-installed Navigation result and exact active package subject. For an inactive
-Workspace, the same focus is only resource-free restoration input. It cannot
-admit package operations, identify a live Scope, or imply that the Workspace
-has a dormant realization.
+Navigation result and exact active package subject that the Browser posts
+after cutover. For an inactive Workspace, the same focus is only resource-free
+restoration input. It cannot admit package operations, identify a live Scope,
+or imply that the Workspace has a dormant realization.
 
 ### Active selection
 
@@ -237,13 +237,13 @@ URLs, definition equality, and result text cannot be used to infer it.
 
 Each successful cutover also issues a page-session publication ordinal.
 TypeScript uses that ordinal only to order asynchronously delivered
-installation results; it does not parse realization identities or use the
+postings; it does not parse realization identities or use the
 ordinal for operation admission. A lower ordinal cannot replace presentation
-already installed from a higher ordinal.
+already posted from a higher ordinal.
 
 The initial Navigation result contributes the third currency in the
-cross-runtime installation join: its opaque effect authority. The Browser may
-install and settle retained presentation only when realization identity,
+cross-runtime posting join: its opaque effect authority. The Browser may
+post and settle retained presentation only when realization identity,
 publication ordinal, and effect authority all belong to the same successful
 publication. Definition identity and package coordinates remain presentation
 facts, not substitutes for that tuple.
@@ -270,7 +270,7 @@ Workspaces.
   coordinator.
 - A settlement record is detached evidence of successful or failed retirement.
 - A page observation carries the settlement identity and the exact retained
-  definition and realization installation that issued it through both success
+  definition and realization posting associated with it through both success
   and failure callbacks.
 
 Only the coordinator decides when these states may begin, publish, drain, and
@@ -287,11 +287,11 @@ At every observable Browser state:
 4. a selected definition and active realization, when present, are explicitly
    associated,
 5. each definition may retain one package or Navigation focus, but only the
-   active realization's installed selection grants package operation
+   active realization's posted selection grants package operation
    authority,
 6. candidates and predecessors are not selectable,
 7. inactive definitions hold no live realization authority, and
-8. presentation derived from a former realization is not installed as current
+8. presentation derived from a former realization is not posted as current
    state for a fresh realization.
 
 A page with retained definitions may have no active realization during initial
@@ -319,7 +319,7 @@ Selection is asynchronous and transactional:
 8. retire the predecessor Navigation state slot and publish the successor's
    exact realization identity, publication ordinal, initial Navigation result,
    and detached package presentation,
-9. let Inspect Web Navigation Consumer synchronously install and record the
+9. let Inspect Web Navigation Consumer synchronously post and record the
    exact result before its later visible effects and acknowledgement, and
 10. observe predecessor settlement independently.
 
@@ -343,10 +343,10 @@ validated ordered projection rather than raw dictionaries or the live
 Workspace. Browser code must detach its package surfaces before returning.
 
 The successor `BrowserNavigationStateSlot` is created only after successful
-cutover. A candidate that never installs therefore creates no live Navigation
-slot requiring retirement. The predecessor slot is invalidated before the
-successor presentation can install, even when cancellation callbacks make
-retirement report cleanup failure.
+cutover. A candidate that never reaches cutover therefore creates no live
+Navigation slot requiring retirement. The predecessor slot is invalidated
+before the successor presentation can post, even when cancellation callbacks
+make retirement report cleanup failure.
 
 ### Selecting the active definition
 
@@ -382,7 +382,7 @@ Cancellation is not reported as success. A retry creates a new intent and a
 fresh candidate.
 
 Failure after successful cutover has a different boundary. If Browser
-presentation installation, installation recording, or later required effects
+presentation posting, recording that posting, or later required effects
 fail, the new managed realization remains active, its exact Navigation
 authority is abandoned, and the failure is visible. The host cannot restore
 the predecessor because managed operation authority has already transferred.
@@ -485,7 +485,7 @@ Inspect Web Navigation Consumer:
   data.
 
 Navigation Consumer remains the sole owner of browser-history push, replace,
-adopt, and traversal realignment, plus atomic result installation and deferred
+adopt, and traversal realignment, plus atomic result posting and deferred
 effects. This design constrains the realization input to that owner:
 
 - Back or Forward within the currently active retained definition may apply a
@@ -524,7 +524,7 @@ During activation:
 
 After cutover, the retained-realization owner invalidates predecessor-bound
 result models before they can act on the new realization. Navigation Consumer
-then installs the authorized Navigation result and owns the resulting location,
+then posts the authorized Navigation result and owns the resulting location,
 history, focus, and announcement effects.
 
 ### Complete candidate presentation
@@ -627,7 +627,7 @@ This includes:
 An operation carries the admitted realization identity through its result
 publication check. Results from a predecessor may finish, but the
 retained-realization owner rejects their realization association before
-Navigation Consumer or another presentation owner can install effects.
+Navigation Consumer or another presentation owner can post effects.
 
 Exact target identity determines whether an operation belongs to the active
 realization. Labels, coordinates, assembly names, Platform names, and content
@@ -682,7 +682,7 @@ tracks the end-to-end architecture retirement.
 2. **Retained definitions and activation transaction.** Supply the TypeScript
    resource-free definition controller and consume the owner-issued complete
    restoration path for asynchronous selection, rollback presentation, exact
-   managed realization association, and detached Navigation installation
+   managed realization association, and detached Navigation posting
    evidence. The transaction does not create a Browser-private restoration
    recipe and rejects version-1 links. Existing producers remain on their
    temporary snapshot path until slice 3 migrates them; no migrated path may
@@ -771,7 +771,7 @@ saved definition records are not retired.
 - [#6113](https://github.com/richlander/dotnet-inspect/issues/6113) supplies
   retained Navigation results for Browser consumption.
 - [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) supplies
-  the complete Workspace Definitions restoration transaction and non-install
+  the complete Workspace Definitions restoration transaction and non-posting
   cleanup.
 - [#7028](https://github.com/richlander/dotnet-inspect/issues/7028) consumes
   that result in the retained Browser activation transaction.
@@ -819,7 +819,7 @@ construction and operation paths. Tests must demonstrate:
   schema-version-3 Definitions request with the Ecosystems-owned curated
   registrations, including the nonprojectable result,
 - source registration movement after complete restoration taking the
-  one-shot non-install path and preserving the incumbent,
+  one-shot non-posting path and preserving the incumbent,
 - candidate failure preserving B's selection and usable operation admission,
 - a late A completion failing to replace a newer selection,
 - predecessor operations finishing without republishing stale results,
@@ -828,7 +828,7 @@ construction and operation paths. Tests must demonstrate:
 - complete removal of retained-scope compatibility search at final retirement.
 
 The existing retained-realization and Spotlight models already compose the
-unpublished candidate, final authority check, publication, and non-install
+unpublished candidate, final authority check, publication, and non-posting
 transitions used by this producer. This adoption adds no new lifecycle state
 or join currency, so it relies on those registered model gates rather than
 introducing a duplicate composition model.

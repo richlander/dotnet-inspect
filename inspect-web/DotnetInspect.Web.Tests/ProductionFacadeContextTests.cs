@@ -148,7 +148,7 @@ public sealed class ProductionFacadeContextTests
             "ListHomeDemos",
             "ListVocabulary",
             "ObserveRetainedWorkspaceSettlement",
-            "RecordRetainedWorkspaceNavigationInstallation",
+            "RecordRetainedWorkspaceNavigationPosting",
             "ResolveHomeDemo",
             "RunHomeDemo",
             "ValidateRetainedWorkspaceNavigationAuthority",
