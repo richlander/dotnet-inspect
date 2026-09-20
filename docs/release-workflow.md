@@ -155,9 +155,10 @@ Prepare the notes and hand off intake as follows:
    commit as the exact release SHA. This closes
    implementation membership: later merges are not ancestors and remain next-
    release candidates. Immediately before dispatch, recheck both trackers
-   against the selected SHA. If a late comment exposes an earlier qualifying
-   implementation or the history and notes otherwise disagree, correct the
-   notes and select the replacement commit.
+   against the selected SHA. If a late comment exposes a qualifying release-note
+   candidate or architecture suggestion, or the history and prepared artifacts
+   otherwise disagree, correct the notes or architecture map as applicable and
+   select the replacement commit.
 6. After every coordinated release surface succeeds, comment on the successor
    tracker with the released version, release URL, and full shipped SHA. State
    that changes at or before that commit shipped in the completed release and

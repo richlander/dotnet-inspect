@@ -39,9 +39,10 @@ Before selecting the outgoing release commit:
 5. Land the release-preparation change, including any architecture
    reconciliation, and select that commit as the exact release SHA. Later
    merges are outside its history. Immediately before dispatch, recheck both
-   trackers against that SHA. If a late comment exposes an earlier qualifying
-   implementation or the history and notes otherwise disagree, correct the
-   notes and select the replacement commit.
+   trackers against that SHA. If a late comment exposes a qualifying
+   release-note candidate or architecture suggestion, or the history and
+   prepared artifacts otherwise disagree, correct the notes or architecture
+   map as applicable and select the replacement commit.
 
 After packages, the GitHub release, production, and CoreCLR all succeed, comment
 on the successor tracker with the released version, release URL, and full
