@@ -1165,9 +1165,13 @@ inspect each side on its own.
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
   -S Dependencies
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
-  -S "Dependency Hierarchy" --tree
+  -S "Dependency Hierarchy" --depth 2 --tree
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends Int128 \
+  --where "Kind=Interface" \
+  --order-by "Target desc" \
+  --top 5 --table
 dotnet-inspect depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -1240,7 +1244,12 @@ remains the direct declaration evidence section and does not acquire transitive
 packages. The removed package `--dependencies` spelling reports replacement
 guidance rather than acting as a second hierarchy selector.
 Positional `depends <type>` retains its existing `Dependency Graph` section
-until Type relationships move to the general Graph operation.
+until Type relationships move to the general Graph operation. That route now
+projects its existing Source, Target, and Kind predicates plus field and
+Traversal ordering through `-Q "Dependency Graph"`. `--top` requires a Source,
+Target, or Kind field order; Traversal is a sequence order. Asset-mode
+`Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
+`--depth` capability from the Dependency operation.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

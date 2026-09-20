@@ -1191,6 +1191,49 @@ public partial class CommandExecutionTests
                 "(revisit) test.dependency.shared",
                 tree.Output);
             Assert.DoesNotContain("## Dependencies", tree.Output);
+
+            var boundedPackage = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Dependency Hierarchy",
+                "--depth", "1",
+                "--tfm", "net9.0",
+                "--source", tempDir,
+                "--json",
+                "--tips", "q");
+            var boundedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "-S", "Dependency Hierarchy",
+                "--depth", "1",
+                "--tfm", "net9.0",
+                "--source", tempDir,
+                "--json");
+            Assert.Equal(0, boundedPackage.Exit);
+            Assert.Empty(boundedPackage.Error);
+            Assert.Equal(0, boundedDepends.Exit);
+            Assert.Empty(boundedDepends.Error);
+            using JsonDocument boundedPackageJson =
+                JsonDocument.Parse(boundedPackage.Output);
+            using JsonDocument boundedDependsJson =
+                JsonDocument.Parse(boundedDepends.Output);
+            JsonElement boundedPackageOccurrences =
+                boundedPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement boundedDependsOccurrences =
+                boundedDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.True(JsonElement.DeepEquals(
+                boundedPackageOccurrences,
+                boundedDependsOccurrences));
+            Assert.DoesNotContain(
+                boundedPackageOccurrences.EnumerateArray(),
+                occurrence =>
+                    occurrence.GetProperty("target_identity")
+                        .GetProperty("package")
+                        .GetProperty("id")
+                        .GetString()
+                    == "test.dependency.shared");
         }
         finally
         {

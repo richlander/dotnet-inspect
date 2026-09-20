@@ -376,6 +376,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_TypeQueryFiltersOrdersAndRanksRelationshipRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Int128",
+            "--where", "Kind=Interface",
+            "--order-by", "Target desc",
+            "--top", "1",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement relationship =
+            JsonDocument.Parse(output).RootElement;
+        Assert.Equal(
+            "interface",
+            relationship.GetProperty("relationship").GetString());
+        Assert.Equal(
+            "System.Numerics.IUnaryPlusOperators<System.Int128, System.Int128>",
+            relationship.GetProperty("target").GetString());
+    }
+
+    [Fact]
     public async Task Depends_RootOnlyTypeJsonRetainsTheSelectedType()
     {
         var (exit, output, error) = await RunAppAsync(

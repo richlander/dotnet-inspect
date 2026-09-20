@@ -15,7 +15,7 @@ internal static class QueryDiscoveryCommand
     internal static void Register(RootCommand root, SharedOptions options)
     {
         foreach (Command command in root.Subcommands.Where(command =>
-            command.Name is "library" or "type" or "member" or "package" or "find"))
+            command.Name is "library" or "type" or "member" or "package" or "find" or "depends"))
         {
             command.Options.Add(options.QueryHelp);
             WrapAction(command, options);
@@ -74,6 +74,7 @@ internal static class QueryDiscoveryCommand
                 or "package"
                 or "package query"
                 or "find"
+                or "depends"
                 or "graph libraries"))
         {
             CommandError.Write($"Query discovery is not supported by the '{result.CommandResult.Command.Name}' subcommand.");
@@ -138,6 +139,18 @@ internal static class QueryDiscoveryCommand
                     exitCode = 1;
                     return true;
                 }
+            }
+        }
+        foreach (Option option in result.CommandResult.Command.Options.Where(
+                     option => option.Name == "--depth"))
+        {
+            if (result.GetResult(option) is { Implicit: false })
+            {
+                CommandError.Write(
+                    "--depth cannot be combined with query discovery; "
+                    + "it does not execute a data query.");
+                exitCode = 1;
+                return true;
             }
         }
         if (query is not null && result.GetValue(options.Schema))

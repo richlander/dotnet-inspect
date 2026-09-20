@@ -162,9 +162,10 @@ public partial class DependsCommand
                     options,
                     context,
                     plan,
-                    options.Effective && options.Depth is null
+                    options.Effective
+                        && EffectiveDepth(options) is null
                         ? 1
-                        : options.Depth,
+                        : EffectiveDepth(options),
                     requestedShare,
                     pruneSource,
                     cancellationToken).ConfigureAwait(false);
@@ -360,7 +361,7 @@ public partial class DependsCommand
             }
         }
 
-        if (options.Depth is not null && !hierarchyRequested)
+        if (EffectiveDepth(options) is not null && !hierarchyRequested)
         {
             CommandError.Write(
                 "--depth requires the Dependency Hierarchy section.");
@@ -567,6 +568,10 @@ public partial class DependsCommand
         return false;
     }
 
+    private static int? EffectiveDepth(DependsOptions options) =>
+        options.QueryPlan?.MaximumDepth
+        ?? options.Depth;
+
     private static HashSet<string> EffectiveDiscoveryPlanSections(
         string[] discover,
         SectionCatalog<DependsAssetProjection> catalog)
@@ -652,10 +657,12 @@ public partial class DependsCommand
             string? targetFramework,
             bool includePrerelease,
             NuGetSourceOptions? sourceOptions,
+            DependencyQueryPlan queryPlan,
             CommandContext context,
             CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageReference);
+        ArgumentNullException.ThrowIfNull(queryPlan);
         ArgumentNullException.ThrowIfNull(context);
 
         var options = new DependsOptions
@@ -670,6 +677,8 @@ public partial class DependsCommand
             Tfm = targetFramework,
             IncludePrerelease = includePrerelease,
             SourceOptions = sourceOptions,
+            Depth = queryPlan.MaximumDepth,
+            QueryPlan = queryPlan,
         };
         DependsAssetRequestPlan plan =
             DependsAssetRequestPlan.FromSections(
@@ -680,7 +689,7 @@ public partial class DependsCommand
             options,
             context,
             plan,
-            traversalDepth: null,
+            traversalDepth: queryPlan.MaximumDepth,
             share: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),

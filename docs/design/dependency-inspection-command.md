@@ -383,6 +383,27 @@ not-found, ambiguous, or rejected outcome before traversal begins. Candidate
 assemblies supplied by scope options are search participants, not roots.
 `--depth` counts from that one selected type node.
 
+### Query operation profiles
+
+Dependency registers one executable Query Operation with two profiles:
+
+- **Type relationships** binds the selected-Type subject, `Dependency Graph`
+  result, and existing Source, Target, Kind, and Traversal row vocabulary.
+  `--where`, `--order-by`, `--top`, Head, Tail, Window, and Depth lower to one
+  portable intent and resolve to the existing `TypeDependencySectionPlan`.
+  Traversal remains a sequence order and cannot rank Top.
+- **Rooted hierarchy** binds either the explicit asset-root set or an already
+  resolved Package subject to `Dependency Hierarchy`. Both routes inherit
+  Depth and Head, Tail, and Window from the same profile rather than copying a
+  command-local inventory.
+
+Depth is an upstream traversal-work dimension. Row stages run after traversal
+and do not imply that the graph was exhausted at the selected row boundary.
+An unsupported term, order, ranking, stage, or depth fails before source
+acquisition. Query registration does not change root admission, traversal,
+evidence, completion, hierarchy occurrence identity, failures, section
+selection, or rendering.
+
 ## Asset admission and expansion authority
 
 Each root gesture authorizes only the acquisition implied by that root and its

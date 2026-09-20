@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -115,6 +116,82 @@ public class QueryDiscoveryTests
         Assert.Equal(0, companion.ExitCode);
         Assert.Empty(companion.Error);
         Assert.Equal(result.Output, companion.Output);
+    }
+
+    [Fact]
+    public async Task DependsQuery_ProjectsRegisteredTypeCapabilitiesWithoutAcquisition()
+    {
+        var result = await Run(
+            "depends",
+            "Missing.Type",
+            "--library",
+            "/missing/query-discovery.dll",
+            "-Q",
+            "Dependency Graph",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement section = Assert.Single(
+            json.RootElement.GetProperty("sections").EnumerateArray());
+        JsonElement[] facets =
+            [.. section.GetProperty("facets").EnumerateArray()];
+        Assert.Equal(
+            ["Source", "Target", "Kind", "Traversal", "Depth"],
+            facets.Select(facet =>
+                facet.GetProperty("name").GetString()));
+        Assert.Equal(
+            ["--where", "--order-by", "--top"],
+            facets[0].GetProperty("operators")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            Enum.GetNames<TypeDependencyRelationshipKind>(),
+            facets[2].GetProperty("values")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+    }
+
+    [Fact]
+    public async Task DependencyHierarchy_InheritsDepthAcrossCommandAndPackageSection()
+    {
+        var depends = await Run(
+            "depends",
+            "-Q",
+            "Dependency Hierarchy",
+            "--json");
+        var package = await Run(
+            "package",
+            "-Q",
+            "Dependency Hierarchy",
+            "--json");
+
+        Assert.Equal(0, depends.ExitCode);
+        Assert.Empty(depends.Error);
+        Assert.Equal(0, package.ExitCode);
+        Assert.Empty(package.Error);
+        using var dependsJson = JsonDocument.Parse(depends.Output);
+        using var packageJson = JsonDocument.Parse(package.Output);
+        JsonElement dependsFacets =
+            dependsJson.RootElement.GetProperty("sections")[0]
+                .GetProperty("facets");
+        JsonElement packageFacets =
+            packageJson.RootElement.GetProperty("sections")[0]
+                .GetProperty("facets");
+        Assert.True(JsonElement.DeepEquals(
+            dependsFacets,
+            packageFacets));
+        JsonElement depth = Assert.Single(
+            dependsFacets.EnumerateArray());
+        Assert.Equal(
+            "Depth",
+            depth.GetProperty("name").GetString());
+        Assert.Equal(
+            ["--depth"],
+            depth.GetProperty("operators")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
     }
 
     [Theory]

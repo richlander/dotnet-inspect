@@ -130,6 +130,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
         init;
     }
 
+    public DependencyQueryPlan? QueryPlan { get; init; }
+
     /// <summary>
     /// Output the number of selected logical dependency edges.
     /// </summary>

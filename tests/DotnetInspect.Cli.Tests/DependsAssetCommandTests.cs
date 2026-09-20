@@ -4843,6 +4843,34 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task UnsupportedAssetQueryFailsBeforeRootAcquisition()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-query-{Guid.NewGuid():N}.nuspec");
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--nuspec",
+                missing,
+                "--where",
+                "Source=Example.*",
+            ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "not queryable by this Dependency route",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task HostileNuspecText_RemainsContained()
     {
         string path = WriteTemporaryFile(

@@ -277,7 +277,9 @@ internal static class QueryDiscoverOutput
                             : MarkoutInline.Code(string.Join(", ", key.Comparisons)),
                         key.Values.IsEmpty
                             ? key.ValueKind
-                            : key.Name == "Kind"
+                            : key.ValueKind.StartsWith(
+                                "C# body kind",
+                                StringComparison.OrdinalIgnoreCase)
                                 ? "C# Body Kinds: " + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
                                 : string.Join(", ", key.Values),
                         MarkoutInline.Code(key.Example),

@@ -85,6 +85,21 @@ public static class PackageCommandDefinitions
         var bodyOption = new Option<bool>("--body") { Description = "When printing markdown content, output only content after YAML frontmatter" };
         var outOption = SharedOptions.CreateOutputPathOption();
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
+        var depthOption = new Option<string?>("--depth")
+        {
+            Description =
+                "With -S \"Dependency Hierarchy\": maximum dependency traversal depth"
+        };
+        depthOption.Validators.Add(result =>
+        {
+            string? value = result.GetValue(depthOption);
+            if (value is not null
+                && (!int.TryParse(value, out int depth)
+                    || depth <= 0))
+            {
+                result.AddError("--depth must be a positive integer.");
+            }
+        });
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
@@ -108,6 +123,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(frontmatterOption);
         packageCommand.Options.Add(bodyOption);
         packageCommand.Options.Add(tfmOption);
+        packageCommand.Options.Add(depthOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
@@ -117,7 +133,7 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption,
+            tfmOption, depthOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
             skipEmptyOption, rootsOption, opts.NoHeaders);
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
@@ -163,7 +179,7 @@ public static class PackageCommandDefinitions
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, typeFilterOption, versionOption, rootsOption);
+            tfmOption, depthOption, typeFilterOption, versionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =

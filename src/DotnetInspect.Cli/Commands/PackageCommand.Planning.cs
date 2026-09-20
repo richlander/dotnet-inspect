@@ -695,10 +695,22 @@ public partial class PackageCommand
     private static bool ValidateDependencyHierarchyProjection(
         InspectionOptions options)
     {
+        bool dependencyHierarchyProjection =
+            options.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy)
+                == true;
+        if (options.DependencyQueryPlan?.MaximumDepth is not null
+            && !dependencyHierarchyProjection)
+        {
+            CommandError.Write(
+                "--depth requires the Dependency Hierarchy section.");
+            return false;
+        }
+
         if (options.Discover is not null || !options.Tree)
             return true;
 
-        bool dependencyHierarchyProjection =
+        dependencyHierarchyProjection =
             options.IncludeSections is { Count: 1 }
             && options.IncludeSections.Contains(
                 PackageSections.DependencyHierarchy);

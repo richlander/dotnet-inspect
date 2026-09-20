@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -1256,7 +1257,21 @@ public partial class PackageCommand
                         options.Tfm,
                         options.IncludePrerelease,
                         options.SourceOptions,
+                        PackageDependencyQueryPlan(options),
                         context);
+            }
+
+            static DependencyQueryPlan PackageDependencyQueryPlan(
+                InspectionOptions options)
+            {
+                if (options.DependencyQueryPlan is { } plan)
+                    return plan;
+
+                DependencyQueryPlanResult result =
+                    DependencyQuery.ResolveIntent(
+                        DependencyQueryRouteKind.PackageHierarchy,
+                        PortableQueryIntent.Empty);
+                return ((DependencyQueryPlanResult.Accepted)result).Plan;
             }
 
             // Filter output based on options
