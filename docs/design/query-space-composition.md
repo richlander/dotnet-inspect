@@ -170,7 +170,7 @@ One query space is an immutable effective binding containing:
 | Part | Meaning |
 | --- | --- |
 | Identity | Stable owner-issued identity for discovery and portable intent resolution. |
-| Operation scope | One Query Operation definition, operation query-vocabulary identity, subject role, result grain, and operation profile. |
+| Operation scope | One Query Operation definition, operation-only query-vocabulary identity, subject role, result grain, and operation profile. |
 | Row-query scopes | One or more stable scope identities, each pairing one row query vocabulary with the compatible declared row-set identities and shaping capabilities to which an instance of that intent may apply. |
 | Request shape | One operation intent plus optional section-owned projection intent, zero or more ordered row-intent associations, a non-empty participating row-set selection, and one terminal requirement. |
 | Terminal space | The supported terminal requirements, initially Rows and exact Count, preserving each participating row-set identity. |
@@ -230,6 +230,10 @@ compatible selected sets, but it constructs one explicit association naming
 those sets. If the host cannot determine one target scope for an unqualified
 order or selection gesture, lowering fails before plan resolution. Query Space
 does not guess from schema, position, section name, or display text.
+The operation intent's order and semantic-stage collections are required to be
+empty and are rejected before either operation or row-plan resolution. Order
+and Head, Tail, Window, or Top execute exactly once through a row-intent
+association after its row predicates.
 
 ## Facet definitions and bindings
 
@@ -296,8 +300,11 @@ when the distinction matters.
 Query Space does not merge owner vocabularies into one universal
 `PortableQueryVocabulary`. The operation scope and each row query scope retain
 their own stable query-vocabulary identity, family namespace, predicate
-identity namespace, dimensions, stages, and orders. Each portable intent
-resolves exactly once inside that scope.
+identity namespace, and admitted intent components. The effective operation
+query vocabulary admits operation terms and execution bounds but no order or
+semantic selection stages. A row query vocabulary may admit row terms, order,
+and semantic stages. Each portable intent resolves exactly once inside that
+scope.
 
 Canonical term keys are unique across the complete query space because the
 compact host term has no scope discriminator. That uniqueness lets a host route
@@ -707,6 +714,9 @@ The eventual implementation and adopter gates must preserve these cases:
 - A host supplies an unqualified row order while two incompatible row query
   scopes are active. Lowering fails before execution rather than assigning the
   order by declaration position or applying it globally.
+- A direct .NET caller supplies `Head(1)` in the operation intent and a row
+  predicate in a row association. Construction rejects the operation stage
+  rather than selecting before the predicate or executing selection twice.
 - Two participating row sets contain three and five selected rows. Count
   returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
   total of eight.
@@ -738,8 +748,9 @@ Implementation proceeds as focused owner adoptions:
    and NotContains identities.
 3. Have Query Operation Infrastructure introduce the host-neutral query-space
    request, compose the operation intent with ordered row-intent associations,
-   preserve each scope's query vocabulary, and retire its transitional
-   `ResultPredicate` role.
+   project an operation-only query vocabulary, move existing operation-level
+   result predicates, order, and selection into result row-query scopes, and
+   retire its transitional `ResultPredicate` role.
 4. Preserve structural predicate and order nodes through row-query resolution
    beside local executable bindings.
 5. Extend Source Delegation through a separate focused continuation-receipt
@@ -770,7 +781,7 @@ slices:
 | --- | --- |
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
 | `QuerySpaceDescriptorRoundTripsWithoutResources` | The descriptor is enumerable and serializable without execution, acquisition, reflection, or live resources; round-trip preserves scope, facet, value-vocabulary, row-set, terminal, effect, continuation-capability, and result-contract relationships. |
-| `QuerySpaceRequestLowersToExplicitRowAssociations` | One operation intent and zero or more ordered row-intent associations lower deterministically; every participating set is assigned exactly once, one shared association targets only compatible sets, heterogeneous or independently shaped sets remain separate, and ambiguous unqualified order or selection fails before execution. |
+| `QuerySpaceRequestLowersToExplicitRowAssociations` | One operation intent and zero or more ordered row-intent associations lower deterministically; the operation intent rejects order and semantic stages, every participating set is assigned exactly once, one shared association targets only compatible sets, heterogeneous or independently shaped sets remain separate, ambiguous unqualified order or selection fails before execution, and selection executes exactly once after row predicates. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. |
