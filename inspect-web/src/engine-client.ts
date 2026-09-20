@@ -86,6 +86,7 @@ type CallGraphOperations =
 
 type CatalogOperations =
   | "admitRetainedWorkspacePackage"
+  | "admitRetainedWorkspacePlatform"
   | "activateRetainedWorkspaceDefinition"
   | "canonicalizeWorkspaceSharePacket"
   | "deactivateRetainedWorkspaceDefinition"

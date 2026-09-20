@@ -25,7 +25,11 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
+  BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
+  BrowserRetainedWorkspacePackageAdmissionResult,
+  BrowserRetainedWorkspacePlatformAdmissionResult,
+  BrowserRetainedWorkspacePosting,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
   BrowserPackageLoadResult,
@@ -151,6 +155,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   catalog: {
     admitRetainedWorkspacePackage: () =>
       unexpected("admitRetainedWorkspacePackage"),
+    admitRetainedWorkspacePlatform: () =>
+      unexpected("admitRetainedWorkspacePlatform"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
     canonicalizeWorkspaceSharePacket: () =>
@@ -250,6 +256,76 @@ function fixture(overrides: FacadeOverrides = {}) {
   };
 }
 
+function retainedDetailSurface(
+  packageId: string,
+  typeId: string,
+  platformPack: string | null,
+): BrowserPackageSurface {
+  const assemblyName = `${packageId}.dll`;
+  return {
+    package: packageId,
+    version: "10.0.0",
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    icon: {
+      mediaType: "image/png",
+      base64: "AA==",
+    },
+    defaultAssemblyId: assemblyName,
+    compileLibrary: {
+      status: "Selected",
+      targetFramework: "net10.0",
+      message: null,
+    },
+    assemblies: [{
+      id: assemblyName,
+      name: assemblyName,
+      version: "10.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+      asset: `lib/net10.0/${assemblyName}`,
+      publicTypes: 1,
+      publicMembers: 2,
+      platformPack,
+    }],
+    types: [{
+      id: typeId,
+      definitionId: typeId,
+      queryId: typeId,
+      metadataId: typeId,
+      name: typeId.split(".").at(-1) ?? typeId,
+      displayName: typeId,
+      namespace: typeId.split(".").slice(0, -1).join("."),
+      kind: "class",
+      accessibility: "public",
+      accessibilityId: "public",
+      assembly: assemblyName,
+      assemblyId: assemblyName,
+      assemblyName,
+      members: 2,
+      signature: `public class ${typeId}`,
+      api: [],
+      platformPack,
+    }],
+    accessibility: [{
+      id: "public",
+      label: "Public",
+      order: 0,
+      isDefault: true,
+      count: 1,
+    }],
+    totalMembers: 2,
+    documents: [{
+      kind: "readme",
+      name: "README.md",
+      path: "README.md",
+      size: 128,
+    }],
+    inspectionErrors: ["Retained inspection notice."],
+    inspectionError: null,
+  };
+}
+
 test("format 3 packet remains opaque across Browser Worker transport", async () => {
   const packet =
     "eyJmIjozLCJ0IjpbXSwiZyI6W10sInIiOltbInAiLCJNaWNyb3NvZnQuRXh0ZW5zaW9ucy4iXV0sImEiOm51bGwsIngiOm51bGwsInYiOlt7InQiOm51bGwsInUiOnsiayI6IndvcmtzcGFjZSJ9fV19";
@@ -280,7 +356,7 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
   state.host.dispose();
 });
 
-test("retained Catalog transport preserves definition registrations and package admission", async () => {
+test("retained Catalog transport preserves compact posting and bounded Package and Platform detail", async () => {
   const definition = {
     tabs: [],
     contexts: [],
@@ -293,26 +369,192 @@ test("retained Catalog transport preserves definition registrations and package 
     activeTabId: null,
     selectedContextId: null,
   } satisfies BrowserRetainedWorkspaceDefinitionState;
+  const posting = {
+    retainedDefinitionId: "definition-exact",
+    label: "Example",
+    canonicalLocation: "/inspect/example",
+    canonicalPacket: "packet-exact",
+    realizationId: "realization-exact",
+    publicationOrdinal: 7,
+    definition,
+    navigation: {
+      operation: "Initialize",
+      request: "request-exact",
+      snapshot: {
+        generation: "generation-exact",
+        scope: {
+          kind: "Current",
+          runtimeFailure: null,
+        },
+        workspace: {
+          id: "workspace-exact",
+          kind: "Workspace",
+          label: "Example",
+          summary: null,
+          parent: null,
+        },
+        activePackage: null,
+        activeSubject: {
+          id: "workspace-exact",
+          kind: "Workspace",
+          label: "Example",
+          summary: null,
+          parent: null,
+        },
+        typeInventoryLibraryContext: null,
+        packages: [],
+        hierarchy: [],
+        libraries: [],
+        types: [],
+        members: [],
+        lenses: [],
+        lensOutcome: {
+          kind: "Applied",
+          basis: "Recommendation",
+          subject: {
+            id: "workspace-exact",
+            kind: "Workspace",
+            label: "Example",
+            summary: null,
+            parent: null,
+          },
+          effectiveLens: null,
+          request: null,
+          preferredRole: null,
+          policyFailure: null,
+          resolution: null,
+          suspension: null,
+        },
+        diagnostics: [],
+      },
+      outcome: {
+        kind: "Applied",
+        rejection: null,
+        failureSource: null,
+        message: null,
+        request: null,
+        resolution: null,
+        scope: null,
+        diagnostics: [],
+        coordinateRetention: null,
+      },
+      synchronization: "SynchronizationRequired",
+      authority: {
+        session: "session-exact",
+        revision: "revision-exact",
+        intent: "intent-exact",
+        epoch: "epoch-exact",
+      },
+    },
+    packages: [{
+      navigationId: "package-navigation",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      summary: {
+        selectedCompileFramework: null,
+        libraryCount: 1,
+        typeCount: 1,
+        memberCount: 2,
+        documentCount: 1,
+        hasInspectionNotices: true,
+      },
+    }],
+    platforms: [{
+      navigationId: "platform-navigation",
+      contextIndex: 1,
+      family: "Microsoft.NETCore.App",
+      runtimeIdentifier: "linux-x64",
+      summary: {
+        selectedCompileFramework: "net10.0",
+        libraryCount: 1,
+        typeCount: 1,
+        memberCount: 2,
+        documentCount: 1,
+        hasInspectionNotices: true,
+      },
+    }],
+    predecessor: null,
+    cleanup: null,
+  } satisfies BrowserRetainedWorkspacePosting;
   const activation = {
     status: "activated",
-    installation: {
-      definition,
-    },
+    posting,
     failure: null,
-  };
-  const unavailable = {
-    status: "unavailable",
+  } satisfies BrowserRetainedWorkspaceActivationResult;
+  const packageSurface = retainedDetailSurface(
+    "Microsoft.Extensions.Logging",
+    "Microsoft.Extensions.Logging.ILogger",
+    null,
+  );
+  const admittedPackage = {
+    status: "admitted",
+    package: {
+      navigationId: "package-navigation",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      surface: packageSurface,
+      typePage: {
+        offset: 0,
+        totalTypes: 2,
+        nextOffset: 1,
+      },
+    },
+    message: null,
+  } satisfies BrowserRetainedWorkspacePackageAdmissionResult;
+  const supersededPackage = {
+    status: "superseded",
     package: null,
-    message: "The active Package presentation is unavailable.",
-  };
-  let receivedArguments: readonly unknown[] = [];
+    message: null,
+  } satisfies BrowserRetainedWorkspacePackageAdmissionResult;
+  const platformSurface = retainedDetailSurface(
+    "Microsoft.NETCore.App",
+    "System.String",
+    "Microsoft.NETCore.App.Ref",
+  );
+  const admittedPlatform = {
+    status: "admitted",
+    platform: {
+      navigationId: "platform-navigation",
+      contextIndex: 1,
+      family: "Microsoft.NETCore.App",
+      runtimeIdentifier: "linux-x64",
+      surface: platformSurface,
+      typePage: {
+        offset: 0,
+        totalTypes: 2,
+        nextOffset: 1,
+      },
+    },
+    message: null,
+  } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const supersededPlatform = {
+    status: "superseded",
+    platform: null,
+    message: null,
+  } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const unavailablePlatform = {
+    status: "unavailable",
+    platform: null,
+    message: "Retained Platform detail exceeds the Worker JSON bound.",
+  } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const packageArguments: (readonly unknown[])[] = [];
+  const platformArguments: (readonly unknown[])[] = [];
   const state = fixture({
     catalog: {
-      activateRetainedWorkspaceDefinition: async () =>
-        contractViolation(activation),
+      activateRetainedWorkspaceDefinition: async () => activation,
       admitRetainedWorkspacePackage: async (...args) => {
-        receivedArguments = args;
-        return unavailable;
+        packageArguments.push(args);
+        return args[1] === "old-realization"
+          ? supersededPackage
+          : admittedPackage;
+      },
+      admitRetainedWorkspacePlatform: async (...args) => {
+        platformArguments.push(args);
+        return args[3] === 1
+          ? supersededPlatform
+          : args[2] === "oversized-navigation"
+          ? unavailablePlatform
+          : admittedPlatform;
       },
     },
   });
@@ -324,20 +566,93 @@ test("retained Catalog transport preserves definition registrations and package 
       "/inspect/example",
       "packet-exact",
     );
-  const result = state.client.catalog.admitRetainedWorkspacePackage(
-    "definition-exact",
-    "realization-exact",
-    "navigation-exact",
-  );
   await state.environment.flushAsync();
-
   assert.deepEqual(await activationResult, activation);
-  assert.deepEqual(receivedArguments, [
+
+  const packageResult =
+    state.client.catalog.admitRetainedWorkspacePackage(
+      "definition-exact",
+      "realization-exact",
+      "package-navigation",
+      0,
+    );
+  const supersededResult =
+    state.client.catalog.admitRetainedWorkspacePackage(
+      "definition-exact",
+      "old-realization",
+      "package-navigation",
+      0,
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(await packageResult, admittedPackage);
+  assert.deepEqual(await supersededResult, supersededPackage);
+
+  const platformResult =
+    state.client.catalog.admitRetainedWorkspacePlatform(
+      "definition-exact",
+      "realization-exact",
+      "platform-navigation",
+      0,
+    );
+  await state.environment.flushAsync();
+  const firstPlatformPage = await platformResult;
+  assert.deepEqual(firstPlatformPage, admittedPlatform);
+  const nextOffset = firstPlatformPage.platform?.typePage.nextOffset;
+  if (nextOffset === null || nextOffset === undefined)
+    throw new Error("Expected a retained Platform continuation page.");
+  assert.equal(nextOffset, 1);
+
+  const stalePlatformPage =
+    state.client.catalog.admitRetainedWorkspacePlatform(
+      "definition-exact",
+      "realization-exact",
+      "platform-navigation",
+      nextOffset,
+    );
+  const unavailableResult =
+    state.client.catalog.admitRetainedWorkspacePlatform(
+      "definition-exact",
+      "realization-exact",
+      "oversized-navigation",
+      0,
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(await stalePlatformPage, supersededPlatform);
+  assert.deepEqual(await unavailableResult, unavailablePlatform);
+
+  assert.equal("surface" in posting.packages[0]!, false);
+  assert.equal("icon" in posting.packages[0]!, false);
+  assert.equal("types" in posting.packages[0]!, false);
+  assert.equal("surface" in posting.platforms[0]!, false);
+  assert.equal("icon" in posting.platforms[0]!, false);
+  assert.equal("types" in posting.platforms[0]!, false);
+  assert.deepEqual(packageArguments, [[
     "definition-exact",
     "realization-exact",
-    "navigation-exact",
-  ]);
-  assert.deepEqual(await result, unavailable);
+    "package-navigation",
+    0,
+  ], [
+    "definition-exact",
+    "old-realization",
+    "package-navigation",
+    0,
+  ]]);
+  assert.deepEqual(platformArguments, [[
+    "definition-exact",
+    "realization-exact",
+    "platform-navigation",
+    0,
+  ], [
+    "definition-exact",
+    "realization-exact",
+    "platform-navigation",
+    1,
+  ], [
+    "definition-exact",
+    "realization-exact",
+    "oversized-navigation",
+    0,
+  ]]);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
@@ -1128,6 +1443,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
     catalog: [
       "admitRetainedWorkspacePackage",
+      "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
       "canonicalizeWorkspaceSharePacket",
       "deactivateRetainedWorkspaceDefinition",
@@ -1150,7 +1466,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 61);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 62);
 
   const state = fixture();
   const groups = [
