@@ -113,6 +113,8 @@ public static class FixtureIds
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
     public const string AnalysisStringLiterals = "analysis.string-literals";
+    public const string AnalysisStringMaterialization =
+        "analysis.string-materialization";
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerAuthoredRebuild = "decompiler.authored-rebuild";
@@ -578,6 +580,14 @@ public static class FixtureCatalog
         "analysis", "string-literals");
 
     public static readonly FixtureDefinition
+        AnalysisStringMaterialization = Fixture(
+            FixtureIds.AnalysisStringMaterialization,
+            "ILInspector.Analysis.StringMaterializationFixtures",
+            "ILInspector.Analysis.StringMaterializationFixtures.dll",
+            Boundaries(FixtureBoundary.CompilerLowering),
+            "analysis", "string-materialization");
+
+    public static readonly FixtureDefinition
         AnalysisMethodCorrespondenceRuntime = Fixture(
             FixtureIds.AnalysisMethodCorrespondenceRuntime,
             "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
@@ -1029,6 +1039,7 @@ public static class FixtureCatalog
         AnalysisCallerLoop,
         AnalysisLocalThrows,
         AnalysisStringLiterals,
+        AnalysisStringMaterialization,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
         AnalysisExceptionBase,
@@ -1114,6 +1125,7 @@ public static class FixtureCatalog
             AnalysisCallGenericScope,
             AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
+            AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
             AnalysisCallerGraphCallerTwin,
@@ -1465,6 +1477,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",
             "ILInspector.Analysis.SpoofFixtures" => "fixtures/analysis/ILInspector.Analysis.SpoofFixtures",
             "ILInspector.Analysis.SpoofRuntimeFixtures" => "fixtures/analysis/ILInspector.Analysis.SpoofRuntimeFixtures",
+            "ILInspector.Analysis.StringMaterializationFixtures" => "fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures",
             "ILInspector.Analysis.TopLevelAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures",
             "ILInspector.Analysis.TopLevelClassicAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures",
             "ILInspector.Decompiler.Fixtures.CheckedArithmetic" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic",

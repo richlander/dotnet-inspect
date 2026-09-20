@@ -4,6 +4,7 @@ import {
   inspectorTab,
   chooseInspector,
   chooseSubject,
+  selectLibrary,
   library,
   createType as type,
   core,
@@ -21,7 +22,7 @@ test.use({ viewport: { width: 900, height: 900 } });
 
 async function openIntegrations(page: Page, location = root) {
   await page.goto(location);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await selectLibrary(page, core.id);
   await chooseInspector(
     page,
     "data-library-lens",
@@ -141,7 +142,7 @@ test("Integration tabs retain selected mode and focus when an inactive scan sett
 
 async function openAnalysis(page: Page, location = root) {
   await page.goto(location);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await selectLibrary(page, core.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(inspectorTab(page, "data-library-lens", "analysis"))
     .toHaveAttribute("aria-selected", "true");
@@ -170,9 +171,9 @@ for (const width of [1440, 390]) {
     expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("analysis-after.png") });
     if (width === 390) {
-      const back = page.getByRole("button", { name: "Types", exact: true });
+      const back = page.getByRole("button", { name: "Libraries", exact: true });
       await back.click();
-      await expect(page.locator("#type-list")).toBeFocused();
+      await expect(page.locator(".library-subject-list")).toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
       await expect(back).toBeFocused();
       await expect(frame).toBeVisible();
@@ -281,7 +282,7 @@ test("production Analysis keeps deferred Library results out of the incoming ana
   await releaseFacade(page, "fixture-analysis-ready:asset:core");
   await expect(page.locator(".library-analysis-scroll .perf-row")).toHaveCount(2);
   await chooseSubject(page, "package", "Package");
-  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
   await expect(page.locator(".library-analysis-surface")).toContainText("Analyzing allocations");
   await expect(page.locator(".library-analysis-surface footer")).toContainText(other.asset);
@@ -316,9 +317,9 @@ for (const width of [1440, 390]) {
     expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("opportunities.png") });
     if (width === 390) {
-      const back = page.getByRole("button", { name: "Types", exact: true });
+      const back = page.getByRole("button", { name: "Libraries", exact: true });
       await back.click();
-      await expect(page.locator("#type-list")).toBeFocused();
+      await expect(page.locator(".library-subject-list")).toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
       await expect(back).toBeFocused();
       await expect(frame).toBeVisible();
@@ -490,7 +491,7 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await releaseFacade(page, "fixture-opportunities-ready:asset:core");
   await expect(page.locator(".library-opportunities-scroll .opp-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
-  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await selectLibrary(page, other.id);
   await chooseInspector(
     page,
     "data-library-lens",
@@ -530,9 +531,9 @@ for (const width of [1440, 390]) {
     expect(Math.abs(rowBox!.x - frameBox!.x)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("integrations.png") });
     if (width === 390) {
-      const back = page.getByRole("button", { name: "Types", exact: true });
+      const back = page.getByRole("button", { name: "Libraries", exact: true });
       await back.click();
-      await expect(page.locator("#type-list")).toBeFocused();
+      await expect(page.locator(".library-subject-list")).toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
       await expect(back).toBeFocused();
       await expect(frame).toBeVisible();
@@ -624,7 +625,7 @@ test("production Integrations keeps deferred Library results out of the incoming
   await releaseFacade(page, "fixture-integrations-ready:asset:core");
   await expect(page.locator(".library-integrations-scroll .signal-row")).toHaveCount(3);
   await chooseSubject(page, "package", "Package");
-  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await selectLibrary(page, other.id);
   await chooseInspector(
     page,
     "data-library-lens",
@@ -640,7 +641,7 @@ test("production Integrations keeps deferred Library results out of the incoming
 
 async function openReferences(page: Page) {
   await page.goto(root);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await selectLibrary(page, core.id);
   await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(inspectorTab(page, "data-library-lens", "references"))
     .toHaveAttribute("aria-selected", "true");
@@ -670,10 +671,10 @@ for (const width of [1440, 390]) {
     expect(Math.abs(listBox!.width - frameBox!.width)).toBeLessThanOrEqual(2);
     await page.screenshot({ path: testInfo.outputPath("references.png") });
     if (width === 390) {
-      const back = page.getByRole("button", { name: "Types", exact: true });
+      const back = page.getByRole("button", { name: "Libraries", exact: true });
       await expect(back).toBeVisible();
       await back.click();
-      await expect(page.locator("#type-list")).toBeFocused();
+      await expect(page.locator(".library-subject-list")).toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
       await expect(back).toBeFocused();
       await expect(frame).toBeVisible();
@@ -738,7 +739,7 @@ test("production References retains a loading frame and does not show a previous
   await releaseFacade(page, "fixture-references-ready:asset:core");
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
   await chooseSubject(page, "package", "Package");
-  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await selectLibrary(page, other.id);
   await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
   await expect(page.locator(".library-references-surface footer")).toContainText(other.asset);
@@ -747,7 +748,7 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
 });
 
-test("Package Overview exposes the complete long Library name on hover", async ({ page }) => {
+test("Library navigation exposes the complete long Library name on hover", async ({ page }) => {
   const longLibrary = {
     ...core,
     name: "Example.Serialization.Providers.With.A.Very.Long.Library.Name",
@@ -758,9 +759,11 @@ test("Package Overview exposes the complete long Library name on hover", async (
     types: [type("Example.Widget", longLibrary), type("Example.Neighbor", other)],
   });
   await page.goto(root);
-  const row = page.locator('.library-list [data-lib-scope="asset:core"]');
+  await chooseSubject(page, "library", "Library");
+  const row = page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`);
   await expect(row).toBeVisible();
-  const name = row.locator(".library-name");
+  const name = row.locator(".type-name");
   await expect(name).toHaveText(longLibrary.name);
   const location = page.url();
   await row.hover();

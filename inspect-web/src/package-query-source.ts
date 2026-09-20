@@ -860,6 +860,7 @@ function failureKindValue(
     case "InvalidManifest":
     case "PackageContentAcquisition":
     case "PackageContentEvaluation":
+    case "DependencyTraversal":
     case "AssemblyAcquisition":
     case "AssemblyEvaluation":
       return value;
@@ -934,6 +935,7 @@ function progressPhaseValue(
     case "Search":
     case "Manifest":
     case "PackageContent":
+    case "DependencyTraversal":
     case "Assembly":
       return value;
     default:
@@ -1004,6 +1006,9 @@ function toQueryProgress(
       break;
     case "PackageContent":
       phase = "package-content";
+      break;
+    case "DependencyTraversal":
+      phase = "dependency-traversal";
       break;
     case "Assembly":
       phase = "assembly";

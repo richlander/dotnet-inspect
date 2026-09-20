@@ -1151,17 +1151,19 @@ within-envelope candidates in a producer-bounded batch remain eligible for
 ordinary classification and preparation; no omitted or out-of-envelope
 candidate invokes an adjacent owner.
 
-The current Workspace Definitions packet limit is 12 tuples. Aligning portable
-capacity with the Browser's reachable scope remains a separately owned
-[#5525](https://github.com/richlander/dotnet-inspect/issues/5525) residual.
-This owner defines neither packet capacity nor projection failure semantics.
+Workspace Definitions packet formats 3 and 4 admit the 64-coordinate logical
+profile under [#7883](https://github.com/richlander/dotnet-inspect/issues/7883);
+formats 1 and 2 remain capped at 12. Inspect Web still uses the partial
+format-1 URL adapter until complete Save/Open and history adoption under
+[#7709](https://github.com/richlander/dotnet-inspect/issues/7709). This owner
+defines neither packet capacity nor projection failure semantics.
 
 The 64-Package logical limit does not raise Artifact Acquisition's retained-byte
-or participant budgets. Before the Browser offers the complete registered
-`Microsoft.Extensions` set, the artifact-backed Browser adoption in
-[#5576](https://github.com/richlander/dotnet-inspect/issues/5576) must prove
-that its acquisition-owned budget admits that descriptor's complete current
-membership or change that budget under its owning design.
+or participant budgets. The artifact-backed Browser adoption in
+[#5576](https://github.com/richlander/dotnet-inspect/issues/5576) now provides
+a 256-entry envelope for four charged 64-Package realizations. The remaining
+Microsoft.Extensions Browser boundary is current-format retained
+Save/Open/history adoption, not package-cache entry capacity.
 
 ## Scope operations
 
