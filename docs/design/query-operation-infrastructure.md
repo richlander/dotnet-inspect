@@ -591,8 +591,8 @@ eight-step path:
    semantics.
 6. **Implemented:** adopt Find Type and Member query capability without changing
    its discovery grammar, scope rules, or result grains.
-7. Add Library Query over explicit Library populations, with assembly-reference
-   qualification as its first production facet.
+7. **Implemented:** add Library Query over explicit Library populations, with
+   assembly-reference qualification as its first production facet.
 8. Remove superseded command-local query catalogs and lowerers after every
    adopter has Release-gate coverage.
 
@@ -641,6 +641,15 @@ owner-issued plan after the complete Type or Member search result is available.
 The existing pattern grammars, scope authorization, operation limit,
 completion, Count, diagnostics, result shapes, and rendering remain unchanged.
 
+Library Query is the fifth adopter. Its operation registers one explicit
+Library-population role, Library result grain, Libraries row set, candidate
+dimension, direct `references` qualification, and Head, Tail, and Window
+stages. The CLI binds either one top-level DLL directory or one platform
+reference pack through `AssemblySetResolver`; the host-neutral inspection owns
+Metadata evaluation, Library-grain results, visible failures, and completion.
+The focused [Library Query](library-query.md) design owns its population,
+evidence, work-bound, result, and Count contracts.
+
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
 
@@ -677,8 +686,10 @@ automatic `-Q` inheritance, separation of Depth work from result-row stages,
 pre-acquisition rejection, and the existing visible acquisition, decode,
 traversal, and row-resolution failures.
 
-Remaining adopter slices must add Release gates for Package and Library
-reference qualification at their distinct result grains.
+Library Query's Release gates cover route-derived discovery without
+acquisition, portable reference qualification, repeated-term conjunction,
+candidate-bound separation from result rows, directory and platform
+populations, Count completeness, and visible malformed-reference failures.
 
 Adopter-specific owners name the authentic package, assembly, or repository
 fixtures that establish their behavior. This pattern does not manufacture a
