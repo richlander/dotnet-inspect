@@ -714,8 +714,8 @@ public sealed partial class BrowserEngineBoundaryTests
             "Identity.Collision.B",
             Package(image, "lib/net11.0/Identity.Collision.B.dll"));
 
-        InvalidOperationException failure =
-            await Assert.ThrowsAsync<InvalidOperationException>(
+        PackageAssemblyRoleCorrespondenceException failure =
+            await Assert.ThrowsAsync<PackageAssemblyRoleCorrespondenceException>(
                 async () => await BrowserInspectionScope.CreateAsync(
                     [first, second],
                     TestContext.Current.CancellationToken));
