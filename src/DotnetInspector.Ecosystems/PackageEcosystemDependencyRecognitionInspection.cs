@@ -76,17 +76,111 @@ public static class PackageEcosystemDependencyRecognitionInspection
                 context,
                 observations.ToImmutable(),
                 issues.ToImmutable());
-        var share = new EcosystemDependencyRecognitionShare(
-            subject,
-            new InspectionShare.NonProjectable(
-                "ecosystem-dependency-recognition/package-share",
-                "Package ecosystem dependency recognition does not yet have a canonical Workspace Share projection."));
+        EcosystemDependencyRecognitionShare share = CreateShare(subject);
         return EcosystemDependencyRecognizer.Recognize(
             ProductEcosystemPacks.DependencyRecognitionProfile,
             batch,
             share,
             diagnostics.ToImmutable());
     }
+
+    public static InspectionEnvelope<EcosystemDependencyRecognitionOutcome>
+        CreateUnavailableWithoutAcquiredSettlement(
+            string packageId,
+            string version,
+            string producer)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(producer);
+
+        if (!PackageExtractor.TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion))
+        {
+            throw new ArgumentException(
+                "Package ecosystem recognition requires an exact canonical "
+                + "package coordinate: the package version is not exact.");
+        }
+
+        if (!RealizedMemberCoordinate.Package.TryCreate(
+                packageId.ToLowerInvariant(),
+                normalizedVersion,
+                producer,
+                framework: null,
+                runtimeIdentifier: null,
+                out RealizedMemberCoordinate.Package? coordinate,
+                out string? problem))
+        {
+            throw new ArgumentException(
+                "Package ecosystem recognition requires an exact canonical "
+                + $"package coordinate: {problem}.");
+        }
+
+        var subject = new EcosystemDependencySubject.Package(coordinate);
+        var source = new EcosystemDependencyInputIssueSource.Package(
+            coordinate);
+        var issues = ImmutableArray.CreateBuilder<
+            EcosystemDependencyInputIssue>();
+        var diagnostics = ImmutableArray.CreateBuilder<
+            InspectionDiagnostic>();
+        int nextIssue = 1;
+        EcosystemDependencyInputIssueIdentity manifestIssue = AddIssue(
+            issues,
+            diagnostics,
+            ref nextIssue,
+            EcosystemDependencyInputRole.PackageManifestProjection,
+            "ecosystem-dependency-recognition.package-manifest-unavailable",
+            "Package manifest recognition was unavailable because the "
+            + "package inspection did not retain an acquired PackageHouse "
+            + "settlement.",
+            source);
+        EcosystemDependencyInputIssueIdentity targetIssue = AddIssue(
+            issues,
+            diagnostics,
+            ref nextIssue,
+            EcosystemDependencyInputRole.EffectiveTargetFrameworkSelection,
+            "ecosystem-dependency-recognition.package-dependencies-not-attempted",
+            "Dependency-group selection was not attempted because Package "
+            + "manifest recognition was unavailable.",
+            source);
+        EcosystemDependencyInputIssueIdentity compileIssue = AddIssue(
+            issues,
+            diagnostics,
+            ref nextIssue,
+            EcosystemDependencyInputRole.SelectedCompileLibraryEnumeration,
+            "ecosystem-dependency-recognition.package-compile-selection-unavailable",
+            "Selected compile libraries were unavailable because the package "
+            + "inspection did not retain an acquired PackageHouse settlement.",
+            source);
+        var context = new EcosystemDependencyInputContext.Package(
+            new EcosystemDependencyInputComponent<
+                PackageManifestFacts>.Unavailable(manifestIssue),
+            new EcosystemDependencyInputComponent<
+                PackageDependencyGroups>.NotAttempted(targetIssue),
+            new EcosystemDependencyInputComponent<
+                EcosystemDependencyPackageCompileSelection>.Unavailable(
+                    compileIssue));
+        EcosystemDependencyObservationBatch batch = CreateBatch(
+            subject,
+            context,
+            [],
+            issues.ToImmutable());
+
+        return EcosystemDependencyRecognizer.Recognize(
+            ProductEcosystemPacks.DependencyRecognitionProfile,
+            batch,
+            CreateShare(subject),
+            diagnostics.ToImmutable());
+    }
+
+    private static EcosystemDependencyRecognitionShare CreateShare(
+        EcosystemDependencySubject.Package subject) =>
+        new(
+            subject,
+            new InspectionShare.NonProjectable(
+                "ecosystem-dependency-recognition/package-share",
+                "Package ecosystem dependency recognition does not yet have a canonical Workspace Share projection."));
 
     private static RealizedMemberCoordinate.Package SubjectCoordinate(
         PackageHouseSettlement.Acquired settlement,

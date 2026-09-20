@@ -147,6 +147,39 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     }
 
     [Fact]
+    public void MissingPackageHouseSettlementProducesAttributedUnavailableOutcome()
+    {
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection =
+            PackageEcosystemDependencyRecognitionInspection
+                .CreateUnavailableWithoutAcquiredSettlement(
+                    "Example.Package",
+                    "1.2.3",
+                    "explicit-local-input");
+
+        var outcome =
+            Assert.IsType<EcosystemDependencyRecognitionOutcome.Unavailable>(
+                inspection.Content);
+        RealizedMemberCoordinate.Package coordinate =
+            Assert.IsType<EcosystemDependencySubject.Package>(
+                outcome.Subject).Coordinate;
+        Assert.Equal("example.package", coordinate.PackageId);
+        Assert.Equal("1.2.3", coordinate.Version);
+        Assert.Equal("explicit-local-input", coordinate.Producer);
+        Assert.Null(coordinate.Framework);
+        Assert.Equal(
+            [
+                EcosystemDependencyInputRole.PackageManifestProjection,
+                EcosystemDependencyInputRole
+                    .EffectiveTargetFrameworkSelection,
+                EcosystemDependencyInputRole
+                    .SelectedCompileLibraryEnumeration,
+            ],
+            outcome.InputIssues.Select(static issue => issue.Role));
+        Assert.Equal(3, inspection.Diagnostics.Length);
+        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+    }
+
+    [Fact]
     public void CompletePackageDocumentRetainsSelectionContextAndOverlap()
     {
         PackageFixture fixture = CompletePackageFixture(

@@ -1008,6 +1008,154 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_JsonRetainsRecognitionAndSelectedPairRows()
+    {
+        string id = $"Pinned.EcosystemJson.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "ecosystem JSON package",
+            dependencies:
+            [
+                ("Microsoft.Extensions.AI.Abstractions", "10.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--rows", "2..2",
+                "--json", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement recognition = document.RootElement.GetProperty(
+            "ecosystem_dependencies");
+        Assert.Equal(
+            "complete",
+            recognition.GetProperty("status").GetString());
+        Assert.Equal(
+            0,
+            recognition.GetProperty("issue_count").GetInt32());
+        Assert.Equal(
+            ["Microsoft.Extensions", "AI"],
+            recognition.GetProperty("ecosystems")
+                .EnumerateArray()
+                .Select(static value => value.GetString()!)
+                .ToArray());
+        JsonElement dependency = Assert.Single(
+            recognition.GetProperty("dependencies").EnumerateArray());
+        Assert.Equal(
+            "AI",
+            dependency.GetProperty("ecosystem").GetString());
+        Assert.Equal(
+            "Package declaration",
+            dependency.GetProperty("kind").GetString());
+        Assert.Equal(
+            "Microsoft.Extensions.AI.Abstractions 10.0.0",
+            dependency.GetProperty("dependency").GetString());
+        Assert.Equal(
+            $"{id.ToLowerInvariant()}@{Version}",
+            dependency.GetProperty("declared_by").GetString());
+        Assert.Equal(
+            "10.0.0",
+            dependency.GetProperty("version_or_range").GetString());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LocalPackageDisclosesUnavailableRecognition()
+    {
+        string id = $"Local.Ecosystems.{Guid.NewGuid():N}";
+        string packagePath = Path.Combine(
+            _root,
+            $"{id}.{Version}.nupkg");
+        await File.WriteAllBytesAsync(
+            packagePath,
+            CreatePackage(
+                id,
+                "local ecosystem package",
+                dependencies:
+                [
+                    ("Microsoft.Extensions.Logging.Abstractions", "10.0.0"),
+                ]),
+            TestContext.Current.CancellationToken);
+
+        var result = await RunCommandAsync(
+            ["package", packagePath,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Unavailable (3 issues) |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task PackageCommand_OfflineCachedPackageDisclosesUnavailableRecognition()
+    {
+        string id = $"Offline.Ecosystems.{Guid.NewGuid():N}";
+        string nupkgPath = Path.Combine(
+            _root,
+            $"{id}.{Version}.nupkg");
+        string stagedPath = Path.Combine(
+            _root,
+            $"offline-staged-{Guid.NewGuid():N}");
+        await File.WriteAllBytesAsync(
+            nupkgPath,
+            CreatePackage(
+                id,
+                "offline ecosystem package",
+                dependencies:
+                [
+                    ("Microsoft.Extensions.Logging.Abstractions", "10.0.0"),
+                ]),
+            TestContext.Current.CancellationToken);
+        ZipFile.ExtractToDirectory(nupkgPath, stagedPath);
+        NuGetCache.CommitPackage(
+            stagedPath,
+            nupkgPath,
+            id,
+            Version,
+            NuGetCache.GetSourceKey(FirstFeed));
+
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            CoreHttpClientFactory.ResetSharedForTesting();
+
+            var result = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tips", "q"]);
+
+            Assert.True(
+                result.Exit == 0,
+                $"Exit {result.Exit}: {result.Error}");
+            Assert.DoesNotContain(
+                "| Ecosystem Dependencies |",
+                result.Output);
+            Assert.Contains(
+                "| Ecosystem Dependency Status | Unavailable (3 issues) |",
+                result.Output);
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = wasOffline });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_IncompleteRecognitionOmitsRollupAndDisclosesStatus()
     {
         string id = $"Pinned.EcosystemFailure.{Guid.NewGuid():N}";
