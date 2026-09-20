@@ -197,6 +197,46 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     [Fact]
+    public void DocumentQuery_PreservesUnavailableIlBodyEvidenceAndCoverage()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "old.dll")],
+                    [StreamBackedInput(newPath, "new.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "BodyStateSample",
+                    }));
+
+        ImplementationDiffDocumentMember member = Assert.Single(
+            document.Members,
+            member => member.Subject.MemberName == "BodyState");
+        ImplementationDiffEvidence evidence = Assert.Single(
+            member.Evidence,
+            evidence =>
+                evidence.Mechanism == ResearchChangeMechanism.IlBody);
+        IlDiffFailureRow failure = Assert.Single(evidence.IlFailureRows);
+        Assert.Equal(IlDiffFailureKind.OldBodyMissing, failure.Kind);
+        Assert.Equal(IlBodyDiffOutcome.Unavailable, evidence.IlBodyOutcome);
+        Assert.Empty(evidence.IlRows);
+
+        ImplementationDiffMechanismCoverage coverage = Assert.Single(
+            document.Coverage.Mechanisms,
+            coverage => coverage.Mechanism
+                == ImplementationDiffDocumentMechanism.IlBody);
+        Assert.True(coverage.IsAvailable);
+        Assert.Equal(0, coverage.ChangedSubjectCount);
+        Assert.Equal(1, coverage.UnavailableSubjectCount);
+        Assert.Equal(0, coverage.FailedSubjectCount);
+        Assert.False(document.Coverage.IsComplete);
+    }
+
+    [Fact]
     public void ComplexityCoverage_CountsDistinctSubjectsAcrossPhysicalEvidence()
     {
         var subject = new ResearchSubjectKey(

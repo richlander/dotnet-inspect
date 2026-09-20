@@ -333,7 +333,9 @@ public static partial class ImplementationDiff
             comparisons
                 .Where(comparison =>
                     !comparison.IsExact
-                    && comparison.Failure is null)
+                    && comparison.Failure is null
+                    && !unavailableSubjects.Contains(comparison.Subject.Id)
+                    && !failedSubjects.Contains(comparison.Subject.Id))
                 .Select(comparison => comparison.Subject.Id)
                 .Distinct(StringComparer.Ordinal)
                 .Count(),

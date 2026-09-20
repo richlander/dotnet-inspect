@@ -887,8 +887,8 @@ public static class ResearchDiff
 
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
-            var oldMethods = MethodLookup(pair.Old.Index);
-            var newMethods = MethodLookup(pair.New.Index);
+            var oldMethods = DeclaredMethodLookup(pair.Old.Index);
+            var newMethods = DeclaredMethodLookup(pair.New.Index);
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             using var oldBodies = new MethodBodyLookup(pair.Old);
             using var newBodies = new MethodBodyLookup(pair.New);
@@ -1773,10 +1773,11 @@ public static class ResearchDiff
     static string MethodMatchKey(MethodIdentity method)
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
-    static Dictionary<string, MethodIdentity> MethodLookup(LibraryBodyIndex index)
+    static Dictionary<string, MethodIdentity> DeclaredMethodLookup(
+        LibraryBodyIndex index)
     {
         var methods = new Dictionary<string, MethodIdentity>(StringComparer.Ordinal);
-        foreach (var method in index.Methods)
+        foreach (var method in index.DeclaredMethods)
             methods.TryAdd(MethodMatchKey(method), method);
         return methods;
     }

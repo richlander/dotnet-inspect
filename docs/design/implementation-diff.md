@@ -2121,8 +2121,10 @@ The document contains:
   unavailable, incomplete, and failed work. Every `*SubjectCount` is the
   distinct count of `Subject.Id` values in that category; a subject with
   several physical evidence changes contributes once to each applicable
-  category. `IsComplete` remains false when any requested mechanism is
-  unavailable or has unavailable, incomplete, or failed subjects.
+  category. For C# and IL, a subject with typed unavailability or failure is
+  counted in that state instead of `ChangedSubjectCount`. `IsComplete` remains
+  false when any requested mechanism is unavailable or has unavailable,
+  incomplete, or failed subjects.
 
 The exact-pair scope is deliberate. The legacy assembly-wide Research join uses
 member selectors that do not include assembly identity, so a document spanning
