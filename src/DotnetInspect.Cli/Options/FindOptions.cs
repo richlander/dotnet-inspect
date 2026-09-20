@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 
@@ -82,8 +83,39 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 
     /// <summary>
     /// Ordered semantic row-selection intent prepared by the shared CLI grammar.
+    /// Direct callers may set this compatibility input; CLI parsing resolves the
+    /// same intent through <see cref="QueryPlan"/>.
     /// </summary>
     public RowSelectionIntent<string>? RowSelection { get; init; }
+
+    /// <summary>
+    /// Owner-issued query plan resolved through the active Type or Member route.
+    /// </summary>
+    internal FindQueryPlan? QueryPlan { get; init; }
+
+    internal RowSelectionIntent<string>? EffectiveRowSelection
+    {
+        get
+        {
+            if (QueryPlan is null)
+                return RowSelection;
+
+            FindQueryRouteKind expected =
+                Members
+                    ? FindQueryRouteKind.MemberResults
+                    : FindQueryRouteKind.TypeResults;
+            if (QueryPlan.RouteKind != expected)
+            {
+                throw new InvalidOperationException(
+                    $"Find Query plan route '{QueryPlan.RouteKind}' does not "
+                        + $"match the active '{expected}' lens.");
+            }
+
+            return QueryPlan.Rows.Operations.Count == 0
+                ? null
+                : QueryPlan.Rows;
+        }
+    }
 
     /// <summary>
     /// Output the number of rendered result rows.
