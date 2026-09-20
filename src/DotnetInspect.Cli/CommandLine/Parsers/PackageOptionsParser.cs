@@ -368,7 +368,8 @@ public static class PackageOptionsParser
             Fields = opts.ParseFields(parseResult),
             FieldsExplicitlySet =
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
-            Schema = opts.ParseSchema(parseResult),
+            Schema = opts.ParseSchema(parseResult)
+                || parseResult.GetValue(args.DetailsOption),
             Count = parseResult.GetValue(opts.Count),
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),
             Rows = selectsVersionPopulation

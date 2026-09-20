@@ -160,7 +160,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
-            false,
+            options.DiscoverDetails,
             options);
 
     public static StructuralDiscoveryRequest From(ApiOptions options)

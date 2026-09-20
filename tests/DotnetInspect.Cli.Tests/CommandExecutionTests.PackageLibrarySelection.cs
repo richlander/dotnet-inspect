@@ -777,47 +777,53 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task PackageLibraryModes_DiscoverDetailsReportFormats()
     {
-        var (packagePath, tempDir) =
-            CreateLocalAggregateDiscoveryPackage();
-        try
-        {
-            var exact = await RunAppAsync(
-                "package",
-                packagePath,
-                "--library",
-                "Plain.dll",
-                "--discover",
-                "--details",
-                "--tips",
-                "q");
-            var aggregate = await RunAppAsync(
-                "package",
-                packagePath,
-                "--all-libraries",
-                "--discover",
-                "--details",
-                "--tips",
-                "q");
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var exact = await RunAppAsync(
+            "package",
+            missingPath,
+            "--library",
+            "Plain.dll",
+            "--discover",
+            "--details",
+            "--tips",
+            "q");
+        var aggregate = await RunAppAsync(
+            "package",
+            missingPath,
+            "--all-libraries",
+            "--discover",
+            "--details",
+            "--tips",
+            "q");
+        var aggregateWithSchema = await RunAppAsync(
+            "package",
+            missingPath,
+            "--all-libraries",
+            "--discover",
+            "--schema",
+            "--details",
+            "--tips",
+            "q");
 
-            Assert.Equal(0, exact.Exit);
-            Assert.Contains(
-                "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
-                exact.Output);
-            Assert.Empty(exact.Error);
+        Assert.Equal(0, exact.Exit);
+        Assert.Contains(
+            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            exact.Output);
+        Assert.Empty(exact.Error);
 
-            Assert.Equal(0, aggregate.Exit);
-            Assert.Contains(
-                "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
-                aggregate.Output);
-            Assert.DoesNotContain(
-                SectionNames.ReferenceHierarchy,
-                aggregate.Output);
-            Assert.Empty(aggregate.Error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
+        Assert.Equal(0, aggregate.Exit);
+        Assert.Contains(
+            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            aggregate.Output);
+        Assert.DoesNotContain(
+            SectionNames.ReferenceHierarchy,
+            aggregate.Output);
+        Assert.Empty(aggregate.Error);
+
+        Assert.Equal(aggregate.Output, aggregateWithSchema.Output);
+        Assert.Empty(aggregateWithSchema.Error);
     }
 
     [Theory]
