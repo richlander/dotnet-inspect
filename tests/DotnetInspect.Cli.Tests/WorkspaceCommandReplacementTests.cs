@@ -206,10 +206,15 @@ public sealed partial class WorkspaceCommandTests
     public async Task Replacement_InvalidOptionsRefuseBeforeAcquisition(
         string arguments, string diagnostic)
     {
+        string[] rawArgs =
+            ["workspace", "--packet", ReplacementPacket(), .. arguments.Split(' ')];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed =
+            CommandLineBuilder.PreprocessArgs(rawArgs, root);
         var result = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand().Parse(
-                ["workspace", "--packet", ReplacementPacket(), .. arguments.Split(' ')])
-                .InvokeAsync());
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed));
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(diagnostic, result.Error);

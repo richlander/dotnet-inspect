@@ -551,7 +551,7 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--format json cannot be combined with --format table, --format tsv, or --format jsonl.", error);
+        Assert.Contains("Option '--format' expects a single argument", error);
     }
 
     [Theory]

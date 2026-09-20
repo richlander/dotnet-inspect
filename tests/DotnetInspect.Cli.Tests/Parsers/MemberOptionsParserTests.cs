@@ -381,7 +381,7 @@ public class MemberOptionsParserTests
         var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
 
         var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
-        Assert.Contains("--mermaid modifies Markdown output", error.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("--mermaid cannot be combined with --bare.", error.Error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

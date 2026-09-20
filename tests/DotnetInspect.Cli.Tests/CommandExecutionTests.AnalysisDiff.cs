@@ -769,10 +769,10 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_CountMapRejectsMermaidWithoutRejectingScalarCount()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--count", "--mermaid",
+            "library", "System.Text.Json", "-S", "@Performance", "--count", "--format=mermaid",
             "--tips", "q");
         var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "References", "--count", "--mermaid",
+            "library", "System.Text.Json", "-S", "References", "--count", "--format=mermaid",
             "--tips", "q");
 
         Assert.Equal(1, exit);

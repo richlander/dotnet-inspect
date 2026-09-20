@@ -165,16 +165,15 @@ public partial class CommandExecutionTests
     public async Task Rows_FollowedByAnotherOption_BlamesTheMissingValueNotTheOption()
     {
         // Bare --rows used to mean "interpret -n as rows", which put the count on a
-        // different flag than the unit. It is now an error -- but System.CommandLine
-        // hands a required-argument option the next token regardless, so the spec
-        // arrives as "--format=tsv". The error must name the missing selection rather than
-        // sending a reader off to fix the spelling of --format tsv.
+        // different flag than the unit. It is now an error, and the following valued
+        // option must remain independently recognizable rather than becoming the row
+        // selection.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.String", "-S", "Member Index", "--rows", "--format=tsv", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--rows requires a row selection, but '--format tsv' is another option", error, StringComparison.Ordinal);
+        Assert.Contains("Required argument missing for option: '--rows'", error, StringComparison.Ordinal);
         Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
     }
 
@@ -455,7 +454,7 @@ public partial class CommandExecutionTests
         {
             return Visit(root, "", []);
 
-            static IEnumerable<string> Visit(
+            IEnumerable<string> Visit(
                 Command parent,
                 string parentPath,
                 HashSet<string> inheritedOptions)
@@ -471,9 +470,15 @@ public partial class CommandExecutionTests
                     effectiveOptions.UnionWith(
                         command.Options.Select(option => option.Name));
 
-                    if (effectiveOptions.Contains("--format=json")
+                    if (effectiveOptions.Contains("--format")
                         && (effectiveOptions.Contains("--fields")
-                            || effectiveOptions.Contains("--columns")))
+                            || effectiveOptions.Contains("--columns"))
+                        && !root.Parse(
+                                [.. path.Split(' '), "--format=json"])
+                            .Errors.Any(error =>
+                                error.Message.Contains(
+                                    "does not support '--format json'",
+                                    StringComparison.Ordinal)))
                     {
                         yield return path;
                     }

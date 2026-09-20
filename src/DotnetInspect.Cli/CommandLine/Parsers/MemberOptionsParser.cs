@@ -962,16 +962,19 @@ public static class MemberOptionsParser
         bool embeddedMermaid =
             options.IsEmbeddedMermaid(parseResult);
         if (parseResult.GetValue(options.Mermaid)
-            && (parseResult.GetValue(options.Bare)
-                || (parseResult.GetResult(options.Format)
-                        is { Implicit: false }
-                    && !embeddedMermaid)
-                || (!embeddedMermaid
-                    && parseResult.GetResult(options.Verbosity)
-                        is { Implicit: false })))
+            && parseResult.GetResult(options.Format)
+                is { Implicit: false }
+            && !embeddedMermaid)
         {
             return new OptionError(
-                "--mermaid modifies Markdown output and cannot combine with another format.");
+                "--mermaid embeds diagrams in Markdown and requires --format markdown.");
+        }
+
+        if (parseResult.GetValue(options.Mermaid)
+            && parseResult.GetValue(options.Bare))
+        {
+            return new OptionError(
+                "--mermaid cannot be combined with --bare.");
         }
 
         return null;

@@ -3958,7 +3958,7 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("--tfm all", error);
         Assert.Contains("Markdown or JSON", error);
-        Assert.Contains(option, error);
+        Assert.Contains(option.Replace('=', ' '), error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 

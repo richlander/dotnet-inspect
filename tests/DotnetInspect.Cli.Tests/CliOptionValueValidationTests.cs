@@ -302,10 +302,10 @@ public sealed class CliOptionValueValidationTests
 
     [Theory]
     [InlineData("package", "First", "Second", "--format=json", "-Q")]
-    [InlineData("package", "First", "--format=json", "false", "Second", "-Q", "--format=markdown")]
+    [InlineData("package", "First", "--format=json", "Second", "-Q")]
     [InlineData("package", "--output=--versions=true", "First", "-Q", "--format=json")]
     [InlineData("package", "--output", "--head", "First", "--versions", "-n", "2", "-Q", "--format=json")]
-    [InlineData("package", "First", "--versions", "-n", "2", "--format=json", "false", "-Q", "--format=markdown")]
+    [InlineData("package", "First", "--versions", "-n", "2", "--preview", "false", "-Q", "--format=json")]
     public async Task PackageMultiInputAndOptionOwnedFlagTextRemainValid(params string[] arguments)
     {
         var result = await RunPackage(arguments);

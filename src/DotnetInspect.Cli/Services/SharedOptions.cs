@@ -33,6 +33,7 @@ public class SharedOptions
         Description =
             "Output format: markdown, table, tsv, jsonl, json, plaintext, or mermaid",
         Arity = ArgumentArity.ExactlyOne,
+        AllowMultipleArgumentsPerToken = false,
         HelpName = "FORMAT",
     };
     public Option<bool> Envelope { get; } = new("--envelope")
