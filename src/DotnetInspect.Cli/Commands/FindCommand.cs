@@ -31,6 +31,9 @@ public class FindCommand
 
         try
         {
+            RowSelectionIntent<string>? rowSelection =
+                options.EffectiveRowSelection;
+
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
@@ -51,7 +54,7 @@ public class FindCommand
                         options.NoHeader,
                         (int)options.Verbosity,
                         options),
-                    semanticRowSelection: options.RowSelection,
+                    semanticRowSelection: rowSelection,
                     semanticSelectionName: "Find");
             }
 
@@ -76,6 +79,7 @@ public class FindCommand
                 return await ExecuteMemberSearchAsync(
                     options,
                     patterns,
+                    rowSelection,
                     logger,
                     context.HttpClient,
                     cancellationToken);
@@ -91,7 +95,7 @@ public class FindCommand
             List<TypeFindResult> results = search.Rows;
             int observedRowCount = results.Count;
             if (!TrySelectRows(
-                    options.RowSelection,
+                    rowSelection,
                     results,
                     "type",
                     out IReadOnlyList<TypeFindResult> selectedTypes))
@@ -110,7 +114,7 @@ public class FindCommand
             {
                 if (search.HasFailures
                     || !CliSemanticRowSelection.ProvidesExactCount(
-                        options.RowSelection,
+                        rowSelection,
                         observedRowCount,
                         sourceComplete:
                             !search.SourceSelectionIncomplete))
@@ -174,6 +178,7 @@ public class FindCommand
     private static async Task<int> ExecuteMemberSearchAsync(
         FindOptions options,
         string[] patterns,
+        RowSelectionIntent<string>? rowSelection,
         VerboseLogger logger,
         HttpClient httpClient,
         CancellationToken cancellationToken)
@@ -201,7 +206,7 @@ public class FindCommand
         List<MemberFindResult> results = search.Rows;
         int observedRowCount = results.Count;
         if (!TrySelectRows(
-                options.RowSelection,
+                rowSelection,
                 results,
                 "member",
                 out IReadOnlyList<MemberFindResult> selectedMembers))
@@ -215,7 +220,7 @@ public class FindCommand
         {
             if (search.HasFailures
                 || !CliSemanticRowSelection.ProvidesExactCount(
-                    options.RowSelection,
+                    rowSelection,
                     observedRowCount,
                     sourceComplete:
                         !search.SourceSelectionIncomplete))
