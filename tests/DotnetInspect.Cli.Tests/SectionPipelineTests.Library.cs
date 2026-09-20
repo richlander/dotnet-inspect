@@ -156,7 +156,6 @@ public partial class SectionPipelineTests
             {
                 SectionNames.EcosystemDependencies,
                 SectionNames.LibraryInfo,
-                SectionNames.EcosystemDependencies,
                 SectionNames.InspectionFailures,
                 SectionNames.Signals,
                 SectionNames.Symbols,
@@ -171,7 +170,6 @@ public partial class SectionPipelineTests
             {
                 SectionNames.EcosystemDependencies,
                 SectionNames.LibraryInfo,
-                SectionNames.EcosystemDependencies,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
                 SectionNames.Signals,
