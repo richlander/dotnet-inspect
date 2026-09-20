@@ -150,6 +150,22 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_RegistersEcosystemDependencies()
+    {
+        var catalog = LibrarySections.CreateCatalog().Sections;
+
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectableSectionNames);
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectionCategoryMap[SectionCategoryNames.Library]);
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectionCategoryMap[SectionCategoryNames.Dependencies]);
+    }
+
+    [Fact]
     public void ApiMemberPipeline_SectionNamesMatchExpected()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();

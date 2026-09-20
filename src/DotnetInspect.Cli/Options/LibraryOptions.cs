@@ -318,6 +318,12 @@ public record LibraryOptions : IProjectionOptions
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for one Library's ecosystem-dependency pairs.
+    /// </summary>
+    public RowSelectionIntent<string>?
+        EcosystemDependencyRowSelection { get; init; }
+
+    /// <summary>
     /// Row predicates for the Performance Triage section.
     /// </summary>
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
