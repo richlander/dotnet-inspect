@@ -11,10 +11,11 @@ relationships for one `TypeDef`. Property, event, accessor, and ordinary
 
 The exact claim is:
 
-> For one exact module-bound `TypeDef` and one of its `MethodDef` bodies,
-> Metadata returns every structurally authenticated `MethodImpl` declaration
-> relationship for that body, proves that none exists, or returns typed
-> non-success evidence without publishing a partial relationship.
+> For one exact retained metadata-image generation, one `TypeDef`, and one of
+> its `MethodDef` bodies, Metadata returns every structurally authenticated
+> `MethodImpl` declaration relationship for that body, proves that none exists,
+> or returns typed non-success evidence without publishing a partial
+> relationship.
 
 This is physical metadata evidence. It is not C# declaration
 representability, source reconstruction, runtime dispatch equivalence, or
@@ -83,21 +84,51 @@ The operation answers:
 In abstract form:
 
 ```text
-Relate(Type, Body)
+ImageSession[ImageGeneration].Relate(Type, Body)
   -> Related(Relationships)
    | Absent
    | Rejected(Failure)
 ```
 
-The request carries module-scoped identities, not display names:
+The Metadata relationship session carries one acquisition-minted opaque
+`MetadataImageGeneration` for a retained immutable byte generation. The
+request carries module-scoped coordinates, not display names:
 
 - the module MVID;
 - the declaring `TypeDef` address; and
 - the body `MethodDef` address.
 
+Acquisition mints and binds the generation to the retained image owner. The
+`AssemblyImage`-owned session factory receives one lease containing that
+generation and its reader, then constructs the relationship session from that
+inseparable state. The operation context admits and keys the generation; it is
+not the binding authority. Neither context nor session can be constructed from
+an independently supplied generation and reader.
+
+`MetadataImageGeneration` is the exact-image observation currency. Its equality
+is opaque reference identity minted by acquisition for one retained immutable
+byte generation. Two independent acquisitions have different generations even
+when their bytes and MVID are equal; two byte-distinct images have different
+generations even when they deliberately share an MVID. The generation grants no
+provenance, validity, content trust, or semantic correspondence.
+
+This contract consumes the generation semantics owned by
+[Member inspection planning and metadata projection][metadata-image-generation];
+it does not define a parallel image identity.
+
+Existing module-MVID-plus-row-token addresses remain physical coordinates
+interpreted only inside the session's generation. Raw coordinates carry no
+claim about the generation from which a caller learned their values. The same
+MVID and token supplied to two sessions select an address independently in each
+generation; the resulting generation-qualified identities remain different.
+MVID is not cryptographic image identity and
+`MetadataMethodAddress.BelongsTo` is therefore necessary but insufficient for
+association. A token without its module coordinate is not a request currency,
+and MVID plus token without the session generation is not an association
+currency.
+
 The operation rejects a foreign module, an invalid handle, or a body not owned
-by the supplied type. A metadata token without its module identity is not a
-request currency.
+by the supplied type before scanning the `MethodImpl` table.
 
 ## Closed result
 
@@ -126,11 +157,13 @@ into artifact rejection.
 ## Relationship certificate
 
 Each certificate is detached from the reader and remains usable after the
-Metadata session closes. Its relationship identity is the module MVID plus
-the physical `MethodImpl` row token.
+Metadata session closes. Its relationship identity is the exact image
+generation plus the physical `MethodImpl` row address. Matching MVIDs and row
+tokens in another generation do not identify the same relationship.
 
 The certificate retains:
 
+- the exact image-generation identity;
 - the declaring `TypeDef` and body `MethodDef` addresses;
 - the physical declaration coordinate, preserving whether it is a
   `MethodDef` or `MemberRef`;
@@ -144,6 +177,10 @@ The certificate retains:
   `ExternalUnresolved(scope identity)`; and
 - the raw declaration `SpecialName` fact as known true, known false, or
   unknown external evidence.
+
+The certificate's generation binds every local type, method, signature, and
+relationship address it contains. A local address from another generation is
+never equal or joinable merely because its MVID and row token match.
 
 The complete declaration-owner identity preserves structural position and the
 scope of every named node. Two constructed types with identical displayed
@@ -297,6 +334,15 @@ Existing owner-issued limits and traversal results are reused where they cover
 the operation. A new limit requires measured need and an owning contract
 change; an arbitrary local constant is not a substitute.
 
+Every listed dimension is part of the contract, not an illustrative
+implementation list. The implementation gate therefore exercises each
+dimension one unit below the limit, exactly at the limit, and one unit above
+the limit. It asserts the returned category, typed rejection reason,
+cumulative counter, and absence of a partially published relationship
+collection. A dimension without this non-vacuity gate must be removed from the
+contract or named as inherited from a separately identified Release gate
+before implementation lands.
+
 Rejection distinguishes at least:
 
 | Reason | Boundary |
@@ -340,6 +386,13 @@ ReturnToSender owns:
 
 Neither CSharp nor ReturnToSender may reopen the reader, infer a relationship
 from a qualified display name, or repair missing Metadata evidence.
+
+The MethodImpl certificate and the separately owned InterfaceImpl association
+certificate compose only when they carry the same
+`MetadataImageGeneration` reference. CSharp issue #4852 owns the gate that
+rejects a generation mismatch before comparing structured type identities.
+InterfaceImpl issue #7897 must preserve this observation currency; neither
+relationship owner may downgrade it to MVID, token, name, or display text.
 
 ## Basis and analogous implementations
 
@@ -386,12 +439,20 @@ gates in that implementation:
 | Inherited local declaration lookup is visibly unsupported | Direct-versus-inherited local declaration fixture |
 | Signature, owner, and generic-context mismatches reject | Focused malformed metadata matrix with valid neighbors |
 | `Absent` requires a completed scan while unrelated readable rows remain isolated | Budget, unreadable-body, exact-body unreadable-declaration, and unrelated readable-row neighbors |
+| Ordered multiplicity and duplicate physical rows are preserved | One body with multiple relevant rows, interleaved unrelated rows, and duplicate declaration operands; assert the exact relevant-row sequence and multiplicity |
+| Byte-distinct images with the same MVID and row tokens cannot associate | Two synthetic images whose differing retained bytes are asserted by the harness while one deliberate MVID and relevant row-token coordinates match; independent sessions issue unequal generation-qualified MethodImpl relationship identities |
+| Every claimed cumulative work dimension is charged and enforced | Limit-minus-one, exact-limit, and limit-plus-one matrix for MethodImpl rows, declaration candidates, relationship edges, signature/TypeSpec bytes, generic-substitution nodes, structured/materialized nodes, and retained text; assert exact counters and typed outcomes |
 | Cancellation is out-of-band and preserves the caller token | Focused cancellation propagation test |
 | Certificates remain usable after reader disposal | Public detached-result test |
 
 The fixture harness may construct malformed metadata, but the production
 operation must create every relationship, identity, and rejection asserted by
 the tests. No harness-side normalization or repair can satisfy a gate.
+
+The cross-certificate composition gate is not part of #7887:
+issue #7897 proves that InterfaceImpl certificates preserve the same generation
+currency, and issue #4852 proves that CSharp rejects a generation mismatch
+before structured identity comparison.
 
 ## Non-claims
 
@@ -423,4 +484,5 @@ This contract does not:
 [issue-7888]: https://github.com/richlander/dotnet-inspect/issues/7888
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
 [issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
+[metadata-image-generation]: member-inspection-planning-and-metadata-projection.md
 [runtime-int32]: https://github.com/dotnet/runtime/blob/81be0823c7162a79bcc8bde49763293c92567e9e/src/libraries/System.Private.CoreLib/src/System/Int32.cs#L270-L277
