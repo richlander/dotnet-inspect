@@ -189,10 +189,12 @@ catalogs follow this model. Commands not yet migrated may retain their existing
 discovery behavior; new work should follow the reference model rather than
 copy a legacy command.
 
-`--details` is an opt-in discovery projection, not inspection verbosity. It may
-add stable columns without making them part of the concise default. The first
-Library adoption adds only `Formats` and remains structural and target-free;
-other details and command adoptions require their owning slices.
+`--details` is a temporary Library-only discovery projection, not inspection
+verbosity. Its first adoption adds only `Formats` and remains structural and
+target-free. It will not accumulate more implicit columns. The resource-oriented
+`explain` adoption tracked by #7814 will expose Formats and later owner-issued
+properties from the host-neutral Discovery Document, then remove `--details`.
+Formats do not receive a global `-F` discovery flag.
 
 ## Query discovery
 
