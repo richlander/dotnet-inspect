@@ -219,7 +219,7 @@ public partial class PackageCommand
     private static async Task ApplyPackageEcosystemDependenciesAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
-        bool discloseUnavailableDiagnostics,
+        bool discloseEmptyDetailDiagnostics,
         Action<string>? log)
     {
         InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection;
@@ -258,12 +258,19 @@ public partial class PackageCommand
         }
 
         result.EcosystemDependencyRecognitionInspection = inspection;
+        bool discloseDiagnostics =
+            discloseEmptyDetailDiagnostics
+            && inspection.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized.IsEmpty,
+                EcosystemDependencyRecognitionOutcome.Unavailable => true,
+                _ => false,
+            };
         foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
         {
             string message = $"{diagnostic.Code}: {diagnostic.Summary}";
-            if (discloseUnavailableDiagnostics
-                && inspection.Content
-                    is EcosystemDependencyRecognitionOutcome.Unavailable)
+            if (discloseDiagnostics)
             {
                 CommandError.WriteWarning(message);
             }

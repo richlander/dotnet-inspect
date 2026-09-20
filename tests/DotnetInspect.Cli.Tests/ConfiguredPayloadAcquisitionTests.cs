@@ -1207,6 +1207,40 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_EmptyIncompleteDetailDisclosesRecognitionIssue()
+    {
+        string id = $"Pinned.EmptyIncompleteEcosystem.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "empty incomplete ecosystem package",
+            library: new byte[17],
+            libraryName: $"{id}.dll",
+            dependencies:
+            [
+                ("ThirdParty.Unrecognized", "1.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.Contains(
+            "Warning: ecosystem-dependency-recognition.package-",
+            result.Error);
+        Assert.DoesNotContain(
+            "| Ecosystem |",
+            result.Output);
+    }
+
+    [Fact]
     public async Task PackageCommand_DuplicateCompileIdentityDisclosesIncompleteRecognition()
     {
         string id = $"Pinned.DuplicateIdentity.{Guid.NewGuid():N}";
