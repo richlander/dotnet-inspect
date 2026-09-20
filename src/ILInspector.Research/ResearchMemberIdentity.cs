@@ -72,8 +72,23 @@ public static class ResearchMemberIdentity
         if (member.Kind is "property" or "field" or "event")
             return false;
 
-        identities.Add(target.Anchor.StableSelector);
-        identities.Add(BodyIdentityFromTarget(target).StableSelector);
+        identities.Add(BodyIdentityFromTarget(
+            target,
+            includeReturnType: false).StableSelector);
+        return true;
+    }
+
+    public static bool TryAddReturnTypeTargetIdentity(
+        ResolvedMemberTarget target,
+        ISet<string> identities)
+    {
+        var member = target.ApiMember.Member;
+        if (member.Kind is "property" or "field" or "event")
+            return false;
+
+        identities.Add(BodyIdentityFromTarget(
+            target,
+            includeReturnType: true).StableSelector);
         return true;
     }
 
@@ -129,7 +144,8 @@ public static class ResearchMemberIdentity
                 : "");
 
     static BodyMemberIdentity BodyIdentityFromTarget(
-        ResolvedMemberTarget target)
+        ResolvedMemberTarget target,
+        bool includeReturnType)
     {
         var member = target.ApiMember.Member;
         var signature = member.SignatureModel;
@@ -158,15 +174,22 @@ public static class ResearchMemberIdentity
             memberName,
             generic,
             parameters,
-            BodyReturnSuffix(member, signature));
+            BodyReturnSuffix(
+                member,
+                signature,
+                includeReturnType));
     }
 
     static string BodyReturnSuffix(
         ApiMember member,
-        ApiSignature? signature)
+        ApiSignature? signature,
+        bool includeReturnType)
     {
-        if (member.Kind == "constructor")
-            return "~void";
+        if (!includeReturnType
+            && !ApiMemberIdentity.IsConversionOperator(member.Name))
+        {
+            return "";
+        }
 
         string? returnType = signature?.ReturnType ?? member.ReturnType;
         return string.IsNullOrWhiteSpace(returnType)

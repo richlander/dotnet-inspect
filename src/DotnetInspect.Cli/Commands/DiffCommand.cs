@@ -1663,6 +1663,7 @@ public class DiffCommand
                 options.MemberFilter,
                 options.TypeFilter,
                 requireBodyTargets: true,
+                includeReturnTypeBodyIdentities: true,
                 bodySectionName: SelectsComplexityContext(options)
                     ? "Complexity Context"
                     : SelectsStructuralContext(options)
@@ -3351,6 +3352,7 @@ public class DiffCommand
         IReadOnlyCollection<string> memberTargets,
         IReadOnlyCollection<string> typeFilters,
         bool requireBodyTargets = false,
+        bool includeReturnTypeBodyIdentities = false,
         string bodySectionName = "Analysis Diff")
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
@@ -3386,7 +3388,11 @@ public class DiffCommand
 
             if (oldType is not null)
             {
-                var oldResult = AddResolvedIdentities(oldType, parsed.Selector, identities);
+                var oldResult = AddResolvedIdentities(
+                    oldType,
+                    parsed.Selector,
+                    identities,
+                    includeReturnTypeBodyIdentities);
                 found |= oldResult.Found;
                 bodyFound |= oldResult.BodyFound;
                 if (oldResult.Diagnostic is { } oldDiagnostic)
@@ -3401,7 +3407,11 @@ public class DiffCommand
             }
             if (newType is not null)
             {
-                var newResult = AddResolvedIdentities(newType, parsed.Selector, identities);
+                var newResult = AddResolvedIdentities(
+                    newType,
+                    parsed.Selector,
+                    identities,
+                    includeReturnTypeBodyIdentities);
                 found |= newResult.Found;
                 bodyFound |= newResult.BodyFound;
                 if (newResult.Diagnostic is { } newDiagnostic)
@@ -3426,7 +3436,12 @@ public class DiffCommand
         return new ResolvedDiffMemberTargets(identities, typeNames);
     }
 
-    static (bool Found, bool BodyFound, MemberTargetDiagnostic? Diagnostic) AddResolvedIdentities(ApiType type, MemberTargetSelector selector, HashSet<string> identities)
+    static (bool Found, bool BodyFound, MemberTargetDiagnostic? Diagnostic)
+        AddResolvedIdentities(
+            ApiType type,
+            MemberTargetSelector selector,
+            HashSet<string> identities,
+            bool includeReturnTypeBodyIdentity)
     {
         var resolution = MemberTargetResolver.Resolve(type, selector);
         if (!resolution.Found)
@@ -3435,6 +3450,12 @@ public class DiffCommand
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
         var bodyFound = AddResearchBodyIdentity(resolution.Target, identities);
+        if (includeReturnTypeBodyIdentity)
+        {
+            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
+                resolution.Target,
+                identities);
+        }
         return (true, bodyFound, null);
     }
 
