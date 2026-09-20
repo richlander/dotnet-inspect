@@ -300,7 +300,8 @@ internal sealed class TestSourceClient(
 internal sealed class TrackingPackageContent(
     string producerKey,
     IReadOnlyList<KeyValuePair<string, byte[]>> entries,
-    IEnumerable<string>? throwOnOpen = null) : IPackageContent, IPackageContentEntryManifest
+    IEnumerable<string>? throwOnOpen = null,
+    Func<string, Exception>? openFailure = null) : IPackageContent, IPackageContentEntryManifest
 {
     private readonly byte[] _archive = PackagePlatformTestData.Archive(entries);
     private readonly HashSet<string> _throwOnOpen =
@@ -336,7 +337,11 @@ internal sealed class TrackingPackageContent(
         ThrowIfRetired();
         OpenedEntries.Add(relativePath);
         if (_throwOnOpen.Contains(relativePath))
-            throw new InvalidDataException($"Entry {relativePath} must not be opened.");
+        {
+            throw openFailure?.Invoke(relativePath)
+                ?? new InvalidDataException(
+                    $"Entry {relativePath} must not be opened.");
+        }
         KeyValuePair<string, byte[]> entry =
             entries.SingleOrDefault(pair => pair.Key == relativePath);
         if (entry.Key is null || entry.Value.LongLength > maxExpandedBytes)
@@ -494,9 +499,24 @@ internal static class PackagePlatformTestData
             string frameworkName,
             byte[] runtimeConfiguration,
             byte[] dependencyManifest,
+            params (string FileName, byte[] Content)[] members) =>
+        RuntimePackEntries(
+            frameworkName,
+            "net11.0",
+            runtimeConfiguration,
+            dependencyManifest,
+            members);
+
+    internal static IReadOnlyList<KeyValuePair<string, byte[]>>
+        RuntimePackEntries(
+            string frameworkName,
+            string targetFramework,
+            byte[] runtimeConfiguration,
+            byte[] dependencyManifest,
             params (string FileName, byte[] Content)[] members)
     {
-        const string prefix = "runtimes/linux-x64/lib/net11.0/";
+        string prefix =
+            $"runtimes/linux-x64/lib/{targetFramework}/";
         return
         [
             Entry(
@@ -506,7 +526,7 @@ internal static class PackagePlatformTestData
                 prefix + frameworkName + ".deps.json",
                 dependencyManifest),
             .. members.Select(
-                static member => Entry(
+                member => Entry(
                     prefix + member.FileName,
                     member.Content)),
         ];

@@ -83,7 +83,8 @@ public abstract class SourceHouseAuthoredMapping
         public SourceLinkResolver.TypeSourceInfo SourceMapping { get; }
         public SourceDocumentObservation Document { get; }
         public IReadOnlyList<SourceHouseAdditionalTypeDocument>
-            AdditionalDocuments { get; }
+            AdditionalDocuments
+        { get; }
 
         private static SourceHouseSourceUnitScope DocumentScope(
             SourceLinkResolver.TypeSourceInfo mapping,
@@ -270,23 +271,29 @@ public abstract class SourceHouseAuthoredAttempt
     public sealed class Available : SourceHouseAuthoredAttempt
     {
         internal Available(
+            SourceHouseResultIdentity resultIdentity,
             string text,
             SourceHouseAuthoredMapping mapping,
             SourceHouseSourceAttempt selected,
             IReadOnlyList<SourceHouseSourceAttempt> sourceAttempts,
+            SourceHousePhysicalSourceEvidence? physicalSource,
             SourceHouseAuthoredMemberDocument? memberDocument = null)
             : base(
                 SourceHouseAuthoredAttemptKind.Available,
                 mapping,
                 sourceAttempts)
         {
+            ResultIdentity = resultIdentity;
             Text = text;
             Selected = selected;
+            PhysicalSource = physicalSource;
             MemberDocument = memberDocument;
         }
 
+        public SourceHouseResultIdentity ResultIdentity { get; }
         public string Text { get; }
         public SourceHouseSourceAttempt Selected { get; }
+        public SourceHousePhysicalSourceEvidence? PhysicalSource { get; }
         public SourceHouseAuthoredMemberDocument? MemberDocument { get; }
     }
 
@@ -383,8 +390,11 @@ public sealed record SourceHouseFailure
         Stage = stage;
         Code = SourceHouseContractName.Validate(code);
         DetailWasTruncated =
-            detail is { Length: >
-                SourceHouseContractText.MaximumDiagnosticCharacters };
+            detail is
+            {
+                Length: >
+                SourceHouseContractText.MaximumDiagnosticCharacters
+            };
         Detail = detail is null
             ? null
             : SourceHouseContractText.CaptureDiagnostic(detail);
@@ -418,7 +428,8 @@ public sealed record SourceHouseWorkCharge(
     int TargetMappingsObserved,
     int CandidateAttempts,
     long SourceBytesObserved,
-    long SourceTextCharactersObserved);
+    long SourceTextCharactersObserved,
+    int AttestationContributionsObserved = 0);
 
 public sealed record SourceHouseRequestEvidence
 {
@@ -540,6 +551,8 @@ public abstract class SourceHouseOutcome
             SourceHouseRequestEvidence request,
             SourceHousePdbContribution pdbContribution,
             SourceHouseAuthoredAttempt.Available authoredAttempt,
+            SourceHousePhysicalTargetEvidence physicalTarget,
+            SourceHousePhysicalDeclarationOutcome physicalDeclaration,
             SourceHouseWorkCharge work,
             SourceHouseLibraryLeaseSettlement leaseSettlement)
             : base(
@@ -550,9 +563,14 @@ public abstract class SourceHouseOutcome
                 leaseSettlement)
         {
             Source = authoredAttempt;
+            PhysicalTarget = physicalTarget;
+            PhysicalDeclaration = physicalDeclaration;
         }
 
         public SourceHouseAuthoredAttempt.Available Source { get; }
+        public SourceHousePhysicalTargetEvidence PhysicalTarget { get; }
+        public SourceHousePhysicalDeclarationOutcome PhysicalDeclaration
+        { get; }
     }
 
     public sealed class Unavailable : SourceHouseOutcome
