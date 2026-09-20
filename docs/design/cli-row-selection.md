@@ -752,8 +752,10 @@ What to notice: the final physical call site is selected before JSONL
 lowering. Strict Window failure withholds the complete command output, while
 explicit `--lines` continues to select rendered text.
 
-Exact `-S "Direct Use Clusters"` declares a separate semantic row per complete
-`AssemblyPairDirectUseCluster` in the Query-issued deterministic cluster order.
+Exact `-S "Direct Use Clusters"` selection, including repeated identical exact
+selectors after case-insensitive deduplication, declares a separate semantic row
+per complete `AssemblyPairDirectUseCluster` in the Query-issued deterministic
+cluster order.
 Selection runs after pair inspection, complete cluster derivation, and optional
 `--where "Cluster=N"` scoping. The selected cluster identities feed Count,
 Markdown, plaintext, table, TSV, JSONL, and JSON without changing their

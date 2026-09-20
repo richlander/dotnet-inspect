@@ -24,7 +24,9 @@ internal static class LibraryCallUseRowSelectionAdoption
             return true;
         }
 
-        return options.ParseSelect(parseResult) is [var section]
+        return options.ParseSelect(parseResult)?
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() is [var section]
             && (section.Equals(
                     LibraryCallUseSections.CallSites,
                     StringComparison.OrdinalIgnoreCase)

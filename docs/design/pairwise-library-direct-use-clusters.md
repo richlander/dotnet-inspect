@@ -204,12 +204,13 @@ call-site view or bare `-S`, preserving current output and cost expectations.
 
 Each row exposes the directed pair, cluster ordinal and anchor tokens,
 structural footprint counts, and one-based `Call Site Rows` references into the
-unchanged exact call-site table. Exact section selection applies semantic
-Head/Tail and strict Window stages to the complete Query-issued cluster vector
-after optional `Cluster=N` scoping. Count, table, TSV, JSONL, JSON, Markdown,
-and plain-text lowering then consume the same selected cluster identities
-through the existing generated Markout context. Explicit Lines remains
-rendered-text selection.
+unchanged exact call-site table. Exact section selection, after
+case-insensitive deduplication of repeated identical selectors, applies
+semantic Head/Tail and strict Window stages to the complete Query-issued cluster
+vector after optional `Cluster=N` scoping. Count, table, TSV, JSONL, JSON,
+Markdown, and plain-text lowering then consume the same selected cluster
+identities through the existing generated Markout context. Explicit Lines
+remains rendered-text selection.
 
 `--where "Cluster=N"` is the drill-down gesture for one pair-wide cluster
 ordinal. `Cluster` is a typed equality predicate over the logical pair

@@ -1689,8 +1689,11 @@ public sealed class InspectionGraphCommandTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task LibrariesCommand_StrictUnavailableClusterWindowWithholdsOutput()
+    [Theory]
+    [InlineData("Direct Use Clusters")]
+    [InlineData("Direct Use Clusters;Direct Use Clusters")]
+    public async Task LibrariesCommand_StrictUnavailableClusterWindowWithholdsOutput(
+        string sectionSelection)
     {
         var captured = await RunCliAsync(
             "graph",
@@ -1700,7 +1703,7 @@ public sealed class InspectionGraphCommandTests
             "--library",
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
             "-S",
-            LibraryCallUseSections.DirectUseClusters,
+            sectionSelection,
             "--rows",
             "999..1000",
             "--json");
