@@ -37,6 +37,24 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   escapeHtml: (value: unknown) => string;
 }
 
+export interface NavigationDescriptorBarItem {
+  key: string;
+  identity: string | null;
+  label: string;
+  summary: string | null;
+  state: string;
+  current: boolean;
+  action: string | null;
+}
+
+export interface RenderNavigationDescriptorBarOptions {
+  subjects: readonly NavigationDescriptorBarItem[];
+  inspectors: readonly NavigationDescriptorBarItem[];
+  subjectPanelId?: string;
+  inspectorPanelId?: string;
+  escapeHtml: (value: unknown) => string;
+}
+
 export interface ScopeBarBindingActions {
   onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onLibraryLensSelect: (lens: LibraryLens) => void;
@@ -90,6 +108,11 @@ export type ScopeBarFocusTarget =
   | {
       kind: "type-lens";
       value: TypeLens;
+      presentation?: NavigationItemPresentation;
+    }
+  | {
+      kind: "product-navigation";
+      value: string;
       presentation?: NavigationItemPresentation;
     };
 
@@ -244,6 +267,15 @@ export function captureScopeBarFocus(
   }
 
   const presentation = itemPresentation(element);
+  const productNavigation = element.dataset.navigationId;
+  if (element.dataset.productNavigationItem !== undefined
+    && productNavigation !== undefined) {
+    return {
+      kind: "product-navigation",
+      value: productNavigation,
+      ...(presentation ? { presentation } : {}),
+    };
+  }
   const scope = element.dataset.scope;
   if (isWorkspaceScope(scope)) {
     return { kind: "scope", value: scope, ...(presentation ? { presentation } : {}) };
@@ -312,7 +344,9 @@ function focusTargetSelector(
           ? ["[data-library-lens]", target.value]
           : target.kind === "type-lens"
             ? ["[data-lens]", target.value]
-            : ["[data-member-section]", target.value];
+            : target.kind === "member-section"
+              ? ["[data-member-section]", target.value]
+              : ["[data-product-navigation-item]", target.value];
 }
 
 function elementIdentity(element: HTMLElement): string | undefined {
@@ -321,7 +355,8 @@ function elementIdentity(element: HTMLElement): string | undefined {
     ?? element.dataset.packageLens
     ?? element.dataset.libraryLens
     ?? element.dataset.lens
-    ?? element.dataset.memberSection;
+    ?? element.dataset.memberSection
+    ?? element.dataset.navigationId;
 }
 
 export function restoreScopeBarFocus(
@@ -607,6 +642,62 @@ function menuItem(
   return `<button type="button" class="adaptive-navigation-menu-item ${current ? "active" : ""}" ${itemAttributes(id, attribute, current, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${current}" tabindex="-1" aria-label="${escapedLabel}" title="${escapedLabel}">${escapedLabel}</button>`;
 }
 
+function descriptorStateLabel(state: string): string {
+  const normalized = state.toLowerCase();
+  return normalized === "available" || normalized === "current"
+    ? ""
+    : state;
+}
+
+function descriptorAttributes(
+  item: NavigationDescriptorBarItem,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const action = item.action === null
+    ? ""
+    : ` data-product-navigation-action="${escapeHtml(item.action)}"`;
+  const identity = item.identity === null
+    ? ""
+    : ` data-product-navigation-id="${escapeHtml(item.identity)}"`;
+  return `data-product-navigation-item data-navigation-id="${escapeHtml(item.key)}"${identity} data-navigation-current="${item.current}" data-navigation-state="${escapeHtml(item.state)}"${action}`;
+}
+
+function descriptorLabel(
+  item: NavigationDescriptorBarItem,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const status = descriptorStateLabel(item.state);
+  return `${escapeHtml(item.label)}${status
+    ? `<span class="navigation-status"> ${escapeHtml(status)}</span>`
+    : ""}`;
+}
+
+function descriptorTab(
+  item: NavigationDescriptorBarItem,
+  tabStop: boolean,
+  panelId: string,
+  group: NavigationGroupName,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const label = descriptorLabel(item, escapeHtml);
+  const accessibleLabel = item.summary
+    ? `${item.label}: ${item.summary}`
+    : item.label;
+  const disabled = item.action === null && !item.current;
+  return `<button type="button" class="adaptive-navigation-tab ${group === "subject" ? "scope-seg" : "lens"} ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="tab" ${group === "subject" ? "data-subject-tab" : "data-inspector-tab"} role="tab" aria-selected="${item.current}" aria-disabled="${disabled}" tabindex="${tabStop ? "0" : "-1"}"${item.current ? ` id="active-${group}-tab"` : ""} aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}"><span${group === "inspector" ? ' class="lens-label"' : ""}>${label}</span></button>`;
+}
+
+function descriptorMenuItem(
+  item: NavigationDescriptorBarItem,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const accessibleLabel = item.summary
+    ? `${item.label}: ${item.summary}`
+    : item.label;
+  const disabled = item.action === null && !item.current;
+  return `<button type="button" class="adaptive-navigation-menu-item ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${item.current}" aria-disabled="${disabled}" tabindex="-1" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}">${descriptorLabel(item, escapeHtml)}</button>`;
+}
+
 function navigationGroup(options: {
   name: NavigationGroupName;
   label: string;
@@ -669,10 +760,59 @@ function navigationGroup(options: {
     </div>`;
 }
 
+export function renderNavigationDescriptorBar(
+  options: RenderNavigationDescriptorBarOptions,
+): string {
+  const {
+    subjects,
+    inspectors,
+    subjectPanelId = "subject-panel",
+    inspectorPanelId = "inspector-panel",
+    escapeHtml,
+  } = options;
+  const renderGroup = (
+    name: NavigationGroupName,
+    items: readonly NavigationDescriptorBarItem[],
+    panelId: string,
+  ) => {
+    if (items.length === 0) return "";
+    const current = items.find(item => item.current) ?? null;
+    const fallback = current ?? items[0]!;
+    return navigationGroup({
+      name,
+      label: name === "subject" ? "Subjects" : "Inspectors",
+      chooserLabel: current?.label
+        ?? (name === "subject" ? "Choose subject" : "Choose inspector"),
+      key: items.map(item => item.key).join(","),
+      committedId: current?.key ?? null,
+      panelId,
+      tabHtml: items.map(item =>
+        descriptorTab(
+          item,
+          item.key === fallback.key,
+          panelId,
+          name,
+          escapeHtml)).join(""),
+      menuHtml: items.map(item =>
+        descriptorMenuItem(item, escapeHtml)).join(""),
+      escapeHtml,
+    });
+  };
+
+  const subjectHtml = renderGroup("subject", subjects, subjectPanelId);
+  const inspectorHtml = renderGroup(
+    "inspector",
+    inspectors,
+    inspectorPanelId);
+  if (!subjectHtml && !inspectorHtml) return "";
+  return `<div class="scope-bar" data-scope-bar>${subjectHtml}${subjectHtml && inspectorHtml ? '<span class="navigation-separator" aria-hidden="true"></span>' : ""}${inspectorHtml}</div>`;
+}
+
 export function renderApplicationScopeBar(
   activeScope: ApplicationScope | null,
   workspaceAvailable: boolean,
   escapeHtml: (value: unknown) => string,
+  workspace?: NavigationDescriptorBarItem,
 ): string {
   const scopes = [
     ["query", "Query"],
@@ -685,9 +825,18 @@ export function renderApplicationScopeBar(
          aria-label="Application scopes">
       ${scopes.map(([id, label]) => {
         const active = activeScope === id;
-        const disabled = id === "workspace" && !workspaceAvailable;
+        const descriptor = id === "workspace" ? workspace : undefined;
+        const renderedLabel = descriptor?.label ?? label;
+        const disabled = id === "workspace"
+          && (!workspaceAvailable
+            || (descriptor !== undefined
+              && descriptor.action === null
+              && !active));
         const tabStop = active || (activeScope === null && id === "query");
-        return `<button id="application-scope-${id}" type="button" class="application-scope-item ${active ? "active" : ""}" data-application-scope="${id}" data-application-scope-tab${active ? ' aria-current="page"' : ""} tabindex="${tabStop ? "0" : "-1"}"${disabled ? " disabled" : ""} aria-label="${escapeHtml(label)}" title="${escapeHtml(disabled ? "No workspace is open" : label)}">${escapeHtml(label)}</button>`;
+        const productAttributes = descriptor === undefined
+          ? ""
+          : ` ${descriptorAttributes(descriptor, escapeHtml)}`;
+        return `<button id="application-scope-${id}" type="button" class="application-scope-item ${active ? "active" : ""}" data-application-scope="${id}" data-application-scope-tab${productAttributes}${active ? ' aria-current="page"' : ""} tabindex="${tabStop ? "0" : "-1"}"${disabled ? " disabled" : ""} aria-label="${escapeHtml(renderedLabel)}" title="${escapeHtml(disabled ? "No workspace is open" : renderedLabel)}">${escapeHtml(renderedLabel)}</button>`;
       }).join("")}
     </nav>`;
 }
