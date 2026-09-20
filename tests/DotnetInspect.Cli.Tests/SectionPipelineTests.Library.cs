@@ -155,6 +155,7 @@ public partial class SectionPipelineTests
             new[]
             {
                 SectionNames.LibraryInfo,
+                SectionNames.EcosystemDependencies,
                 SectionNames.InspectionFailures,
                 SectionNames.Signals,
                 SectionNames.Symbols,
@@ -168,6 +169,7 @@ public partial class SectionPipelineTests
             new[]
             {
                 SectionNames.LibraryInfo,
+                SectionNames.EcosystemDependencies,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
                 SectionNames.Signals,
