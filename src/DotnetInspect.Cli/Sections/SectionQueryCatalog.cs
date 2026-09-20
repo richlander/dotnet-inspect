@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
@@ -165,7 +166,13 @@ public sealed record SectionQueryCatalog(
 
         ImmutableArray<string> sections = command switch
         {
-            "find" => ["Results", "Members"],
+            "find" =>
+            [
+                FindQueryOptions.Section(
+                    FindQueryRouteKind.TypeResults),
+                FindQueryOptions.Section(
+                    FindQueryRouteKind.MemberResults),
+            ],
             "package query" => [PackageProfileSections.Packages],
             "depends" =>
             [

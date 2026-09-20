@@ -3,8 +3,10 @@
 ## Status
 
 **Implemented host-neutral substrate with Package Query and Library Query
-adopted in CLI and Inspect Web, and Graph Libraries and Dependency adopted
-across their CLI query sections; remaining production adoption continues under
+adopted in CLI and Inspect Web, Graph Libraries adopted across its CLI query
+sections, Dependency adopted across its command and section routes, and Find
+adopted across its Type and Member result routes; remaining production adoption
+continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
@@ -22,12 +24,13 @@ Current CLI query discovery remains partly maintained through command-specific
 catalogs. Package Query is the first production adopter: one effective route
 now supplies plan resolution, CLI discovery terms, and Browser control terms.
 Graph Libraries is the second adopter: one command route and five row-set
-routes supply its Cluster plan, CLI lowering, and section discovery. The
-Dependency is the third adopter: its Type and hierarchy routes share one
-registered vocabulary and retain their existing lowering paths. Library Query
-is the fourth adopter: one explicit-population route supplies its reference
-plan, CLI discovery, and Browser gesture. The remaining operations still bind
-their syntax through separate paths.
+routes supply its Cluster plan, CLI lowering, and section discovery. Dependency
+is the third adopter: its Type and hierarchy routes share one registered
+vocabulary and retain their existing lowering paths. Find is the fourth
+adopter: its Type and Member routes share one result-row profile. Library Query
+is the fifth adopter: one explicit-population route supplies its reference plan,
+CLI discovery, and Browser gesture. The remaining operations still bind their
+syntax through separate paths.
 
 ## Authority and exact claim
 
@@ -566,8 +569,9 @@ The migration begins from useful but separate systems:
   The type route projects the existing Source, Target, Kind, Traversal, row
   selection, ranking, and depth semantics. Top-level and Package hierarchy
   routes share the hierarchy profile, depth dimension, and row stages.
-- Find exposes its Results and Members sections to discovery but currently has
-  no executable query-term or order inventory.
+- Find owns distinct Type and Member result routes over their authorized search
+  populations. Both routes share the executable Head, Tail, and Window result
+  profile and intentionally expose no query-term or order inventory.
 
 The new registry is implemented, and Package Query has replaced its
 host-local term inventories with one route-backed projection. Remaining
@@ -591,8 +595,8 @@ eight-step path:
 5. **Implemented:** adopt Depends and operation-backed Dependency sections
    without changing root, traversal, evidence, completion, or hierarchy
    semantics.
-6. Adopt Find Type and Member query capability without changing its discovery
-   grammar, scope rules, or result grains.
+6. **Implemented:** adopt Find Type and Member query capability without changing
+   its discovery grammar, scope rules, or result grains.
 7. **Implemented:** add Library Query over explicit Library populations, with
    assembly-reference qualification as its first production facet.
 8. Remove superseded command-local query catalogs and lowerers after every
@@ -633,7 +637,17 @@ profile, depth dimension, and row-stage contract. CLI lowering retains the
 existing Dependency acquisition, traversal, evidence, completion, hierarchy,
 failure, and rendering paths.
 
-Library Query is the fourth adopter and the second CLI-plus-Browser adopter.
+Find is the fourth adopter. One operation binds distinct authorized Type and
+Member search-population roles to their existing result grains and row sets.
+Both routes use the same result-row profile, which admits Head, Tail, and Window
+without inventing predicates, ordering, or ranking that the Find owners do not
+define. The CLI lowers its existing semantic row-selection grammar to portable
+intent, resolves the active route before acquisition, and executes the
+owner-issued plan after the complete Type or Member search result is available.
+The existing pattern grammars, scope authorization, operation limit,
+completion, Count, diagnostics, result shapes, and rendering remain unchanged.
+
+Library Query is the fifth adopter and the second CLI-plus-Browser adopter.
 Its operation definition registers explicit ordered Library populations,
 occurrence-grain results, direct-reference qualification, and the bounded
 candidate dimension. The CLI and current-package Browser gesture resolve the
