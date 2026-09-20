@@ -667,6 +667,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
             => model.InspectionFailures is { Count: > 0 };
     }
@@ -1116,6 +1117,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.UnionTypes;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.UnionTypeInspection.CanRenderWithPresence(model.HasUnionTypes);
     }
