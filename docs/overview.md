@@ -119,9 +119,9 @@ substrates, and inspection producers that will extend that space.
   reachability.   The
   [realized package dependency context](design/realized-package-dependency-context.md)
   query binds one physical Package Root selection to dependency evidence
-  projected from that exact retained content and selection intent, producing
-  detached source evidence for realized-package traversal without moving asset,
-  group, or traversal policy. The
+  projected from that exact retained content and selection intent. Package
+  Dependency Traversal retains that complete context as a typed root source
+  without moving asset, group, destination, or traversal policy. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued

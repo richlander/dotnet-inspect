@@ -28,6 +28,8 @@ This owner defines:
 - traversal depth and finite work-budget behavior;
 - deterministic scheduling and result ordering;
 - traversal-local failure and completion;
+- preservation of an admitted realized package context as the exact source of
+  its root declarations;
 - preservation of owner-issued source and declaration evidence; and
 - the reusable result consumed by CLI and Browser/Wasm hosts.
 
@@ -36,6 +38,10 @@ It does not own the facts or effects it composes:
 - [Package Dependency Evidence](package-dependency-evidence.md) owns normalized
   declarations, selected dependency groups, declaration identity, source
   spellings, completion, and `InertString` containment.
+- [Realized Package Dependency
+  Context](realized-package-dependency-context.md) owns the association between
+  one physical Package Root selection and dependency evidence projected from
+  that exact retained content and selection intent.
 - [Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
   tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
   owns the
@@ -80,6 +86,12 @@ The focused delivery sequence is:
 4. The Browser/Wasm dependency experience consumes the same result after its
    acquisition path can provide the required candidate and manifest
    capabilities.
+
+The realized-package adoption tracked by
+[#7401](https://github.com/richlander/dotnet-inspect/issues/7401) reuses this
+query rather than adding another traversal. A realized package context is an
+explicit root source retained by the graph. Destination realization and
+Workspace-default target policy remain the separate #6424 adoption step.
 
 The design may land before #5765, but the traversal implementation must not
 replace that prerequisite with an ad hoc resolver. In particular,
@@ -162,7 +174,7 @@ claim.
 
 ```text
 ordered admitted exact package roots
-  + selected normalized declaration groups
+  + projected dependency evidence or realized package contexts
   + typed framework-selection mode
   + per-root expansion authority
   + exact-candidate resolver capability from #5765
@@ -198,15 +210,24 @@ that result without rerunning source work or changing graph identity.
 ### Root occurrences
 
 The request carries an ordered, finite set of package root occurrences. Each
-occurrence references one admitted `PackageDependencyEvidenceRoot` whose
-identity is `PackageDependencyEvidenceRootIdentity.Package`.
+occurrence carries one typed source:
+
+- `ProjectedEvidence`, for an adapter-owned
+  `PackageDependencyEvidenceRoot`; or
+- `RealizedPackage`, for an owner-issued
+  `RealizedPackageDependencyContext`.
+
+Both sources expose one admitted `PackageDependencyEvidenceRoot` whose identity
+is `PackageDependencyEvidenceRootIdentity.Package`. A realized source retains
+the complete context; the traversal does not replace it with its coordinate or
+extract the evidence into an independently pairable root.
 
 The root must already retain:
 
 - an exact `PackageSourceCoordinate`;
 - its package-manifest provenance;
 - normalized declaration evidence and selection state; and
-- a selection receipt constructed under the request's typed framework mode.
+- a selected declaration group under its source owner's intent.
 
 Two occurrences may name the same exact package coordinate. They remain
 distinct roots with shared semantic node identity. Occurrence order is
@@ -239,9 +260,17 @@ For `ManifestDefault`, each node retains the framework group chosen by the
 owner's no-request policy. The result explicitly describes a per-manifest
 default traversal and does not claim one graph-wide target framework.
 
-Every admitted root and every transitive manifest projection is constructed
-under the same mode. The adapter supplies that association directly; the
-query does not validate trusted in-process callers by comparing display text.
+The mode governs every candidate-acquired transitive manifest projection. A
+`ProjectedEvidence` root's adapter supplies its relationship to that mode
+directly; the query does not validate trusted in-process callers by comparing
+display text.
+
+A `RealizedPackage` root instead retains the Root-owned source selection in its
+context. That source selection may differ from the traversal mode: an
+explicitly selected `netstandard2.0` hub can contribute its exact declarations
+while a `net11.0` traversal mode governs newly reached manifests. The traversal
+does not reselect or relabel the realized root. Destination Package Root
+selection under the Workspace default remains #6424's contract.
 
 ### Per-root expansion authority
 
@@ -325,7 +354,8 @@ Each result root retains:
 
 - its request-local occurrence identity and order;
 - its exact package semantic node;
-- the original root evidence and provenance;
+- the original typed root source, including the complete realized package
+  context when supplied;
 - its traversal completion; and
 - its affected failures and boundaries.
 
@@ -354,7 +384,7 @@ A manifest projection identifies one authority-bearing observation of an exact
 package coordinate. Its identity is owner-issued:
 
 - a traversal-issued projection identity bound to one explicit root occurrence
-  and its owner-issued provenance;
+  and its owner-issued projected evidence or realized context;
 - a #5765 candidate correspondence plus exact manifest source result; or
 - a proven correspondence that allows one of those observations to satisfy
   the other.
@@ -827,6 +857,18 @@ root admits only its own edge. Count and graph projections preserve both
 supported gestures without guessing that their content observations
 correspond.
 
+### Realized source intent and traversal intent
+
+An explicitly selected `Polly.Core@8.8.0` `netstandard2.0` context contributes
+its four selected source declarations even when the traversal mode is exact
+`net11.0`. The traversal mode governs candidate-acquired destination manifests;
+it does not reselect the root to Polly.Core's empty `net8.0` group.
+
+A separately realized compatible `net11.0` Polly.Core context retains its
+selected-empty `net8.0` group and completes without edges. Equal package
+coordinates do not exchange the contexts: independently realized generations
+remain distinct root projections beneath one semantic package node.
+
 ## Evidence
 
 The implementation adds focused Release gates for:
@@ -845,7 +887,10 @@ The implementation adds focused Release gates for:
 | Failed recursive resolution retains the declaration edge without inventing an exact target. | `Traversal_FailedResolutionRetainsDeclarationEdge` |
 | Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
 | Repeated direct roots remain distinct without typed correspondence. | `Traversal_RepeatedDirectRootRequiresCorrespondenceToCoalesce` |
-| Typed framework mode, never inert text, controls every group selection. | `Traversal_FrameworkModeIsStructuralCurrency` |
+| Typed framework mode, never inert text, controls candidate-acquired group selection while realized roots retain their Root-owned source selection. | `Traversal_FrameworkModeIsStructuralCurrency`; `Traversal_RealizedPollyContextsPreserveSourceSelectionAcrossTraversalMode` |
+| Equal-coordinate realized contexts remain distinct root sources beneath one semantic package node. | `Traversal_EqualCoordinateRealizedContextsRemainDistinct` |
+| Realized contexts survive root-relative revisits and cycles without losing their source association. | `Traversal_RootRelativeDepthDoesNotUseGlobalVisitedSet`; `Traversal_CycleRetainsClosingEdgeAndTerminates` |
+| A realized incomplete context retains both its surviving declaration edge and typed failure. | `Traversal_RealizedIncompleteContextRetainsSurvivingEdgeAndFailure` |
 | Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
 | Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |

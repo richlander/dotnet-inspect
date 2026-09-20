@@ -264,11 +264,11 @@ silently move to another package occurrence.
 | Equal coordinates under different content generations or selection identities cannot exchange contexts. | `ExecuteAsync_DoesNotExchangeEqualCoordinateContexts`. |
 | The detached result's public shape contains the Root request, exact opaque identities, and dependency evidence needed by consumers. | `ExecuteAsync_ExternalConsumerObservesDetachedPublicShape`; post-Workspace-close observation remains unverified. |
 | Reissuing the query produces a new selection and context; same retained content preserves generation identity while replacement content changes it. | `ExecuteAsync_ReissuesContextForSameAndReplacementGenerations`; independent-Workspace reacquisition remains unverified. |
-| Traversal preserves the complete context for shared nodes, revisits, cycles, selected-empty sources, and source failure. | Unverified until focused Package Traversal adoption. |
+| Traversal preserves the complete context for shared nodes, revisits, cycles, selected-empty sources, and source failure. | `Traversal_EqualCoordinateRealizedContextsRemainDistinct`; `Traversal_RootRelativeDepthDoesNotUseGlobalVisitedSet`; `Traversal_CycleRetainsClosingEdgeAndTerminates`; `Traversal_RealizedPollyContextsPreserveSourceSelectionAcrossTraversalMode`; `Traversal_RealizedIncompleteContextRetainsSurvivingEdgeAndFailure`. |
 
 ## Production adoption
 
-Issue #7401 is the end-to-end tracker. There are five capability steps:
+Issue #7401 is the end-to-end tracker. There are six capability steps:
 
 1. Artifact Acquisition preserves compatible target-selection authorization
    independently from observed compatible implementation fallback under #7230.
@@ -276,9 +276,11 @@ Issue #7401 is the end-to-end tracker. There are five capability steps:
    query and result algebra in `DotnetInspector.Queries`.
 3. The query accepts the exact live `PackageRootBinding` and projects through
    `PackageDependencyGroupsQuery` over that binding's retained package content.
-4. Have Package Dependency Traversal consume the context for realized source
-   expansion and combine its declarations with #6424 destination realization.
-5. Retain the shared result through CLI and Browser/Wasm call-graph
+4. Package Dependency Traversal consumes and retains the context for realized
+   source expansion without reselecting its dependency group.
+5. #6424 combines admitted declarations with Workspace-default destination
+   realization.
+6. Retain the shared result through CLI and Browser/Wasm call-graph
    experiences, using existing Markout and structured-output boundaries.
 
 The shared query is not complete product behavior until both production hosts

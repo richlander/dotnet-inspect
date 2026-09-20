@@ -23,9 +23,52 @@ public enum PackageDependencyTraversalExpansionAuthority
 }
 
 /// <summary>
-/// The typed framework-selection mode every admitted root and transitive manifest
-/// projection is constructed under. This is structural request currency, not a
-/// reconstruction of <see cref="PackageDependencyEvidenceSelection.RequestedFramework"/>.
+/// The owner-issued evidence source for one admitted package traversal root.
+/// </summary>
+public abstract record PackageDependencyTraversalRootSource
+{
+    private protected PackageDependencyTraversalRootSource()
+    {
+    }
+
+    internal abstract PackageDependencyEvidenceRoot Evidence { get; }
+
+    /// <summary>
+    /// A package dependency-evidence root whose association is owned by its
+    /// supplying adapter rather than by a realized package participant.
+    /// </summary>
+    public sealed record ProjectedEvidence :
+        PackageDependencyTraversalRootSource
+    {
+        internal ProjectedEvidence(PackageDependencyEvidenceRoot evidence) =>
+            Root = evidence ?? throw new ArgumentNullException(nameof(evidence));
+
+        public PackageDependencyEvidenceRoot Root { get; }
+
+        internal override PackageDependencyEvidenceRoot Evidence => Root;
+    }
+
+    /// <summary>
+    /// Dependency evidence associated with one exact realized package
+    /// participant.
+    /// </summary>
+    public sealed record RealizedPackage :
+        PackageDependencyTraversalRootSource
+    {
+        internal RealizedPackage(RealizedPackageDependencyContext context) =>
+            Context = context ?? throw new ArgumentNullException(nameof(context));
+
+        public RealizedPackageDependencyContext Context { get; }
+
+        internal override PackageDependencyEvidenceRoot Evidence =>
+            Context.Evidence;
+    }
+}
+
+/// <summary>
+/// The typed framework-selection mode for candidate-acquired manifest
+/// projections. Realized roots retain their Root-owned source selection
+/// independently.
 /// </summary>
 public abstract record PackageDependencyTraversalFrameworkMode
 {
@@ -33,8 +76,9 @@ public abstract record PackageDependencyTraversalFrameworkMode
     {
     }
 
-    /// <summary>Gets the requested framework text to project every manifest against, or
-    /// <see langword="null"/> for <see cref="ManifestDefault"/>.</summary>
+    /// <summary>Gets the requested framework text to project each candidate-acquired
+    /// manifest against, or <see langword="null"/> for
+    /// <see cref="ManifestDefault"/>.</summary>
     internal abstract string? RequestedFramework { get; }
 
     /// <summary>One validated canonical NuGet framework identity.</summary>
@@ -52,9 +96,10 @@ public abstract record PackageDependencyTraversalFrameworkMode
     }
 
     /// <summary>
-    /// Each manifest uses the package dependency-group owner's explicit no-request
-    /// selection policy; the result retains each node's independently selected
-    /// framework rather than claiming one graph-wide target framework.
+    /// Each candidate-acquired manifest uses the package dependency-group owner's
+    /// explicit no-request selection policy; the result retains each node's
+    /// independently selected framework rather than claiming one graph-wide target
+    /// framework.
     /// </summary>
     public sealed record ManifestDefault : PackageDependencyTraversalFrameworkMode
     {
@@ -88,8 +133,27 @@ public sealed record PackageDependencyTraversalRootOccurrence
     public PackageDependencyTraversalRootOccurrence(
         PackageDependencyEvidenceRoot root,
         PackageDependencyTraversalExpansionAuthority authority)
+        : this(
+            new PackageDependencyTraversalRootSource.ProjectedEvidence(root),
+            authority)
     {
-        ArgumentNullException.ThrowIfNull(root);
+    }
+
+    public PackageDependencyTraversalRootOccurrence(
+        RealizedPackageDependencyContext context,
+        PackageDependencyTraversalExpansionAuthority authority)
+        : this(
+            new PackageDependencyTraversalRootSource.RealizedPackage(context),
+            authority)
+    {
+    }
+
+    private PackageDependencyTraversalRootOccurrence(
+        PackageDependencyTraversalRootSource source,
+        PackageDependencyTraversalExpansionAuthority authority)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        PackageDependencyEvidenceRoot root = source.Evidence;
         if (root.Identity is not PackageDependencyEvidenceRootIdentity.Package)
         {
             throw new ArgumentException(
@@ -105,11 +169,13 @@ public sealed record PackageDependencyTraversalRootOccurrence
                 nameof(root));
         }
 
-        Root = root;
+        Source = source;
         Authority = authority;
     }
 
-    public PackageDependencyEvidenceRoot Root { get; }
+    public PackageDependencyTraversalRootSource Source { get; }
+
+    public PackageDependencyEvidenceRoot Root => Source.Evidence;
 
     public PackageDependencyTraversalExpansionAuthority Authority { get; }
 

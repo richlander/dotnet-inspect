@@ -35,7 +35,7 @@ namespace DotnetInspector.Queries.Tests;
 /// and manifest-acquisition classification rather than a re-implementation of it.
 /// </para>
 /// </remarks>
-public sealed class PackageDependencyTraversalQueryTests
+public sealed partial class PackageDependencyTraversalQueryTests
 {
     private const int DefaultManifestBudget = 100;
     private const int DefaultDeclarationBudget = 100;
@@ -153,15 +153,21 @@ public sealed class PackageDependencyTraversalQueryTests
             "bridge",
             "1.0.0");
 
-        PackageDependencyTraversalRootOccurrence rootA = Root(
-            "roota",
-            "1.0.0",
-            Dependency("shared", "[1.0.0]"),
+        RealizedPackageDependencyContext rootAContext =
+            await RealizedContextAsync(
+                "roota",
+                "1.0.0",
+                Dependency("shared", "[1.0.0]"));
+        RealizedPackageDependencyContext rootBContext =
+            await RealizedContextAsync(
+                "rootb",
+                "1.0.0",
+                Dependency("bridge", "[1.0.0]"));
+        var rootA = new PackageDependencyTraversalRootOccurrence(
+            rootAContext,
             PackageDependencyTraversalExpansionAuthority.RecursiveSources);
-        PackageDependencyTraversalRootOccurrence rootB = Root(
-            "rootb",
-            "1.0.0",
-            Dependency("bridge", "[1.0.0]"),
+        var rootB = new PackageDependencyTraversalRootOccurrence(
+            rootBContext,
             PackageDependencyTraversalExpansionAuthority.RecursiveSources);
 
         var resolver = new StubCandidateResolver();
@@ -187,6 +193,14 @@ public sealed class PackageDependencyTraversalQueryTests
         Assert.Equal(2, outcome.RootReachability[1].NodeDistances[sharedNodeIndex]);
         Assert.Equal(1, acquirer.CallsFor(shared.Coordinate));
         Assert.Equal(2, acquirer.CallCount);
+        Assert.Same(
+            rootAContext,
+            Assert.IsType<PackageDependencyTraversalRootSource.RealizedPackage>(
+                outcome.Roots[0].Occurrence.Source).Context);
+        Assert.Same(
+            rootBContext,
+            Assert.IsType<PackageDependencyTraversalRootSource.RealizedPackage>(
+                outcome.Roots[1].Occurrence.Source).Context);
     }
 
     [Fact]
@@ -211,15 +225,21 @@ public sealed class PackageDependencyTraversalQueryTests
             "rootb",
             "1.0.0");
 
-        PackageDependencyTraversalRootOccurrence rootA = Root(
-            "roota",
-            "1.0.0",
-            Dependency("shared", "[1.0.0]"),
+        RealizedPackageDependencyContext rootAContext =
+            await RealizedContextAsync(
+                "roota",
+                "1.0.0",
+                Dependency("shared", "[1.0.0]"));
+        RealizedPackageDependencyContext rootBContext =
+            await RealizedContextAsync(
+                "rootb",
+                "1.0.0",
+                Dependency("bridge", "[1.0.0]"));
+        var rootA = new PackageDependencyTraversalRootOccurrence(
+            rootAContext,
             PackageDependencyTraversalExpansionAuthority.RecursiveSources);
-        PackageDependencyTraversalRootOccurrence rootB = Root(
-            "rootb",
-            "1.0.0",
-            Dependency("bridge", "[1.0.0]"),
+        var rootB = new PackageDependencyTraversalRootOccurrence(
+            rootBContext,
             PackageDependencyTraversalExpansionAuthority.RecursiveSources);
 
         var resolver = new StubCandidateResolver();
@@ -266,6 +286,14 @@ public sealed class PackageDependencyTraversalQueryTests
                 out int bridgeDistance));
         Assert.Equal(2, bridgeDistance);
         Assert.Equal(1, acquirer.CallsFor(shared.Coordinate));
+        Assert.Same(
+            rootAContext,
+            Assert.IsType<PackageDependencyTraversalRootSource.RealizedPackage>(
+                outcome.Roots[0].Occurrence.Source).Context);
+        Assert.Same(
+            rootBContext,
+            Assert.IsType<PackageDependencyTraversalRootSource.RealizedPackage>(
+                outcome.Roots[1].Occurrence.Source).Context);
     }
 
     [Fact]
