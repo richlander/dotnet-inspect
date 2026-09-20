@@ -611,7 +611,8 @@ vocabulary covers package metadata, direct dependencies, cross-prefix and
 ecosystem dependency classification, downloads, README presence, .NET tools
 and their CLI v1/v2 format, assembly references, skill packages, and nuspec
 license identity. Discover the admitted keys and values before constructing a
-query:
+query. Discovery also reports the product-owned execution class independently
+from the acquisition tier:
 
 ```bash
 dotnet-inspect package query -Q Packages
@@ -1353,14 +1354,20 @@ show `4.3.2` and `4.3.1`, respectively, the disposition is
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call
-sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete physical call sites before
+Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Use `--lines`
+for explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
+`Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
 Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category.
+does not compose with the pair-wide category. These summary, cluster, path,
+wildcard, category, and multi-section views retain rendered-line `-n` because
+their independent row schemas do not form one semantic sequence.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains

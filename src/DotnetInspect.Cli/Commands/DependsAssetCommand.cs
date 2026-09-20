@@ -149,23 +149,34 @@ public partial class DependsCommand
         var context = new CommandContext(options.Verbose);
         try
         {
-            InspectionShare? requestedShare =
+            DependsShareProjection.AssetSharePreparation? sharePreparation =
                 options.ShareFormat is null
                     ? null
-                    : await DependsShareProjection.ProjectAssetAsync(
+                    : await DependsShareProjection.PrepareAssetAsync(
                         options,
                         context.HttpClient,
                         context.Logger,
                         cancellationToken).ConfigureAwait(false);
+            CommandContext inspectionContext =
+                evidenceEnvelopeRequested
+                && sharePreparation is not null
+                    ? context.WithVerboseLogging(enabled: false)
+                    : context;
+            using IDisposable? networkTrafficLogSuppression =
+                evidenceEnvelopeRequested
+                && sharePreparation is not null
+                    ? DotnetInspector.Networking.HttpClientFactory
+                        .SuppressNetworkTrafficLogging()
+                    : null;
             DependsAssetProjection projection =
                 await AcquireAssetProjectionAsync(
                     options,
-                    context,
+                    inspectionContext,
                     plan,
                     options.Effective && options.Depth is null
                         ? 1
                         : options.Depth,
-                    requestedShare,
+                    sharePreparation,
                     pruneSource,
                     cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
@@ -206,7 +217,7 @@ public partial class DependsCommand
             Exception? evidenceSerializationError = null;
             if (evidenceEnvelopeRequested)
             {
-                if (projection.Evidence is null)
+                if (projection.Enriched is null)
                 {
                     evidenceSerializationError =
                         new InvalidOperationException(
@@ -214,13 +225,8 @@ public partial class DependsCommand
                 }
                 else
                 {
-                    var enriched = new EvidenceInspectionEnvelope<
-                        DependencyInspectionContent,
-                        DependencyInspectionEvidenceDocument>(
-                            projection.Inspection,
-                            projection.Evidence);
                     InspectionEnvelopeOutput.TrySerializeEvidence(
-                        enriched,
+                        projection.Enriched,
                         AssetDependencyJson,
                         DependencyInspectionJsonContext.Default
                             .DependencyInspectionEvidenceDocument,
@@ -261,8 +267,12 @@ public partial class DependsCommand
                 return 1;
             }
 
-            WriteAssetDiagnostics(projection);
-            int exitCode = AssetExitCode(projection);
+            int exitCode = 0;
+            if (options.ShareFormat is null)
+            {
+                WriteAssetDiagnostics(projection);
+                exitCode = AssetExitCode(projection);
+            }
             if (evidenceEnvelopeRequested)
             {
                 string evidencePath = options.EvidenceEnvelopePath!;
@@ -681,7 +691,7 @@ public partial class DependsCommand
             context,
             plan,
             traversalDepth: null,
-            share: null,
+            sharePreparation: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
             cancellationToken);
@@ -730,7 +740,7 @@ public partial class DependsCommand
             context,
             plan,
             traversalDepth: null,
-            share: null,
+            sharePreparation: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
             cancellationToken,
@@ -771,7 +781,7 @@ public partial class DependsCommand
             context,
             plan,
             traversalDepth,
-            share: null,
+            sharePreparation: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
             cancellationToken);
@@ -783,7 +793,7 @@ public partial class DependsCommand
             CommandContext context,
             DependsAssetRequestPlan plan,
             int? traversalDepth,
-            InspectionShare? share,
+            DependsShareProjection.AssetSharePreparation? sharePreparation,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
             CancellationToken cancellationToken,
             DependencyEvidenceAcquisitionBatch? suppliedAcquisition = null)
@@ -824,7 +834,11 @@ public partial class DependsCommand
                         operationContext,
                         plan.Traversal,
                         traversalDepth,
-                        cancellationToken)
+                        cancellationToken,
+                        settledPackageCoordinate:
+                            sharePreparation?.Coordinate,
+                        settledPackageAuthorization:
+                            sharePreparation?.Authorization)
                     .ConfigureAwait(false);
             evidenceRequest = acquisition.Request;
         }
@@ -1084,7 +1098,7 @@ public partial class DependsCommand
             pruning.Rows,
             pruning.Failures,
             pruning.Summary,
-            share);
+            sharePreparation?.Share);
         var builder = new EvidenceInspectionBuilder<
             DependencyInspectionContent,
             DependencyInspectionEvidenceDocument>();
@@ -1147,7 +1161,7 @@ public partial class DependsCommand
             liveFailures,
             evidence?.DependencyGroups ?? [],
             evidence?.RestoredPackages ?? [],
-            enriched?.Evidence);
+            enriched);
     }
 
     private static bool IsSelectedEvidenceFailure(

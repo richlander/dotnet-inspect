@@ -89,13 +89,29 @@ internal static class DependencyEvidenceAcquisition
             CancellationToken cancellationToken,
             IPackageSourceAuthorization? authorization = null,
             DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-            DependencyEvidenceVersionDiscovery? discoverVersions = null)
+            DependencyEvidenceVersionDiscovery? discoverVersions = null,
+            PackageSourceCoordinate? settledPackageCoordinate = null,
+            PackageSourceAuthorization? settledPackageAuthorization = null)
     {
         ArgumentNullException.ThrowIfNull(requestedRoots);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(composition);
         ArgumentNullException.ThrowIfNull(operationContext);
+        if ((settledPackageCoordinate is null)
+            != (settledPackageAuthorization is null))
+        {
+            throw new ArgumentException(
+                "A settled package coordinate and authorization must be supplied together.");
+        }
+        if (settledPackageCoordinate is not null
+            && requestedRoots.Count(static root =>
+                root.Kind == DependencyInspectionRootKind.Package) != 1)
+        {
+            throw new ArgumentException(
+                "A settled package coordinate requires exactly one package root.",
+                nameof(requestedRoots));
+        }
 
         IPackageSourceAuthorization sourceAuthorization = authorization
             ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
@@ -149,7 +165,9 @@ internal static class DependencyEvidenceAcquisition
                         roots,
                         failures,
                         cancellationToken,
-                        operationContext).ConfigureAwait(false);
+                        operationContext,
+                        settledPackageCoordinate,
+                        settledPackageAuthorization).ConfigureAwait(false);
                     break;
                 case DependencyInspectionRootKind.Nuspec:
                     await AcquireNuspecAsync(
@@ -492,7 +510,9 @@ internal static class DependencyEvidenceAcquisition
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
         CancellationToken cancellationToken,
-        NuGetOperationContext? operationContext)
+        NuGetOperationContext? operationContext,
+        PackageSourceCoordinate? settledCoordinate,
+        PackageSourceAuthorization? settledAuthorization)
     {
         InertString label = Label(package);
         if (IsLocalArchiveTarget(package))
@@ -504,6 +524,22 @@ internal static class DependencyEvidenceAcquisition
                 roots,
                 failures,
                 cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (settledCoordinate is not null)
+        {
+            await AcquireSourceManifestAsync(
+                settledCoordinate,
+                settledAuthorization!.Authorities,
+                options,
+                label,
+                getComposition(),
+                httpClient,
+                roots,
+                failures,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
             return;
         }
 
