@@ -191,13 +191,25 @@ public sealed class MethodBodyInspectionSession
         ResolvedAssemblyReference? assembly = null,
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
-    {
-        System.Threading.Interlocked.Increment(ref OpenCountForTests);
-        Analysis.LibraryBodyAnalysisRequest request =
+        => OpenWithPrefetchedImage(
+            assemblyPath,
+            image,
             Analysis.LibraryBodyAnalysisRequest.Create(
                 features,
                 bodyScope,
-                bodyTypeScope);
+                bodyTypeScope),
+            resolver,
+            assembly);
+
+    internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
+        string assemblyPath,
+        ImmutableArray<byte> image,
+        Analysis.LibraryBodyAnalysisRequest request,
+        IAssemblyReferenceResolver? resolver = null,
+        ResolvedAssemblyReference? assembly = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
             Analysis.LibraryBodyAnalysisService.ExecuteImage(
                 assemblyPath,

@@ -376,6 +376,74 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_TypeQueryFiltersOrdersAndRanksRelationshipRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "depends", "System.Int128",
+            "--where", "Kind=Interface",
+            "--order-by", "Target desc",
+            "--top", "1",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        JsonElement relationship =
+            JsonDocument.Parse(output).RootElement;
+        Assert.Equal(
+            "interface",
+            relationship.GetProperty("relationship").GetString());
+        Assert.Equal(
+            "System.Numerics.IUnaryPlusOperators<System.Int128, System.Int128>",
+            relationship.GetProperty("target").GetString());
+    }
+
+    [Fact]
+    public async Task Depends_TypeLegacyRowsRetainOrderedStagePosition()
+    {
+        var windowThenTop = await RunAppAsync(
+            "depends", "System.Int128",
+            "--where", "Kind=Interface",
+            "--order-by", "Target desc",
+            "--rows", "2..3",
+            "--top", "1",
+            "--jsonl", "--tips", "q");
+        var topThenWindow = await RunAppAsync(
+            "depends", "System.Int128",
+            "--where", "Kind=Interface",
+            "--order-by", "Target desc",
+            "--top", "1",
+            "--rows", "2..3",
+            "--jsonl", "--tips", "q");
+        var legacyTail = await RunAppAsync(
+            "depends", "System.Int128",
+            "--rows", "1", "--tail",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, windowThenTop.Exit);
+        Assert.Empty(windowThenTop.Error);
+        Assert.Single(
+            windowThenTop.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Equal(1, topThenWindow.Exit);
+        Assert.Empty(topThenWindow.Output);
+        Assert.Contains(
+            "row selection stage 2",
+            topThenWindow.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "Relationships has 1",
+            topThenWindow.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, legacyTail.Exit);
+        Assert.Empty(legacyTail.Error);
+        Assert.Single(
+            legacyTail.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
     public async Task Depends_RootOnlyTypeJsonRetainsTheSelectedType()
     {
         var (exit, output, error) = await RunAppAsync(

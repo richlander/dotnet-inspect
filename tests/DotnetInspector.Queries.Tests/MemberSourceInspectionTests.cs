@@ -31,6 +31,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Contains("public int Count { get; }", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
+        SourceHouseMemberDecompilationOutcome.Completed house =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Equal(
+            getter.MetadataToken,
+            house.Request.Target.MetadataToken);
+        Assert.Same(source.Decompilation, house.Attempt);
         Assert.Empty(envelope.Diagnostics);
     }
 
@@ -55,6 +63,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Contains($"public int Count => {expression};", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
+        SourceHouseMemberDecompilationOutcome.Completed house =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Equal(
+            getter.MetadataToken,
+            house.Request.Target.MetadataToken);
+        Assert.Same(source.Decompilation, house.Attempt);
         Assert.Empty(envelope.Diagnostics);
     }
 
@@ -122,6 +138,16 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(PdbMemberSourceOutcome.ChecksumMismatch, source.PdbAttempt.Outcome);
         Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
         Assert.IsType<SourceHouseOutcome.Failed>(available.HouseOutcome);
+        SourceHouseMemberDecompilationOutcome.Completed decompiled =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Same(source.Decompilation, decompiled.Attempt);
+        Assert.Equal(
+            embedded
+                ? SourceHousePdbContributionKind.Embedded
+                : SourceHousePdbContributionKind.SuppliedCompanion,
+            decompiled.PdbContribution.Kind);
         if (embedded)
             Assert.Empty(host.SymbolRequests);
         else
@@ -161,6 +187,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             AssemblySourceFailureKind.AuthoredMemberUnavailable,
             unavailable.Failure.Kind);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Equal(
             PdbMemberSourceOutcome.ChecksumMismatch,
             unavailable.PdbAttempt!.Outcome);
@@ -204,8 +231,11 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
         if (boundary == "assembly")
         {
-            Assert.IsType<AssemblyContextLibraryAdapterResult.Incomplete>(available.LibraryFailure);
-            Assert.Null(available.HouseOutcome);
+            Assert.Null(available.LibraryFailure);
+            Assert.Equal(
+                SourceHouseIncompleteBoundary.AssemblyBytes,
+                Assert.IsType<SourceHouseOutcome.Incomplete>(
+                    available.HouseOutcome).Boundary);
         }
         else
         {
@@ -214,6 +244,165 @@ public sealed partial class AssemblyContextSourceQueryTests
                 : SourceHouseIncompleteBoundary.SourceBytes,
                 Assert.IsType<SourceHouseOutcome.Incomplete>(available.HouseOutcome).Boundary);
         }
+        SourceHouseMemberDecompilationOutcome.Completed decompiled =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Same(
+            source.Decompilation,
+            decompiled.Attempt);
+    }
+
+    [Fact]
+    public async Task
+        MemberSourceInspection_TerminalLibraryAdmissionRetainsEvidence()
+    {
+        string path =
+            typeof(CSharpText.MemberSlicing.MemberTextSlicer)
+                .Assembly.Location;
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        TestAssembly assembly =
+            TestAssembly.CreatePackage(
+                File.ReadAllBytes(path),
+                pdbPath);
+        using var host = QueryHost.WithPdb(
+            pdbPath,
+            File.ReadAllBytes(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "LibraryAdapter",
+                    "MemberTextSlicer.cs")));
+        AssemblyContextSourceQueryContext context =
+            TerminalLibraryAdmissionContext(host);
+        AssemblyMemberSourceRequest request =
+            assembly.MemberRequest(
+                "ExtractMemberText",
+                "MemberTextSlicer");
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+            await MemberSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+                inspection.Content);
+        Assert.Equal(
+            AssemblySourceFailureKind.InspectionFailed,
+            unavailable.Failure.Kind);
+        Assert.Null(unavailable.Failure.Error);
+        Assert.Contains(
+            "terminal Library admission",
+            unavailable.Failure.Detail,
+            StringComparison.Ordinal);
+        var terminal = Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Incomplete>(
+                unavailable.LibraryFailure);
+        Assert.Equal(1, terminal.MaxCapturedImageBytes);
+        Assert.Equal(
+            PdbMemberSourceOutcome.SourceLimitExceeded,
+            unavailable.PdbAttempt!.Outcome);
+        Assert.IsType<FindingInspection<string>.Failed>(
+            unavailable.PdbAttempt.Lines.Value);
+        Assert.Null(unavailable.HouseOutcome);
+        Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
+        Assert.Empty(inspection.Diagnostics);
+
+        InspectionEnvelope<AssemblyMemberSourceEntry> authoredOnly =
+            await MemberSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request.WithoutDecompiledFallback(),
+                context,
+                TestContext.Current.CancellationToken);
+        var authoredUnavailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+                authoredOnly.Content);
+        Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Incomplete>(
+                authoredUnavailable.LibraryFailure);
+        Assert.Equal(
+            PdbMemberSourceOutcome.SourceLimitExceeded,
+            authoredUnavailable.PdbAttempt!.Outcome);
+        Assert.Null(authoredUnavailable.DecompiledAttempt);
+        Assert.Null(
+            authoredUnavailable.DecompilationHouseOutcome);
+    }
+
+    [Fact]
+    public async Task
+        MemberSourceComparison_TerminalLibraryAdmissionRetainsEvidence()
+    {
+        string path =
+            typeof(CSharpText.MemberSlicing.MemberTextSlicer)
+                .Assembly.Location;
+        string pdbPath = Path.ChangeExtension(path, ".pdb");
+        TestAssembly assembly =
+            TestAssembly.CreatePackage(
+                File.ReadAllBytes(path),
+                pdbPath);
+        using var host = QueryHost.WithPdb(
+            pdbPath,
+            File.ReadAllBytes(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "LibraryAdapter",
+                    "MemberTextSlicer.cs")));
+        AssemblyContextSourceQueryContext context =
+            TerminalLibraryAdmissionContext(host);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyMemberSourceComparisonEntry>
+            inspection =
+                await MemberSourceInspection.CompareAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        "ExtractMemberText",
+                        "MemberTextSlicer"),
+                    context,
+                    TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Failed>(
+                    inspection.Content);
+        Assert.Equal(
+            AssemblySourceFailureKind.InspectionFailed,
+            failed.Failure.Kind);
+        Assert.Null(failed.Failure.Error);
+        Assert.Contains(
+            "terminal Library admission",
+            failed.Failure.Detail,
+            StringComparison.Ordinal);
+        var pdbAttempt =
+            Assert.IsType<
+                AssemblyMemberPdbSourceAttempt.Unavailable>(
+                    failed.PdbAttempt);
+        var terminal = Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Incomplete>(
+                pdbAttempt.LibraryFailure);
+        Assert.Equal(1, terminal.MaxCapturedImageBytes);
+        Assert.Equal(
+            PdbMemberSourceOutcome.SourceLimitExceeded,
+            pdbAttempt.Inspection.Outcome);
+        Assert.IsType<FindingInspection<string>.Failed>(
+            pdbAttempt.Inspection.Lines.Value);
+        Assert.Null(pdbAttempt.HouseOutcome);
+        Assert.Empty(inspection.Diagnostics);
     }
 
     [Theory]
@@ -269,6 +458,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         var available = Assert.IsType<AssemblyMemberSourceComparisonEntry.Available>(inspection.Content);
         var decompiled = Assert.IsType<AssemblyMemberDecompiledSourceAttempt.Available>(available.Decompiled);
         Assert.True(decompiled.Result.PdbSupplied);
+        SourceHouseMemberDecompilationOutcome.Completed decompiledHouse =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                decompiled.HouseOutcome);
+        Assert.Same(decompiled.Result, decompiledHouse.Attempt);
+        Assert.Equal(
+            SourceHousePdbContributionKind.SuppliedCompanion,
+            decompiledHouse.PdbContribution.Kind);
         if (failSource)
         {
             var pdb = Assert.IsType<AssemblyMemberPdbSourceAttempt.Unavailable>(available.Pdb);
@@ -286,5 +483,36 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal("member-source-comparison/share",
             Assert.IsType<InspectionShare.NonProjectable>(inspection.Share).Path);
         Assert.Empty(inspection.Diagnostics);
+    }
+
+    private static AssemblyContextSourceQueryContext
+        TerminalLibraryAdmissionContext(QueryHost host)
+    {
+        SourceHouseLimits authored =
+            host.Context.MemberSourceLimits;
+        SourceHouseMemberDecompilationLimits decompiled =
+            host.Context.MemberDecompilationLimits;
+        return new(
+            host.Context.SymbolClient,
+            host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization,
+            host.Context.SourceFetch)
+        {
+            MemberSourceLimits = new(
+                maximumAssemblyBytes: 1,
+                maximumPortablePdbBytes: 1,
+                authored.TargetBounds,
+                authored.SourceLinkReadLimits,
+                authored.MaximumDocuments,
+                authored.MaximumTargetMappings,
+                authored.MaximumCandidateAttempts,
+                authored.MaximumSourceBytes,
+                authored.MaximumSourceTextCharacters),
+            MemberDecompilationLimits = new(
+                maximumAssemblyBytes: 1,
+                maximumPortablePdbBytes: 1,
+                decompiled.TargetBounds,
+                decompiled.EmbeddedPdbReadLimits),
+        };
     }
 }

@@ -85,13 +85,7 @@ public sealed class ResourceOccurrenceAnalysisTests
                     ResourceOccurrenceOperationKind.Release));
         Assert.True(method.IsComplete);
         Assert.Empty(method.Limitations);
-        Assert.Contains(
-            execution.ResourceOccurrences.Limitations,
-            limitation =>
-                limitation.Method is null
-                && limitation.EffectResolutionGap
-                    == ResourceEffectResolutionGapKind
-                        .InterfaceApplicationIncomplete);
+        Assert.Empty(execution.ResourceOccurrences.Limitations);
     }
 
     [Fact]

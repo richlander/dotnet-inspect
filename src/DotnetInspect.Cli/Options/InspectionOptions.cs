@@ -32,6 +32,12 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string? Tfm { get; init; }
 
+    public DependencyQueryPlan? DependencyQueryPlan { get; init; }
+
+    internal int? DependencyHierarchyLegacyWindowStageIndex { get; init; }
+
+    internal bool DependencyHierarchyRowsSelected { get; init; }
+
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
     /// </summary>
@@ -198,6 +204,12 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one package's target-framework listing.
     /// </summary>
     public RowSelectionIntent<string>? PackageTfmRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one Package's ecosystem-dependency pairs.
+    /// </summary>
+    public RowSelectionIntent<string>?
+        EcosystemDependencyRowSelection { get; init; }
 
     /// <summary>
     /// Semantic row selection for Clone Candidates on a delegated Library route.
