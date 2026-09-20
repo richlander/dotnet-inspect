@@ -32,6 +32,8 @@ NoDefinition == 0
 MaxIntent == 4
 
 VARIABLES
+    coordinatorLifecycle,
+    coordinatorCloseTargets,
     coordinatorPhase,
     coordinatorActive,
     coordinatorCandidate,
@@ -62,6 +64,8 @@ VARIABLES
 Coordinator ==
     INSTANCE WorkspaceRealizationCutover WITH
         Fault <- CoordinatorFault,
+        coordinatorState <- coordinatorLifecycle,
+        closeTargets <- coordinatorCloseTargets,
         phase <- coordinatorPhase,
         active <- coordinatorActive,
         candidate <- coordinatorCandidate,
@@ -85,6 +89,8 @@ ConstructionOperations == Coordinator!ConstructionOperations
 NoRealization == Coordinator!NoRealization
 
 coordinatorVars == <<
+    coordinatorLifecycle,
+    coordinatorCloseTargets,
     coordinatorPhase,
     coordinatorActive,
     coordinatorCandidate,
@@ -117,6 +123,8 @@ browserVars == <<
 >>
 
 vars == <<
+    coordinatorLifecycle,
+    coordinatorCloseTargets,
     coordinatorPhase,
     coordinatorActive,
     coordinatorCandidate,
