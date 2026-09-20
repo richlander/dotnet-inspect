@@ -1489,6 +1489,13 @@ public static class IrImporter
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
 
+                    if (source.CrossAssembly.ExtensionArgumentsInferRecordedTypeArguments(
+                        callee,
+                        arguments))
+                    {
+                        callee = callee with { CanOmitTypeArguments = true };
+                    }
+
                     var call = new Call(
                         callee,
                         opcode == ILOpCode.Callvirt,
@@ -2547,6 +2554,15 @@ public static class IrImporter
                 bool requiresUnsafe =
                     requiresUnsafeContract.IsExplicit;
                 string methodName = reader.GetString(method.Name);
+                bool isExtension =
+                    MethodDefinitionFacts.HasExtensionAttribute(reader, method);
+                TypeArgumentElisionOverloadResult overloadFacts =
+                    isExtension && method.GetGenericParameters().Count > 0
+                        ? MethodDefinitionFacts.TypeArgumentElisionOverloads(
+                            reader,
+                            declaringType,
+                            (MethodDefinitionHandle)handle)
+                        : new(MetadataFactState.Unknown, []);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
@@ -2576,7 +2592,10 @@ public static class IrImporter
                     DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
                         ? FactState(IsDelegateType(reader, declaringType))
                         : MetadataFactState.Unknown,
-                    IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    IsExtension = FactState(isExtension),
+                    TypeArgumentElisionOverloadSafety = overloadFacts.State,
+                    TypeArgumentElisionSiblingParameters =
+                        overloadFacts.SameReceiverSiblingParameters,
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
                     IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),
