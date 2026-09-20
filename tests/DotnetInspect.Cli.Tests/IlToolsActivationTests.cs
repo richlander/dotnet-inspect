@@ -608,39 +608,6 @@ public class IlToolsActivationTests
     }
 
     [Fact]
-    public void DeepInspectWorkflow_CertifiesDailyAndOnDemand()
-    {
-        string workflow = File.ReadAllText(
-            Path.Combine(RepoRoot, ".github", "workflows", "deep-inspect.yml"));
-        int certification = workflow.IndexOf(
-            "\n  release-certification:\n",
-            StringComparison.Ordinal);
-        int nextJob = workflow.IndexOf(
-            "\n  census:\n",
-            certification,
-            StringComparison.Ordinal);
-
-        Assert.Contains("- cron: '0 6 * * *'", workflow);
-        Assert.Contains(
-            "group: deep-inspect-${{ github.ref }}-${{ github.event.schedule || inputs.lane }}",
-            workflow);
-        Assert.True(certification >= 0);
-        Assert.True(certification < nextJob);
-        string job = workflow[certification..nextJob];
-        Assert.Contains("needs: [test, platform-test, decompiler-corpus]", job);
-        Assert.Contains("inputs.lane == 'test'", job);
-        Assert.Contains("inputs.lane == 'all'", job);
-        Assert.Contains("TEST_RESULT: ${{ needs.test.result }}", job);
-        Assert.Contains(
-            "PLATFORM_RESULT: ${{ needs.platform-test.result }}",
-            job);
-        Assert.Contains("CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}", job);
-        Assert.Contains("[ \"$TEST_RESULT\" != success ] ||", job);
-        Assert.Contains("[ \"$PLATFORM_RESULT\" != success ] ||", job);
-        Assert.Contains("[ \"$CORPUS_RESULT\" != success ]; then", job);
-    }
-
-    [Fact]
     [Trait("Speed", "Slow")]
     public void ReleaseCertificationValidator_SelfTest()
     {

@@ -94,6 +94,9 @@ public sealed class CliRowSelectionLoweringTests
             ],
             ordered.SemanticIntent.Operations.Select(
                 operation => operation.Kind));
+        Assert.Equal(
+            [2, 5, 8],
+            ordered.SemanticOperationPositions);
 
         CliRowSelectionLowering<string> ranked =
             Success(
@@ -178,6 +181,9 @@ public sealed class CliRowSelectionLoweringTests
         Assert.Equal(
             RowSelectionStageKind.Window,
             survivingWindow.Kind);
+        Assert.Equal(
+            [0],
+            windowAndLines.SemanticOperationPositions);
         Assert.Equal(3, survivingWindow.Start);
         Assert.Equal(6, survivingWindow.End);
         Assert.NotNull(windowAndLines.LineIntent);

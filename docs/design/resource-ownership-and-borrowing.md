@@ -1073,7 +1073,9 @@ end-to-end tracker. Its current total is 26 steps:
    `LibraryBodyAnalysisService` without changing existing ArrayPool semantics
    under #6730;
 8. adopt occurrence evidence in generic lifecycle Analysis and Resource Triage
-   under #6731 while retaining the legacy ArrayPool path as the final oracle;
+   under #6731 through the focused
+   [Resource Lifecycle Analysis](resource-lifecycle-analysis.md) contract while
+   retaining the legacy ArrayPool path as the final oracle;
 9. adopt a focused generic summary in Research under #6732, then complete the
    separately reviewed lifecycle and Research ArrayPool fidelity cutovers and
    retire their legacy semantic paths;

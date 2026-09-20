@@ -403,7 +403,9 @@ internal static class ResourceOccurrenceAnalysisService
                 ImmutableArray<ResourceRootKey> affectedRoots =
                     effect.Effect is ResourceEffect.Acquire
                         ? AcquisitionRoots(effect)
-                        : AffectedRoots(effect, roots);
+                        : effect.Effect is ResourceEffect.Operation
+                            ? BoundaryRoots(call, roots)
+                            : AffectedRoots(effect, roots);
                 if (source is not null
                     && ValueAt(
                         call,
@@ -642,9 +644,7 @@ internal static class ResourceOccurrenceAnalysisService
                 roots,
                 limitations);
         }
-        foreach (ResourceRootKey rootKey in values
-            .SelectMany(value => MatchingRoots(value, roots))
-            .Distinct())
+        foreach (ResourceRootKey rootKey in BoundaryRoots(call, roots))
         {
             if (!roots.TryGetValue(rootKey, out ResourceOccurrenceRoot? root))
                 continue;
@@ -658,6 +658,20 @@ internal static class ResourceOccurrenceAnalysisService
                 ResourceOccurrenceOperationKind.DirectCallBoundary);
         }
     }
+
+    static ImmutableArray<ResourceRootKey> BoundaryRoots(
+        DirectCall call,
+        Dictionary<ResourceRootKey, ResourceOccurrenceRoot> roots) =>
+        [
+            .. call.ResolvedArgumentValues
+                .Concat(
+                    call.ResolvedReceiverValue is { } receiver
+                        ? [receiver]
+                        : Enumerable.Empty<ResolvedValueSet>())
+                .SelectMany(value => MatchingRoots(value, roots))
+                .Distinct()
+                .Order(),
+        ];
 
     static void AddUnresolvedValueLimitation(
         MethodIdentity method,

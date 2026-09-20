@@ -144,7 +144,7 @@ stderr rather than mixed into structured output.
 
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
-| Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
+| Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, recognized ecosystem dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
@@ -1221,10 +1221,19 @@ inspect each side on its own.
 ```bash
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
   -S Dependencies
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Package Info"
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Ecosystem Dependencies" \
+  --columns "Ecosystem,Kind,Dependency,Declared By"
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
-  -S "Dependency Hierarchy" --tree
+  -S "Dependency Hierarchy" --depth 2 --tree
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends Int128 \
+  --where "Kind=Interface" \
+  --order-by "Target desc" \
+  --top 5 --table
 dotnet-inspect depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -1297,7 +1306,12 @@ remains the direct declaration evidence section and does not acquire transitive
 packages. The removed package `--dependencies` spelling reports replacement
 guidance rather than acting as a second hierarchy selector.
 Positional `depends <type>` retains its existing `Dependency Graph` section
-until Type relationships move to the general Graph operation.
+until Type relationships move to the general Graph operation. That route now
+projects its existing Source, Target, and Kind predicates plus field and
+Traversal ordering through `-Q "Dependency Graph"`. `--top` requires a Source,
+Target, or Kind field order; Traversal is a sequence order. Asset-mode
+`Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
+`--depth` capability from the Dependency operation.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

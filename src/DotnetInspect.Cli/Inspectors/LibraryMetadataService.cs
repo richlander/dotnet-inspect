@@ -65,14 +65,27 @@ internal static class LibraryMetadataService
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures =
                 SelectBodyAnalysisFeatures(requiredQueries);
+            bool needsResourceLifecycle =
+                requiredQueries?.Contains(
+                    ResourceTriageQuery.Definition) == true;
+            Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
+                needsResourceLifecycle
+                    ? Analysis.LibraryBodyAnalysisRequest
+                        .CreateResourceLifecycle(
+                            Analysis.ArrayPoolResourceEffectModel.Create(),
+                            bodyAnalysisFeatures)
+                    : Analysis.LibraryBodyAnalysisRequest.Create(
+                        bodyAnalysisFeatures);
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
-                    != Analysis.LibraryBodyAnalysisFeatures.None;
+                    != Analysis.LibraryBodyAnalysisFeatures.None
+                || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
-                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true;
+                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true
+                || needsResourceLifecycle;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
@@ -305,6 +318,7 @@ internal static class LibraryMetadataService
                     SourceLinkContext = sourceLinkQueryContext,
                     MetadataRoot = options.MetadataRoot,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
+                    BodyAnalysisRequest = bodyAnalysisRequest,
                     Trace = trace,
                 };
 
@@ -525,8 +539,6 @@ internal static class LibraryMetadataService
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (queries?.Contains(ResourceTriageQuery.Definition) == true)
-            features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
         if (queries?.Contains(BodyShapesQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;

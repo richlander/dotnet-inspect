@@ -15,9 +15,9 @@ using ILInspector.SourceLink;
 namespace DotnetInspector.SourceHouse;
 
 /// <summary>
-/// Settles checksum-verified authored source for one exact Library target.
+/// Settles source evidence for one exact Library target.
 /// </summary>
-public static class SourceHouse
+public static partial class SourceHouse
 {
     public static async ValueTask<SourceHouseOutcome> ExecuteAuthoredAsync(
         SourceHouseAuthoredRequest request,
@@ -444,33 +444,18 @@ public static class SourceHouse
 
         if (!TargetExists(surface, request.Target))
         {
-            if (FindPotentialTargetInspectionFailure(
+            if (CreateTargetInspectionFailure(
                     surface,
                     request.Target)
                 is { } targetFailure)
             {
-                string detail =
-                    "The API surface could not establish exact target "
-                    + $"absence because '{targetFailure.Operation}' failed "
-                    + $"for metadata subject 0x{targetFailure.SubjectToken:X8} "
-                    + $"({targetFailure.Kind}): {targetFailure.Detail}";
                 return PreparedAuthoredSource.TerminalOutcome(
                     Failed(
-                        SourceHouseFailureStage.AssemblyInspection,
-                        "TargetInspectionFailed",
-                        new SourceHousePdbContribution(
-                            SourceHousePdbContributionKind.Failed,
-                            content: null,
-                            bytesObserved: 0,
-                            sourceLinkMap: null,
-                            observations:
-                            [
-                                new(
-                                    SourceHouseNativeObservationStage.Assembly,
-                                    detail),
-                            ]),
+                        targetFailure.Failure.Stage,
+                        targetFailure.Failure.Code,
+                        targetFailure.PdbContribution,
                         work,
-                        detail: detail));
+                        detail: targetFailure.Failure.Detail));
             }
 
             return PreparedAuthoredSource.TerminalOutcome(
@@ -2066,16 +2051,63 @@ public static class SourceHouse
         if (target is not SourceHouseTarget.MemberTarget memberTarget)
             return true;
 
+        return ResolveMemberTarget(surface, memberTarget) is not null;
+    }
+
+    private static (
+        ApiType Type,
+        ApiMember Member,
+        bool RequiresAccessorProjection)?
+        ResolveMemberTarget(
+            ApiSurface surface,
+            SourceHouseTarget.MemberTarget target)
+    {
+        ApiType[] types =
+        [
+            .. surface.Types.Where(
+                candidate =>
+                    candidate.DefinitionName == target.Type),
+        ];
+        if (types.Length != 1)
+            return null;
+
         ApiType type = types[0];
         // An explicit accessor can appear as both a physical method and an
         // accessor projection; the same token and anchor still name one target.
-        return type.Members.Concat(
-                type.Members.SelectMany(
-                    owner => ApiMemberAccessors.Create(owner, type)))
-            .Any(candidate => candidate.MetadataToken
-                    == memberTarget.MetadataToken
-                && ApiMemberIdentity.GetMemberAnchor(type, candidate)
-                    == memberTarget.Member);
+        ApiMember[] direct =
+        [
+            .. type.Members.Where(
+                candidate =>
+                    candidate.MetadataToken
+                        == target.MetadataToken
+                    && ApiMemberIdentity.GetMemberAnchor(
+                        type,
+                        candidate)
+                        == target.Member),
+        ];
+        if (direct.Length == 1)
+            return (type, direct[0], false);
+        if (direct.Length > 1)
+            return null;
+
+        ApiMember[] accessors =
+        [
+            .. type.Members
+                .SelectMany(
+                    owner => ApiMemberAccessors.Create(owner, type))
+                .Where(
+                    candidate =>
+                        candidate.MetadataToken
+                            == target.MetadataToken
+                        && ApiMemberIdentity.GetMemberAnchor(
+                            type,
+                            candidate)
+                            == target.Member),
+        ];
+        if (accessors.Length != 1)
+            return null;
+
+        return (type, accessors[0], true);
     }
 
     private static bool RequiresCompilerGeneratedSurface(
@@ -2101,6 +2133,42 @@ public static class SourceHouse
                 && ((target.Kind == SourceHouseTargetKind.Member
                         && failure.OwningTypeDefinition is not null)
                     || MayAffectTargetType(failure, target.Type)));
+
+    private static (
+        SourceHouseFailure Failure,
+        SourceHousePdbContribution PdbContribution)?
+        CreateTargetInspectionFailure(
+            ApiSurface surface,
+            SourceHouseTarget target)
+    {
+        if (FindPotentialTargetInspectionFailure(surface, target)
+            is not { } targetFailure)
+        {
+            return null;
+        }
+
+        string detail =
+            "The API surface could not establish exact target "
+            + $"absence because '{targetFailure.Operation}' failed "
+            + $"for metadata subject 0x{targetFailure.SubjectToken:X8} "
+            + $"({targetFailure.Kind}): {targetFailure.Detail}";
+        return (
+            new(
+                SourceHouseFailureStage.AssemblyInspection,
+                "TargetInspectionFailed",
+                detail),
+            new(
+                SourceHousePdbContributionKind.Failed,
+                content: null,
+                bytesObserved: 0,
+                sourceLinkMap: null,
+                observations:
+                [
+                    new(
+                        SourceHouseNativeObservationStage.Assembly,
+                        detail),
+                ]));
+    }
 
     private static bool MayAffectTargetType(
         ApiSurfaceInspectionFailure failure,
