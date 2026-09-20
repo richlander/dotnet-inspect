@@ -33,7 +33,7 @@ public static partial class AssemblyContextSourceQuery
         TimeSpan timeout,
         CancellationToken cancellationToken,
         bool retainLibrary = false,
-        SourceHouseMemberDecompilationLimits?
+        SourceHouseDecompilationLimits?
             retainedOperationLimits = null)
     {
         var findingSubject = new FindingSubject(
@@ -46,7 +46,6 @@ public static partial class AssemblyContextSourceQuery
                     ? SourceHouseMemberSourceForm.DocumentParts
                     : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
-            retainSymbols: false,
             retainLibrary,
             retainedOperationLimits)
             .ConfigureAwait(false);
@@ -82,8 +81,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyBindingPolicyVersion version,
         SourceHouseLimits limits,
         TimeSpan timeout,
-        CancellationToken cancellationToken,
-        bool retainSymbols = false)
+        CancellationToken cancellationToken)
     {
         var findingSubject = new FindingSubject(
             "type", request.Type.ToMetadataFullName());
@@ -91,33 +89,53 @@ public static partial class AssemblyContextSourceQuery
             group, participant, context, retained, version,
             new SourceHouseTarget.TypeTarget(request.Type, request.OriginalDocumentPath),
             operationName: "type-source", limits, timeout, cancellationToken,
-            retainSymbols, retainLibrary: false,
-            retainedOperationLimits: null).ConfigureAwait(false);
-        PdbTypeSourceInspection inspection = authored switch
+            retainLibrary: request.OriginalDocumentPath is null,
+            retainedOperationLimits: request.OriginalDocumentPath is null
+                ? context.TypeDecompilationLimits
+                : null).ConfigureAwait(false);
+        try
         {
-            { AcquisitionFailure: { } failure } =>
-                PdbSourceHouse.TypePdbAcquisitionFailed(findingSubject, failure),
-            { LibraryFailure: { } terminal } =>
-                UnsuccessfulTypeInspection(
-                    findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
-                        ? PdbTypeSourceOutcome.SourceLimitExceeded
-                        : PdbTypeSourceOutcome.InspectionFailed,
-                    AdmissionDetail(terminal), failed: true),
-            { HouseOutcome: { } outcome } => ProjectTypeAuthored(outcome, findingSubject),
-            _ => throw new InvalidOperationException("Authored source inspection did not settle."),
-        };
-        if (inspection.IsComplete
-            && authored.Provenance is null
-            && authored.ProvenanceFailure is { } provenanceFailure)
-        {
-            throw provenanceFailure;
+            PdbTypeSourceInspection inspection = authored switch
+            {
+                { AcquisitionFailure: { } failure } =>
+                    PdbSourceHouse.TypePdbAcquisitionFailed(findingSubject, failure),
+                { LibraryFailure: { } terminal } =>
+                    UnsuccessfulTypeInspection(
+                        findingSubject, terminal is AssemblyContextLibraryAdapterResult.Incomplete
+                            ? PdbTypeSourceOutcome.SourceLimitExceeded
+                            : PdbTypeSourceOutcome.InspectionFailed,
+                        AdmissionDetail(terminal), failed: true),
+                { HouseOutcome: { } outcome } =>
+                    ProjectTypeAuthored(outcome, findingSubject),
+                _ => throw new InvalidOperationException(
+                    "Authored source inspection did not settle."),
+            };
+            if (inspection.IsComplete
+                && authored.Provenance is null
+                && authored.ProvenanceFailure is { } provenanceFailure)
+            {
+                throw provenanceFailure;
+            }
+            return new(
+                inspection,
+                inspection.IsComplete ? authored.Provenance : null)
+            {
+                HouseOutcome = authored.HouseOutcome,
+                LibraryFailure = authored.LibraryFailure,
+                RetainedLibrary = authored.RetainedLibrary,
+            };
         }
-        return new(inspection, inspection.IsComplete ? authored.Provenance : null,
-            authored.PdbImage)
+        catch (Exception failure)
         {
-            HouseOutcome = authored.HouseOutcome,
-            LibraryFailure = authored.LibraryFailure,
-        };
+            if (authored.RetainedLibrary is { } completed)
+            {
+                await RetireSourceHouseLibraryAsync(
+                        completed,
+                        failure)
+                    .ConfigureAwait(false);
+            }
+            throw;
+        }
     }
 
     static async Task<AuthoredPdbInspection> InspectAuthoredPdbAsync(
@@ -131,9 +149,8 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainSymbols,
         bool retainLibrary,
-        SourceHouseMemberDecompilationLimits?
+        SourceHouseDecompilationLimits?
             retainedOperationLimits)
     {
         var opened = await OpenSourceLinkAsync(
@@ -165,7 +182,7 @@ public static partial class AssemblyContextSourceQuery
                     // InspectTypePdbAsync rethrows this failure if authored source succeeds.
                     provenanceFailure = failure;
                 }
-                if (retainSymbols || !source.Context.HasEmbeddedPdb)
+                if (!source.Context.HasEmbeddedPdb)
                     pdbImage = source.Context.GetPortablePdbImage();
                 if (!source.Context.HasEmbeddedPdb
                     && pdbImage is { } image)
@@ -241,7 +258,6 @@ public static partial class AssemblyContextSourceQuery
             EnsureBindingPolicyVersion(participant, version);
             return new(
                 Provenance: provenance,
-                PdbImage: retainSymbols ? pdbImage : null,
                 AcquisitionFailure: acquisitionFailure,
                 ProvenanceFailure: provenanceFailure)
             {
@@ -309,7 +325,6 @@ public static partial class AssemblyContextSourceQuery
         }
         return new(
             Provenance: provenance,
-            PdbImage: retainSymbols ? pdbImage : null,
             AcquisitionFailure: acquisitionFailure,
             ProvenanceFailure: provenanceFailure)
         {
@@ -725,7 +740,6 @@ public static partial class AssemblyContextSourceQuery
 
     sealed record AuthoredPdbInspection(
         AssemblyPdbSourceProvenance? Provenance = null,
-        ImmutableArray<byte>? PdbImage = null,
         Exception? AcquisitionFailure = null,
         Exception? ProvenanceFailure = null)
     {
