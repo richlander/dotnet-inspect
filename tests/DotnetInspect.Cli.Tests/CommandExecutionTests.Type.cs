@@ -3576,6 +3576,150 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Type_DecompiledSource_RequiresCompletedSharedInspection()
+    {
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(
+                TestAssemblyPath)!;
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.FullName
+                    == typeof(MemberCallsFixture).FullName);
+        var options =
+            new TypeOptions
+            {
+                DllPath = TestAssemblyPath,
+                IncludeSections =
+                    [SectionNames.DecompiledSource],
+                Select =
+                    [SectionNames.DecompiledSource],
+                DocsExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            };
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("DEC0001", error);
+        Assert.Contains(
+            "completed type decompilation inspection is unavailable",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_EmptyType_RemainsAbsent()
+    {
+        var (exit, output, error) =
+            await RunAppAsync(
+                "type",
+                typeof(IEmptyStyleFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            typeof(IEmptyStyleFixture).FullName!,
+            output);
+        Assert.DoesNotContain(
+            "public interface IEmptyStyleFixture",
+            output);
+        Assert.Contains(
+            "section 'Decompiled Source' has no data",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Error:",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_DefaultAndAllPreserveDistinctMetadataSurfaces()
+    {
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                typeof(TypeDecompilationSurfaceFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--bare",
+                "--tips",
+                "q");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                typeof(TypeDecompilationSurfaceFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--bare",
+                "--all",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Empty(defaultError);
+        Assert.Contains(
+            "public abstract string ConvertName(string name);",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static int Visible { get; }",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "protected TypeDecompilationSurfaceFixture()",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "static TypeDecompilationSurfaceFixture()",
+            defaultOutput,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.Contains(
+            "public abstract string ConvertName(string name);",
+            allOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static int Visible { get; }",
+            allOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "protected TypeDecompilationSurfaceFixture()",
+            allOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "static TypeDecompilationSurfaceFixture()",
+            allOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Type_GenericInstantiation_PreservesNestedTypeSuffix()
     {
         // #1154: an instantiated nested type (Dictionary`2.Enumerator) must keep
@@ -3718,6 +3862,22 @@ public partial class CommandExecutionTests
                 "DOTNET_INSPECT_FORMAT",
                 originalFormat);
         }
+    }
+
+    public abstract class TypeDecompilationSurfaceFixture
+    {
+        static TypeDecompilationSurfaceFixture()
+        {
+            Visible = 42;
+        }
+
+        protected TypeDecompilationSurfaceFixture()
+        {
+        }
+
+        public abstract string ConvertName(string name);
+
+        public static int Visible { get; }
     }
 
     [Fact]

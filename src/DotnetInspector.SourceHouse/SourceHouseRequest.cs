@@ -71,6 +71,35 @@ public enum SourceHouseMemberSourceForm
     DocumentParts,
 }
 
+/// <summary>
+/// Metadata-issued type surface that constrains whole-type decompilation.
+/// SourceHouse resolves the exact target independently, then composes only
+/// the members retained by this surface.
+/// </summary>
+public sealed class SourceHouseTypeDecompilationSurface
+{
+    public SourceHouseTypeDecompilationSurface(
+        MetadataTypeDefinitionName type,
+        ApiType surface)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(surface);
+        if (surface.DefinitionName is { } surfaceType
+            && !type.Equals(surfaceType))
+        {
+            throw new ArgumentException(
+                "The metadata surface must identify the projected type.",
+                nameof(surface));
+        }
+
+        Type = type;
+        Members = [.. surface.Members];
+    }
+
+    public MetadataTypeDefinitionName Type { get; }
+    public ImmutableArray<ApiMember> Members { get; }
+}
+
 public abstract class SourceHouseTarget
 {
     private protected SourceHouseTarget(
@@ -92,16 +121,42 @@ public abstract class SourceHouseTarget
     {
         public TypeTarget(
             MetadataTypeDefinitionName type,
-            string? originalDocumentPath = null)
+            string? originalDocumentPath = null,
+            SourceHouseTypeDecompilationSurface? decompilationSurface = null)
             : base(SourceHouseTargetKind.Type, type)
         {
             if (originalDocumentPath is not null)
                 ArgumentException.ThrowIfNullOrWhiteSpace(originalDocumentPath);
+            if (originalDocumentPath is not null
+                && decompilationSurface is not null)
+            {
+                throw new ArgumentException(
+                    "An authored document selection cannot also select a decompilation surface.",
+                    nameof(decompilationSurface));
+            }
+            if (decompilationSurface is not null
+                && !type.Equals(decompilationSurface.Type))
+            {
+                throw new ArgumentException(
+                    "The decompilation surface must identify the exact target type.",
+                    nameof(decompilationSurface));
+            }
+
             OriginalDocumentPath = originalDocumentPath;
+            DecompilationSurface = decompilationSurface;
         }
 
         /// <summary>Exact original PDB path, or null to select the primary document.</summary>
         public string? OriginalDocumentPath { get; }
+
+        /// <summary>
+        /// Optional metadata-issued member surface for whole-type decompilation.
+        /// Null selects the complete exact type.
+        /// </summary>
+        public SourceHouseTypeDecompilationSurface? DecompilationSurface
+        {
+            get;
+        }
     }
 
     public sealed class MemberTarget : SourceHouseTarget

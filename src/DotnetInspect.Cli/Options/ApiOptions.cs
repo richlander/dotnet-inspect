@@ -319,6 +319,12 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
+    public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
+        TypeDecompilationInspection
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).

@@ -51,6 +51,9 @@ public sealed partial class AssemblyContextSourceQueryTests
                     ["Widget"]))
                 .Name,
             request.Type);
+        Assert.NotNull(request.DecompilationSurface);
+        Assert.Empty(
+            request.DecompilationSurface.Members);
         Assert.Throws<ArgumentException>(
             () => AssemblyTypeSourceRequest.From(ambiguous));
     }
