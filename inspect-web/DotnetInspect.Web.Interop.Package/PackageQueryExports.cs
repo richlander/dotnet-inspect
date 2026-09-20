@@ -45,6 +45,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
+                            BrowserExecutionClass(
+                                term.Descriptor.ExecutionClass),
                             term.Descriptor.SelectionGroupId,
                             term.Descriptor.CombinesWithinSelectionGroup,
                             term.Descriptor.ReplacementGroupId,
@@ -75,6 +77,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
+                            BrowserExecutionClass(
+                                term.Descriptor.ExecutionClass),
                             [
                                 .. term.Operators.Select(
                                     PortableQueryModel.TextOf),
@@ -90,6 +94,27 @@ namespace DotnetInspect.Web.Interop.Package
                 : throw new InvalidOperationException(
                     $"Package Query control '{term.Descriptor.Key}' requires "
                     + "exactly one registered operator.");
+
+        private static BrowserPackageQueryExecutionClass
+            BrowserExecutionClass(
+                PackageQueryExecutionClass executionClass) =>
+            executionClass switch
+            {
+                PackageQueryExecutionClass.SearchMetadata =>
+                    BrowserPackageQueryExecutionClass.SearchMetadata,
+                PackageQueryExecutionClass.Nuspec =>
+                    BrowserPackageQueryExecutionClass.Nuspec,
+                PackageQueryExecutionClass.NuspecExpensive =>
+                    BrowserPackageQueryExecutionClass.NuspecExpensive,
+                PackageQueryExecutionClass.PackageContent =>
+                    BrowserPackageQueryExecutionClass.PackageContent,
+                PackageQueryExecutionClass.Metadata =>
+                    BrowserPackageQueryExecutionClass.Metadata,
+                PackageQueryExecutionClass.MetadataExpensive =>
+                    BrowserPackageQueryExecutionClass.MetadataExpensive,
+                _ => throw new InvalidOperationException(
+                    "Unknown package-query execution class."),
+            };
 
         internal static PackageQueryPlanResult Plan(
             string text,
