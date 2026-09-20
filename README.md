@@ -596,7 +596,8 @@ vocabulary covers package metadata, direct dependencies, cross-prefix and
 ecosystem dependency classification, downloads, README presence, .NET tools
 and their CLI v1/v2 format, assembly references, skill packages, and nuspec
 license identity. Discover the admitted keys and values before constructing a
-query:
+query. Discovery also reports the product-owned execution class independently
+from the acquisition tier:
 
 ```bash
 dotnet-inspect package query -Q Packages
