@@ -91,13 +91,13 @@ Two bindings in one scope, an enclosing reservation, or a flattened
 local-function declaration still collide and lower fidelity when the exact
 local cannot be emitted. Structured statement ranges may retain an explicit
 block when needed to preserve disjoint names; retaining that block must not
-strand another binder's uses or change control flow. Crossing candidates that
-can form nested lexical scopes are retained from the later declaration inward
-so an already completed inner scope remains one statement for its enclosing
-candidate. A `RetainsPdbLocalScope` label anchor remains valid entry evidence
-when generated lexical wrappers leave it immediately before the declaration
-path or nest it inside the allowed statement range; the shared control-flow
-proof must still reject every unaccounted external entry.
+strand another binder's uses or change control flow. Crossing candidates issued by the same Portable PDB `LocalScope` row are
+retained from the later declaration inward so an already completed inner scope
+remains one statement for its enclosing candidate. A
+`RetainsPdbLocalScope` label anchor remains valid entry evidence when generated
+lexical wrappers leave it immediately before the declaration path or nest it
+inside the allowed statement range; the shared control-flow proof must still
+reject every unaccounted external entry.
 
 A PDB local's identity includes its source method, local-variable row, physical
 IL slot, and half-open scope range. Import must not replace two such identities

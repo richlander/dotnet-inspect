@@ -31,8 +31,21 @@ public sealed class PdbLocalScopePass : IIrPass
                     .Select(reference => nodeOrder[reference])
                     .DefaultIfEmpty(-1)
                     .Min())))
-            .OrderByDescending(candidate => candidate.Order)
             .ToArray();
+        foreach (var scopeGroup in candidates
+            .Select((candidate, position) => (candidate, position))
+            .Where(item => ScopeRow(item.candidate.Index) > 0)
+            .GroupBy(item => ScopeRow(item.candidate.Index))
+            .Where(group => group.Skip(1).Any()))
+        {
+            int[] positions = [.. scopeGroup.Select(item => item.position)];
+            var insideOut = scopeGroup
+                .Select(item => item.candidate)
+                .OrderByDescending(candidate => candidate.Order)
+                .ToArray();
+            for (int position = 0; position < positions.Length; position++)
+                candidates[positions[position]] = insideOut[position];
+        }
 
         var reserved = ExactLocalNameAllocation.ReservedNames(
             function, function.Signature.Parameters, function.Signature.GenericParameterNames);
@@ -52,6 +65,12 @@ public sealed class PdbLocalScopePass : IIrPass
             }
             TryRetainBlock(function, index, group, context);
         }
+
+        int ScopeRow(int index)
+            => index < function.LocalDeclarationBindings.Length
+                && function.LocalDeclarationBindings[index] is { } binding
+                ? binding.ScopeRowId
+                : -1;
     }
 
     static void TryRetainBlock(IrFunction function, int index, int[] sameName, PassContext context)

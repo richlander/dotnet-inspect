@@ -979,6 +979,13 @@ public sealed class PdbLocalDeclarationScopeTests
         {
             LocalNames = ["outer", "inner", "outer", "inner"],
             LocalDeclaredInNestedScope = [true, true, true, true],
+            LocalDeclarationBindings =
+            [
+                PdbDeclaration(1, 1, 0, "outer", 10, 30),
+                PdbDeclaration(2, 1, 1, "inner", 10, 30),
+                PdbDeclaration(3, 2, 2, "outer", 30, 40),
+                PdbDeclaration(4, 2, 3, "inner", 30, 40),
+            ],
         };
 
         new PdbLocalScopePass().Run(function, PassContext.None);
@@ -997,6 +1004,21 @@ public sealed class PdbLocalDeclarationScopeTests
         new PdbLocalScopePass().Run(function, PassContext.None);
         function.CheckInvariant();
         Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+
+        static PdbLocalDeclaration PdbDeclaration(
+            int variableRow,
+            int scopeRow,
+            int slot,
+            string name,
+            int start,
+            int end)
+            => new(
+                variableRow,
+                scopeRow,
+                slot,
+                name,
+                new LocalSlotScope(start, end),
+                System.Reflection.Metadata.LocalVariableAttributes.None);
     }
 
     [Fact]
