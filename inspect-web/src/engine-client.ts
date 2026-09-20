@@ -88,13 +88,18 @@ type CatalogOperations =
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
   | "activateRetainedWorkspaceDefinition"
+  | "cancelRetainedWorkspaceActivation"
   | "canonicalizeWorkspaceSharePacket"
+  | "commitRetainedWorkspaceActivation"
+  | "completeRetainedWorkspaceActivation"
+  | "completeRetainedWorkspaceDeactivation"
   | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"
   | "listVocabulary"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareRetainedWorkspaceDefinition"
   | "resolveHomeDemo"
   | "runHomeDemo";
 

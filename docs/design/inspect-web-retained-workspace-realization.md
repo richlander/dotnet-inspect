@@ -266,6 +266,9 @@ Workspaces.
 
 - A candidate is privately constructed through
   `WorkspaceRealizationConstructionLease`.
+- A prepared activation carries one owner-issued opaque receipt that associates
+  the exact candidate, activation intent, detached presentation, and eventual
+  consumer completion. Caller-chosen text is never that association.
 - A predecessor contains only already admitted work and drains through the
   coordinator.
 - A settlement record is detached evidence of successful or failed retirement.
@@ -276,6 +279,15 @@ Workspaces.
 Only the coordinator decides when these states may begin, publish, drain, and
 settle. Inspect Web may render their progress and failure but does not create a
 parallel scope registry or authority system.
+
+The retained-realization owner also owns the host transaction around the
+coordinator transition. Preparation offers detached candidate evidence to the
+consumer while the incumbent remains authoritative. Consumer acceptance is the
+last cancellable point. After the matching receipt begins cutover or
+deactivation, cancellation and supersession cannot revive retired authority.
+The transaction remains open until the same consumer reports completion or
+failure. Completion failure is detached visible evidence; it does not roll
+back managed authority.
 
 ## State contract
 
@@ -315,13 +327,20 @@ Selection is asynchronous and transactional:
 5. continue restoration against the candidate's
    `WorkspaceRealizationConstructionLease.Workspace`,
 6. complete construction with the exact definition snapshot,
-7. cut over only if the intent is still current,
-8. retire the predecessor Navigation state slot and publish the successor's
+7. issue one opaque activation receipt with the detached complete candidate
+   presentation and ask the consumer to accept that exact candidate,
+8. cancel and settle the candidate when the consumer rejects it or the intent
+   becomes stale before acceptance,
+9. after acceptance, begin irreversible cutover only for the current matching
+   receipt,
+10. retire the predecessor Navigation state slot and publish the successor's
    exact realization identity, publication ordinal, initial Navigation result,
    and detached package presentation,
-9. let Inspect Web Navigation Consumer synchronously post and record the
+11. let Inspect Web Navigation Consumer synchronously post and record the
    exact result before its later visible effects and acknowledgement, and
-10. observe predecessor settlement independently.
+12. keep the activation barrier until the consumer reports completion or
+    failure for the matching receipt, while observing predecessor settlement
+    independently.
 
 Definition lowering cannot require a live Workspace and cannot run through a
 different temporary Workspace. The continuation receives the
@@ -333,7 +352,15 @@ The incumbent remains selected and continues admitting operations through step
 presentation is discarded.
 
 Candidate construction may derive initial presentation in private, but that
-presentation cannot become current before successful cutover.
+presentation cannot become current before successful cutover. The consumer may
+inspect only the detached prepared presentation before acceptance; it receives
+no realization or operation authority from preparation.
+
+An activation receipt is single-use. Commit accepts only the current prepared
+receipt. Cancellation accepts only a current receipt that has not begun commit.
+Completion accepts only the committed receipt and closes the host transaction
+exactly once. An unavailable, stale, duplicated, or wrong-phase receipt fails
+visibly and cannot act on another candidate.
 
 Complete restoration projects the package presentation only while the exact
 Root bindings and Navigation package evaluations are available. Queries owns
@@ -369,7 +396,9 @@ When a newer selection arrives:
 - the incumbent remains active until a current candidate succeeds.
 
 The host does not bypass the coordinator's candidate-settlement barrier to make
-the latest request appear faster.
+the latest request appear faster. Supersession is admitted only before consumer
+acceptance. Once commit begins, a newer selection waits or fails visibly until
+the matching consumer completion closes the irreversible transaction.
 
 ### Failure and cancellation
 
@@ -381,10 +410,13 @@ The failure is attached to the attempted retained definition and is visible.
 Cancellation is not reported as success. A retry creates a new intent and a
 fresh candidate.
 
-Failure after successful cutover has a different boundary. If Browser
-presentation posting, recording that posting, or later required effects
-fail, the new managed realization remains active, its exact Navigation
-authority is abandoned, and the failure is visible. The host cannot restore
+Consumer rejection or failure before acceptance cancels and settles the
+candidate without cutover. Failure after commit begins has a different
+boundary. If cutover, Browser presentation posting, recording that posting, or
+later required consumer completion fails, the transition remains owned through
+the matching completion report. After successful cutover, the new managed
+realization remains active, its exact Navigation authority is abandoned when
+posting cannot complete, and the failure is visible. The host cannot restore
 the predecessor because managed operation authority has already transferred.
 
 ### Predecessor settlement failure
@@ -632,14 +664,19 @@ activation intent is still current.
 Deleting the active definition follows one of two paths:
 
 - With a successor, Inspect Web first activates the deterministic neighboring
-  retained definition. It removes the old definition only as part of the
-  successful selection commit. Failure preserves the old active definition and
-  realization.
+  retained definition through the same prepare, accept, cutover, and matching
+  consumer-completion transaction. It removes the old definition only after
+  successful successor completion. Rejection before acceptance preserves the
+  old active definition and realization; failure after cutover cannot revive
+  them.
 - Without a successor, Inspect Web removes the definition, closes the active
-  coordinator realization, and enters the explicit no-Workspace state. A
-  terminal cleanup failure keeps its failed settlement charged and visible but
-  cannot preserve active presentation or selection after managed authority has
-  been removed. A rejection before deactivation begins preserves the incumbent.
+  coordinator realization, and enters the explicit no-Workspace state. The
+  owner issues one deactivation receipt and keeps the transition barrier through
+  managed settlement and matching consumer completion of the no-Workspace or
+  compatibility-successor presentation. A terminal cleanup or consumer
+  completion failure remains visible but cannot preserve active presentation or
+  selection after managed authority has been removed. A rejection before
+  deactivation begins preserves the incumbent.
 
 Deletion never revives a predecessor or searches for a compatible retained
 scope.
@@ -861,11 +898,13 @@ construction and operation paths. Tests must demonstrate:
 - package and Platform paths admitting only the exact active realization, and
 - complete removal of retained-scope compatibility search at final retirement.
 
-The existing retained-realization and Spotlight models already compose the
-unpublished candidate, final authority check, publication, and non-posting
-transitions used by this producer. This adoption adds no new lifecycle state
-or join currency, so it relies on those registered model gates rather than
-introducing a duplicate composition model.
+The existing retained-realization and Spotlight models continue to compose the
+unpublished candidate, final coordinator authority check, publication, and
+non-posting transitions. They do not establish the host's consumer-acceptance
+and completion handshake. The owner-issued receipt and its pre-acceptance
+cancellation versus post-acceptance completion boundary are gated directly by
+the managed and TypeScript product tests below rather than represented as a
+second coordinator model.
 
 The first-slice Release gates are:
 
@@ -896,6 +935,19 @@ definitions added during sole-active drainage, deterministic active deletion,
 and bounded resource-free retained definitions.
 Generated-facade and ordinary Worker inventory gates keep the transaction
 callable through the production Browser/Wasm boundary.
+
+The consumer-accepted transaction gates add
+`PreparedCandidateRequiresConsumerCommitBeforeCutover`,
+`RejectedPreparedCandidatePreservesIncumbent`,
+`CommitCompletionKeepsTransitionOwned`,
+`CompletionFailureCannotRestorePredecessor`,
+`SoleActiveDeactivationRequiresMatchingConsumerCompletion`,
+`consumer rejection cancels before cutover`,
+`commit barrier remains held through consumer completion`, and
+`sole-active deletion cannot revive retired authority`. They exercise the
+owner-issued receipt through the managed owner, generated Catalog facade, and
+TypeScript controller. Saved Open, browser-history policy, and compatibility
+entry-point composition remain later #7705/#7709 gates.
 
 Existing package, Platform, Navigation, and analysis entry points remain on
 their current paths until their counted adoption slices. The retained

@@ -98,11 +98,16 @@ type CatalogOperationName =
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
   | "activateRetainedWorkspaceDefinition"
+  | "cancelRetainedWorkspaceActivation"
   | "canonicalizeWorkspaceSharePacket"
+  | "commitRetainedWorkspaceActivation"
+  | "completeRetainedWorkspaceActivation"
+  | "completeRetainedWorkspaceDeactivation"
   | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareRetainedWorkspaceDefinition"
   | "resolveHomeDemo"
   | "runHomeDemo";
 
@@ -552,6 +557,11 @@ function createOrdinaryOperation<
     facades: EngineWorkerOrdinaryFacades,
     ...args: TArgs
   ) => TResult | PromiseLike<TResult>,
+  recoverResultEncodingFailure?: (
+    facades: EngineWorkerOrdinaryFacades,
+    result: TResult,
+    error: OrdinaryPayloadError,
+  ) => void | PromiseLike<void>,
 ): EngineWorkerOrdinaryOperation<TArgs, TResult> {
   const input = createInputDecoder<TArgs>(argumentCount);
   return {
@@ -571,9 +581,10 @@ function createOrdinaryOperation<
           diagnostic: failure.message,
         }),
         async invoke(args) {
+          const currentFacades = facades();
           let result: TResult;
           try {
-            result = await invoke(facades(), ...args);
+            result = await invoke(currentFacades, ...args);
           } catch (error: unknown) {
             const message = engineWorkerDiagnostic(error);
             return {
@@ -590,7 +601,20 @@ function createOrdinaryOperation<
             };
           } catch (error: unknown) {
             if (!(error instanceof OrdinaryPayloadError)) throw error;
-            const message = engineWorkerDiagnostic(error);
+            let message = engineWorkerDiagnostic(error);
+            if (recoverResultEncodingFailure !== undefined) {
+              try {
+                await recoverResultEncodingFailure(
+                  currentFacades,
+                  result,
+                  error,
+                );
+              } catch (recoveryError: unknown) {
+                message += ` Recovery failed: ${
+                  engineWorkerDiagnostic(recoveryError)
+                }`;
+              }
+            }
             return {
               kind: "failed",
               failureKind: "unexpected",
@@ -666,6 +690,11 @@ function valueOperation<
     facades: EngineWorkerOrdinaryFacades,
     ...args: TArgs
   ) => TRawResult,
+  recoverResultEncodingFailure?: (
+    facades: EngineWorkerOrdinaryFacades,
+    result: Awaited<TRawResult>,
+    error: OrdinaryPayloadError,
+  ) => void | PromiseLike<void>,
 ): EngineWorkerOrdinaryOperation<TArgs, Awaited<TRawResult>> {
   return createOrdinaryOperation<TArgs, Awaited<TRawResult>>(
     kind,
@@ -673,6 +702,7 @@ function valueOperation<
     "value",
     createValueDecoder<Awaited<TRawResult>>(),
     (facades, ...args) => Promise.resolve(invoke(facades, ...args)),
+    recoverResultEncodingFailure,
   );
 }
 
@@ -1169,6 +1199,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.activateRetainedWorkspaceDefinition(...args),
     ),
+    cancelRetainedWorkspaceActivation: valueOperation(
+      "ordinary-catalog-cancel-retained-workspace-activation",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["cancelRetainedWorkspaceActivation"]
+        >
+      ) => facades.catalog.cancelRetainedWorkspaceActivation(...args),
+    ),
     canonicalizeWorkspaceSharePacket: valueOperation(
       "ordinary-catalog-canonicalize-workspace-share-packet",
       1,
@@ -1178,6 +1218,36 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["canonicalizeWorkspaceSharePacket"]
         >
       ) => facades.catalog.canonicalizeWorkspaceSharePacket(...args),
+    ),
+    commitRetainedWorkspaceActivation: valueOperation(
+      "ordinary-catalog-commit-retained-workspace-activation",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["commitRetainedWorkspaceActivation"]
+        >
+      ) => facades.catalog.commitRetainedWorkspaceActivation(...args),
+    ),
+    completeRetainedWorkspaceActivation: valueOperation(
+      "ordinary-catalog-complete-retained-workspace-activation",
+      3,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["completeRetainedWorkspaceActivation"]
+        >
+      ) => facades.catalog.completeRetainedWorkspaceActivation(...args),
+    ),
+    completeRetainedWorkspaceDeactivation: valueOperation(
+      "ordinary-catalog-complete-retained-workspace-deactivation",
+      3,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["completeRetainedWorkspaceDeactivation"]
+        >
+      ) => facades.catalog.completeRetainedWorkspaceDeactivation(...args),
     ),
     deactivateRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-deactivate-retained-workspace-definition",
@@ -1222,6 +1292,29 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["observeRetainedWorkspaceSettlement"]
         >
       ) => facades.catalog.observeRetainedWorkspaceSettlement(...args),
+    ),
+    prepareRetainedWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-retained-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareRetainedWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareRetainedWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected retained Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
     ),
     runHomeDemo: valueOperation(
       "ordinary-catalog-run-home-demo",
@@ -1475,9 +1568,25 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinition,
       ),
+      cancelRetainedWorkspaceActivation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .cancelRetainedWorkspaceActivation,
+      ),
       canonicalizeWorkspaceSharePacket: bind(
         engineWorkerOrdinaryOperations.catalog
           .canonicalizeWorkspaceSharePacket,
+      ),
+      commitRetainedWorkspaceActivation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .commitRetainedWorkspaceActivation,
+      ),
+      completeRetainedWorkspaceActivation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .completeRetainedWorkspaceActivation,
+      ),
+      completeRetainedWorkspaceDeactivation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .completeRetainedWorkspaceDeactivation,
       ),
       deactivateRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
@@ -1497,6 +1606,10 @@ export function bindEngineWorkerOrdinaryClient(
       observeRetainedWorkspaceSettlement: bind(
         engineWorkerOrdinaryOperations.catalog
           .observeRetainedWorkspaceSettlement,
+      ),
+      prepareRetainedWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareRetainedWorkspaceDefinition,
       ),
       runHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.runHomeDemo,

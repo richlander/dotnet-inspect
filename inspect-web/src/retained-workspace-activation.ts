@@ -1,7 +1,10 @@
 import type {
   BrowserRetainedWorkspaceActivationResult,
+  BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
   BrowserRetainedWorkspacePosting,
+  BrowserRetainedWorkspacePreparedPosting,
+  BrowserRetainedWorkspacePreparationResult,
   BrowserRetainedWorkspaceSettlementResult,
 } from "./facades/inspect-web-catalog.d.ts";
 
@@ -33,15 +36,31 @@ interface SoleDeactivationIntent {
 }
 
 export interface RetainedWorkspaceActivationClient {
-  activateRetainedWorkspaceDefinition(
+  prepareRetainedWorkspaceDefinition(
     retainedDefinitionId: string,
     label: string,
     canonicalLocation: string,
     canonicalPacket: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
+  commitRetainedWorkspaceActivation(
+    receipt: string,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
+  cancelRetainedWorkspaceActivation(
+    receipt: string,
+  ): Promise<BrowserRetainedWorkspaceActivationResult>;
+  completeRetainedWorkspaceActivation(
+    receipt: string,
+    succeeded: boolean,
+    failure: string | null,
+  ): Promise<BrowserRetainedWorkspaceConsumerCompletionResult>;
   deactivateRetainedWorkspaceDefinition(
     retainedDefinitionId: string,
   ): Promise<BrowserRetainedWorkspaceDeactivationResult>;
+  completeRetainedWorkspaceDeactivation(
+    receipt: string,
+    succeeded: boolean,
+    failure: string | null,
+  ): Promise<BrowserRetainedWorkspaceConsumerCompletionResult>;
   observeRetainedWorkspaceSettlement(
     settlementId: string,
   ): Promise<BrowserRetainedWorkspaceSettlementResult>;
@@ -103,8 +122,30 @@ export interface RetainedWorkspaceActivationController {
   retain(input: RetainedWorkspaceDefinitionInput): RetainedWorkspaceDefinition;
   activate(
     retainedDefinitionId: string,
+    accept?: (
+      preparation: BrowserRetainedWorkspacePreparedPosting,
+    ) => boolean | Promise<boolean>,
+    complete?: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => void | Promise<void>,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
-  delete(retainedDefinitionId: string): Promise<void>;
+  cancelPending(): boolean;
+  waitForPendingCommit(): Promise<void> | null;
+  delete(
+    retainedDefinitionId: string,
+    options?: RetainedWorkspaceDeletionOptions,
+  ): Promise<void>;
+}
+
+export interface RetainedWorkspaceDeletionOptions {
+  readonly successorDefinitionId?: string | null;
+  readonly acceptSuccessor?: (
+    preparation: BrowserRetainedWorkspacePreparedPosting,
+  ) => boolean | Promise<boolean>;
+  readonly completeSuccessor?: (
+    posting: BrowserRetainedWorkspacePosting,
+  ) => void | Promise<void>;
+  readonly completeDeactivation?: () => void | Promise<void>;
 }
 
 export function createRetainedWorkspaceActivationController(
@@ -119,7 +160,15 @@ export function createRetainedWorkspaceActivationController(
   let selectionGeneration = 0;
   let nextDeactivationGeneration = 0;
   let postedPublicationOrdinal = 0;
+  let currentActivationReceipt: string | null = null;
+  let committingDefinitionId: string | null = null;
+  let commitBarrier: Promise<void> | null = null;
+  let settleCommit: (() => void) | null = null;
   let soleDeactivationIntent: SoleDeactivationIntent | null = null;
+  const cancellationRequests = new Map<
+    string,
+    Promise<BrowserRetainedWorkspaceActivationResult>
+  >();
   const observedSettlementIds = new Set<string>();
   const unsettledActivationCounts = new Map<string, number>();
 
@@ -231,6 +280,9 @@ export function createRetainedWorkspaceActivationController(
 
   async function postActivation(
     posting: BrowserRetainedWorkspacePosting,
+    complete: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => void | Promise<void>,
   ): Promise<boolean> {
     const authority = authorityArguments(posting);
     if (!client.validateRetainedWorkspaceNavigationAuthority(
@@ -255,17 +307,22 @@ export function createRetainedWorkspaceActivationController(
           ...authority,
         );
       if (recorded === "invalidAuthority") {
-        return false;
+        throw new Error(
+          "Navigation posting record rejected the committed authority.",
+        );
       }
       if (recorded !== "accepted") {
         throw new Error(
           `Navigation posting record returned '${recorded}'.`,
         );
       }
+      await complete(posting);
       const acknowledged =
         await client.acknowledgeRetainedWorkspaceNavigation(...authority);
       if (acknowledged === "invalidAuthority") {
-        return false;
+        throw new Error(
+          "Navigation acknowledgement rejected the committed authority.",
+        );
       }
       if (acknowledged !== "accepted") {
         throw new Error(
@@ -285,6 +342,61 @@ export function createRetainedWorkspaceActivationController(
       }
       throw error;
     }
+  }
+
+  function requestCancellation(
+    receipt: string,
+  ): Promise<BrowserRetainedWorkspaceActivationResult> {
+    const existing = cancellationRequests.get(receipt);
+    if (existing !== undefined) return existing;
+    const cancellation =
+      client.cancelRetainedWorkspaceActivation(receipt);
+    cancellationRequests.set(receipt, cancellation);
+    return cancellation;
+  }
+
+  function requireCompleted(
+    result: BrowserRetainedWorkspaceConsumerCompletionResult,
+    expectedSucceeded: boolean,
+  ): void {
+    if (result.status !== "completed"
+      || result.succeeded !== expectedSucceeded) {
+      throw new Error(
+        result.message
+          ?? result.failure
+          ?? "Retained Workspace consumer completion was not accepted.",
+      );
+    }
+  }
+
+  async function completeActivationReceipt(
+    receipt: string,
+    succeeded: boolean,
+    failure: string | null,
+  ): Promise<void> {
+    requireCompleted(
+      await client.completeRetainedWorkspaceActivation(
+        receipt,
+        succeeded,
+        failure,
+      ),
+      succeeded,
+    );
+  }
+
+  async function completeDeactivationReceipt(
+    receipt: string,
+    succeeded: boolean,
+    failure: string | null,
+  ): Promise<void> {
+    requireCompleted(
+      await client.completeRetainedWorkspaceDeactivation(
+        receipt,
+        succeeded,
+        failure,
+      ),
+      succeeded,
+    );
   }
 
   function retain(
@@ -317,6 +429,12 @@ export function createRetainedWorkspaceActivationController(
 
   async function activate(
     retainedDefinitionId: string,
+    accept: (
+      preparation: BrowserRetainedWorkspacePreparedPosting,
+    ) => boolean | Promise<boolean> = () => true,
+    complete: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => void | Promise<void> = () => {},
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -324,26 +442,135 @@ export function createRetainedWorkspaceActivationController(
         "A retained Workspace cannot be activated while the active Workspace is being deactivated.",
       );
     }
+    if (committingDefinitionId !== null) {
+      throw new Error(
+        "A retained Workspace activation is awaiting consumer completion.",
+      );
+    }
     const generation = ++selectionGeneration;
     pendingDefinitionId = retainedDefinitionId;
     lastFailure = null;
     beginActivation(definition.id);
+    let receipt: string | null = null;
+    let commitStarted = false;
+    let commitOutcomeConfirmed = false;
+    let requiresConsumerCompletion = false;
+    let completionAttempted = false;
+    let completionAccepted = false;
 
     try {
       let result: BrowserRetainedWorkspaceActivationResult;
       try {
-        result = await client.activateRetainedWorkspaceDefinition(
+        const preparation = await client.prepareRetainedWorkspaceDefinition(
           definition.id,
           definition.label,
           definition.canonicalLocation,
           definition.canonicalPacket,
         );
+        switch (preparation.status) {
+          case "prepared": {
+            if (preparation.preparation === null
+              || preparation.receipt === null) {
+              throw new Error(
+                "Retained Workspace preparation omitted candidate evidence or receipt.",
+              );
+            }
+            const preparedReceipt = preparation.receipt;
+            receipt = preparedReceipt;
+            if (generation === selectionGeneration) {
+              currentActivationReceipt = preparedReceipt;
+            }
+            let accepted = false;
+            try {
+              if (generation === selectionGeneration) {
+                const decision = accept(preparation.preparation);
+                accepted = typeof decision === "boolean"
+                  ? decision
+                  : await decision;
+              }
+            } catch (error) {
+              let cancellation:
+                BrowserRetainedWorkspaceActivationResult;
+              try {
+                cancellation =
+                  await requestCancellation(preparedReceipt);
+              } catch (cancellationError) {
+                throw new AggregateError(
+                  [error, cancellationError],
+                  "Retained Workspace acceptance and cancellation failed.",
+                  { cause: cancellationError },
+                );
+              }
+              if (cancellation.status === "failed") {
+                const cleanupFailure = new Error(
+                  cancellation.failure?.message
+                    ?? "Retained Workspace cancellation cleanup failed.",
+                  { cause: error },
+                );
+                if (generation === selectionGeneration) {
+                  lastFailure = cleanupFailure.message;
+                }
+                throw new AggregateError(
+                  [error, cleanupFailure],
+                  "Retained Workspace acceptance failed and its candidate "
+                    + "could not be cleaned up.",
+                  { cause: error },
+                );
+              }
+              throw error;
+            }
+            if (!accepted || generation !== selectionGeneration) {
+              result = await requestCancellation(preparedReceipt);
+              break;
+            }
+
+            committingDefinitionId = definition.id;
+            commitBarrier = new Promise<void>(resolve => {
+              settleCommit = resolve;
+            });
+            commitStarted = true;
+            requiresConsumerCompletion = true;
+            result = await client.commitRetainedWorkspaceActivation(
+              preparedReceipt,
+            );
+            commitOutcomeConfirmed = true;
+            requiresConsumerCompletion = result.status === "activated";
+            break;
+          }
+          case "noEffect":
+            result = {
+              status: "noEffect",
+              posting: preparation.posting,
+              failure: null,
+            };
+            break;
+          case "failed":
+            result = {
+              status: "failed",
+              posting: null,
+              failure: preparation.failure,
+            };
+            break;
+          case "superseded":
+            result = {
+              status: "superseded",
+              posting: null,
+              failure: null,
+            };
+            break;
+          default:
+            throw new Error(
+              `Unknown retained Workspace preparation status '${preparation.status}'.`,
+            );
+        }
       } catch (error) {
         if (generation === selectionGeneration) {
           pendingDefinitionId = null;
-          lastFailure = error instanceof Error
-            ? error.message
-            : "Retained Workspace activation failed.";
+          if (lastFailure === null) {
+            lastFailure = error instanceof Error
+              ? error.message
+              : "Retained Workspace activation failed.";
+          }
         }
         throw error;
       }
@@ -358,23 +585,42 @@ export function createRetainedWorkspaceActivationController(
             );
           }
           observePredecessorOnce(posting);
-          if (result.status === "activated"
-            && posting.publicationOrdinal
-              > postedPublicationOrdinal) {
+          if (result.status === "activated") {
+            if (receipt === null) {
+              throw new Error(
+                "Activated retained Workspace omitted its consumer completion receipt.",
+              );
+            }
             try {
-              await postActivation(posting);
+              const posted = await postActivation(posting, complete);
+              if (!posted) {
+                throw new Error(
+                  "The committed retained Workspace posting is no longer current.",
+                );
+              }
+              completionAttempted = true;
+              await completeActivationReceipt(receipt, true, null);
+              completionAccepted = true;
             } catch (error) {
+              const message = error instanceof Error
+                ? error.message
+                : "Retained Workspace consumer completion failed.";
+              try {
+                completionAttempted = true;
+                await completeActivationReceipt(receipt, false, message);
+                completionAccepted = true;
+              } catch (completionError) {
+                throw new AggregateError(
+                  [error, completionError],
+                  "Retained Workspace consumer work and completion reporting failed.",
+                  { cause: completionError },
+                );
+              }
               if (generation === selectionGeneration) {
-                lastFailure = error instanceof Error
-                  ? error.message
-                  : "Retained Workspace posting failed.";
+                lastFailure = message;
               }
               throw error;
             }
-          } else if (result.status === "activated"
-            && posting.publicationOrdinal
-              < postedPublicationOrdinal) {
-            await abandonPosting(posting);
           }
           if (generation === selectionGeneration) {
             pendingDefinitionId = null;
@@ -404,15 +650,103 @@ export function createRetainedWorkspaceActivationController(
     } catch (error) {
       if (generation === selectionGeneration) {
         pendingDefinitionId = null;
+        if (lastFailure === null) {
+          lastFailure = error instanceof Error
+            ? error.message
+            : "Retained Workspace activation failed.";
+        }
+      }
+      if (commitStarted
+        && !commitOutcomeConfirmed
+        && !completionAttempted
+        && receipt !== null) {
+        const message = error instanceof Error
+          ? error.message
+          : "Retained Workspace activation ended before consumer completion.";
+        try {
+          completionAttempted = true;
+          await completeActivationReceipt(receipt, false, message);
+          completionAccepted = true;
+        } catch (completionError) {
+          throw new AggregateError(
+            [error, completionError],
+            "Retained Workspace activation and completion reporting failed.",
+            { cause: completionError },
+          );
+        }
+        activeDefinitionId = definition.id;
+        pendingDefinitionId = null;
+        try {
+          hooks.clear();
+        } catch (reconciliationError) {
+          const reconciliationMessage =
+            reconciliationError instanceof Error
+              ? reconciliationError.message
+              : "Retained Workspace presentation reconciliation failed.";
+          lastFailure =
+            `${message} Presentation reconciliation failed: ${
+              reconciliationMessage
+            }`;
+          throw new AggregateError(
+            [error, reconciliationError],
+            "Retained Workspace commit response and presentation "
+              + "reconciliation failed.",
+            { cause: reconciliationError },
+          );
+        }
       }
       throw error;
     } finally {
-      endActivation(definition.id);
+      const releaseTransaction = !commitStarted
+        || (commitOutcomeConfirmed && !requiresConsumerCompletion)
+        || completionAccepted;
+      if (commitStarted && releaseTransaction) {
+        committingDefinitionId = null;
+        settleCommit?.();
+        settleCommit = null;
+        commitBarrier = null;
+      }
+      if (releaseTransaction && currentActivationReceipt === receipt) {
+        currentActivationReceipt = null;
+      }
+      if (receipt !== null) cancellationRequests.delete(receipt);
+      if (releaseTransaction) endActivation(definition.id);
     }
+  }
+
+  function cancelPending(): boolean {
+    if (committingDefinitionId !== null
+      || soleDeactivationIntent !== null) return false;
+    const cancelledGeneration = selectionGeneration;
+    selectionGeneration++;
+    pendingDefinitionId = null;
+    const receipt = currentActivationReceipt;
+    if (receipt === null) return true;
+    currentActivationReceipt = null;
+    void requestCancellation(receipt).then(
+      result => {
+        if (selectionGeneration === cancelledGeneration + 1
+          && result.status === "failed") {
+          lastFailure = result.failure?.message
+            ?? "Retained Workspace cancellation failed.";
+        }
+        return undefined;
+      },
+      (error: unknown) => {
+        if (selectionGeneration === cancelledGeneration + 1) {
+          lastFailure = error instanceof Error
+            ? error.message
+            : "Retained Workspace cancellation failed.";
+        }
+        return undefined;
+      },
+    );
+    return true;
   }
 
   async function deleteDefinition(
     retainedDefinitionId: string,
+    options: RetainedWorkspaceDeletionOptions = {},
   ): Promise<void> {
     const removedIndex = definitions.findIndex(
       definition => definition.id === retainedDefinitionId,
@@ -439,11 +773,35 @@ export function createRetainedWorkspaceActivationController(
       );
       return;
     }
+    if (committingDefinitionId !== null) {
+      throw new Error(
+        "The active retained Workspace cannot be deleted while an activation "
+          + "is awaiting consumer completion.",
+      );
+    }
+    if (unsettledActivationCounts.size > 0) {
+      throw new Error(
+        "The active retained Workspace cannot be deleted until pending "
+          + "activations settle.",
+      );
+    }
+    if (options.successorDefinitionId === retainedDefinitionId) {
+      throw new Error(
+        "A retained Workspace definition cannot be its own deletion successor.",
+      );
+    }
 
-    const successor = definitions[removedIndex + 1]
-      ?? definitions[removedIndex - 1];
+    const successor = options.successorDefinitionId === undefined
+      ? definitions[removedIndex + 1] ?? definitions[removedIndex - 1]
+      : options.successorDefinitionId === null
+        ? undefined
+        : find(options.successorDefinitionId);
     if (successor !== undefined) {
-      const successorActivation = activate(successor.id);
+      const successorActivation = activate(
+        successor.id,
+        options.acceptSuccessor,
+        options.completeSuccessor,
+      );
       const successorGeneration = selectionGeneration;
       const result = await successorActivation;
       if (result.status !== "activated" && result.status !== "noEffect") {
@@ -468,22 +826,66 @@ export function createRetainedWorkspaceActivationController(
       retainedDefinitionId,
     };
     soleDeactivationIntent = intent;
+    commitBarrier = new Promise<void>(resolve => {
+      settleCommit = resolve;
+    });
+    let requiresConsumerCompletion = false;
+    let completionAccepted = false;
     try {
-      const result = await client.deactivateRetainedWorkspaceDefinition(
-        retainedDefinitionId,
-      );
+      let result: BrowserRetainedWorkspaceDeactivationResult;
+      try {
+        requiresConsumerCompletion = true;
+        result = await client.deactivateRetainedWorkspaceDefinition(
+          retainedDefinitionId,
+        );
+      } catch (error) {
+        lastFailure = error instanceof Error
+          ? error.message
+          : "Retained Workspace deactivation outcome is unknown.";
+        throw error;
+      }
       if (soleDeactivationIntent?.generation !== intent.generation) {
         return;
       }
+      requiresConsumerCompletion = result.status === "deactivated"
+        || result.status === "cleanupFailed";
       switch (result.status) {
-        case "deactivated":
+        case "deactivated": {
+          const receipt = result.completionReceipt;
+          if (receipt === null) {
+            throw new Error(
+              "Retained Workspace deactivation omitted its completion receipt.",
+            );
+          }
           definitions = definitions.filter(
             definition => definition.id !== retainedDefinitionId,
           );
           activeDefinitionId = null;
           lastFailure = null;
-          hooks.clear();
+          try {
+            hooks.clear();
+            await options.completeDeactivation?.();
+            await completeDeactivationReceipt(receipt, true, null);
+            completionAccepted = true;
+          } catch (error) {
+            const message = error instanceof Error
+              ? error.message
+              : "Retained Workspace deactivation completion failed.";
+            lastFailure = message;
+            try {
+              await completeDeactivationReceipt(receipt, false, message);
+              completionAccepted = true;
+            } catch (completionError) {
+              throw new AggregateError(
+                [error, completionError],
+                "Retained Workspace deactivation and completion reporting failed.",
+                { cause: completionError },
+              );
+            }
+            throw error;
+          }
           return;
+        }
         case "noEffect":
           definitions = definitions.filter(
             definition => definition.id !== retainedDefinitionId,
@@ -491,16 +893,60 @@ export function createRetainedWorkspaceActivationController(
           activeDefinitionId = null;
           hooks.clear();
           return;
-        case "cleanupFailed":
+        case "cleanupFailed": {
+          const receipt = result.completionReceipt;
+          if (receipt === null) {
+            throw new Error(
+              "Retained Workspace cleanup failure omitted its completion receipt.",
+            );
+          }
           definitions = definitions.filter(
             definition => definition.id !== retainedDefinitionId,
           );
           activeDefinitionId = null;
-          lastFailure = result.settlement?.failure
+          const managedFailure = result.settlement?.failure
             ?? result.message
             ?? "The active Workspace could not be settled.";
-          hooks.clear();
+          lastFailure = managedFailure;
+          try {
+            hooks.clear();
+            await options.completeDeactivation?.();
+            await completeDeactivationReceipt(receipt, true, null);
+            completionAccepted = true;
+          } catch (error) {
+            const message = error instanceof Error
+              ? error.message
+              : "Retained Workspace deactivation completion failed.";
+            const combinedFailure =
+              `${managedFailure} Consumer completion failed: ${message}`;
+            lastFailure = combinedFailure;
+            try {
+              await completeDeactivationReceipt(
+                receipt,
+                false,
+                combinedFailure,
+              );
+              completionAccepted = true;
+            } catch (completionError) {
+              throw new AggregateError(
+                [
+                  new Error(managedFailure),
+                  error,
+                  completionError,
+                ],
+                "Retained Workspace cleanup, consumer completion, and "
+                  + "completion reporting failed.",
+                { cause: completionError },
+              );
+            }
+            throw new AggregateError(
+              [new Error(managedFailure), error],
+              "Retained Workspace cleanup and consumer completion failed.",
+              { cause: error },
+            );
+          }
           return;
+        }
         case "rejected":
           lastFailure = result.message
             ?? "Retained Workspace deactivation was rejected.";
@@ -511,8 +957,12 @@ export function createRetainedWorkspaceActivationController(
           );
       }
     } finally {
-      if (soleDeactivationIntent?.generation === intent.generation) {
+      if ((!requiresConsumerCompletion || completionAccepted)
+        && soleDeactivationIntent?.generation === intent.generation) {
         soleDeactivationIntent = null;
+        settleCommit?.();
+        settleCommit = null;
+        commitBarrier = null;
       }
     }
   }
@@ -523,6 +973,8 @@ export function createRetainedWorkspaceActivationController(
     },
     retain,
     activate,
+    cancelPending,
+    waitForPendingCommit: () => commitBarrier,
     delete: deleteDefinition,
   };
 }

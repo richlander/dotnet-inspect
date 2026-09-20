@@ -159,8 +159,16 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("admitRetainedWorkspacePlatform"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
+    cancelRetainedWorkspaceActivation: () =>
+      unexpected("cancelRetainedWorkspaceActivation"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
+    commitRetainedWorkspaceActivation: () =>
+      unexpected("commitRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceActivation: () =>
+      unexpected("completeRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceDeactivation: () =>
+      unexpected("completeRetainedWorkspaceDeactivation"),
     deactivateRetainedWorkspaceDefinition: () =>
       unexpected("deactivateRetainedWorkspaceDefinition"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
@@ -170,6 +178,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareRetainedWorkspaceDefinition: () =>
+      unexpected("prepareRetainedWorkspaceDefinition"),
     runHomeDemo: () => unexpected("runHomeDemo"),
   },
 };
@@ -1224,6 +1234,50 @@ test("malformed and oversized generated results reject only their calls", async 
   state.host.dispose();
 });
 
+test("oversized prepared activation is cancelled before rejection", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinition: async () =>
+        contractViolation({
+          status: "prepared",
+          receipt: "receipt-oversized",
+          preparation: {
+            label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          },
+          posting: null,
+          failure: null,
+        }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return {
+          status: "superseded",
+          posting: null,
+          failure: null,
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinition(
+      "definition",
+      "Definition",
+      "/definition",
+      "packet",
+    );
+  await state.environment.flushAsync();
+  await assert.rejects(
+    preparation,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
+  );
+  assert.deepEqual(cancellations, ["receipt-oversized"]);
+  assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
 test("malformed and oversized inputs are rejected before facade invocation", async () => {
   let calls = 0;
   const state = fixture({
@@ -1445,11 +1499,16 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "admitRetainedWorkspacePackage",
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
+      "cancelRetainedWorkspaceActivation",
       "canonicalizeWorkspaceSharePacket",
+      "commitRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceDeactivation",
       "deactivateRetainedWorkspaceDefinition",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareRetainedWorkspaceDefinition",
       "resolveHomeDemo",
       "runHomeDemo",
     ],
@@ -1466,7 +1525,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 62);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 67);
 
   const state = fixture();
   const groups = [
