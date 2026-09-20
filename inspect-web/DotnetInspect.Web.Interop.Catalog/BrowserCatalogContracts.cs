@@ -408,6 +408,7 @@ public sealed record BrowserRetainedNavigationSubjectDescriptor(
     string State,
     bool IsActive,
     bool IsRetained,
+    BrowserRetainedNavigationDiagnostic[] Evidence,
     BrowserRetainedNavigationAction? Action);
 
 public sealed record BrowserRetainedNavigationPackageDescriptor(
