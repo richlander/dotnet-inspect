@@ -113,6 +113,57 @@ public sealed class LibraryQueryCliTests
     }
 
     [Fact]
+    public async Task Jsonl_PreservesDuplicateOccurrenceIdentity()
+    {
+        string path = typeof(LibraryQueryCliTests).Assembly.Location;
+
+        var result = await RunAsync(
+            "library",
+            "query",
+            path,
+            path,
+            "--where",
+            "references=System.Runtime",
+            "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string[] lines = result.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+
+        using var first = JsonDocument.Parse(lines[0]);
+        using var second = JsonDocument.Parse(lines[1]);
+        Assert.Equal(
+            "0",
+            first.RootElement.GetProperty("occurrence").GetString());
+        Assert.Equal(
+            "1",
+            second.RootElement.GetProperty("occurrence").GetString());
+    }
+
+    [Fact]
+    public async Task Jsonl_EmptyOccurrenceProjectionReturnsNoRows()
+    {
+        string path = typeof(LibraryQueryCliTests).Assembly.Location;
+
+        var result = await RunAsync(
+            "library",
+            "query",
+            path,
+            "--where",
+            "references=No.Such.Reference",
+            "--jsonl",
+            "--columns",
+            "Occurrence");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
     public async Task Directory_PreservesMatchBesideInvalidCandidate()
     {
         string directory = Path.Combine(

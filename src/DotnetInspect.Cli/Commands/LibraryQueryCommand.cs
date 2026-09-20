@@ -208,7 +208,7 @@ internal static class LibraryQueryCommand
                 options.Jsonl,
                 options.Columns,
                 options.Fields,
-                Serialize,
+                options.Jsonl ? SerializeStructured : Serialize,
                 maxRows: null);
         }
         else
