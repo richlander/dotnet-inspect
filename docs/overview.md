@@ -54,6 +54,13 @@ substrates, and inspection producers that will extend that space.
   bind one operation role and query profile; shared infrastructure then
   derives query discovery and host lowering without inferring facets from
   schemas or rendered fields.
+  [Query Space Composition](design/query-space-composition.md) owns the target
+  host-neutral composition of one operation route with explicit row spaces,
+  Rows or exact Count, structural plan descriptions, and preservation of an
+  adjacent source owner's continuation. It keeps semantic selection, work
+  bounds, source batching, consumer paging, and rendering distinct while
+  exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
+  consumers, and other hosts.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,

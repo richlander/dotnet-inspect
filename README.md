@@ -174,6 +174,7 @@ stderr rather than mixed into structured output.
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
+| `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
@@ -621,6 +622,23 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 This package-content term matches simple names case-insensitively and reports
 the matching framework and archive path. It does not resolve or traverse the
 reference.
+
+Use the same key at Library grain to query top-level `*.dll` files in one
+directory, or one installed or explicitly acquired platform reference pack:
+
+```bash
+dotnet-inspect library query ./artifacts/bin \
+  --where "references=System.Text.Json"
+dotnet-inspect library query --platform runtime \
+  --where "references=System.Text.Json" --take 256 -n 10
+```
+
+Library Query tests each candidate Library's direct `AssemblyRef` table;
+repeated `references` terms are ANDed. `--take` bounds candidates scanned,
+while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
+afterward. Use `library query -Q Libraries` to discover the current vocabulary.
+Missing or malformed Metadata remains visible and makes unbounded Count
+inexact rather than silently becoming a nonmatch.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
