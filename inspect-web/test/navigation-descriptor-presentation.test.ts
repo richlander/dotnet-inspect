@@ -113,7 +113,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       realizationFailure: null,
       state: "Available",
       isCurrent: true,
-      action: action("package-action", workspace.id, "Package"),
+      action: null,
     }],
     hierarchy: [{
       kind: "Workspace",
@@ -144,6 +144,14 @@ function posting(): BrowserRetainedWorkspacePosting {
       label: "Type",
       subject: null,
       state: "Unavailable",
+      isActive: false,
+      isRetained: false,
+      action: null,
+    }, {
+      kind: "Member",
+      label: "Member",
+      subject: null,
+      state: "SelectionRequired",
       isActive: false,
       isRetained: false,
       action: null,
@@ -276,7 +284,7 @@ test("descriptor bar preserves duplicate labels by identity and shows failures",
         ...presentation.subjects[0]!,
         key: "package-other",
         identity: "package-other",
-        action: "package-action",
+        action: "package-hierarchy-action",
       },
       ...presentation.subjects.slice(1),
     ],
@@ -293,10 +301,18 @@ test("descriptor bar preserves duplicate labels by identity and shows failures",
   assert.match(
     html,
     /data-navigation-id="unavailable:Type"[^>]*aria-disabled="true"/);
-  assert.match(html, /Compare<span class="navigation-status"> Failed<\/span>/);
+  assert.match(
+    html,
+    /Compare<span class="navigation-status"> Failed: Comparison failed<\/span>/);
   assert.match(
     html,
     /data-product-navigation-action="package-hierarchy-action"/);
+  assert.match(
+    html,
+    /data-local-navigation-action="choose-member"[^>]*aria-disabled="false"[^>]*aria-controls="content-navigation-pane"[^>]*>[\s\S]*Choose a member/);
+  assert.match(
+    html,
+    /data-local-navigation-action="choose-member"[^>]*role="menuitem"(?!radio)/);
 });
 
 test("Workspace entry and Package rows render product labels, order, and status", () => {
@@ -332,6 +348,10 @@ test("Workspace entry and Package rows render product labels, order, and status"
     workspace,
     /data-navigation-order="10"[\s\S]*Second[\s\S]*data-navigation-order="20"[\s\S]*First/);
   assert.match(workspace, /data-navigation-state="Pending"/);
+  assert.match(
+    workspace,
+    /data-product-navigation-id="package-2"[^>]*aria-current="page"/);
+  assert.match(workspace, /Second[\s\S]*Current/);
   assert.match(workspace, /data-workspace-platform/);
 });
 
@@ -365,16 +385,77 @@ test("descriptor action binding returns the exact product action object", () => 
     },
   };
   const root = fakeDom.parentNode({
-    querySelectorAll: () => [element],
+    querySelectorAll: (selector: string) =>
+      selector.includes("product-navigation") ? [element] : [],
   });
   let actual: BrowserRetainedNavigationAction | null = null;
 
   bindNavigationDescriptorActions(
     root,
     presentation,
-    selected => actual = selected);
+    {
+      activate: selected => actual = selected,
+      chooseMember: () => assert.fail("Unexpected local action."),
+    });
 
   assert.strictEqual(actual, expected);
+});
+
+test("SelectionRequired invokes only the local Member-choice action", () => {
+  const presentation = createNavigationDescriptorPresentation(posting());
+  const element = {
+    dataset: { localNavigationAction: "choose-member" },
+    addEventListener(
+      _type: string,
+      listener: EventListener,
+    ) {
+      listener(fakeDom.event());
+    },
+  };
+  const root = fakeDom.parentNode({
+    querySelectorAll: (selector: string) =>
+      selector.includes("local-navigation") ? [element] : [],
+  });
+  let choices = 0;
+
+  bindNavigationDescriptorActions(root, presentation, {
+    activate: () => assert.fail("SelectionRequired submitted a product action."),
+    chooseMember: () => choices++,
+  });
+
+  assert.equal(choices, 1);
+});
+
+test("lens presentation identity survives availability changes", () => {
+  const available = posting();
+  const failedSource = posting();
+  const failed = {
+    ...failedSource,
+    navigation: {
+      ...failedSource.navigation,
+      snapshot: {
+        ...failedSource.navigation.snapshot,
+        lenses: [{
+          ...failedSource.navigation.snapshot.lenses[0]!,
+          state: "Failed",
+          target: null,
+          message: "Overview failed",
+        }, ...failedSource.navigation.snapshot.lenses.slice(1)],
+      },
+    },
+  };
+
+  const availablePresentation =
+    createNavigationDescriptorPresentation(available);
+  const failedPresentation =
+    createNavigationDescriptorPresentation(failed);
+
+  assert.equal(
+    availablePresentation.inspectors[0]!.key,
+    failedPresentation.inspectors[0]!.key);
+  assert.equal(
+    availablePresentation.inspectors[0]!.key,
+    "library.overview");
 });
 
 test("package presentation rejects missing and aliased subject joins", () => {

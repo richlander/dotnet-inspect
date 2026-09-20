@@ -19,6 +19,8 @@ interface NavigationDescriptorPresentationItem {
   readonly current: boolean;
   readonly retained: boolean;
   readonly action: string | null;
+  readonly localAction: "choose-member" | null;
+  readonly evidence: string | null;
 }
 
 export interface NavigationPackagePresentationItem {
@@ -79,39 +81,53 @@ export function resolveNavigationPresentationAction(
 export function bindNavigationDescriptorActions(
   root: ParentNode,
   presentation: NavigationDescriptorPresentation,
-  activate: (action: BrowserRetainedNavigationAction) => void,
+  actions: {
+    activate(action: BrowserRetainedNavigationAction): void;
+    chooseMember(): void;
+  },
 ): void {
   root.querySelectorAll<HTMLElement>(
     "[data-product-navigation-action]",
   ).forEach(element => element.addEventListener("click", () => {
     const token = element.dataset.productNavigationAction;
     if (token !== undefined) {
-      activate(resolveNavigationPresentationAction(presentation, token));
+      actions.activate(
+        resolveNavigationPresentationAction(presentation, token));
     }
   }));
+  root.querySelectorAll<HTMLElement>(
+    '[data-local-navigation-action="choose-member"]',
+  ).forEach(element => element.addEventListener(
+    "click",
+    () => actions.chooseMember()));
 }
 
 function subjectPresentation(
   descriptor: BrowserRetainedNavigationSubjectDescriptor,
 ): NavigationDescriptorPresentationItem {
   const subject = descriptor.subject;
+  const selectionRequired =
+    descriptor.kind.toLowerCase() === "member"
+    && descriptor.state.toLowerCase() === "selectionrequired";
   return {
     key: subject?.id ?? `unavailable:${descriptor.kind}`,
     identity: subject?.id ?? null,
     kind: descriptor.kind,
-    label: descriptor.label,
+    label: selectionRequired ? "Choose a member" : descriptor.label,
     summary: subject?.summary ?? null,
     state: descriptor.state,
     current: descriptor.isActive,
     retained: descriptor.isRetained,
     action: descriptor.action?.id ?? null,
+    localAction: selectionRequired ? "choose-member" : null,
+    evidence: null,
   };
 }
 
 function lensPresentation(
   descriptor: BrowserRetainedNavigationLensDescriptor,
 ): NavigationDescriptorPresentationItem {
-  const identity = descriptor.target?.id ?? descriptor.facet.id;
+  const identity = descriptor.facet.id;
   return {
     key: identity,
     identity,
@@ -122,6 +138,8 @@ function lensPresentation(
     current: descriptor.isCurrent,
     retained: descriptor.isCurrent,
     action: descriptor.action?.id ?? null,
+    localAction: null,
+    evidence: descriptor.message ?? descriptor.unavailability,
   };
 }
 
@@ -164,6 +182,8 @@ function packagePresentation(
           current: descriptor.isCurrent,
           retained: true,
           action: descriptor.action?.id ?? null,
+          localAction: null,
+          evidence: descriptor.realizationFailure,
         },
         package: descriptor.packageId,
         version: descriptor.version,

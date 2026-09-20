@@ -166,10 +166,10 @@ export function renderWorkspaceView(
       const label =
         `${item.package} ${item.version} ${framework}${runtimeIdentifier}`;
       return `<li class="workspace-occurrence-row" data-navigation-order="${item.order}">
-        <button class="workspace-occurrence" type="button" ${item.subject.action ? `data-product-navigation-action="${escapeHtml(item.subject.action)}"` : "disabled"} data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}" aria-label="Inspect ${escapeHtml(label)}">
+        <button class="workspace-occurrence${item.subject.current ? " active" : ""}" type="button" ${item.subject.action ? `data-product-navigation-action="${escapeHtml(item.subject.action)}"` : item.subject.current ? "" : "disabled"} data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}"${item.subject.current ? ' aria-current="page"' : ""} aria-label="Inspect ${escapeHtml(label)}">
           <span>NuGet package</span>
           <strong>${escapeHtml(item.package)}</strong>
-          <small>${escapeHtml(item.version)} · ${escapeHtml(framework)}${escapeHtml(runtimeIdentifier)}${escapeHtml(status)}</small>
+          <small>${escapeHtml(item.version)} · ${escapeHtml(framework)}${escapeHtml(runtimeIdentifier)}${item.subject.current ? " · Current" : ""}${escapeHtml(status)}</small>
         </button>
         ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
       </li>`;

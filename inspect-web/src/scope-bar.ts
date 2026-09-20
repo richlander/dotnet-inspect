@@ -45,6 +45,8 @@ export interface NavigationDescriptorBarItem {
   state: string;
   current: boolean;
   action: string | null;
+  localAction: "choose-member" | null;
+  evidence: string | null;
 }
 
 export interface RenderNavigationDescriptorBarOptions {
@@ -52,6 +54,7 @@ export interface RenderNavigationDescriptorBarOptions {
   inspectors: readonly NavigationDescriptorBarItem[];
   subjectPanelId?: string;
   inspectorPanelId?: string;
+  memberChoicesPanelId?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -644,7 +647,9 @@ function menuItem(
 
 function descriptorStateLabel(state: string): string {
   const normalized = state.toLowerCase();
-  return normalized === "available" || normalized === "current"
+  return normalized === "available"
+      || normalized === "current"
+      || normalized === "selectionrequired"
     ? ""
     : state;
 }
@@ -656,10 +661,13 @@ function descriptorAttributes(
   const action = item.action === null
     ? ""
     : ` data-product-navigation-action="${escapeHtml(item.action)}"`;
+  const localAction = item.localAction === null
+    ? ""
+    : ` data-local-navigation-action="${item.localAction}"`;
   const identity = item.identity === null
     ? ""
     : ` data-product-navigation-id="${escapeHtml(item.identity)}"`;
-  return `data-product-navigation-item data-navigation-id="${escapeHtml(item.key)}"${identity} data-navigation-current="${item.current}" data-navigation-state="${escapeHtml(item.state)}"${action}`;
+  return `data-product-navigation-item data-navigation-id="${escapeHtml(item.key)}"${identity} data-navigation-current="${item.current}" data-navigation-state="${escapeHtml(item.state)}"${action}${localAction}`;
 }
 
 function descriptorLabel(
@@ -667,35 +675,69 @@ function descriptorLabel(
   escapeHtml: (value: unknown) => string,
 ): string {
   const status = descriptorStateLabel(item.state);
-  return `${escapeHtml(item.label)}${status
-    ? `<span class="navigation-status"> ${escapeHtml(status)}</span>`
+  const evidence = item.evidence
+    ? `${status ? ": " : ""}${item.evidence}`
+    : "";
+  return `${escapeHtml(item.label)}${status || evidence
+    ? `<span class="navigation-status"> ${escapeHtml(status + evidence)}</span>`
     : ""}`;
+}
+
+function descriptorAccessibleLabel(
+  item: NavigationDescriptorBarItem,
+): string {
+  const description = [
+    item.summary,
+    descriptorStateLabel(item.state),
+    item.evidence,
+  ].filter(value => value).join(". ");
+  return description ? `${item.label}: ${description}` : item.label;
 }
 
 function descriptorTab(
   item: NavigationDescriptorBarItem,
   tabStop: boolean,
   panelId: string,
+  memberChoicesPanelId: string,
   group: NavigationGroupName,
   escapeHtml: (value: unknown) => string,
 ): string {
   const label = descriptorLabel(item, escapeHtml);
-  const accessibleLabel = item.summary
-    ? `${item.label}: ${item.summary}`
-    : item.label;
-  const disabled = item.action === null && !item.current;
-  return `<button type="button" class="adaptive-navigation-tab ${group === "subject" ? "scope-seg" : "lens"} ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="tab" ${group === "subject" ? "data-subject-tab" : "data-inspector-tab"} role="tab" aria-selected="${item.current}" aria-disabled="${disabled}" tabindex="${tabStop ? "0" : "-1"}"${item.current ? ` id="active-${group}-tab"` : ""} aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}"><span${group === "inspector" ? ' class="lens-label"' : ""}>${label}</span></button>`;
+  const accessibleLabel = descriptorAccessibleLabel(item);
+  const disabled = item.action === null
+    && item.localAction === null
+    && !item.current;
+  const controls = item.localAction === "choose-member"
+    ? memberChoicesPanelId
+    : panelId;
+  const current = group === "subject" && item.current
+    ? ' aria-current="page"'
+    : "";
+  return `<button type="button" class="adaptive-navigation-tab ${group === "subject" ? "scope-seg" : "lens"} ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="tab" ${group === "subject" ? "data-subject-tab" : "data-inspector-tab"} role="tab" aria-selected="${item.current}" aria-disabled="${disabled}" tabindex="${tabStop ? "0" : "-1"}"${item.current ? ` id="active-${group}-tab"` : ""}${current} aria-controls="${escapeHtml(controls)}" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}"><span${group === "inspector" ? ' class="lens-label"' : ""}>${label}</span></button>`;
 }
 
 function descriptorMenuItem(
   item: NavigationDescriptorBarItem,
+  memberChoicesPanelId: string,
+  group: NavigationGroupName,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const accessibleLabel = item.summary
-    ? `${item.label}: ${item.summary}`
-    : item.label;
-  const disabled = item.action === null && !item.current;
-  return `<button type="button" class="adaptive-navigation-menu-item ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="menuitem" role="menuitemradio" aria-checked="${item.current}" aria-disabled="${disabled}" tabindex="-1" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}">${descriptorLabel(item, escapeHtml)}</button>`;
+  const accessibleLabel = descriptorAccessibleLabel(item);
+  const selectionRequired = item.localAction === "choose-member";
+  const disabled = item.action === null
+    && !selectionRequired
+    && !item.current;
+  const role = selectionRequired ? "menuitem" : "menuitemradio";
+  const checked = selectionRequired
+    ? ""
+    : ` aria-checked="${item.current}"`;
+  const controls = selectionRequired
+    ? ` aria-controls="${escapeHtml(memberChoicesPanelId)}"`
+    : "";
+  const current = group === "subject" && item.current
+    ? ' aria-current="page"'
+    : "";
+  return `<button type="button" class="adaptive-navigation-menu-item ${item.current ? "active" : ""}" ${descriptorAttributes(item, escapeHtml)} data-navigation-item="menuitem" role="${role}"${checked}${current} aria-disabled="${disabled}"${controls} tabindex="-1" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}">${descriptorLabel(item, escapeHtml)}</button>`;
 }
 
 function navigationGroup(options: {
@@ -768,6 +810,7 @@ export function renderNavigationDescriptorBar(
     inspectors,
     subjectPanelId = "subject-panel",
     inspectorPanelId = "inspector-panel",
+    memberChoicesPanelId = "content-navigation-pane",
     escapeHtml,
   } = options;
   const renderGroup = (
@@ -791,10 +834,15 @@ export function renderNavigationDescriptorBar(
           item,
           item.key === fallback.key,
           panelId,
+          memberChoicesPanelId,
           name,
           escapeHtml)).join(""),
       menuHtml: items.map(item =>
-        descriptorMenuItem(item, escapeHtml)).join(""),
+        descriptorMenuItem(
+          item,
+          memberChoicesPanelId,
+          name,
+          escapeHtml)).join(""),
       escapeHtml,
     });
   };
