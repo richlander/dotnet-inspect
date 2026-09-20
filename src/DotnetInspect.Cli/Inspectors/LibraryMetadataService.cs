@@ -2492,9 +2492,13 @@ internal static class LibraryMetadataService
             .. FilterAndOrderTriageOpportunities(
                 available.Opportunities
                     .Concat(available.AllocationFanoutOpportunities)
-                    .Where(opportunity => IncludePerformanceOpportunity(
-                        opportunity,
-                        available.GeneratedFrameworkTypes)),
+                    .Where(opportunity =>
+                        opportunity.Shape
+                            == Analysis.AnalysisFindings
+                                .StringMaterializationShape
+                        || IncludePerformanceOpportunity(
+                            opportunity,
+                            available.GeneratedFrameworkTypes)),
                 options),
         ];
 

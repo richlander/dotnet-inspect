@@ -2592,6 +2592,7 @@ public partial class SectionPipelineTests
             SectionNames.PerformanceBoxing,
             SectionNames.PerformanceClosures,
             SectionNames.PerformanceEnumerators,
+            SectionNames.PerformanceStrings,
             SectionNames.PerformanceLoops,
             SectionNames.PerformanceOther,
         ];
