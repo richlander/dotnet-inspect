@@ -144,13 +144,26 @@ public static class OutputFormatResolver
     /// Markdown and JSON can represent multi-section documents; table/TSV/JSONL are one table at a time.
     /// </summary>
     public static bool ValidateSingleSectionForTabular(bool tabularExplicitlySet, IReadOnlyCollection<string>? includeSections)
+        => ValidateSingleSectionForTabular(
+            tabularExplicitlySet,
+            includeSections,
+            DotnetInspect.Cli.Sections.PerformanceKinds
+                .AllShareCommonView);
+
+    /// <summary>
+    /// Validates explicit table/TSV/JSONL cardinality using the command owner's
+    /// declared homogeneous-row-family capability.
+    /// </summary>
+    public static bool ValidateSingleSectionForTabular(
+        bool tabularExplicitlySet,
+        IReadOnlyCollection<string>? includeSections,
+        Func<IReadOnlyCollection<string>, bool>
+            supportsMultiSectionTabular)
     {
         if (!tabularExplicitlySet || includeSections is not { Count: > 1 })
             return true;
 
-        // Sections that share a single row view (currently the @Performance kind sections) can be
-        // rendered as one concatenated tabular table, so multi-section tabular is allowed for them.
-        if (DotnetInspect.Cli.Sections.PerformanceKinds.AllShareCommonView(includeSections))
+        if (supportsMultiSectionTabular(includeSections))
             return true;
 
         CommandError.Write($"Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
