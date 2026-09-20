@@ -14,8 +14,11 @@ public static class InstalledPlatformTargetDiscovery
         ArgumentNullException.ThrowIfNull(adapter);
         return new(
             adapter.Capabilities.TargetDiscovery,
-            request => ValueTask.FromResult(
-                PrepareAttempt(adapter.DiscoverTargets(request))));
+            (request, remainingWork) => ValueTask.FromResult(
+                PrepareAttempt(
+                    adapter.DiscoverTargets(
+                        request,
+                        remainingWork))));
     }
 
     public static PlatformTargetDiscoveryAttempt PrepareAttempt(

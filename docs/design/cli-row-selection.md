@@ -23,8 +23,8 @@ graph edges, a single package's layout lens, `Package files`, or
 `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
-for Library, Type, or Member, plus exact Member `Callers`, have semantic `-n`
-adoption. Their supported Window and direction capabilities remain
+for Library, Type, or Member, plus exact Member `Calls` and `Callers`, have
+semantic `-n` adoption. Their supported Window and direction capabilities remain
 command-specific. These adopters also accept explicit rendered-line selection
 where their output format permits it. Unselected modes of a partially adopted
 command use the rendered-line fallback.
@@ -732,9 +732,31 @@ $ dotnet-inspect graph integrations \
 Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges are available.
 ```
 
-`graph libraries` remains outside this declaration because its selected
-sections are independent row sets with different schemas. It retains its
-legacy `--rows` contract and uses the rendered-line fallback for `-n`.
+The default `graph libraries` call-site view and exact
+`-S "Call Sites"` selection declare one semantic row per complete
+`AssemblyPairCallUseOccurrence` in the owner-issued query order. Selection
+runs after both local libraries resolve, bidirectional pair inspection
+completes, and an optional Direct Use Cluster narrows the occurrence vector.
+Count, Markdown, plaintext, table, TSV, JSONL, and JSON then consume the same
+selected physical call-site identities. Retained incomplete-evidence
+diagnostics remain visible and preserve their nonzero exit.
+
+```console
+$ dotnet-inspect graph libraries \
+    --library ./Consumer.dll \
+    --library ./Provider.dll \
+    -n 1 --tail --jsonl
+```
+
+What to notice: the final physical call site is selected before JSONL
+lowering. Strict Window failure withholds the complete command output, while
+explicit `--lines` continues to select rendered text.
+
+Bare `-S`, summary sections, Direct Use Clusters, Public Root Paths, wildcard
+or category selection, and every multi-section view remain outside this
+declaration because they expose independent row sets with different schemas.
+They retain the legacy `--rows` contract and use rendered-line fallback for
+bare `-n`.
 
 ## Type catalog adoption
 
@@ -1062,6 +1084,52 @@ Type-catalog and projected Member Facts adoptions retain their existing
 activation rules; all other neighboring surfaces use their existing row
 contracts or rendered-line fallback.
 
+## Member Calls adoption
+
+An exact `member -S Calls` request declares one semantic row per direct
+call-site occurrence in the completed `CallSiteRow` vector. The request retains
+Member's existing requirement for one selected target overload. Direct-call
+analysis completes for that method and its generated evidence methods before
+selection. Repeated calls to the same target remain distinct occurrences, and
+the completed vector retains its existing IL-offset order.
+
+```console
+$ dotnet-inspect member JsonSerializer --package System.Text.Json \
+    Serialize:1 -S Calls -n 1 --tail --json
+{
+  "calls": [
+    {
+      "il_offset": "IL_000A",
+      "opcode": "call",
+      "call_kind": "direct",
+      "callee": "System.Text.Json.JsonSerializer.WriteString<TValue>(ref TValue, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>)",
+      "operand_token": "0x2B00005E",
+      "return_address": "IL_000F"
+    }
+  ]
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, structured JSON, and Count consume
+the same selected call-site occurrences. Exact Calls JSON lowers the section
+row model rather than returning the surrounding Member document. Evidence
+Method remains companion evidence for rows contributed by generated bodies;
+semantic selection does not reduce analysis work.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Structured
+JSON rejects rendered-line selection before source resolution. One unavailable
+strict Window withholds every output shape:
+
+```console
+$ dotnet-inspect member Widget --library ./app.dll \
+    -m Run -S Calls --rows 4..4 --json
+Error: Member Calls row selection stage 1 requires call row 4, but only 3 call rows are available.
+```
+
+`Callers`, `Call Graph`, `@Calls`, mixed section selections, discovery, query
+help, and Calls included only by verbosity remain outside this declaration.
+They retain their current row contracts or rendered-line fallback.
+
 ## Member Callers adoption
 
 An exact `member -S Callers` request declares one semantic row per deduplicated
@@ -1369,7 +1437,8 @@ The Integration graph adoption is enforced by:
 | --- | --- |
 | `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
 | `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
-| `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, `LibrariesCommand_RetainsLegacyWindowValidation`, `LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation; `graph libraries` remains outside the declaration, infers Lines for `-n`, and retains legacy Window validation. |
+| `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation. |
+| `InspectionGraphCommandTests.LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `LibrariesCommand_StrictUnavailableWindowWithholdsOutput`, `LibrariesCommand_RejectsLegacyCountRows`, `LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `LibrariesCommand_SummarySectionRetainsRenderedLineFallback` | The default and exact Call Sites views select the same physical occurrence before every row lowering, reject legacy numeric `--rows`, withhold output for unavailable strict Window, and permit semantic Head with complete JSON; independent summary and multi-section views remain on rendered-line fallback. |
 
 The Type catalog adoption is enforced by:
 
@@ -1434,6 +1503,14 @@ The Member Callers adoption is enforced by:
 | `MemberCallersSectionTests.CallersSection_SemanticTailSelectsTheSameCallSiteAcrossFormats` and `CallersSection_ScansAuthorizedScopesBeforeSemanticSelection` | The completed, deduplicated, deterministically ordered caller-site vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; authorized external caller scopes finish before selection, structured JSON exposes the selected Callers rows instead of the surrounding Member document, and a selected subset preserves Source when the completed vector contained rows from multiple source assemblies. |
 | `MemberCallersSectionTests.CallersSection_UnavailableWindowWithholdsOutput` and `CallersSection_ExplicitLinesRejectJsonBeforeAcquisition` | One unavailable strict Window emits no partial payload, while explicit rendered-line selection under structured JSON fails before source resolution. |
 | `MemberCallersSectionTests.CallersSection_MultiSectionSelectionRetainsRenderedLineFallback` | Mixed Callers/Calls and `@Calls` selection remain outside the declaration and infer rendered-line selection for bare `-n`. |
+
+The Member Calls adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `MemberCallsSectionTests.CallsSection_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `CallsSection_GeneratedEvidenceCompletesBeforeSemanticSelection`, and `CallsSection_EmptyStructuredJsonPreservesRowArray` | The completed IL-offset-ordered direct-call vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; generated evidence methods finish before selection, exact Calls JSON exposes the selected Calls rows instead of the surrounding Member document, an empty selected vector remains an array, and repeated direct calls remain distinct occurrences. |
+| `MemberCallsSectionTests.CallsSection_UnavailableWindowWithholdsOutput` and `CallsSection_ExplicitLinesRejectJsonBeforeAcquisition` | One unavailable strict Window emits no partial payload, while explicit rendered-line selection under structured JSON fails before source resolution. |
+| `MemberCallsSectionTests.CallsSection_NeighboringSelectionsRetainRenderedLineFallback` and `CallsSection_SemanticSelectionRetainsSingleOverloadRequirement` | Mixed Calls/Callers and `@Calls` selection remain outside the declaration, while semantic selection retains Member's existing one-selected-overload boundary. |
 
 The Project document row adoption is enforced by:
 

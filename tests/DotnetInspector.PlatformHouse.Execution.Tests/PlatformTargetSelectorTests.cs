@@ -81,6 +81,50 @@ public sealed class PlatformTargetSelectorTests
     }
 
     [Fact]
+    public async Task FallbackReceivesResidualDiscoveryAllowance()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package");
+        PlatformHouseRequest request = Request(
+            [installed],
+            [package],
+            maxSourceOperations: 3);
+        PlatformHouseWorkBudget? observed = null;
+        PlatformFamilyTarget fallbackTarget =
+            Target("net10.0", "10.0.12");
+        var fallback = new PlatformTargetDiscoverySource(
+            package,
+            (current, remainingWork) =>
+            {
+                observed = remainingWork;
+                return SuccessAttempt(
+                    current,
+                    package,
+                    fallbackTarget);
+            });
+
+        PlatformHouseOutcome<TestValue> outcome =
+            await PlatformHouseTargetSelector.ExecuteAsync<TestValue>(
+                request,
+                [
+                    Success(installed, Target("net9.0", "9.0.11")),
+                    fallback,
+                ],
+                Continue(request));
+
+        Assert.Equal(
+            fallbackTarget,
+            outcome.Receipt.TargetSettlement.SettledTarget);
+        Assert.NotNull(observed);
+        Assert.Equal(2, observed.MaxSourceOperations);
+        Assert.Equal(31, observed.MaxTargetCandidates);
+        Assert.True(
+            observed.MaxDuration < request.Work.MaxDuration);
+    }
+
+    [Fact]
     public async Task PreferredAbsencePermitsFallback()
     {
         PlatformSourceCapabilityIdentity installed =
@@ -392,7 +436,7 @@ public sealed class PlatformTargetSelectorTests
         PlatformFamilyTarget target = Target("net10.0", "10.0.1");
         var source = new PlatformTargetDiscoverySource(
             installed,
-            _ =>
+            (_, _) =>
             {
                 var contribution =
                     new PlatformSourceContribution.TargetDiscovery(
@@ -530,7 +574,7 @@ public sealed class PlatformTargetSelectorTests
             cancellation: cancellation);
         var source = new PlatformTargetDiscoverySource(
             installed,
-            async current =>
+            async (current, _) =>
             {
                 cancellation.Cancel();
                 await Task.Yield();
@@ -579,7 +623,7 @@ public sealed class PlatformTargetSelectorTests
         params PlatformFamilyTarget[] targets) =>
         new(
             capability,
-            request =>
+            (request, _) =>
             {
                 observed?.Invoke();
                 var contribution =
@@ -601,6 +645,30 @@ public sealed class PlatformTargetSelectorTests
                 return ValueTask.FromResult(attempt);
             });
 
+    static ValueTask<PlatformTargetDiscoveryAttempt> SuccessAttempt(
+        PlatformHouseRequest request,
+        PlatformSourceCapabilityIdentity capability,
+        params PlatformFamilyTarget[] targets)
+    {
+        var contribution =
+            new PlatformSourceContribution.TargetDiscovery(
+                capability,
+                request.Snapshot,
+                PlatformSourceGeneration.Create(
+                    capability.Name + "-generation"),
+                targets);
+        PlatformTargetDiscoveryAttempt attempt =
+            new PlatformTargetDiscoveryAttempt.Succeeded(
+                contribution,
+                targets.Select(
+                    target =>
+                        new PlatformTargetDiscoveryCandidate<
+                            TestAssociation>(
+                                target,
+                                new(target.Version.Value))));
+        return ValueTask.FromResult(attempt);
+    }
+
     static PlatformTargetDiscoverySource Terminal(
         PlatformSourceCapabilityIdentity capability,
         PlatformSourceContributionKind kind,
@@ -608,7 +676,7 @@ public sealed class PlatformTargetSelectorTests
             PlatformSourceUnavailabilityKind.Unavailable) =>
         new(
             capability,
-            request =>
+            (request, _) =>
             {
                 PlatformSourceGeneration generation =
                     PlatformSourceGeneration.Create(
