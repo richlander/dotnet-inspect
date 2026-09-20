@@ -128,6 +128,14 @@ internal static class QueryDiscoveryCommand
                 return true;
             }
         }
+        if (options.IsMermaidOutput(result))
+        {
+            CommandError.Write(
+                "--format mermaid cannot be combined with query discovery; "
+                + "it does not execute a data query.");
+            exitCode = 1;
+            return true;
+        }
         if (command == "package query")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>

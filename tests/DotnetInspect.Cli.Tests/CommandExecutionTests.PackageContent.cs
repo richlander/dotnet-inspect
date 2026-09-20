@@ -2152,6 +2152,101 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("table", "Package Info", false)]
+    [InlineData("tsv", "Package Info", false)]
+    [InlineData("tsv", "Package Info", true)]
+    [InlineData("jsonl", "Package Info", false)]
+    [InlineData("jsonl", "Package files", false)]
+    [InlineData("json", "Package Info", false)]
+    public async Task PackageFormatDestinations_MatchStdout(
+        string format,
+        string section,
+        bool projectFields)
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var outputPath =
+                Path.Combine(tempDir, $"package-{format}.txt");
+            string[] arguments =
+            [
+                "package",
+                packagePath,
+                "-S",
+                section,
+                $"--format={format}",
+                "--tips",
+                "q",
+            ];
+            if (projectFields)
+                arguments = [.. arguments, "--fields", "Version"];
+            var baseline = await RunAppAsync(arguments);
+            var redirected = await RunAppAsync(
+                [.. arguments, "--output", outputPath]);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Empty(baseline.Error);
+            Assert.Empty(redirected.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("table")]
+    [InlineData("jsonl")]
+    [InlineData("json")]
+    public async Task MultiPackageFormatDestinations_MatchStdout(
+        string format)
+    {
+        var (firstPackage, firstTempDir) = CreateLocalReadmePackage(
+            "Test.Multi.Destination.First",
+            "README.md",
+            "first");
+        var (secondPackage, secondTempDir) = CreateLocalReadmePackage(
+            "Test.Multi.Destination.Second",
+            "README.md",
+            "second");
+        try
+        {
+            var outputPath = Path.Combine(
+                firstTempDir,
+                $"multi-package-{format}.txt");
+            string[] arguments =
+            [
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                $"--format={format}",
+                "--tips",
+                "q",
+            ];
+            var baseline = await RunAppAsync(arguments);
+            var redirected = await RunAppAsync(
+                [.. arguments, "--output", outputPath]);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Empty(baseline.Error);
+            Assert.Empty(redirected.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task PackageProjectionDestinations_ApplyHeadAndTailToRenderedLines()
     {

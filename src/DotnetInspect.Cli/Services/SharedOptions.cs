@@ -142,6 +142,7 @@ public class SharedOptions
             Format,
             StringComparer.OrdinalIgnoreCase,
             FormatValues);
+        CliOptionValueValidation.RequireValueForEveryOccurrence(Format);
         CliOptionValueValidation.AcceptOnlyFromAmong(
             Verbosity,
             StringComparer.OrdinalIgnoreCase,

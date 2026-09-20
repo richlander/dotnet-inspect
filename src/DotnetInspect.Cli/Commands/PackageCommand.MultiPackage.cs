@@ -111,16 +111,27 @@ public partial class PackageCommand
             if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
 
-            Console.WriteLine(JsonSerializer.Serialize(
-                results.Select(static result =>
-                    PackageInspectionJson.Create(result)).ToArray(),
-                PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => output.WriteLine(
+                    JsonSerializer.Serialize(
+                        results.Select(static result =>
+                            PackageInspectionJson.Create(result)).ToArray(),
+                        PackageInspectionJsonContext.Default.PackageInspectionJsonArray)));
             return PackageIntegrityExitCode([.. results]);
         }
 
         try
         {
-            WriteMultiPackageTable(results, rowSection!, options);
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => WriteMultiPackageTable(
+                    results,
+                    rowSection!,
+                    options,
+                    output));
             return PackageIntegrityExitCode([.. results]);
         }
         catch (InvalidOperationException ex) when (

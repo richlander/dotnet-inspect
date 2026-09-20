@@ -1338,22 +1338,42 @@ public partial class PackageCommand
         return builder.ToString();
     }
 
-    private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
+    private static void WriteMultiPackageTable(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        InspectionOptions options,
+        TextWriter output)
     {
         if (IsPackageFileSection(section))
         {
-            WriteMultiPackageFilesTable(results, section, options);
+            WriteMultiPackageFilesTable(
+                results,
+                section,
+                options,
+                output);
             return;
         }
 
-        WriteMultiPackageFieldTable(results, section, options);
+        WriteMultiPackageFieldTable(
+            results,
+            section,
+            options,
+            output);
     }
 
-    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
+    private static void WriteMultiPackageFilesTable(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        InspectionOptions options,
+        TextWriter output)
     {
         if (options.Jsonl)
         {
-            WriteMultiPackageFilesJsonl(results, section, options);
+            WriteMultiPackageFilesJsonl(
+                results,
+                section,
+                options,
+                output);
             return;
         }
 
@@ -1368,7 +1388,7 @@ public partial class PackageCommand
             .ToArray();
         var windowedRows = RowWindow.Apply(options.Rows, rows).ToArray();
 
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
         {
             var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
                 options.Columns,
@@ -1389,7 +1409,8 @@ public partial class PackageCommand
     private static void WritePackageFilesJsonl(
         InspectionResult result,
         string section,
-        RowWindow? rows)
+        RowWindow? rows,
+        TextWriter output)
     {
         var text = new PackageInspectionText(result);
         var files = GetPackageFileTextRows(result, text, section);
@@ -1399,18 +1420,28 @@ public partial class PackageCommand
         foreach (var file in RowWindow.Apply(rows, files))
         {
             var row = new PackageFileJsonRow(file.Path, file.Size);
-            Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
+            output.WriteLine(
+                JsonSerializer.Serialize(
+                    row,
+                    PackageFileJsonRowContext.Default.PackageFileJsonRow));
         }
     }
 
-    private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
+    private static void WriteMultiPackageFilesJsonl(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        InspectionOptions options,
+        TextWriter output)
     {
         var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty);
         var selectedColumns = ResolveMultiPackageFileColumns(
             section,
             options.Columns);
         foreach (var row in RowWindow.Apply(options.Rows, rows))
-            WriteMultiPackageFileJsonRow(row, selectedColumns);
+            WriteMultiPackageFileJsonRow(
+                row,
+                selectedColumns,
+                output);
     }
 
     private static List<PackageFileMultiJsonRow> BuildMultiPackageFileRows(
@@ -1465,7 +1496,8 @@ public partial class PackageCommand
 
     private static void WriteMultiPackageFileJsonRow(
         PackageFileMultiJsonRow row,
-        IReadOnlyList<string> columns)
+        IReadOnlyList<string> columns,
+        TextWriter output)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
@@ -1494,7 +1526,7 @@ public partial class PackageCommand
             }
             writer.WriteEndObject();
         }
-        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
+        output.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     private static int PrintPackageBareSelection(
@@ -1688,7 +1720,8 @@ public partial class PackageCommand
     private static void WriteMultiPackageFieldTable(
         IReadOnlyList<InspectionResult> results,
         string section,
-        InspectionOptions options)
+        InspectionOptions options,
+        TextWriter output)
     {
         var rows = BuildMultiPackageFieldRows(
             results,
@@ -1715,7 +1748,7 @@ public partial class PackageCommand
             section,
             options.Fields,
             rows.Select(row => row[1]));
-        Console.Out.Write(
+        output.Write(
             OutputFormatter.LimitRenderedTableRows(
                 rendered,
                 options.Rows,

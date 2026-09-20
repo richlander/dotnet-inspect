@@ -1506,12 +1506,6 @@ public partial class PackageCommand
             }
             if (options.Tabular)
             {
-                if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
-                {
-                    WritePackageFilesJsonl(result, fileSection, options.Rows);
-                    return PackageIntegrityExitCode(result);
-                }
-
                 // Multi-section check: narrow to main section or error if user explicitly selected multiple sections
                 var diagnostic = OutputFormatter.CheckMultiSection(result, options, pipeline);
                 if (diagnostic != null)
@@ -1520,18 +1514,31 @@ public partial class PackageCommand
                     options = options with { IncludeSections = new HashSet<string> { PackageSections.PackageInfo } };
                 }
 
+                string? projectedOutput = null;
                 if (hasProjection)
                 {
-                    // Capture output for projection diagnostics
-                    var sw = new StringWriter { NewLine = "\n" };
-                    var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
-                    writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
+                    var writerOpts =
+                        OutputFormatter.BuildWriterOptions(
+                            result,
+                            options,
+                            pipeline);
+                    writerOpts.RowWindow =
+                        RowWindow.ToMarkout(options.Rows);
                     var view = new InspectionResultView(result);
-                    var rendered = OutputFormatter.RenderTable(!options.NoHeader,
+                    projectedOutput = OutputFormatter.RenderTable(
+                        !options.NoHeader,
                         (writer, formatter) =>
                         {
-                            OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                            MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
+                            OutputFormatter.ConfigureTableWriterOptions(
+                                writerOpts,
+                                options.Tsv,
+                                options.Jsonl);
+                            MarkoutSerializer.Serialize(
+                                view,
+                                writer,
+                                formatter,
+                                InspectionContext.Default,
+                                writerOpts);
                         });
                     var manifest = RenderManifestFormatter.Capture(
                         view,
@@ -1542,7 +1549,8 @@ public partial class PackageCommand
                     if (options.Columns is { Length: > 0 }
                         && options.Fields is { Length: > 0 })
                     {
-                        var fieldOptions = options with { Columns = null };
+                        var fieldOptions =
+                            options with { Columns = null };
                         MarkoutWriterOptions fieldWriterOptions =
                             OutputFormatter.BuildWriterOptions(
                                 result,
@@ -1573,12 +1581,40 @@ public partial class PackageCommand
                         itemKind,
                         writerOpts.IncludeSections,
                         fieldSectionsAsColumns: true);
-                    Console.Out.Write(rendered);
                 }
-                else
-                {
-                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
-                }
+
+                OutputDestination.Write(
+                    options.OutputPath,
+                    options.Rows,
+                    output =>
+                    {
+                        if (options.Jsonl
+                            && TryGetSingleFileSection(
+                                options,
+                                out var fileSection)
+                            && !hasProjection)
+                        {
+                            WritePackageFilesJsonl(
+                                result,
+                                fileSection,
+                                options.Rows,
+                                output);
+                            return;
+                        }
+
+                        if (projectedOutput is not null)
+                        {
+                            output.Write(projectedOutput);
+                            return;
+                        }
+
+                        OutputFormatter.WritePackageTable(
+                            output,
+                            result,
+                            options,
+                            pipeline,
+                            showHeader: !options.NoHeader);
+                    });
             }
             else
             {
@@ -1627,15 +1663,13 @@ public partial class PackageCommand
                         writerOptions.IncludeSections,
                         fieldSectionsAsColumns: true);
                 }
-                bool writesFile = !string.IsNullOrEmpty(options.OutputPath);
                 OutputDestination.Write(
                     options.OutputPath,
                     options.Rows,
                     writer =>
                     {
                         writer.Write(output);
-                        if (!writesFile)
-                            writer.WriteLine();
+                        writer.WriteLine();
                     });
             }
 

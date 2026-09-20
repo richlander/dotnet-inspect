@@ -43,6 +43,28 @@ public class QueryDiscoveryTests
         }
     }
 
+    [Fact]
+    public async Task QueryDiscovery_RejectsStandaloneMermaidBeforeAcquisition()
+    {
+        var result = await Run(
+            "library",
+            "--package",
+            "/missing/query-discovery.nupkg",
+            "-Q",
+            "--format=mermaid");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--format mermaid cannot be combined with query discovery",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "/missing/query-discovery.nupkg",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("library", "Performance: Boxing")]
     [InlineData("type", "Performance Triage")]

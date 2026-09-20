@@ -347,6 +347,7 @@ public partial class OutputFormatterTests
 
         var (jsonl, error) = await ConsoleCapture.RunAsync(() =>
             OutputFormatter.WritePackageTable(
+                Console.Out,
                 result,
                 options with
                 {
@@ -409,6 +410,7 @@ public partial class OutputFormatterTests
 
         var (jsonl, error) = await ConsoleCapture.RunAsync(() =>
             OutputFormatter.WritePackageTable(
+                Console.Out,
                 result,
                 options with { Jsonl = true, Tabular = true },
                 pipeline,

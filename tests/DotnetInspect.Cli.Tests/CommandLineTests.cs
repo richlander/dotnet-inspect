@@ -689,6 +689,26 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("cache", "--format=json", "--format")]
+    [InlineData("cache", "--format=json", "--format=")]
+    [InlineData("demo", "--format", "list")]
+    public async Task Format_EveryOccurrenceRequiresAnOwnedAcceptedValue(
+        params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed =
+            CommandLineBuilder.PreprocessArgs(arguments, root);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--format", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("--json")]
     [InlineData("--markdown")]
     [InlineData("--plaintext")]

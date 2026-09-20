@@ -16,6 +16,8 @@ internal static class CliOptionValueValidation
         PresenceOptionsByCommand = new();
     private static readonly ConditionalWeakTable<Option, HashSet<string>>
         AcceptedValuesByOption = new();
+    private static readonly ConditionalWeakTable<Option, object>
+        RequiredValuePerOccurrenceOptions = new();
 
     public static void RegisterCapacity(Argument argument, Func<ParseResult, int> capacity) =>
         Capacities.Add(argument, capacity);
@@ -35,6 +37,9 @@ internal static class CliOptionValueValidation
             option,
             new HashSet<string>(values, comparer));
     }
+
+    public static void RequireValueForEveryOccurrence(Option option) =>
+        RequiredValuePerOccurrenceOptions.Add(option, new object());
 
     public static int? FindFirstRejectedValuePosition(
         OptionResult optionResult,
@@ -97,6 +102,12 @@ internal static class CliOptionValueValidation
         ParsedArgument[] mapped = MapArguments(parseResult, arguments);
         IReadOnlyDictionary<Token, Option> optionValueOwners =
             GetOptionValueOwners(parseResult);
+        CliOptionValueFailure? requiredValueFailure =
+            FindRequiredValueFailure(
+                parseResult,
+                mapped,
+                optionValueOwners,
+                argumentPositions);
         var scopes = new List<CommandResult>();
         for (CommandResult? scope = parseResult.CommandResult;
             scope is not null;
@@ -153,9 +164,11 @@ internal static class CliOptionValueValidation
                     {
                         if (ReferenceEquals(mapped[index].AttachedOption, token))
                         {
-                            return new(
-                                DoesNotAcceptValue(option.Name),
-                                argumentPositions?[index] ?? index);
+                            return Earlier(
+                                requiredValueFailure,
+                                new(
+                                    DoesNotAcceptValue(option.Name),
+                                    argumentPositions?[index] ?? index));
                         }
                         flag = option;
                     }
@@ -170,9 +183,11 @@ internal static class CliOptionValueValidation
                             : argument.Arity.MaximumNumberOfValues));
                     if (count >= capacity && precedingFlag is not null)
                     {
-                        return new(
-                            DoesNotAcceptValue(precedingFlag.Name),
-                            argumentPositions?[index] ?? index);
+                        return Earlier(
+                            requiredValueFailure,
+                            new(
+                                DoesNotAcceptValue(precedingFlag.Name),
+                                argumentPositions?[index] ?? index));
                     }
                     positionalCounts[owner] = count + 1;
                 }
@@ -181,6 +196,88 @@ internal static class CliOptionValueValidation
             precedingFlag = flag;
         }
 
+        return requiredValueFailure;
+    }
+
+    private static CliOptionValueFailure? FindRequiredValueFailure(
+        ParseResult parseResult,
+        IReadOnlyList<ParsedArgument> mapped,
+        IReadOnlyDictionary<Token, Option> optionValueOwners,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        for (int index = 0; index < mapped.Count; index++)
+        {
+            foreach (Token token in mapped[index].Tokens.Where(
+                static token => token.Type == TokenType.Option))
+            {
+                Option? option = FindOption(
+                    mapped[index].Scope,
+                    token.Value);
+                if (option is null
+                    || !RequiredValuePerOccurrenceOptions.TryGetValue(
+                        option,
+                        out _))
+                {
+                    continue;
+                }
+
+                (string Value, int Position)? ownedValue =
+                    FindOwnedValue(
+                        mapped[index],
+                        option,
+                        optionValueOwners,
+                        argumentPositions?[index] ?? index)
+                    ?? (index + 1 < mapped.Count
+                        ? FindOwnedValue(
+                            mapped[index + 1],
+                            option,
+                            optionValueOwners,
+                            argumentPositions?[index + 1] ?? index + 1)
+                        : null);
+                if (ownedValue is null)
+                {
+                    return new(
+                        $"Required argument missing for option: '{option.Name}'.",
+                        argumentPositions?[index] ?? index);
+                }
+
+                var (value, valuePosition) = ownedValue.Value;
+                if (AcceptedValuesByOption.TryGetValue(
+                        option,
+                        out HashSet<string>? acceptedValues)
+                    && !acceptedValues.Contains(value)
+                    && parseResult.Errors.Count == 0)
+                {
+                    return new(
+                        $"Argument '{value}' is not "
+                        + $"recognized for option '{option.Name}'.",
+                        valuePosition);
+                }
+            }
+        }
+
         return null;
     }
+
+    private static (string Value, int Position)? FindOwnedValue(
+        ParsedArgument argument,
+        Option option,
+        IReadOnlyDictionary<Token, Option> optionValueOwners,
+        int position)
+    {
+        Token? value = argument.Tokens.FirstOrDefault(token =>
+            token.Type == TokenType.Argument
+            && optionValueOwners.TryGetValue(
+                token,
+                out Option? owner)
+            && ReferenceEquals(owner, option));
+        return value is null ? null : (value.Value, position);
+    }
+
+    private static CliOptionValueFailure Earlier(
+        CliOptionValueFailure? first,
+        CliOptionValueFailure second) =>
+        first is not null && first.Position <= second.Position
+            ? first
+            : second;
 }
