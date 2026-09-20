@@ -490,6 +490,72 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task DeclaredToolPackageInfoUsesAdmittedToolSlice()
+    {
+        var store = new InMemoryPackageStore();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = Archive(
+            ($"lib/{Framework}/{SelectedPackage}.dll", assembly),
+            ($"tools/{Framework}/any/Alpha.dll", new byte[11]),
+            ($"tools/{Framework}/any/Beta.dll", new byte[17]),
+            (
+                $"{SelectedPackage}.nuspec",
+                Nuspec(SelectedPackage, declaredTool: true)));
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            archive);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            Select = [PackageSections.PackageInfo],
+            SelectExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("| Type | Tool |", result.Output);
+        Assert.Contains(
+            $"| Selected TFM | {Framework} |",
+            result.Output,
+            StringComparison.Ordinal);
+        string folders = Assert.Single(
+            result.Output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries),
+            static line => line.StartsWith(
+                "| Selected-TFM Folders |",
+                StringComparison.Ordinal));
+        Assert.Contains("tools", folders, StringComparison.Ordinal);
+        Assert.Contains(
+            "| Selected-TFM Size | 28 B |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Selected-TFM Library Count | 2 |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task LayoutShareRefusalPreservesLayoutOutput()
     {
         var store = await StoreAsync(SelectedPackage);
@@ -1153,7 +1219,8 @@ public sealed class ExactPackageWorkspaceRouteTests
 
     static byte[] Nuspec(
         string packageId,
-        string? dependencyPackage = null) =>
+        string? dependencyPackage = null,
+        bool declaredTool = false) =>
         System.Text.Encoding.UTF8.GetBytes(
             """
             <?xml version="1.0"?>
@@ -1163,6 +1230,7 @@ public sealed class ExactPackageWorkspaceRouteTests
                 <version>1.0.0</version>
                 <authors>dotnet-inspect tests</authors>
                 <description>Workspace Package route fixture.</description>
+                PACKAGE_TYPES
                 DEPENDENCIES
               </metadata>
             </package>
@@ -1181,6 +1249,16 @@ public sealed class ExactPackageWorkspaceRouteTests
                         </group>
                       </dependencies>
                       """,
+                StringComparison.Ordinal)
+            .Replace(
+                "PACKAGE_TYPES",
+                declaredTool
+                    ? """
+                      <packageTypes>
+                        <packageType name="DotnetTool" />
+                      </packageTypes>
+                      """
+                    : "",
                 StringComparison.Ordinal));
 
     static byte[] NuspecWithDependencyGroups(

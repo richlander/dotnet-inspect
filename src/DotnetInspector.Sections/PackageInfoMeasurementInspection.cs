@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using InertText;
+using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
@@ -356,6 +357,48 @@ public static class PackageInfoMeasurementInspection
         ArgumentNullException.ThrowIfNull(root);
         PackageInfoMeasurements content = root.Root.UseContent(
             packageContent => CreateContent(root, packageContent));
+        return CreateRootEnvelope(content);
+    }
+
+    /// <summary>
+    /// Projects one already-admitted Package Root using the same declared-tool
+    /// versus compile-slice choice as ordinary Package inspection.
+    /// </summary>
+    public static InspectionEnvelope<PackageInfoMeasurements>
+        ProjectAdmittedRoot(
+            PackageRootBinding root,
+            ReadOnlyMemory<byte>? admittedPackageManifest,
+            string? requestedTargetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(
+            root.Root.PackageId,
+            root.Root.PackageVersion);
+        PackageInfoMeasurements content = root.Root.UseContent(
+            packageContent =>
+            {
+                PackageToolDeclarationEvidence? declaration =
+                    admittedPackageManifest is { } manifest
+                        ? PackageToolDeclarationEvidence.TryCreate(
+                            coordinate,
+                            packageContent,
+                            manifest)
+                        : null;
+                return declaration is null
+                    ? CreateContent(root, packageContent)
+                    : CreateContent(
+                        PackageToolSliceMeasurementProjection.Project(
+                            coordinate,
+                            packageContent,
+                            declaration,
+                            requestedTargetFramework));
+            });
+        return CreateRootEnvelope(content);
+    }
+
+    private static InspectionEnvelope<PackageInfoMeasurements>
+        CreateRootEnvelope(PackageInfoMeasurements content)
+    {
         var diagnostics = ImmutableArray.CreateBuilder<InspectionDiagnostic>();
         if (content.Detail is { } detail)
         {
