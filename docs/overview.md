@@ -61,6 +61,12 @@ substrates, and inspection producers that will extend that space.
   bounds, source batching, consumer paging, and rendering distinct while
   exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
   consumers, and other hosts.
+  [Resource Explanation](design/resource-explanation.md) owns exact,
+  shell-safe product-resource paths and a bounded host-neutral explanation
+  Document over owner-issued structural, query, and value-vocabulary
+  descriptors. It preserves typed owner identities and relationships without
+  acquiring a subject, executing a plan, parsing presentation, or moving those
+  facts into one universal catalog.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,

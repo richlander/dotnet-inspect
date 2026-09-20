@@ -455,13 +455,14 @@ associations, semantic stages, effects, terminal requirement, and
 source-delegation boundary for one request. It remains inspectable without
 executing that request.
 
-`-Q` may be a compact projection of the descriptor, and a future `explain`
-experience may compose it with structural discovery, value vocabulary, and
-output-contract catalogs. Those consumers must follow typed links rather than
-copying query metadata into `DiscoveryDocument`, parsing labels, or inferring
-semantics from rendered companion sections. Query Space does not own the
-`explain` command, resource-path grammar, discovery document, envelope
-registration, Content Kind, or schema generation.
+`-Q` may be a compact projection of the descriptor, and
+[Resource Explanation](resource-explanation.md) may compose it with structural
+discovery, value vocabulary, and output-contract catalogs. Those consumers
+must follow typed links rather than copying query metadata into
+`DiscoveryDocument`, parsing labels, or inferring semantics from rendered
+companion sections. Query Space does not own the `explain` command,
+resource-path grammar, discovery document, envelope registration, Content
+Kind, or schema generation.
 
 ## Terminal requirements
 

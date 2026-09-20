@@ -102,8 +102,8 @@ The resolved selection distinguishes the addressed resources from the row
 identities projected by compact discovery. For example, addressing one
 category retains the category identity while its compact rows are the complete
 member-section identities. This lets `-D`, tree output, temporary detailed
-output, and the future `explain` facade consume one completed value without
-re-resolving membership.
+output, and [Resource Explanation](resource-explanation.md) consume one
+completed value without re-resolving membership.
 
 Presentation still selects the resource kinds defined by its existing shape.
 In particular, a section tree projects structural `field` and `column` items;
@@ -280,9 +280,11 @@ The capability and complete-selection rules are owned by
 [output-shapes.md](output-shapes.md#structural-format-capabilities).
 
 `--details` is a temporary Library-only bridge proven by #7834. It will not
-accumulate additional implicit columns. The structural `explain` adoption
-tracked by #7814 will present Formats and later owner-issued properties from
-the same `DiscoveryDocument`, then remove `--details`.
+accumulate additional implicit columns. The
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will present
+Formats and later owner-issued properties from the same `DiscoveryDocument`,
+then remove `--details`.
 
 Section patterns and category doors are resolved against the complete
 owner-issued section vocabulary. Categories, costs, and visibility remain
