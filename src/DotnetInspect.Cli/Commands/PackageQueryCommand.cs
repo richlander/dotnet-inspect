@@ -323,7 +323,8 @@ internal static class PackageQueryCommand
                 plan,
                 contentProvider,
                 dependencyTraversalServices,
-                cancellationToken).ConfigureAwait(false);
+                nonterminalSink: null,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         PackageQueryDocument document = envelope.Content;
         PackageQuerySummary summary = document.Summary;
         if (options.EnvelopeOutput || options.IsContentJson)

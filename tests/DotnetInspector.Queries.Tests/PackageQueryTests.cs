@@ -102,6 +102,37 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteToEnvelopeExplicitNullSinkRemainsUnambiguous()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        InspectionEnvelope<PackageQueryDocument> envelope =
+            await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                null,
+                null,
+                TestContext.Current.CancellationToken);
+
+        Assert.Single(envelope.Content.Results);
+        Assert.Empty(envelope.Content.Failures);
+    }
+
+    [Fact]
     public async Task ExecuteToEnvelopeCancellationProducesNoDocument()
     {
         SearchResult[] candidates =

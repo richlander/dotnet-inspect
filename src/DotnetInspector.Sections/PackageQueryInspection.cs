@@ -45,23 +45,6 @@ public static class PackageQueryInspection
             IPackageSourceClient source,
             PackageQueryPlan plan,
             IPackageQueryContentProvider? contentProvider,
-            PackageQueryDependencyTraversalServices?
-                dependencyTraversalServices,
-            CancellationToken cancellationToken = default)
-        => await ExecuteAsync(
-            source,
-            plan,
-            contentProvider,
-            dependencyTraversalServices,
-            nonterminalSink: null,
-            cancellationToken).ConfigureAwait(false);
-
-    public static async ValueTask<
-        InspectionEnvelope<PackageQueryDocument>>
-        ExecuteAsync(
-            IPackageSourceClient source,
-            PackageQueryPlan plan,
-            IPackageQueryContentProvider? contentProvider,
             IPackageQueryNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken = default)
             => await ExecuteAsync(
