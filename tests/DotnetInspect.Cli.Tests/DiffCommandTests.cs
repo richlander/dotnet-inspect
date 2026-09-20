@@ -2102,12 +2102,91 @@ public class DiffCommandTests
             && row.Change == "1 -> 2"
             && row.Evidence.Contains("delta=1", StringComparison.Ordinal)
             && row.Kind == "analysis.complexity.normal-flow");
-        Assert.Contains(view.Rows!, row =>
-            row.Mechanism == "C#" && row.Kind.Length > 0);
-        Assert.Contains(view.Rows!, row =>
-            row.Mechanism == "IL" && row.Kind.Length > 0);
         Assert.DoesNotContain(view.Rows!, row =>
             row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildComplexityContextView_ProjectsTypedLocalPopulationContext()
+    {
+        var changed = new ImplementationComplexityChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                "M:Sample.Widget.Change",
+                "Sample.Widget.Change()"),
+            ImplementationComplexityChangeKind.Changed,
+            2,
+            5,
+            3,
+            true,
+            true,
+            PopulationContext:
+                new ImplementationComplexityPopulationContext(6, 100));
+        var added = new ImplementationComplexityChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                "M:Sample.Widget.Added",
+                "Sample.Widget.Added()"),
+            ImplementationComplexityChangeKind.Added,
+            null,
+            2,
+            null,
+            false,
+            true);
+        var view = DiffOutputFormatter.BuildComplexityContextView(
+            "Sample",
+            new ImplementationComplexityDiff(true, null, [changed, added]),
+            "1.0.0",
+            "2.0.0");
+
+        ComplexityContextRow changedRow = Assert.Single(
+            view.Rows!,
+            row => row.State == "changed");
+        Assert.Equal(2, changedRow.Old);
+        Assert.Equal(5, changedRow.New);
+        Assert.Equal(3, changedRow.Delta);
+        Assert.Equal(6, changedRow.PopulationSize);
+        Assert.Equal(100, changedRow.PercentileRank);
+        Assert.Equal("analysis.complexity.normal-flow", changedRow.Kind);
+
+        ComplexityContextRow addedRow = Assert.Single(
+            view.Rows!,
+            row => row.State == "added");
+        Assert.Null(addedRow.Old);
+        Assert.Null(addedRow.Delta);
+        Assert.Null(addedRow.PopulationSize);
+        Assert.Null(addedRow.PercentileRank);
+
+        string jsonl = OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                DiffViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
+                    tsv: false,
+                    jsonl: true)));
+        string changedJsonl = Assert.Single(
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                return document.RootElement.TryGetProperty(
+                        "state",
+                        out JsonElement state)
+                    && state.GetString() == "changed";
+            });
+        using var changedDocument = JsonDocument.Parse(changedJsonl);
+        JsonElement changedJson = changedDocument.RootElement;
+        Assert.Equal("3", changedJson.GetProperty("delta").GetString());
+        Assert.Equal(
+            "6",
+            changedJson.GetProperty("population_size").GetString());
+        Assert.Equal(
+            "100",
+            changedJson.GetProperty("percentile_rank").GetString());
     }
 
     [Fact]

@@ -283,8 +283,8 @@ work can build directly on this paired evidence instead of re-deriving
 correspondence. The explicit CLI Implementation Diff section renders only
 non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes; broad PDB-source enrichment preserves an already
-computed complexity lane rather than resetting it to unavailable. Ranking,
-clustering, and quality shades remain later consumers.
+computed complexity lane rather than resetting it to unavailable. Clustering
+and quality shades remain later consumers.
 
 Every change with a non-null `Delta` also carries an
 `ImplementationComplexityPopulationContext` (`PopulationSize`,
@@ -300,8 +300,23 @@ percentile means a greater proportion of the population has an absolute delta
 less than or equal to this change's own. It does not by itself identify an
 unusual change: when all absolute deltas are equal, every change has a
 percentile of 100. A small `PopulationSize` (for example 1-2) also limits the
-context the value provides. No CLI rendering consumes this field yet - it is
-Research-API evidentiary plumbing for later comparison work.
+context the value provides.
+
+The exact-name `Complexity Context` section projects non-unchanged complexity
+observations as a focused table with nullable numeric `Old`, `New`, `Delta`,
+`Population Size`, and `Percentile Rank` fields. Added, Removed, and one-sided
+Incomplete rows have no delta or population context. The denominator still
+includes every delta-bearing observation in the request, including Unchanged
+and two-sided Incomplete observations that the focused table may not display.
+Structured projection therefore exposes dedicated fields instead of requiring
+consumers to parse `Evidence`.
+
+`Complexity Context` reuses `ImplementationComparisonQuery` and remains
+standalone: it is outside the `@Diff` composition and automatic/default
+disclosure, and it does not invoke Implementation Diff's optional PDB-source
+or workspace/decompiler lanes. This avoids adding mostly empty population
+columns to the mixed C#/IL/PDB Source Implementation Diff table while keeping
+the same Research-owned correspondence and population contract.
 
 Each Implementation Diff row carries a `Kind` facet alongside its human-readable
 `Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id

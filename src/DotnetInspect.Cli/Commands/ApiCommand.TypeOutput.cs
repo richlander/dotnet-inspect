@@ -191,6 +191,7 @@ public partial class ApiCommand
         bool findingCensusJson = IsFindingCensusJson(options);
         bool factsJson = IsFactsJson(options);
         bool projectedFactsJson = IsProjectedFactsJson(options);
+        bool callsJson = IsCallsJson(options);
         bool callersJson = IsCallersJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
@@ -245,7 +246,7 @@ public partial class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
             && !sourceDocumentJson && !findingCensusJson && !factsJson
-            && !projectedFactsJson && !callersJson)
+            && !projectedFactsJson && !callsJson && !callersJson)
         {
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.ImplementationProfiles))
@@ -491,6 +492,32 @@ public partial class ApiCommand
 
         if (options is MemberOptions
             {
+                CallRowSelection: { } callRowSelection,
+            })
+        {
+            List<CallSiteRow> callRows =
+                view.MemberCode?.CallRows ?? [];
+            if (!CliSemanticRowSelection.TrySelect(
+                    callRowSelection,
+                    callRows,
+                    "Member Calls",
+                    failure =>
+                        $"Member Calls row selection stage "
+                        + $"{failure.Failure.StageNumber} requires call row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} call rows are "
+                        + "available.",
+                    out IReadOnlyList<CallSiteRow> selectedCallRows))
+            {
+                return 1;
+            }
+
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.CallRows = [.. selectedCallRows];
+        }
+
+        if (options is MemberOptions
+            {
                 CallerRowSelection: { } callerRowSelection,
             })
         {
@@ -580,6 +607,45 @@ public partial class ApiCommand
                 Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
                 Decompiler.AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
                 options.CompactJson);
+            return 0;
+        }
+
+        if (callsJson)
+        {
+            if (view.MemberCode is not { CallRows: not null } memberCode)
+            {
+                CommandError.Write(
+                    $"section '{SectionNames.Calls}' produced no payload.");
+                return 1;
+            }
+
+            OutputFormatter.WriteProjectedJson(
+                sink,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = [SectionNames.Calls];
+                    if (memberCode.CallRows.Count == 0)
+                    {
+                        MarkoutSerializer.Serialize(
+                            new EmptyMemberCallsView(),
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions);
+                    }
+                    else
+                    {
+                        MarkoutSerializer.Serialize(
+                            memberCode,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions);
+                    }
+                },
+                !options.CompactJson);
             return 0;
         }
 

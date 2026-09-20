@@ -225,8 +225,14 @@ public sealed class AssemblyInspectionSession :
     public ApiSurfaceExtractionResult BoundedApiSurface(
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
-        bool typesOnly = false)
-        => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
     public ApiSurfaceExtractionResult BoundedApiSurface(
