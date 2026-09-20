@@ -98,6 +98,8 @@ public class DiffDocumentView(
     InertString? implementationDiffNoteText,
     InertString? complexityContextSummaryText,
     InertString? complexityContextNoteText,
+    InertString? structuralContextSummaryText,
+    InertString? structuralContextNoteText,
     InertString? findingTransitionsSummaryText,
     InertString? inspectionFailuresSummaryText)
 {
@@ -110,6 +112,8 @@ public class DiffDocumentView(
     [MarkoutIgnore, JsonIgnore] public InertString? ImplementationDiffNoteText { get; } = implementationDiffNoteText;
     [MarkoutIgnore, JsonIgnore] public InertString? ComplexityContextSummaryText { get; } = complexityContextSummaryText;
     [MarkoutIgnore, JsonIgnore] public InertString? ComplexityContextNoteText { get; } = complexityContextNoteText;
+    [MarkoutIgnore, JsonIgnore] public InertString? StructuralContextSummaryText { get; } = structuralContextSummaryText;
+    [MarkoutIgnore, JsonIgnore] public InertString? StructuralContextNoteText { get; } = structuralContextNoteText;
     [MarkoutIgnore, JsonIgnore] public InertString? FindingTransitionsSummaryText { get; } = findingTransitionsSummaryText;
     [MarkoutIgnore, JsonIgnore] public InertString? InspectionFailuresSummaryText { get; } = inspectionFailuresSummaryText;
 
@@ -122,6 +126,8 @@ public class DiffDocumentView(
     [MarkoutSkipNull] public string? ImplementationDiffNote => ImplementationDiffNoteText?.ToString();
     [MarkoutSkipNull] public string? ComplexityContextSummary => ComplexityContextSummaryText?.ToString();
     [MarkoutSkipNull] public string? ComplexityContextNote => ComplexityContextNoteText?.ToString();
+    [MarkoutSkipNull] public string? StructuralContextSummary => StructuralContextSummaryText?.ToString();
+    [MarkoutSkipNull] public string? StructuralContextNote => StructuralContextNoteText?.ToString();
     [MarkoutSkipNull] public string? FindingTransitionsSummary => FindingTransitionsSummaryText?.ToString();
     [MarkoutSkipNull] public string? InspectionFailuresSummary => InspectionFailuresSummaryText?.ToString();
 
@@ -136,6 +142,9 @@ public class DiffDocumentView(
 
     [MarkoutSection(Name = "Complexity Context")]
     public List<ComplexityContextRow>? ComplexityContext { get; set; }
+
+    [MarkoutSection(Name = "Structural Context")]
+    public List<StructuralContextRow>? StructuralContext { get; set; }
 
     [MarkoutSection(Name = "Finding Transitions")]
     public List<FindingTransitionRow>? FindingTransitions { get; set; }
@@ -429,6 +438,102 @@ public sealed class ComplexityContextRow
     public string Kind => KindText.ToString();
 }
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class StructuralContextView(
+    InertString titleText,
+    InertString versionsText,
+    InertString summaryText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString TitleText { get; } = titleText;
+    [MarkoutIgnore, JsonIgnore] public InertString VersionsText { get; } = versionsText;
+    [MarkoutIgnore, JsonIgnore] public InertString SummaryText { get; } = summaryText;
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    public string Versions => VersionsText.ToString();
+    public string Summary => SummaryText.ToString();
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Structural Context")]
+    public List<StructuralContextRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public sealed class StructuralContextRow
+{
+    public StructuralContextRow(
+        string member,
+        string state,
+        int instructionDelta,
+        int complexityDelta,
+        int loopDelta,
+        int exceptionRegionDelta,
+        int directCallDelta,
+        int allocationDelta,
+        int asyncDelta,
+        string instructionDirection,
+        string complexityDirection,
+        string loopDirection,
+        string exceptionRegionDirection,
+        string directCallDirection,
+        string allocationDirection,
+        string asyncDirection,
+        int populationSize,
+        int cohortSize,
+        string kind)
+    {
+        MemberText = DiffViewText.Field(member);
+        StateText = DiffViewText.Field(state);
+        InstructionDelta = instructionDelta;
+        ComplexityDelta = complexityDelta;
+        LoopDelta = loopDelta;
+        ExceptionRegionDelta = exceptionRegionDelta;
+        DirectCallDelta = directCallDelta;
+        AllocationDelta = allocationDelta;
+        AsyncDelta = asyncDelta;
+        InstructionDirectionText = DiffViewText.Field(instructionDirection);
+        ComplexityDirectionText = DiffViewText.Field(complexityDirection);
+        LoopDirectionText = DiffViewText.Field(loopDirection);
+        ExceptionRegionDirectionText = DiffViewText.Field(exceptionRegionDirection);
+        DirectCallDirectionText = DiffViewText.Field(directCallDirection);
+        AllocationDirectionText = DiffViewText.Field(allocationDirection);
+        AsyncDirectionText = DiffViewText.Field(asyncDirection);
+        PopulationSize = populationSize;
+        CohortSize = cohortSize;
+        KindText = DiffViewText.Field(kind);
+    }
+
+    [MarkoutIgnore, JsonIgnore] public InertString MemberText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString StateText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString InstructionDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString ComplexityDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString LoopDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString ExceptionRegionDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString DirectCallDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString AllocationDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString AsyncDirectionText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString KindText { get; }
+    public string Member => MemberText.ToString();
+    public string State => StateText.ToString();
+    public int InstructionDelta { get; }
+    public int ComplexityDelta { get; }
+    public int LoopDelta { get; }
+    public int ExceptionRegionDelta { get; }
+    public int DirectCallDelta { get; }
+    public int AllocationDelta { get; }
+    public int AsyncDelta { get; }
+    public string InstructionDirection => InstructionDirectionText.ToString();
+    public string ComplexityDirection => ComplexityDirectionText.ToString();
+    public string LoopDirection => LoopDirectionText.ToString();
+    public string ExceptionRegionDirection => ExceptionRegionDirectionText.ToString();
+    public string DirectCallDirection => DirectCallDirectionText.ToString();
+    public string AllocationDirection => AllocationDirectionText.ToString();
+    public string AsyncDirection => AsyncDirectionText.ToString();
+    public int PopulationSize { get; }
+    public int CohortSize { get; }
+    public string Kind => KindText.ToString();
+}
+
 [MarkoutSerializable]
 public record ImplementationDiffRow(
     [property: MarkoutIgnore, JsonIgnore] InertString MemberText,
@@ -495,6 +600,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(ImplementationDiffRow))]
 [MarkoutContext(typeof(ComplexityContextView))]
 [MarkoutContext(typeof(ComplexityContextRow))]
+[MarkoutContext(typeof(StructuralContextView))]
+[MarkoutContext(typeof(StructuralContextRow))]
 public partial class DiffViewContext : MarkoutSerializerContext
 {
 }

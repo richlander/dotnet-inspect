@@ -2190,6 +2190,94 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildStructuralContextView_ProjectsDeltasAndDirections()
+    {
+        var changed = new ImplementationComplexityChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                "M:Sample.Widget.Change",
+                "Sample.Widget.Change()"),
+            ImplementationComplexityChangeKind.Changed,
+            2,
+            5,
+            3,
+            true,
+            true,
+            StructuralChange: new ImplementationStructuralChange(
+                3,
+                1,
+                2,
+                1,
+                4,
+                2,
+                1),
+            StructuralCohortContext:
+                new ImplementationStructuralChangeCohortContext(6, 2));
+        var added = new ImplementationComplexityChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                "M:Sample.Widget.Added",
+                "Sample.Widget.Added()"),
+            ImplementationComplexityChangeKind.Added,
+            null,
+            2,
+            null,
+            false,
+            true);
+        var view = DiffOutputFormatter.BuildStructuralContextView(
+            "Sample",
+            new ImplementationComplexityDiff(true, null, [changed, added]),
+            "1.0.0",
+            "2.0.0");
+
+        StructuralContextRow row = Assert.Single(view.Rows!);
+        Assert.Equal("changed", row.State);
+        Assert.Equal(3, row.InstructionDelta);
+        Assert.Equal(1, row.ComplexityDelta);
+        Assert.Equal(2, row.LoopDelta);
+        Assert.Equal(1, row.ExceptionRegionDelta);
+        Assert.Equal(4, row.DirectCallDelta);
+        Assert.Equal(2, row.AllocationDelta);
+        Assert.Equal(1, row.AsyncDelta);
+        Assert.Equal("increased", row.InstructionDirection);
+        Assert.Equal("increased", row.ExceptionRegionDirection);
+        Assert.Equal(6, row.PopulationSize);
+        Assert.Equal(2, row.CohortSize);
+        Assert.Equal(
+            ImplementationComplexityFindings.StructuralCohortDescriptor.Id,
+            row.Kind);
+
+        string jsonl = OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                DiffViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
+                    tsv: false,
+                    jsonl: true)));
+        string rowJsonl = Assert.Single(
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                return document.RootElement.TryGetProperty(
+                    "member",
+                    out JsonElement member)
+                    && member.GetString() == "Sample.Widget.Change()";
+            });
+        using JsonDocument document = JsonDocument.Parse(rowJsonl);
+        Assert.Equal(
+            "3",
+            document.RootElement.GetProperty("instruction_delta").GetString());
+        Assert.Equal(
+            "increased",
+            document.RootElement.GetProperty("instruction_direction").GetString());
+    }
+
+    [Fact]
     public void BuildImplementationDiffView_LabelsPdbSourceAsIndependentLane()
     {
         var subject = new ResearchSubjectKey(
