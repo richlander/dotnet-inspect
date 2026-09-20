@@ -386,7 +386,7 @@ public static class CSharpAuthoredDocumentation
             .Where(static declaration => IsEligible(declaration.Kind))
             .Select(declaration => (
                 Declaration: declaration,
-                Parts: index.GetDeclarationTextParts(declaration)))
+                Parts: index.GetOwnedDeclarationTextParts(declaration)))
             .Where(candidate =>
                 candidate.Parts is { } parts
                 && SameSpan(parts.Declaration, request.DeclarationSpan))
@@ -467,7 +467,7 @@ public static class CSharpAuthoredDocumentation
                     .Where(static declaration => IsEligible(declaration.Kind))
                     .Select(declaration => (
                         Declaration: declaration,
-                        Parts: repaired.Index.GetDeclarationTextParts(
+                        Parts: repaired.Index.GetOwnedDeclarationTextParts(
                             declaration)))
                     .Where(candidate =>
                         candidate.Parts is { IsKnown: true } parts
@@ -501,7 +501,7 @@ public static class CSharpAuthoredDocumentation
 
             bool overlappingUncertainty = index.Declarations.Any(declaration =>
                 declaration.TextCoordinates is { IsKnown: false }
-                && index.GetDeclarationTextParts(declaration) is { } parts
+                && index.GetOwnedDeclarationTextParts(declaration) is { } parts
                 && Overlaps(parts.Declaration, request.DeclarationSpan));
             return overlappingUncertainty
                 ? new CSharpAuthoredDocumentationOutcome.Uncertain(

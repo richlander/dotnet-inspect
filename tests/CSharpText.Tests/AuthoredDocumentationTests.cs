@@ -253,6 +253,30 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void LeadingBom_IsPreambleOutsideTheExactDeclarationSpan()
+    {
+        const string source = "\uFEFFclass C { }";
+        ClassDeclarationSyntax declaration =
+            CSharpSyntaxTree.ParseText(
+                    source,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)
+                .GetRoot(TestContext.Current.CancellationToken)
+                .DescendantNodes()
+                .OfType<ClassDeclarationSyntax>()
+                .Single();
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Absent>(
+                Read(source, declaration));
+
+        Assert.Equal(1, result.Declaration.Span.Start);
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.NoDeclaration>(
+            CSharpAuthoredDocumentation.Read(
+                new(source, new(0, source.Length))));
+    }
+
+    [Fact]
     public void ExactSpans_SelectNestedAndSupportedDeclarationKinds()
     {
         const string source = """
@@ -455,6 +479,29 @@ public sealed class AuthoredDocumentationTests
 
         Assert.IsType<CSharpAuthoredDocumentationOutcome.Absent>(
             ReadMethod(source, "M"));
+    }
+
+    [Fact]
+    public void ConditionalDocumentationAfterAttribute_DoesNotPoisonAttachedRun()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Attached.</summary>
+                [Obsolete]
+            #if DOCUMENTATION
+                /// <summary>Too late.</summary>
+            #endif
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal("Attached.", result.Documentation.Summary);
+        Assert.Single(result.DocumentationSpans);
     }
 
     [Theory]
@@ -700,6 +747,29 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void DetachedConditionalDocumentation_DoesNotPoisonNearestRun()
+    {
+        const string source = """
+            class C
+            {
+            #if DOCUMENTATION
+                /// <summary>Detached.</summary>
+            #endif
+                // separator
+                /// <summary>Attached.</summary>
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal("Attached.", result.Documentation.Summary);
+        Assert.Single(result.DocumentationSpans);
+    }
+
+    [Fact]
     public void ConditionalGroupCrossingDeclarationBoundary_IsUncertain()
     {
         const string source = """
@@ -825,6 +895,36 @@ public sealed class AuthoredDocumentationTests
                 MaxRetainedTextCharacters = value,
             },
             CSharpAuthoredDocumentationIncompleteBoundary.RetainedText);
+    }
+
+    [Fact]
+    public void DenseDeclarations_UseOneBoundedComparisonPass()
+    {
+        const int memberCount = 10_000;
+        string source = "enum E { "
+            + string.Join(
+                ", ",
+                Enumerable.Range(0, memberCount).Select(
+                    static index => $"A{index}"))
+            + " }";
+        string selectedText = $"A{memberCount - 1}";
+        CSharpSourceSpan selected = TextSpan(source, selectedText);
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Absent>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        selected,
+                        limits:
+                            CSharpAuthoredDocumentationLimits.Default with
+                            {
+                                MaxDeclarations = memberCount + 1,
+                            })));
+
+        Assert.Equal(
+            memberCount + 1,
+            result.Work.DeclarationsCompared);
     }
 
     [Fact]

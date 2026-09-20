@@ -186,6 +186,8 @@ internal static class DeclarationIndexBuilder
         // ABranchLocalAttributedDeclaration_DoesNotPoisonTheFollowingRow.
         bool attachedAttributesKnown = true;
         bool attachedDocumentationKnown = true;
+        bool nearestAttachedDocumentationKnown = true;
+        bool documentationSeparatorSinceLastFragment = false;
         bool textPartsHeaderKnown = true;
         int lastClosed = -1;
         int lastClosedSection = 0;
@@ -426,6 +428,8 @@ internal static class DeclarationIndexBuilder
 
             attachedAttributesKnown = true;
             attachedDocumentationKnown = true;
+            nearestAttachedDocumentationKnown = true;
+            documentationSeparatorSinceLastFragment = false;
             triviaStart = -1;
             attributeLists.Clear();
             attributeStarts.Clear();
@@ -509,7 +513,7 @@ internal static class DeclarationIndexBuilder
                 DeclarationTextKnown = declarationTextKnown,
                 DocumentationKnown = declarationTextKnown
                     && textPartsHeaderKnown
-                    && attachedDocumentationKnown,
+                    && nearestAttachedDocumentationKnown,
             };
             AddRow(row);
             return row;
@@ -713,13 +717,31 @@ internal static class DeclarationIndexBuilder
             }
         }
 
+        void BeginAuthoredDocumentationFragment(ScanToken token)
+        {
+            if (attributeSpans.Count > 0)
+                return;
+            if (documentationSeparatorSinceLastFragment)
+                nearestAttachedDocumentationKnown = true;
+            nearestAttachedDocumentationKnown &= token.DepthKnown;
+            documentationSeparatorSinceLastFragment = false;
+        }
+
         foreach (var tok in tokens)
         {
             if (!tok.DepthKnown)
                 depthLost = true;
 
             if (tok.Kind == ScanTokenKind.Directive)
+            {
+                if (xmlDocumentation.Count > 0
+                    && attributeSpans.Count == 0)
+                {
+                    documentationSeparatorSinceLastFragment = true;
+                }
+                previousDocumentationWasLine = false;
                 continue;
+            }
 
             // Comment and literal tokens are excluded, and that exclusion is load-bearing in both
             // directions. A comment or literal inside a group inside a list can move neither end
@@ -790,6 +812,7 @@ internal static class DeclarationIndexBuilder
                     if (documentationAttached
                         && CSharpLexer.IsSingleLineDocumentationComment(comment))
                     {
+                        BeginAuthoredDocumentationFragment(tok);
                         var end = new SourceTextPoint(tok.Line, tok.End);
                         if (previousDocumentationWasLine
                             && previousLineDocumentationLine + 1 == tok.Line)
@@ -812,6 +835,7 @@ internal static class DeclarationIndexBuilder
                     else if (documentationAttached
                         && CSharpLexer.IsDelimitedDocumentationComment(comment))
                     {
+                        BeginAuthoredDocumentationFragment(tok);
                         xmlDocumentation.Add(new SourceTextRange(
                             new SourceTextPoint(tok.Line, tok.Column),
                             new SourceTextPoint(tok.Line, tok.End)));
@@ -822,6 +846,12 @@ internal static class DeclarationIndexBuilder
                     }
                     else
                     {
+                        if (documentationAttached
+                            && xmlDocumentation.Count > 0
+                            && attributeSpans.Count == 0)
+                        {
+                            documentationSeparatorSinceLastFragment = true;
+                        }
                         previousDocumentationWasLine = false;
                     }
                 }
@@ -834,6 +864,8 @@ internal static class DeclarationIndexBuilder
                     };
                     documentationSections.Add(tok.Section);
                     attachedDocumentationKnown &= tok.DepthKnown;
+                    if (attributeSpans.Count == 0)
+                        nearestAttachedDocumentationKnown &= tok.DepthKnown;
                 }
 
                 if (closesBlock)
@@ -920,6 +952,8 @@ internal static class DeclarationIndexBuilder
                                 section => section != tok.Section);
                         attachedAttributesKnown = true;
                         attachedDocumentationKnown = true;
+                        nearestAttachedDocumentationKnown = true;
+                        documentationSeparatorSinceLastFragment = false;
                         attributeSpans.Clear();
                         xmlDocumentation.Clear();
                         documentationSections.Clear();
@@ -1092,7 +1126,7 @@ internal static class DeclarationIndexBuilder
                         DeclarationTextKnown = declarationTextKnown,
                         DocumentationKnown = declarationTextKnown
                             && textPartsHeaderKnown
-                            && attachedDocumentationKnown,
+                            && nearestAttachedDocumentationKnown,
                     };
                     AddRow(row);
                     scopes.Add((rows.Count - 1, true, true, true));

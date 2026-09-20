@@ -854,17 +854,10 @@ public sealed class DeclarationIndex
     public DeclarationSpan? ParentOf(DeclarationSpan span) =>
         span.ParentIndex >= 0 ? Declarations[span.ParentIndex] : null;
 
-    internal DeclarationTextParts? GetDeclarationTextParts(
+    internal DeclarationTextParts? GetOwnedDeclarationTextParts(
         DeclarationSpan declaration)
     {
         ArgumentNullException.ThrowIfNull(declaration);
-        if (!Declarations.Any(candidate => ReferenceEquals(candidate, declaration)))
-        {
-            throw new ArgumentException(
-                "The declaration must belong to this declaration index.",
-                nameof(declaration));
-        }
-
         if (sourceLineStarts.IsDefaultOrEmpty
             || declaration.TextCoordinates is not { } coordinates)
         {
