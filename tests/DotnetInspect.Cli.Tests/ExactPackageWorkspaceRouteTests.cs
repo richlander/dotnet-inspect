@@ -787,6 +787,38 @@ public sealed class ExactPackageWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task WorkspaceDiscoveryIsRejectedBeforeRestoration()
+    {
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = "not-restored",
+            Discover = [],
+            Schema = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(
+                    new HttpClient(new FailingHandler()),
+                    new InMemoryPackageStore())));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot combine",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "discovery",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("selected.package.nupkg")]
     [InlineData("https://example.test/selected.package.nupkg")]

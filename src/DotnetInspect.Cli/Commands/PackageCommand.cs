@@ -116,6 +116,13 @@ public partial class PackageCommand
             return 1;
         }
 
+        if (options.WorkspacePacket is not null
+            && options.Discover is not null
+            && !TryCreateWorkspacePackageRequest(options, out _))
+        {
+            return 1;
+        }
+
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
         {
