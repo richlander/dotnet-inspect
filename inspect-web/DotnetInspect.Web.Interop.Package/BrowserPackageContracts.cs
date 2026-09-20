@@ -471,6 +471,7 @@ public enum BrowserPackageQueryFailureKind
     InvalidManifest,
     PackageContentAcquisition,
     PackageContentEvaluation,
+    DependencyTraversal,
     AssemblyAcquisition,
     AssemblyEvaluation,
 }
@@ -506,6 +507,7 @@ public enum BrowserPackageQueryProgressPhase
     Search,
     Manifest,
     PackageContent,
+    DependencyTraversal,
     Assembly,
 }
 

@@ -230,10 +230,35 @@ namespace DotnetInspect.Web.Interop.Package
                 matchCredit,
                 emit,
                 deadline);
+            await using PackageSourceSettlementLease? sourceLease =
+                plan.RequiresDependencyTraversal
+                    ? PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                BrowserPackageWorkspace.Gallery.Source.Association)
+                                ? BrowserPackageWorkspace.Gallery
+                                : throw new InvalidOperationException(
+                                    "Browser Package Query requested an unauthorized package source."))
+                    : null;
+            PackageQueryDependencyTraversalServices? traversalServices = null;
+            if (sourceLease is not null)
+            {
+                var candidateSource =
+                    new AuthorizedPackageDependencyCandidateSource(
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                        sourceLease);
+                traversalServices = new(
+                    new PackageDependencyTraversalCandidateAdapter(
+                        candidateSource),
+                    new AuthorizedPackageDependencyManifestSource(
+                        candidateSource));
+            }
             var envelope = await PackageQueryInspection.ExecuteAsync(
                     BrowserPackageWorkspace.Gallery,
                     plan,
                     contentProvider,
+                    traversalServices,
                     observer,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -560,6 +585,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryProgressPhase.Manifest,
                             PackageQueryProgressPhase.PackageContent =>
                                 BrowserPackageQueryProgressPhase.PackageContent,
+                            PackageQueryProgressPhase.DependencyTraversal =>
+                                BrowserPackageQueryProgressPhase.DependencyTraversal,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query progress phase."),
                         },
@@ -668,6 +695,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryFailureKind.PackageContentAcquisition,
                             PackageQueryFailureKind.PackageContentEvaluation =>
                                 BrowserPackageQueryFailureKind.PackageContentEvaluation,
+                            PackageQueryFailureKind.DependencyTraversal =>
+                                BrowserPackageQueryFailureKind.DependencyTraversal,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query failure kind."),
                         },

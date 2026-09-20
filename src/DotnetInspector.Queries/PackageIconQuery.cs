@@ -58,6 +58,13 @@ public static class PackageIconQuery
     public static InspectionQuery<PackageIconResult> Definition { get; } =
         new("Package icon", InspectionCost.NetworkFree);
 
+    /// <summary>Projects the icon from one exact retained Package Root.</summary>
+    public static PackageIconResult Execute(PackageRootRealization root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        return Execute(root.Content, root.PackageId, root.PackageVersion);
+    }
+
     public static PackageIconResult Execute(
         IPackageContent content,
         string packageId,

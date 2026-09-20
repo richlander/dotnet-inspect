@@ -547,6 +547,25 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
+Use `depends-transitive=<package-id>` for source-authorized declared-range
+reachability beyond a direct dependency. It requires one exact
+`dependency-target=<TFM>` and an explicit `dependency-depth=2|3|4`; the
+expensive query is limited to five package candidates:
+
+```bash
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "dependency-target=net10.0" \
+  --where "dependency-depth=2" --take 1
+```
+
+The result is not a NuGet restore claim. Evidence counts matching declaration
+edges and previews deterministic shortest paths built from declared ranges and
+resolved exact package coordinates. The shared 160-character display budget
+may shorten a preview, so it is not a complete path record or package
+coordinate. A direct-only dependency does not satisfy the transitive term, and
+incomplete traversal remains a visible failure.
+
 Use `dependencies=cross-prefix` to find packages with a direct dependency from a
 different first dot-delimited package-ID segment. It uses the same
 `dependency-target` scope and remains nuspec-only:
@@ -621,8 +640,8 @@ content is an explicit package projection and never informs license identity.
 Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and semantic answers. Structured evidence remains
 available in unprojected JSON and the inspection envelope. The initial CLI
-vocabulary covers package metadata, direct dependencies, cross-prefix and
-ecosystem dependency classification, downloads, README presence, .NET tools
+vocabulary covers package metadata, direct and bounded transitive dependencies,
+cross-prefix and ecosystem dependency classification, downloads, README presence, .NET tools
 and their CLI v1/v2 format, assembly references, skill packages, and nuspec
 license identity. Discover the admitted keys and values before constructing a
 query. Discovery also reports the product-owned execution class independently

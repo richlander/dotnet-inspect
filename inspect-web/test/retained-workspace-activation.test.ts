@@ -35,6 +35,13 @@ function posting(
     canonicalPacket: `packet-${retainedDefinitionId}`,
     realizationId,
     publicationOrdinal: Number(realizationId.split("-").at(-1)),
+    definition: {
+      tabs: [],
+      contexts: [],
+      registrations: [],
+      activeTabId: null,
+      selectedContextId: null,
+    },
     navigation: {
       operation: "Initialize",
       request: `request-${realizationId}`,
@@ -104,7 +111,33 @@ function posting(
         epoch: `epoch-${realizationId}`,
       },
     },
-    packages: [],
+    packages: [{
+      navigationId: "package-navigation",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      summary: {
+        selectedCompileFramework: null,
+        libraryCount: 1,
+        typeCount: 2,
+        memberCount: 3,
+        documentCount: 1,
+        hasInspectionNotices: false,
+      },
+    }],
+    platforms: [{
+      navigationId: "platform-navigation",
+      contextIndex: 1,
+      family: "Microsoft.NETCore.App",
+      runtimeIdentifier: "linux-x64",
+      summary: {
+        selectedCompileFramework: "net10.0",
+        libraryCount: 2,
+        typeCount: 4,
+        memberCount: 8,
+        documentCount: 0,
+        hasInspectionNotices: true,
+      },
+    }],
     predecessor: settlementId === null
       ? null
       : {
