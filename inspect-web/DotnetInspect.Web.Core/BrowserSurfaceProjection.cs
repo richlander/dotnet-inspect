@@ -21,10 +21,20 @@ internal static class BrowserSurfaceProjection
         new(bucket.Id, bucket.Label, bucket.Order, bucket.IsDefault, bucket.Count);
 
     internal sealed record Participant(
-        AssemblyContextParticipant Context,
+        AssemblyAcquisitionRegistration Registration,
         string Assembly,
         string Id,
-        string Asset);
+        string Asset)
+    {
+        internal Participant(
+            AssemblyContextParticipant context,
+            string assembly,
+            string id,
+            string asset)
+            : this(context.Assembly.Registration, assembly, id, asset)
+        {
+        }
+    }
 
     internal sealed record Surface(
         BrowserAssemblySurfaceInfo[] Assemblies,
@@ -79,7 +89,7 @@ internal static class BrowserSurfaceProjection
             Participant participant = requested[index];
             if (!ReferenceEquals(
                     available.Subject.Registration,
-                    participant.Context.Assembly.Registration))
+                    participant.Registration))
             {
                 throw new InvalidOperationException(
                     "The API surface query's entry order does not match the workspace's "
@@ -97,7 +107,7 @@ internal static class BrowserSurfaceProjection
                             type,
                             participant.Assembly,
                             participant.Id,
-                            participant.Context.Assembly.Identity.Name,
+                            available.Subject.Identity.Name,
                             transportTextBudget,
                             qualifyTypeIds
                             || duplicateTypeKeys.Contains(
@@ -124,7 +134,7 @@ internal static class BrowserSurfaceProjection
                     IsDefaultBucket(surfaces, type)),
             ];
             AssemblyReferenceIdentity identity =
-                participant.Context.Assembly.Identity;
+                available.Subject.Identity;
             assemblies.Add(new BrowserAssemblySurfaceInfo(
                 participant.Id,
                 identity.Name,
