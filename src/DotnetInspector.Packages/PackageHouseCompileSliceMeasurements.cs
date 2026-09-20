@@ -488,7 +488,11 @@ public static class PackageHouseCompileSliceMeasurementProjection
                 measurements);
     }
 
-    internal static ImmutableArray<string> SelectTargetFrameworkFolders(
+    /// <summary>
+    /// Lists top-level package folders containing the selected target
+    /// framework.
+    /// </summary>
+    public static ImmutableArray<string> SelectTargetFrameworkFolders(
         IPackageContent content,
         string selectedTargetFramework)
     {
@@ -530,7 +534,11 @@ public static class PackageHouseCompileSliceMeasurementProjection
             .ToImmutableArray();
     }
 
-    internal static bool TryGetArchiveLength(
+    /// <summary>
+    /// Reads the retained package archive length without consuming content
+    /// ownership.
+    /// </summary>
+    public static bool TryGetArchiveLength(
         IPackageContent content,
         out long length,
         out PackageHouseCompileSliceMeasurementUnavailableReason failure)
