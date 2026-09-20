@@ -69,6 +69,7 @@ static class DiffHistoryApiFindingEngine
                                 new FindingInspection<ApiMemberHandle>.Absent(
                                     FindingInspectionAbsenceKind.SubjectAbsent,
                                     $"Type '{typeFullName}' is absent.")),
+                        RequiresCompleteMemberSurface: true,
                         static (value, source, destination) =>
                             CompareMembers(value, source, destination)),
                     cancellationToken)
@@ -135,10 +136,9 @@ static class DiffHistoryApiFindingEngine
                             new FindingInspection<ApiTypeHandle>(
                                 new FindingInspection<ApiTypeHandle>.Complete(
                                     [])),
-                        static (_, source, destination) =>
-                            FindingComparison.Compare(
-                                source.Inspection,
-                                destination.Inspection)),
+                        RequiresCompleteMemberSurface: false,
+                        static (value, source, destination) =>
+                            CompareTypes(value, source, destination)),
                     cancellationToken)
                 .ConfigureAwait(false);
         return Available(
@@ -164,10 +164,9 @@ static class DiffHistoryApiFindingEngine
                                 new FindingInspection<ApiAttributeHandle>.Absent(
                                     FindingInspectionAbsenceKind.SubjectAbsent,
                                     $"Type '{typeFullName}' is absent.")),
-                        static (_, source, destination) =>
-                            FindingComparison.Compare(
-                                source.Inspection,
-                                destination.Inspection)),
+                        RequiresCompleteMemberSurface: false,
+                        static (value, source, destination) =>
+                            CompareAttributes(value, source, destination)),
                     cancellationToken)
                 .ConfigureAwait(false);
         return Available(
@@ -583,10 +582,11 @@ static class DiffHistoryApiFindingEngine
                 Resolve(match.Assembly.Subject)),
             ProjectionTruncation: null,
             participants,
-            MetadataFindings.IsApiMemberComparisonComplete(
-                comparisonSurface,
-                request.ApiInspection.TypeFullName,
-                contextualSurfaces)
+            (!producer.RequiresCompleteMemberSurface
+                || MetadataFindings.IsApiMemberComparisonComplete(
+                    comparisonSurface,
+                    request.ApiInspection.TypeFullName,
+                    contextualSurfaces))
                     ? comparisonSurface
                     : null);
     }
@@ -926,6 +926,45 @@ static class DiffHistoryApiFindingEngine
             request.MatchAcceptanceThreshold);
     }
 
+    static FindingComparison<ApiTypeHandle> CompareTypes(
+        DiffHistoryApiMemberInspectionRequest request,
+        Point<ApiTypeHandle> source,
+        Point<ApiTypeHandle> destination)
+    {
+        if (source.ComparisonSurface is null
+            || destination.ComparisonSurface is null)
+        {
+            return FindingComparison.Compare(
+                source.Inspection,
+                destination.Inspection);
+        }
+        return MetadataFindings.CompareApiType(
+            source.ComparisonSurface,
+            destination.ComparisonSurface,
+            Subject(request.ApiInspection.TypeFullName),
+            request.ApiInspection.TypeFullName,
+            request.ComparisonOptions);
+    }
+
+    static FindingComparison<ApiAttributeHandle> CompareAttributes(
+        DiffHistoryApiMemberInspectionRequest request,
+        Point<ApiAttributeHandle> source,
+        Point<ApiAttributeHandle> destination)
+    {
+        if (source.ComparisonSurface is null
+            || destination.ComparisonSurface is null)
+        {
+            return FindingComparison.Compare(
+                source.Inspection,
+                destination.Inspection);
+        }
+        return MetadataFindings.CompareApiAttributes(
+            source.ComparisonSurface,
+            destination.ComparisonSurface,
+            Subject(request.ApiInspection.TypeFullName),
+            request.ApiInspection.TypeFullName);
+    }
+
     static DiffHistoryApiParticipantEvidence DetachParticipant(
         AssemblyContextEntry<AssemblyApiSurface> participant)
     {
@@ -984,6 +1023,7 @@ static class DiffHistoryApiFindingEngine
         FindingDescriptor Descriptor,
         Func<PackageVersionCellApiFindingSet, FindingInspection<T>> Select,
         Func<string, FindingInspection<T>> SubjectAbsent,
+        bool RequiresCompleteMemberSurface,
         Func<
             DiffHistoryApiMemberInspectionRequest,
             Point<T>,
