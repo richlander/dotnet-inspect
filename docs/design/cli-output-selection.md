@@ -60,8 +60,11 @@ ordinary Markdown output path, even when no explicit `--markdown` flag was
 previously necessary.
 
 Markdown plus Mermaid retains its existing embedded-Mermaid meaning. No other
-pair of primary output choices composes. Repeating the same choice through
-`-o` and its long alias is redundant but valid.
+pair of presentation choices composes. `tree` hierarchy and `envelope`
+transport remain separate layers; a command may retain an existing
+cross-layer composition, with its command-owned admission remaining
+authoritative. Repeating the same choice through `-o` and its long alias is
+redundant but valid.
 
 `coordinate` and its `name` alias are not part of this slice. Their
 host-neutral projection contract and first subject-owner adoption are separate
@@ -93,7 +96,8 @@ The CLI validates output intent at the command boundary before acquisition:
 1. Parse the selector value.
 2. Resolve it to one known output operation.
 3. Verify that the selected command declares the corresponding capability.
-4. Reconcile readable long aliases and the Markdown-plus-Mermaid composition.
+4. Reconcile competing presentation aliases and the Markdown-plus-Mermaid
+   composition without overriding command-owned cross-layer admission.
 5. Run the command owner's existing operation-specific admission.
 
 An unknown output value names the selector and accepted vocabulary. A known

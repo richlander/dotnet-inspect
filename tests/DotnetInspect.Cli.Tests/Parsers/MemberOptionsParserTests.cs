@@ -359,7 +359,6 @@ public class MemberOptionsParserTests
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
-    [InlineData("-v:n")]
     public void ExplicitPackage_WithStandaloneMermaidAndAnotherFormat_IsRejected(string format)
     {
         var (root, _, _) = CreateTestCommand();
@@ -371,6 +370,34 @@ public class MemberOptionsParserTests
             error => error.Message.Contains(
                 "cannot be combined",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithStandaloneMermaidAndVerbosity_IsRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+        [
+            "member",
+            "JsonSerializer",
+            "--package", "System.Text.Json",
+            "--mermaid",
+            "-v:n",
+        ]);
+        Assert.Empty(parseResult.Errors);
+
+        var result =
+            await MemberOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error =
+            Assert.IsType<MemberOptionsParser.VersionError>(result);
+        Assert.Contains(
+            "--mermaid is standalone",
+            error.Error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

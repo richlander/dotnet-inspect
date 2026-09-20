@@ -1353,7 +1353,7 @@ public sealed class InspectionPlanningTests
     [Theory]
     [InlineData("member-arity", "cannot combine different generic arities")]
     [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
-    [InlineData("member-mermaid", "--mermaid is standalone")]
+    [InlineData("member-mermaid", "cannot be combined")]
     [InlineData("type-order", "Field 'bogus' is not sortable")]
     [InlineData("package-multi", "Multiple package inspection cannot be combined")]
     [InlineData("commandless-member-kind", "Unknown C# body kind 'loop'.")]

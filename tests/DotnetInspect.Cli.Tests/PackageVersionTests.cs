@@ -551,7 +551,10 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--json cannot be combined with --table, --tsv, or --jsonl.", error);
+        Assert.Contains(
+            "--json cannot be combined with --tsv.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]

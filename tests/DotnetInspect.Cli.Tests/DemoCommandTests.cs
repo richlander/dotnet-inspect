@@ -979,7 +979,7 @@ public class DemoCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("\"id\"", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid cannot be combined with --json", error, StringComparison.Ordinal);
+        Assert.Contains("cannot be combined", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -993,7 +993,7 @@ public class DemoCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("\"members\"", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid cannot be combined with --json", error, StringComparison.Ordinal);
+        Assert.Contains("cannot be combined", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1007,7 +1007,7 @@ public class DemoCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.DoesNotContain("graph TD", output, StringComparison.Ordinal);
-        Assert.Contains("--mermaid cannot be combined with", error, StringComparison.Ordinal);
+        Assert.Contains("cannot be combined", error, StringComparison.Ordinal);
     }
 
     [Fact]

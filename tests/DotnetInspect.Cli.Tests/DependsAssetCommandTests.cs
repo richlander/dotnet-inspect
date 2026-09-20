@@ -4355,30 +4355,38 @@ public sealed class DependsAssetCommandTests
     public async Task RetailVerbosityNeverEmitsDiagnosticSections(
         string verbosity)
     {
-        (int exitCode, string output, string error) =
-            await RunCapturedAsync(
-        [
-            "depends",
-            "--project",
-            AssetsFixture,
-            verbosity,
-            "--json",
-            "--compact",
-        ]);
-
-        Assert.Equal(0, exitCode);
-        Assert.Empty(error);
-        using JsonDocument document = JsonDocument.Parse(output);
-        foreach (string property in new[]
+        string[][] outputs =
         {
-            "roots",
-            "restored_edges",
-            "dependency_groups",
-            "restored_packages",
-        })
-            Assert.False(document.RootElement.TryGetProperty(property, out _));
+            ["--json"],
+            ["-o", "json"],
+        };
+        foreach (string[] outputSelection in outputs)
+        {
+            (int jsonExitCode, string jsonOutput, string jsonError) =
+                await RunCapturedAsync(
+            [
+                "depends",
+                "--project",
+                AssetsFixture,
+                verbosity,
+                .. outputSelection,
+                "--compact",
+            ]);
 
-        (exitCode, output, error) =
+            Assert.Equal(0, jsonExitCode);
+            Assert.Empty(jsonError);
+            using JsonDocument document = JsonDocument.Parse(jsonOutput);
+            foreach (string property in new[]
+            {
+                "roots",
+                "restored_edges",
+                "dependency_groups",
+                "restored_packages",
+            })
+                Assert.False(document.RootElement.TryGetProperty(property, out _));
+        }
+
+        (int exitCode, string output, string error) =
             await RunCapturedAsync(
         [
             "depends",

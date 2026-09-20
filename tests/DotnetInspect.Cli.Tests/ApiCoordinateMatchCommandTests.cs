@@ -505,7 +505,7 @@ public sealed class ApiCoordinateMatchCommandTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "cannot be combined",
+            "--tree is not supported with JSON output on type",
             result.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);

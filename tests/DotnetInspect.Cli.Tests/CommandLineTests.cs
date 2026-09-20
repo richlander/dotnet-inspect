@@ -740,7 +740,7 @@ public class CommandLineTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void OutputSelector_RejectsJsonWithVerbosityRegardlessOfSpelling(
+    public void OutputSelector_AllowsJsonWithVerbosityRegardlessOfSpelling(
         bool selector)
     {
         string[] output =
@@ -750,11 +750,7 @@ public class CommandLineTests
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             ["depends", "System.Int128", .. output, "-v:q"]);
 
-        var error = Assert.Single(result.Errors);
-        Assert.Contains(
-            "cannot be combined with -v",
-            error.Message,
-            StringComparison.Ordinal);
+        Assert.Empty(result.Errors);
     }
 
     [Theory]

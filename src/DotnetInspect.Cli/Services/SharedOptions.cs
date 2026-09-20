@@ -1154,7 +1154,7 @@ public class SharedOptions
 
             foreach (var intent in intents)
             {
-                if (IsEmbeddedMermaidPair(
+                if (!AreCompetingOutputIntents(
                         intent.Selection,
                         aliasSelection))
                 {
@@ -1166,29 +1166,27 @@ public class SharedOptions
                     + $"{option.Name}.");
                 return;
             }
-
             intents.Add((aliasSelection, option.Name));
         }
-
-        if (result.GetResult(Verbosity) is not { Implicit: false })
-            return;
-
-        bool embeddedMermaid =
-            intents.Any(intent =>
-                intent.Selection == CliOutputSelection.Markdown)
-            && intents.Any(intent =>
-                intent.Selection == CliOutputSelection.Mermaid);
-        var incompatible = intents.FirstOrDefault(intent =>
-            intent.Selection != CliOutputSelection.Markdown
-            && intent.Selection != CliOutputSelection.Envelope
-            && !(embeddedMermaid
-                && intent.Selection == CliOutputSelection.Mermaid));
-        if (incompatible.Spelling is not null)
-        {
-            result.AddError(
-                $"{incompatible.Spelling} cannot be combined with -v.");
-        }
     }
+
+    private static bool AreCompetingOutputIntents(
+        CliOutputSelection left,
+        CliOutputSelection right) =>
+        IsPresentationOutput(left)
+        && IsPresentationOutput(right)
+        && !IsEmbeddedMermaidPair(left, right);
+
+    private static bool IsPresentationOutput(
+        CliOutputSelection selection) =>
+        selection is
+            CliOutputSelection.Markdown
+            or CliOutputSelection.Table
+            or CliOutputSelection.Tsv
+            or CliOutputSelection.Jsonl
+            or CliOutputSelection.Json
+            or CliOutputSelection.PlainText
+            or CliOutputSelection.Mermaid;
 
     private static bool IsEmbeddedMermaidPair(
         CliOutputSelection left,

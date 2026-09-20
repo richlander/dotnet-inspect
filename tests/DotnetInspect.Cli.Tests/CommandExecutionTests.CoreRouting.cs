@@ -1163,8 +1163,6 @@ public partial class CommandExecutionTests
         [
             ["--json", "--markdown"],
             ["-o", "json", "--markdown"],
-            ["--json", "-v:q"],
-            ["-o", "json", "-v:q"],
         ];
 
         foreach (string[] conflict in conflicts)
