@@ -1857,7 +1857,8 @@ public static class MemberCommand
         var queryContext =
             new AssemblyContextSourceQueryContext(
                 httpClient,
-                FileSystemPdbStore.CreateDefault(),
+                // Decompiled-only settlement does not consult the PDB store.
+                new InMemoryPdbStore(),
                 new SourcePolicyPackageSourceAuthorization(
                     options.SourceOptions),
                 new SourceFetch(
