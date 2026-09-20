@@ -31,8 +31,8 @@ Add `--all` to include non-public members.
 ## Triage against rewrite shapes
 
 Library triage is split into kind-scoped sections under `@Performance`
-(`Performance: Boxing`, `Performance: Arrays`, `Performance: Closures and
-delegates`, and more). Structural discovery lists the authored kinds without
+(`Performance: Boxing`, `Performance: Arrays`, `Performance: Strings`,
+`Performance: Closures and Delegates`, and more). Structural discovery lists the authored kinds without
 running analysis; add `--effective` to retain only kinds with findings for this
 library. A count executes the selected group and includes zero-row kinds.
 Type/member scope keeps the focused `Performance Triage` lens.
@@ -42,6 +42,7 @@ dnx dotnet-inspect -y -- library MyLib.dll -D @Performance
 dnx dotnet-inspect -y -- library MyLib.dll -D @Performance --effective
 dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Strings" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Priority>=high" --top 20 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll \
@@ -75,13 +76,25 @@ medium priority unless loop evidence proves repetition), `small-array`,
 `scan-method-in-loop-call` (a linear-scan helper invoked from a caller loop),
 `scan-method-in-recursive-traversal` (a scan repeated once per recursive
 traversal node), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
-that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
+that can be hoisted), `string-build-in-loop`, `string-materialization`,
+`enumerator-allocation`,
 `async-state-machine`, `sync-call-in-async` (an async method calling a
 synchronous API with a signature-compatible `Async` sibling), and
 `allocation-hotspot`. Query the algorithmic shapes explicitly:
 scan helpers stay low-confidence because static analysis cannot
 prove that the scanned sequence grows with the loop or traversal, so a
 `--min-confidence high` pass intentionally excludes them.
+
+`string-materialization` rows identify exact framework operations that can
+produce strings: concat, join, format, `String.Create`, string constructors,
+interpolated-string handler finalization, `StringBuilder.ToString`, and
+`Encoding.GetString`. `Operation` names the strategy, for example
+`string.concat` or `string.builder-finalization`. These are potential
+materializations, not guaranteed allocations: they do not establish new-object
+allocation, bytes, frequency, or rewrite safety. Confirm a candidate with a
+representative allocation trace or benchmark before changing it. The first
+version is intraprocedural; a caller that delegates string creation to a helper
+does not inherit the helper's exact Finding.
 
 After selecting a `sync-call-in-async` candidate, project
 `--fields AsyncAlternatives` on the member's `Call Graph` to carry its
@@ -128,7 +141,8 @@ recursive, or runtime-library work still needs a drill or profiler.
 
 Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
-`Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
+`Candidate`, `Finding` (`analysis.allocation`, `analysis.call-site`, or
+`analysis.string-materialization`),
 `Provenance=exact`,
 `Assembly`, `ModuleVersionId`, `MethodToken`, `Operation`, `Token`,
 `EvidenceMethod`, and `IL`.

@@ -189,7 +189,7 @@ kinds and adds `Kind` when multiple kinds have rows.
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
 target. It is available on `library`, `type`, `member`, `package`,
-`package query`, `library query`, and `find`.
+`package query`, `library query`, `find`, `depends`, and `graph libraries`.
 Use it before constructing filters; displayed columns do not imply support for
 `--where`, `--order-by`, or `--top`.
 
@@ -198,6 +198,8 @@ dnx dotnet-inspect -y -- library -Q
 dnx dotnet-inspect -y -- type -Q "Body Shapes"
 dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
 dnx dotnet-inspect -y -- library -Q @Performance
+dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
+dnx dotnet-inspect -y -- package -Q "Dependency Hierarchy"
 ```
 
 Bare `-Q` lists query-capable sections. Named `-Q` lists exact facet keys,
@@ -239,6 +241,20 @@ dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
 dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
+
+The positional-Type Dependency route exposes Source, Target, and Kind
+predicates, field and Traversal ordering, Top ranking, row stages, and Depth:
+
+```bash
+dnx dotnet-inspect -y -- depends Int128 \
+  --where "Kind=Interface" --order-by "Target desc" --top 5
+dnx dotnet-inspect -y -- package System.Text.Json@10.0.0 \
+  -S "Dependency Hierarchy" --depth 2
+```
+
+Traversal is a sequence order and cannot rank `--top`. Asset-mode `depends`
+and Package `Dependency Hierarchy` share the rooted-hierarchy profile: Depth
+limits traversal work, while row selection is applied afterward.
 
 `--where` repeats select product terms, not arbitrary package-field
 expressions. Independent terms are ANDed; the broad `tool=true` term identifies
@@ -468,7 +484,7 @@ Inspect Web rejects both formats. Keep them as packet strings for supported
 CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
 Web does not yet restore query-bearing packets. Keep Package Query answers in
 Content rather than manufacturing a link. Inspect Web directly adopts Library
-Query in the current package overview by sending the same portable
+Query in the current package's Library navigation by sending the same portable
 `references` intent to the shared envelope and filtering with returned asset
 IDs; it does not infer matches from display names.
 Offer a URL only for a browser-restorable scenario selection.

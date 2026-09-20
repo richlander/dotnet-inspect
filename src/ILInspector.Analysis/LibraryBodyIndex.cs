@@ -650,6 +650,7 @@ public sealed class LibraryBodyIndex
                             ImmutableArray<AllocationOccurrence>>()),
                 Optimizations: new(
                     Opportunities: [],
+                    StringMaterializations: [],
                     SuppressedMethodTokens: new HashSet<int>(),
                     ScopeExcludedMethodTokens:
                         new HashSet<int>(),

@@ -205,14 +205,18 @@ table evidence: the row itself is the query result.
 ## Browser/Wasm adoption
 
 Inspect Web applies Library Query to the current package workspace's surface
-group. The package overview offers a direct-reference filter for its admitted
+group. Library navigation offers a direct-reference filter for its admitted
 Libraries. TypeScript authors the portable `references=` intent and renders
 the projected envelope; managed interop opens the scope and invokes
 `LibraryQueryInspection`.
 
 The filter does not acquire another package, expand the workspace, or inspect
-implementation-only assets. Candidate failures and incomplete completion stay
-visible beside any matching Libraries.
+implementation-only assets. It narrows only the rendered Library-navigation
+candidates by exact asset ID. The full admitted population remains
+authoritative for structural subjects, aggregate results, breadcrumbs, scopes,
+and restoration; a selected nonmatching Library remains visible as the current
+subject. Candidate failures, zero matches, and incomplete completion stay
+visible beside the filtered navigation.
 
 ## Gates
 

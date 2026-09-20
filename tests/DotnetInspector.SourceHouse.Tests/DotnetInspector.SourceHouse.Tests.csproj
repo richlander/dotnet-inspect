@@ -16,6 +16,7 @@
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
     <ProjectReference Include="../../fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2/InspectWeb.SourceComparisonFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../tools/SourceBuildAttestation/SourceBuildAttestation.csproj" />

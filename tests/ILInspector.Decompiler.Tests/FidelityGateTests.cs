@@ -463,6 +463,9 @@ public class FidelityGateTests
         // construction close negative remains allocation-shaped and Exact.
         "CachedStaticMethodGroup",
         "ExplicitStaticMethodGroupArgument",
+        // #3218: receiver-proven generic argument elision recompiles to the
+        // same Enumerable instantiations in the raised C# view.
+        "ReceiverInferredExtensionArguments",
         // Promoted from KnownDiffs by #3584 after they were measured Exact on the
         // current main. Most are the benign reconstruction-ordinal class that #3505
         // retired by canonicalizing synthesized-member ordinals in the oracle — the

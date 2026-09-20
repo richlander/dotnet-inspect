@@ -596,7 +596,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     analysis,
                     plan);
         }
-        return PublishResourceOccurrences(analysis, plan, results);
+        analysis = PublishResourceOccurrences(analysis, plan, results);
+        return PublishResourceLifecycle(analysis, plan, results);
     }
 
     internal bool HasUnsafeEvidence()

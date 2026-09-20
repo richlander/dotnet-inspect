@@ -3,6 +3,8 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Views;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -43,6 +45,7 @@ public sealed record SectionQueryCatalog(
             "package query" => [],
             "library query" => [],
             "find" => [],
+            "depends" => [],
             "graph libraries" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
@@ -60,6 +63,27 @@ public sealed record SectionQueryCatalog(
                 LibraryQuerySections.LibrariesName,
                 LibraryQueryOptions.DiscoverySummary,
                 LibraryQueryOptions.QueryKeys));
+        }
+        if (command == "package")
+        {
+            queries.Add(new(
+                PackageSections.DependencyHierarchy,
+                DependencyQueryOptions.HierarchySummary,
+                DependencyQueryOptions.QueryKeys(
+                    DependencyQueryRouteKind.PackageHierarchy)));
+        }
+        if (command == "depends")
+        {
+            queries.Add(new(
+                DependsTypeSections.DependencyGraph,
+                DependencyQueryOptions.TypeSummary,
+                DependencyQueryOptions.QueryKeys(
+                    DependencyQueryRouteKind.TypeRelationships)));
+            queries.Add(new(
+                DependsAssetSections.DependencyHierarchy,
+                DependencyQueryOptions.HierarchySummary,
+                DependencyQueryOptions.QueryKeys(
+                    DependencyQueryRouteKind.AssetHierarchy)));
         }
         if (command is "library" or "type" or "member")
         {
@@ -143,6 +167,11 @@ public sealed record SectionQueryCatalog(
         {
             "find" => ["Results", "Members"],
             "package query" => [PackageProfileSections.Packages],
+            "depends" =>
+            [
+                DependsTypeSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
+            ],
             "graph libraries" =>
             [
                 LibraryCallUseCommand.ConsumerUseSitesSection,

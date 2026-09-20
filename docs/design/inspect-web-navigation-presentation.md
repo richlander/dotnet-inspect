@@ -705,9 +705,28 @@ locally alter that subject. Changing package version or TFM submits the
 realized coordinate result to Navigation and renders its reconciled snapshot
 rather than retaining or reconstructing Library identity in the browser.
 
+The initial Browser production adoption tracked by #7428 remains staged while
+the host-neutral snapshot consumer is unfinished. It projects the loaded
+coordinate's typed assembly descriptors into the same aggregate/exact
+single-select presentation and preserves the selected typed assembly identity
+across Browser history and coordinate replacement. This local projection does
+not close #7428 or #7432, manufacture unavailable or failed options, or claim
+owner-issued capability evidence; those trackers retire it with the product
+snapshot and opaque activation actions.
+
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
+
+The package-backed Library navigation may compose the Direct reference filter
+owned by [Library Query](library-query.md#browserwasm-adoption). A settled
+result narrows only the rendered exact-Library candidates by owner-issued asset
+ID; `All libraries` and the active exact Library remain visible even when they
+are not matches. Duplicate-name qualification is computed from the complete
+admitted inventory before filtering. Loading or top-level failure leaves the
+candidate list unfiltered, while zero matches is represented by a settled empty
+match set. The filter does not alter the committed Library subject, aggregate
+composition, breadcrumbs, scopes, history, or restoration.
 
 Package and Type navigation render producer-owned Type and Member inventory
 rows with the activation descriptors returned in the snapshot. They submit the
@@ -768,9 +787,7 @@ Changing it updates the shared workspace by submitting the typed transition and
 rendering its outcome. The version control remains in the Package working
 surface across Package inspectors. Neither control appears in Workspace, Type,
 or Member, and Package Overview does not repeat a target-framework selector.
-The existing Library Metadata coordinate editor is a staged migration
-exception; the Library-subject slice removes that duplicate rather than
-expanding it as a second owner.
+Library Metadata does not repeat Package Version or Framework controls.
 
 At a narrow viewport the content-navigation action is labelled `Frameworks`
 and opens the same complete TFM inventory. A pending TFM change retains the

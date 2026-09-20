@@ -228,7 +228,13 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function packageLibraryInventory\(\)[\s\S]*state\.package\.assemblies\.map\(assembly =>/);
   assert.match(
     appSource,
-    /function packageLibraries\(\)[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)[\s\S]*libraries\.filter\(library => matches\.has\(library\.id\)\)/);
+    /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);
+  assert.match(
+    appSource,
+    /function currentLibraryQueryMatchIds\(\)[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)/);
+  assert.match(
+    appSource,
+    /const matchingLibraryIds = currentLibraryQueryMatchIds\(\);[\s\S]*renderLibrarySubjectNav\(\{[\s\S]*libraries: packageLibraries\(\)[\s\S]*matchingLibraryIds/);
   assert.match(
     appSource,
     /assemblyDescriptorForType\(pkg\.assemblies, type\)/);

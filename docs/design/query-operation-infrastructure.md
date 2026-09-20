@@ -3,8 +3,8 @@
 ## Status
 
 **Implemented host-neutral substrate with Package Query and Library Query
-adopted in CLI and Inspect Web, and Graph Libraries adopted across its CLI
-query sections; remaining production adoption continues under
+adopted in CLI and Inspect Web, and Graph Libraries and Dependency adopted
+across their CLI query sections; remaining production adoption continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
@@ -23,9 +23,11 @@ catalogs. Package Query is the first production adopter: one effective route
 now supplies plan resolution, CLI discovery terms, and Browser control terms.
 Graph Libraries is the second adopter: one command route and five row-set
 routes supply its Cluster plan, CLI lowering, and section discovery. The
-Library Query is the third adopter: one explicit-population route supplies its
-reference plan, CLI discovery, and Browser gesture. The remaining operations
-still bind their syntax through separate paths.
+Dependency is the third adopter: its Type and hierarchy routes share one
+registered vocabulary and retain their existing lowering paths. Library Query
+is the fourth adopter: one explicit-population route supplies its reference
+plan, CLI discovery, and Browser gesture. The remaining operations still bind
+their syntax through separate paths.
 
 ## Authority and exact claim
 
@@ -560,6 +562,10 @@ The migration begins from useful but separate systems:
 - Graph Libraries owns one executable Cluster selector, a command-wide route,
   and five operation-backed row-set routes. CLI parsing and each section's
   `-Q` projection derive from those effective routes.
+- Dependency owns separate type-relationship and rooted-hierarchy profiles.
+  The type route projects the existing Source, Target, Kind, Traversal, row
+  selection, ranking, and depth semantics. Top-level and Package hierarchy
+  routes share the hierarchy profile, depth dimension, and row stages.
 - Find exposes its Results and Members sections to discovery but currently has
   no executable query-term or order inventory.
 
@@ -582,8 +588,9 @@ eight-step path:
    rows.
 4. **Implemented:** adopt Graph query surfaces and operation-backed Graph
    sections without changing Graph topology or projection semantics.
-5. Adopt Depends and operation-backed Dependency sections without changing
-   root, traversal, evidence, completion, or hierarchy semantics.
+5. **Implemented:** adopt Depends and operation-backed Dependency sections
+   without changing root, traversal, evidence, completion, or hierarchy
+   semantics.
 6. Adopt Find Type and Member query capability without changing its discovery
    grammar, scope rules, or result grains.
 7. **Implemented:** add Library Query over explicit Library populations, with
@@ -615,8 +622,19 @@ Markout lowering, completion, and failure contracts remain unchanged. Inspect
 Web has no two-Library selection surface, so this focused adoption adds no
 Browser gesture; a future Browser consumer can use the same route and plan.
 
-Library Query is the third adopter and the second CLI-plus-Browser adopter. Its
-operation definition registers explicit ordered Library populations,
+Dependency is the third adopter. Its operation definition remains beside the
+existing type-relationship row vocabulary and host-neutral Dependency content
+in `DotnetInspector.Sections`, so registration cannot drift into a second
+Source, Target, Kind, or Traversal implementation. The positional-Type route
+admits those existing predicates and orders, `Top`, ordinary row stages, and
+the independent Depth work dimension. Asset-mode `depends` and Package
+`Dependency Hierarchy` bind distinct subject roles to the same hierarchy
+profile, depth dimension, and row-stage contract. CLI lowering retains the
+existing Dependency acquisition, traversal, evidence, completion, hierarchy,
+failure, and rendering paths.
+
+Library Query is the fourth adopter and the second CLI-plus-Browser adopter.
+Its operation definition registers explicit ordered Library populations,
 occurrence-grain results, direct-reference qualification, and the bounded
 candidate dimension. The CLI and current-package Browser gesture resolve the
 same portable intent and execute one shared
@@ -654,19 +672,19 @@ Cluster inheritance across all five row-set routes, canonical CLI intent,
 atomic rejection of unsupported terms, and the existing cluster-scoped command
 behavior and visible unavailable-cluster failures.
 
+Dependency's Release gates cover exact type-route projection, executable
+predicate/order/Top lowering, hierarchy command/Package-section equivalence,
+automatic `-Q` inheritance, separation of Depth work from result-row stages,
+pre-acquisition rejection, and the existing visible acquisition, decode,
+traversal, and row-resolution failures.
+
 Library Query's Release gates cover exact route and CLI discovery projection,
 atomic intent rejection, occurrence preservation, direct-reference AND
 semantics, typed candidate failures, bounded completion, exact Browser asset
 mapping, and equivalent CLI and Browser use of the shared envelope.
 
-Remaining adopter slices must add Release gates for:
-
-- command and operation-backed-section equivalence for one Dependency
-  scenario;
-- separation of candidate work bounds from result-row selection;
-- visible acquisition, decode, traversal, and row-resolution failures; and
-- Package and Library reference qualification remaining distinct at their
-  respective result grains as later adopters compose with them.
+Remaining adopter slices must add Release gates for Package reference
+qualification remaining distinct from Library Query's occurrence grain.
 
 Adopter-specific owners name the authentic package, assembly, or repository
 fixtures that establish their behavior. This pattern does not manufacture a

@@ -282,7 +282,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
             if (identities.Add(assembly.Identity))
                 continue;
 
-            throw new InvalidOperationException(
+            throw new PackageAssemblyRoleCorrespondenceException(
                 "The selected artifacts contribute more than one assembly with the same "
                 + "assembly identity to one workspace role, so a reference to it could not "
                 + "bind to a single image.");

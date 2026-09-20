@@ -162,6 +162,14 @@ public static class OptimizationOpportunityRanking
                 && IsSourceFunctionName(opportunity.Method.Name);
     }
 
+    public static bool IncludeInMemberTriage(
+        OptimizationOpportunity opportunity)
+    {
+        ArgumentNullException.ThrowIfNull(opportunity);
+        return opportunity.Shape
+            != AnalysisFindings.StringMaterializationShape;
+    }
+
     public static bool IsGeneratedMethod(MethodIdentity method)
     {
         ArgumentNullException.ThrowIfNull(method);
