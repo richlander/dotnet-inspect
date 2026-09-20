@@ -297,10 +297,10 @@ internal static class ApiCoordinateMatchOptionsParser
 
         bool envelope = options.IsEnvelopeOutput(parseResult);
         int explicitFormatCount =
-            (parseResult.GetResult(options.Json) is { Implicit: false } ? 1 : 0)
-            + (parseResult.GetResult(options.Markdown) is { Implicit: false } ? 1 : 0)
-            + (parseResult.GetResult(options.PlainText) is { Implicit: false } ? 1 : 0)
-            + (parseResult.GetResult(options.Envelope) is { Implicit: false } ? 1 : 0);
+            (options.IsJsonOutput(parseResult) ? 1 : 0)
+            + (options.IsMarkdownOutput(parseResult) ? 1 : 0)
+            + (options.IsPlainTextOutput(parseResult) ? 1 : 0)
+            + (envelope ? 1 : 0);
         if (explicitFormatCount > 1)
         {
             return new Failure(

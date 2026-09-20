@@ -276,6 +276,30 @@ public class CommandLineTests
             error.Message);
     }
 
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public void CacheClear_WithAncestorReadableOutput_ReportsUnsupportedOption(
+        string output)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "cache",
+            output,
+            "clear",
+            "--session", "cache-command-missing-probe",
+        ]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(
+            $"clear does not support '{output}'.",
+            error.Message);
+    }
+
     [Fact]
     public void CacheClear_WithOppositeDirections_ReportsConflict()
     {
@@ -733,6 +757,24 @@ public class CommandLineTests
         var error = Assert.Single(result.Errors);
         Assert.Contains(
             "--json cannot be combined with --markdown",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("json", "--envelope", "-o json")]
+    [InlineData("envelope", "--json", "--json")]
+    public void OutputSelector_RejectsEnvelopeConflictRegardlessOfSpelling(
+        string output,
+        string companion,
+        string expectedSpelling)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "-o", output, companion]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains(
+            $"--envelope cannot be combined with {expectedSpelling}",
             error.Message,
             StringComparison.Ordinal);
     }

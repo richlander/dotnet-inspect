@@ -559,8 +559,10 @@ public class SharedOptions
 
             foreach (Option option in presentationOptions)
             {
-                if (result.GetResult(option) is { Implicit: false })
-                    result.AddError($"--envelope cannot be combined with {option.Name}.");
+                string? spelling =
+                    FindExplicitOutputSpelling(result, option);
+                if (spelling is not null)
+                    result.AddError($"--envelope cannot be combined with {spelling}.");
             }
         });
     }
@@ -1118,6 +1120,56 @@ public class SharedOptions
             option =>
                 option.Name == alias
                 || option.Aliases.Contains(alias));
+
+    internal string? FindExplicitOutputSpelling(
+        CommandResult result,
+        params Option[] options)
+    {
+        foreach (Option option in options)
+        {
+            if (result.GetResult(option) is { Implicit: false })
+                return option.Name;
+
+            if (TryGetOutputSelection(option, out CliOutputSelection selection)
+                && IsOutputSelection(result, selection))
+            {
+                return $"-o {OutputSelectionName(selection)}";
+            }
+        }
+
+        return null;
+    }
+
+    private bool TryGetOutputSelection(
+        Option option,
+        out CliOutputSelection selection)
+    {
+        if (ReferenceEquals(option, Json))
+            selection = CliOutputSelection.Json;
+        else if (ReferenceEquals(option, Markdown))
+            selection = CliOutputSelection.Markdown;
+        else if (ReferenceEquals(option, PlainText))
+            selection = CliOutputSelection.PlainText;
+        else if (ReferenceEquals(option, Mermaid))
+            selection = CliOutputSelection.Mermaid;
+        else if (ReferenceEquals(option, Table))
+            selection = CliOutputSelection.Table;
+        else if (ReferenceEquals(option, Tsv))
+            selection = CliOutputSelection.Tsv;
+        else if (ReferenceEquals(option, Jsonl))
+            selection = CliOutputSelection.Jsonl;
+        else if (ReferenceEquals(option, Tree))
+            selection = CliOutputSelection.Tree;
+        else if (ReferenceEquals(option, Envelope))
+            selection = CliOutputSelection.Envelope;
+        else
+        {
+            selection = default;
+            return false;
+        }
+
+        return true;
+    }
 
     private void ValidateExplicitOutputIntents(
         CommandResult result,

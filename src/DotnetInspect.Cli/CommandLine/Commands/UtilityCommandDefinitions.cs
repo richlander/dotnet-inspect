@@ -124,15 +124,20 @@ public static class UtilityCommandDefinitions
             result => ValidateCacheLineDirection(result, opts));
         clearCommand.Validators.Add(result =>
         {
-            if (result.GetResult(opts.Output)
-                is not { Tokens: [{ Value: string value }] } output
-                || output.Errors.Any())
-            {
+            string? output =
+                opts.FindExplicitOutputSpelling(
+                    result,
+                    opts.Json,
+                    opts.Markdown,
+                    opts.PlainText,
+                    opts.Table,
+                    opts.Tsv,
+                    opts.Jsonl);
+            if (output is null)
                 return;
-            }
 
             result.AddError(
-                $"clear does not support '-o {value.ToLowerInvariant()}'.");
+                $"clear does not support '{output}'.");
         });
         clearCommand.SetAction(async (parseResult, cancellationToken) =>
         {
