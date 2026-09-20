@@ -23,6 +23,21 @@
     <Features>$(Features);runtime-async=on</Features>
   </PropertyGroup>
 
+  <!-- Runtime flavor is a property of the published executable, not of dynamic
+       code availability or its managed build input. NativeAOT consumes runtime
+       host options during IL compilation, including when publish skips the
+       managed build. Ordinary and RID-specific managed builds remain CoreCLR. -->
+  <Target Name="DefineDotnetInspectNativeAotRuntimeFlavor"
+          BeforeTargets="_PrepareTrimConfiguration;WriteIlcRspFileForCompilation"
+          Condition="'$(DotnetInspectRuntimeFlavor)' == 'true' and '$(PublishAot)' == 'true'">
+    <ItemGroup>
+      <RuntimeHostConfigurationOption
+          Include="DotnetInspect.RuntimeFlavor.NativeAOT"
+          Value="true"
+          Trim="true" />
+    </ItemGroup>
+  </Target>
+
   <!-- Updated memory-safety rules are a compiler feature and a decompiler
        fixture axis. Keep the repo default as whatever the project requested
        (property unset/legacy), and let fixture overlays opt in with

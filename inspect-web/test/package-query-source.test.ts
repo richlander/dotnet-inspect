@@ -1263,9 +1263,9 @@ test("Browser data source streams matches and failures before terminal completio
     completion: null,
     assessment: null,
     progress: {
-      phase: "Manifest",
+      phase: "DependencyTraversal",
       completed: 1,
-      limit: 200,
+      limit: 5,
     },
   };
   const matchEvent: BrowserPackageQueryEvent = {
@@ -1301,8 +1301,8 @@ test("Browser data source streams matches and failures before terminal completio
       packageId: "Microsoft.Extensions.Bad",
       version: "1.0.0",
       producer: "nuget.org",
-      kind: "ManifestAcquisition",
-      message: "manifest unavailable",
+      kind: "DependencyTraversal",
+      message: "dependency traversal incomplete",
       manifestFailureReason: null,
     },
   };
@@ -1324,13 +1324,13 @@ test("Browser data source streams matches and failures before terminal completio
   const request = withPreset(
     createQueryRequest("Microsoft."),
     {
-      id: "readme:eq:true",
-      key: "readme",
+      id: "dependency-depth:eq:2",
+      key: "dependency-depth",
       operator: "eq",
-      value: "true",
-      label: "Embedded README",
+      value: "2",
+      label: "Depth 2",
       tier: "nuspec",
-      executionClass: "nuspec",
+      executionClass: "nuspec-expensive",
     });
 
   const completion = await createBrowserPackageQueryDataSource(engine).run(
@@ -1344,8 +1344,8 @@ test("Browser data source streams matches and failures before terminal completio
   assert.equal(typeof receivedArguments[0], "string");
   assert.deepEqual(receivedArguments.slice(1, 7), [
     "Microsoft.",
-    '[{"key":"readme","operator":"eq","value":"true"}]',
-    200,
+    '[{"key":"dependency-depth","operator":"eq","value":"2"}]',
+    5,
     100,
     false,
     20,
@@ -1354,8 +1354,8 @@ test("Browser data source streams matches and failures before terminal completio
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
     failures,
-    ["Microsoft.Extensions.Bad@1.0.0: manifest unavailable"]);
-  assert.deepEqual(progress, ["manifest:1/200"]);
+    ["Microsoft.Extensions.Bad@1.0.0: dependency traversal incomplete"]);
+  assert.deepEqual(progress, ["dependency-traversal:1/5"]);
   assert.deepEqual(completion, { kind: "exhausted" });
 });
 
