@@ -247,18 +247,21 @@ different typed namespaces because portable intent distinguishes their shape,
 but duplicate declarations within one namespace fail composition before
 discovery or host construction.
 
-Resolver-internal identities are qualified by their binding scope. In
-particular, an operation family named `population` and a row family named
-`population` become distinct effective family identities; the same rule applies
-to bound predicate identities used for duplicate detection. Required-family
-checks use the qualified effective identity. A combining, exclusive, or
-required family never spans operation and row bindings implicitly.
+Resolver-internal identities are qualified by their semantic scope. One
+operation-route scope is shared by all operation facet bindings, and one
+row-space scope is shared by all row facet bindings for a declared row set.
+Distinct keys in the same scope therefore retain an owner-declared combining,
+exclusive, or required family and may retain an owner-declared common bound
+predicate identity. The same owner-local family or predicate text in an
+operation scope and a row scope becomes distinct effective identities.
+Required-family checks use the qualified effective family identity.
 
-The qualification is structural, such as `(binding identity, owner-local
-identity)`; it is not user syntax and need not be serialized into a portable
-term. A future cross-binding family would require an explicit
-composition-owned identity and semantics. The initial algebra contains no such
-family.
+The qualification is structural, such as `(operation-route identity,
+owner-local identity)` or `(row-set identity, owner-local identity)`; it is not
+user syntax and need not be serialized into a portable term. A family never
+spans operation and row scopes implicitly. A future cross-scope family would
+require an explicit composition-owned identity and semantics. The initial
+algebra contains no such family.
 
 The current Query Operation implementation's `ResultPredicate` term role is
 transitional. Result predicates belong to explicit row-space bindings composed
@@ -608,6 +611,9 @@ The eventual implementation and adopter gates must preserve these cases:
 - An operation binding and a row binding both declare an owner-local family
   named `population`. Their qualified effective family identities neither
   combine, conflict, nor satisfy one another's required-family rule.
+- One operation scope declares distinct `package` and `prefix` keys in its
+  required exclusive `population` family. Qualification preserves their shared
+  family, so either key satisfies the requirement and using both still fails.
 - Two participating row sets contain three and five selected rows. Count
   returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
   total of eight.
@@ -638,8 +644,9 @@ Implementation proceeds as focused owner adoptions:
 2. Extend Portable Query Intent with the explicit Prefix, NotPrefix, Contains,
    and NotContains identities.
 3. Have Query Operation Infrastructure compose explicit row spaces, construct
-   the effective vocabulary's caller-addressed and scope-qualified internal
-   identities, and retire its transitional `ResultPredicate` role.
+   the effective vocabulary's caller-addressed identities and operation-route
+   or row-space-qualified internal identities, and retire its transitional
+   `ResultPredicate` role.
 4. Preserve structural predicate and order nodes through row-query resolution
    beside local executable bindings.
 5. Extend Source Delegation through a separate focused continuation-receipt
@@ -666,7 +673,7 @@ slices:
 | Gate | Required property |
 | --- | --- |
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
-| `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates in different binding scopes cannot combine, conflict, satisfy, or collapse one another. |
+| `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates remain isolated across operation-route and row-space scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
