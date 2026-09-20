@@ -15,6 +15,7 @@ public static class PerformanceKinds
         SectionNames.PerformanceArrays,
         SectionNames.PerformanceClosures,
         SectionNames.PerformanceEnumerators,
+        SectionNames.PerformanceStrings,
         SectionNames.PerformanceLoops,
         SectionNames.PerformanceHotspots,
         SectionNames.PerformanceAsync,
@@ -40,6 +41,8 @@ public static class PerformanceKinds
         or "instance-method-group-delegate" => SectionNames.PerformanceClosures,
 
         "enumerator-allocation" => SectionNames.PerformanceEnumerators,
+
+        "string-materialization" => SectionNames.PerformanceStrings,
 
         "linq-scan-in-loop"
         or "materialize-in-loop"
@@ -81,6 +84,7 @@ public static class PerformanceKinds
         SectionNames.PerformanceArrays => "arrays",
         SectionNames.PerformanceClosures => "closures_and_delegates",
         SectionNames.PerformanceEnumerators => "enumerators",
+        SectionNames.PerformanceStrings => "strings",
         SectionNames.PerformanceLoops => "loop_hot_paths",
         SectionNames.PerformanceHotspots => "allocation_hotspots",
         SectionNames.PerformanceAsync => "async",

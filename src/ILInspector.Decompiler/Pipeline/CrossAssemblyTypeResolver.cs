@@ -205,10 +205,13 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsAccessor = NeedsAccessorFact(callee);
         bool needsReturnDynamic = NeedsReturnDynamicFact(callee);
         bool needsReturnArrayElementDynamic = NeedsReturnArrayElementDynamicFact(callee);
+        bool needsTypeArgumentElisionSafety =
+            !callee.TypeArguments.IsEmpty
+            && callee.TypeArgumentElisionOverloadSafety == MetadataFactState.Unknown;
         if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsMemorySafety
             && !needsExtension && !needsDelegate
             && !needsOperator && !needsAccessor && !needsReturnDynamic
-            && !needsReturnArrayElementDynamic)
+            && !needsReturnArrayElementDynamic && !needsTypeArgumentElisionSafety)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -263,6 +266,12 @@ internal sealed class CrossAssemblyTypeResolver
             IsExtension = needsExtension ? resolved.IsExtension : callee.IsExtension,
             IsOperator = needsOperator ? resolved.IsOperator : callee.IsOperator,
             AccessorKind = needsAccessor ? resolved.AccessorKind : callee.AccessorKind,
+            TypeArgumentElisionOverloadSafety = needsTypeArgumentElisionSafety
+                ? resolved.TypeArgumentElisionOverloadSafety
+                : callee.TypeArgumentElisionOverloadSafety,
+            TypeArgumentElisionSiblingParameters = needsTypeArgumentElisionSafety
+                ? resolved.TypeArgumentElisionSiblingParameters
+                : callee.TypeArgumentElisionSiblingParameters,
         };
     }
 
@@ -273,6 +282,14 @@ internal sealed class CrossAssemblyTypeResolver
             ReturnType = UpgradeTypeReference(method.ReturnType),
             ParameterTypes = [.. method.ParameterTypes.Select(UpgradeTypeReference)],
             TypeArguments = [.. method.TypeArguments.Select(UpgradeTypeReference)],
+            DefinitionParameterTypes =
+                [.. method.DefinitionParameterTypes.Select(UpgradeTypeReference)],
+            TypeArgumentElisionSiblingParameters =
+                [.. method.TypeArgumentElisionSiblingParameters.Select(
+                    parameters => parameters.Select(UpgradeTypeReference).ToImmutableArray())],
+            DefinitionReturnType = method.DefinitionReturnType is { } definitionReturnType
+                ? UpgradeTypeReference(definitionReturnType)
+                : null,
         };
 
     internal TypeRef UpgradeTypeReference(TypeRef type) => type.Kind switch
@@ -838,6 +855,437 @@ internal sealed class CrossAssemblyTypeResolver
         return !unresolved;
     }
 
+    internal bool ExtensionArgumentsInferRecordedTypeArguments(
+        MethodRef method,
+        IReadOnlyList<IrExpression> arguments)
+    {
+        if (method.IsExtension != MetadataFactState.Yes
+            || method.TypeArgumentElisionOverloadSafety != MetadataFactState.Yes
+            || arguments.Count != method.DefinitionParameterTypes.Length)
+        {
+            return false;
+        }
+
+        if (ParameterInferenceOutcome(
+            method.DefinitionParameterTypes,
+            method.TypeArguments,
+            arguments) != GenericInferenceOutcome.Recorded)
+        {
+            return false;
+        }
+
+        foreach (ImmutableArray<TypeRef> siblingParameters
+            in method.TypeArgumentElisionSiblingParameters)
+        {
+            GenericInferenceOutcome siblingOutcome = ParameterInferenceOutcome(
+                siblingParameters,
+                method.TypeArguments,
+                arguments);
+            if (siblingOutcome is not GenericInferenceOutcome.Recorded
+                and not GenericInferenceOutcome.NoMatch)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    GenericInferenceOutcome ParameterInferenceOutcome(
+        ImmutableArray<TypeRef> parameterTemplates,
+        ImmutableArray<TypeRef> typeArguments,
+        IReadOnlyList<IrExpression> arguments)
+    {
+        if (typeArguments.IsEmpty || parameterTemplates.Length != arguments.Count)
+            return GenericInferenceOutcome.Unsafe;
+
+        var receiverInferred = new bool[typeArguments.Length];
+        if (parameterTemplates[0].Kind == TypeRefKind.MethodGenericParameter
+            || !CollectMethodTypeParameters(parameterTemplates[0], receiverInferred)
+            || receiverInferred.Any(static value => !value))
+        {
+            return GenericInferenceOutcome.Unsafe;
+        }
+
+        var inferred = new bool[typeArguments.Length];
+        bool noMatch = false;
+        for (int i = 0; i < parameterTemplates.Length; i++)
+        {
+            TypeRef template = parameterTemplates[i];
+            if (!CollectMethodTypeParameters(template, inferred))
+                continue;
+
+            if (arguments[i] is Constant { Value: null })
+                return GenericInferenceOutcome.Unsafe;
+
+            TypeRef? actual = arguments[i].ResultType;
+            if (actual is null)
+                return GenericInferenceOutcome.Unsafe;
+
+            TypeRef expected = template.Instantiate([], typeArguments);
+            MetadataFactState identity = SameConstructedTypeIdentity(
+                actual,
+                LocalAssemblyFor(actual),
+                expected);
+            if (identity == MetadataFactState.Yes)
+                continue;
+            if (identity == MetadataFactState.Unknown
+                || template.Kind == TypeRefKind.MethodGenericParameter)
+            {
+                return GenericInferenceOutcome.Unsafe;
+            }
+
+            if (SpecialConversionInferenceOutcome(actual, expected)
+                is { } specialConversion)
+            {
+                if (specialConversion == GenericInferenceOutcome.Recorded)
+                    continue;
+                return specialConversion;
+            }
+
+            GenericInferenceOutcome hierarchy =
+                FindConstructedInstantiation(actual, expected);
+            if (hierarchy == GenericInferenceOutcome.NoMatch)
+            {
+                noMatch = true;
+                continue;
+            }
+            if (hierarchy != GenericInferenceOutcome.Recorded)
+                return hierarchy;
+        }
+
+        return inferred.All(static value => value)
+            ? noMatch
+                ? GenericInferenceOutcome.NoMatch
+                : GenericInferenceOutcome.Recorded
+            : GenericInferenceOutcome.Unsafe;
+    }
+
+    static bool CollectMethodTypeParameters(TypeRef type, bool[] inferred)
+    {
+        if (type.Kind == TypeRefKind.MethodGenericParameter)
+        {
+            int index = type.GenericParameterIndex;
+            if ((uint)index >= (uint)inferred.Length)
+                return false;
+
+            inferred[index] = true;
+            return true;
+        }
+
+        bool found = false;
+        if (type.ElementType is { } element)
+            found |= CollectMethodTypeParameters(element, inferred);
+        foreach (TypeRef argument in type.TypeArguments)
+            found |= CollectMethodTypeParameters(argument, inferred);
+        return found;
+    }
+
+    GenericInferenceOutcome? SpecialConversionInferenceOutcome(
+        TypeRef actual,
+        TypeRef expected)
+    {
+        if (expected.Kind != TypeRefKind.GenericInstance
+            || expected.TypeArguments is not [var expectedElement]
+            || NamedDefinition(expected) is not { } definition)
+        {
+            return null;
+        }
+
+        TypeRef? actualElement = null;
+        bool supportedConversion = false;
+        if (actual is { Kind: TypeRefKind.SzArray, ElementType: { } arrayElement })
+        {
+            actualElement = arrayElement;
+            supportedConversion =
+                IsPlatformType(definition)
+                && (definition.Namespace == "System.Collections.Generic"
+                    && definition.Name is "IEnumerable`1" or "ICollection`1" or "IList`1"
+                        or "IReadOnlyCollection`1" or "IReadOnlyList`1"
+                    || definition.Namespace == "System"
+                        && definition.Name is "Span`1" or "ReadOnlySpan`1");
+        }
+        else if (actual is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                TypeArguments: [var spanElement],
+            }
+            && NamedDefinition(actual) is { } actualDefinition)
+        {
+            actualElement = spanElement;
+            supportedConversion =
+                IsPlatformType(actualDefinition)
+                && actualDefinition.Namespace == "System"
+                && actualDefinition.Name == "Span`1"
+                && IsPlatformType(definition)
+                && definition.Namespace == "System"
+                && definition.Name == "ReadOnlySpan`1";
+        }
+
+        if (!supportedConversion || actualElement is null)
+        {
+            return IsPlatformType(definition)
+                && definition.Namespace == "System"
+                && definition.Name is "Span`1" or "ReadOnlySpan`1"
+                    ? GenericInferenceOutcome.Unsafe
+                    : null;
+        }
+
+        return SameConstructedTypeIdentity(
+            actualElement,
+            LocalAssemblyFor(actualElement),
+            expectedElement) switch
+        {
+            MetadataFactState.Yes => GenericInferenceOutcome.Recorded,
+            MetadataFactState.No => GenericInferenceOutcome.Different,
+            _ => GenericInferenceOutcome.Unsafe,
+        };
+    }
+
+    static bool IsPlatformType(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            || ScopeFor(type) == AssemblyResolutionScope.Platform;
+
+    ResolvedAssemblyReference? LocalAssemblyFor(TypeRef type)
+    {
+        TypeRef? definition = NamedDefinition(type);
+        return definition is not null
+            && (string.IsNullOrEmpty(definition.Assembly) || IsSelf(definition))
+                ? _selfAssembly
+                : null;
+    }
+
+    MetadataFactState SameConstructedTypeIdentity(
+        TypeRef candidate,
+        ResolvedAssemblyReference? candidateLocalAssembly,
+        TypeRef expected)
+    {
+        if (candidate.Kind != expected.Kind)
+            return MetadataFactState.No;
+
+        if (candidate.Kind == TypeRefKind.GenericInstance)
+        {
+            if (candidate.ElementType is null
+                || expected.ElementType is null
+                || candidate.TypeArguments.Length != expected.TypeArguments.Length)
+            {
+                return MetadataFactState.No;
+            }
+
+            MetadataFactState definition = SameResolvedDefinitionIdentity(
+                candidate.ElementType,
+                candidateLocalAssembly,
+                expected.ElementType);
+            if (definition != MetadataFactState.Yes)
+                return definition;
+
+            bool unresolved = false;
+            for (int i = 0; i < candidate.TypeArguments.Length; i++)
+            {
+                MetadataFactState argument = SameConstructedTypeIdentity(
+                    candidate.TypeArguments[i],
+                    candidateLocalAssembly,
+                    expected.TypeArguments[i]);
+                if (argument == MetadataFactState.No)
+                    return MetadataFactState.No;
+                if (argument == MetadataFactState.Unknown)
+                    unresolved = true;
+            }
+
+            return unresolved ? MetadataFactState.Unknown : MetadataFactState.Yes;
+        }
+
+        if (candidate.Kind is TypeRefKind.Definition)
+            return SameResolvedDefinitionIdentity(
+                candidate,
+                candidateLocalAssembly,
+                expected);
+
+        if (candidate.Kind == TypeRefKind.FunctionPointer)
+        {
+            if (candidate.ElementType is null
+                || expected.ElementType is null
+                || candidate.CallingConvention != expected.CallingConvention
+                || candidate.TypeArguments.Length != expected.TypeArguments.Length
+                || candidate.FunctionPointerParameterRefKinds.Length
+                    != expected.FunctionPointerParameterRefKinds.Length)
+            {
+                return MetadataFactState.No;
+            }
+
+            bool unresolved = false;
+            MetadataFactState returnType = SameConstructedTypeIdentity(
+                candidate.ElementType,
+                candidateLocalAssembly,
+                expected.ElementType);
+            if (returnType == MetadataFactState.No)
+                return MetadataFactState.No;
+            if (returnType == MetadataFactState.Unknown)
+                unresolved = true;
+
+            for (int i = 0; i < candidate.TypeArguments.Length; i++)
+            {
+                MetadataFactState parameter = SameConstructedTypeIdentity(
+                    candidate.TypeArguments[i],
+                    candidateLocalAssembly,
+                    expected.TypeArguments[i]);
+                if (parameter == MetadataFactState.No
+                    || candidate.FunctionPointerParameterRefKinds[i]
+                        != expected.FunctionPointerParameterRefKinds[i])
+                {
+                    return MetadataFactState.No;
+                }
+                if (parameter == MetadataFactState.Unknown)
+                    unresolved = true;
+            }
+
+            return unresolved ? MetadataFactState.Unknown : MetadataFactState.Yes;
+        }
+
+        if (candidate.ElementType is { } candidateElement
+            && expected.ElementType is { } expectedElement)
+        {
+            return SameConstructedTypeIdentity(
+                candidateElement,
+                candidateLocalAssembly,
+                expectedElement);
+        }
+
+        return candidate.Equals(expected)
+            ? MetadataFactState.Yes
+            : MetadataFactState.No;
+    }
+
+    MetadataFactState SameResolvedDefinitionIdentity(
+        TypeRef candidate,
+        ResolvedAssemblyReference? candidateLocalAssembly,
+        TypeRef expected)
+    {
+        if (SameInterfaceIdentity(candidate, candidateLocalAssembly, expected)
+            == MetadataFactState.Yes)
+        {
+            return MetadataFactState.Yes;
+        }
+
+        if (NamedDefinition(candidate) is not { } candidateDefinition
+            || NamedDefinition(expected) is not { } expectedDefinition
+            || Locate(candidateDefinition, candidateLocalAssembly)
+                is not { } candidateResolved
+            || Locate(expectedDefinition, LocalAssemblyFor(expectedDefinition))
+                is not { } expectedResolved)
+        {
+            return MetadataFactState.Unknown;
+        }
+
+        return ResolvedIdentity(candidateDefinition, candidateResolved)
+            == ResolvedIdentity(expectedDefinition, expectedResolved)
+                ? MetadataFactState.Yes
+                : MetadataFactState.No;
+    }
+
+    GenericInferenceOutcome FindConstructedInstantiation(
+        TypeRef receiverType,
+        TypeRef expectedInterface)
+    {
+        if (NamedDefinition(expectedInterface) is not { } expectedDefinition
+            || Locate(expectedDefinition, LocalAssemblyFor(expectedDefinition))
+                is not { } expectedResolved)
+        {
+            return GenericInferenceOutcome.Unsafe;
+        }
+
+        TypeDefinitionIdentity expectedIdentity =
+            ResolvedIdentity(expectedDefinition, expectedResolved);
+        bool foundExpected = false;
+        bool unresolved = false;
+        var seen =
+            new List<(TypeDefinitionIdentity Definition, TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
+        var pending = new Stack<(TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
+        pending.Push((receiverType, LocalAssemblyFor(receiverType)));
+        int remaining = 256;
+
+        while (pending.Count > 0 && remaining-- > 0)
+        {
+            var (current, localAssembly) = pending.Pop();
+            if (NamedDefinition(current) is not { } definition)
+            {
+                unresolved = true;
+                continue;
+            }
+
+            if (Locate(definition, localAssembly) is not { } resolved)
+            {
+                unresolved = true;
+                continue;
+            }
+
+            TypeDefinitionIdentity currentIdentity =
+                ResolvedIdentity(definition, resolved);
+            if (currentIdentity == expectedIdentity)
+            {
+                MetadataFactState instantiation = SameConstructedTypeIdentity(
+                    current,
+                    localAssembly,
+                    expectedInterface);
+                if (instantiation == MetadataFactState.No)
+                    return GenericInferenceOutcome.Different;
+                if (instantiation == MetadataFactState.Unknown)
+                    unresolved = true;
+                else
+                    foundExpected = true;
+                continue;
+            }
+
+            bool alreadySeen = false;
+            foreach (var entry in seen)
+            {
+                if (entry.Definition != currentIdentity)
+                    continue;
+                MetadataFactState same = SameConstructedTypeIdentity(
+                    current,
+                    localAssembly,
+                    entry.Type);
+                if (same == MetadataFactState.Yes)
+                    alreadySeen = true;
+                else if (same == MetadataFactState.Unknown)
+                    unresolved = true;
+            }
+            if (alreadySeen)
+                continue;
+            seen.Add((currentIdentity, current, localAssembly));
+
+            if (_context.Open(resolved, out var handle) is not { } assembly)
+            {
+                unresolved = true;
+                continue;
+            }
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            foreach (var implemented in DecodeInterfaces(reader, typeDef, typeArguments))
+                pending.Push((implemented, resolved.Assembly.Assembly));
+
+            if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
+                pending.Push((baseType, resolved.Assembly.Assembly));
+        }
+
+        if (pending.Count > 0 || unresolved)
+            return GenericInferenceOutcome.Unsafe;
+
+        return foundExpected
+            ? GenericInferenceOutcome.Recorded
+            : GenericInferenceOutcome.NoMatch;
+    }
+
+    enum GenericInferenceOutcome
+    {
+        Recorded,
+        NoMatch,
+        Different,
+        Unsafe,
+    }
+
     /// <summary>
     /// Interface identity for a hierarchy answer. <see cref="TypeRef.Equals"/>
     /// is deliberately blind to which assembly a name resolves to and to the
@@ -904,6 +1352,9 @@ internal sealed class CrossAssemblyTypeResolver
 
     static TypeRef? DecodeBaseType(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)
     {
+        if (typeDef.BaseType.IsNil)
+            return null;
+
         var scope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
         return DecodeType(reader, typeDef.BaseType, scope)?.Instantiate(typeArguments, []);
     }
@@ -971,6 +1422,11 @@ internal sealed class CrossAssemblyTypeResolver
                     requiresUnsafeFact = MetadataFactState.Yes;
                     requiresUnsafe = true;
                 }
+                TypeArgumentElisionOverloadResult overloadFacts =
+                    MethodDefinitionFacts.TypeArgumentElisionOverloads(
+                        reader,
+                        typeDef,
+                        methodHandle);
                 match = new ResolvedMethodFacts(
                     parameterRefKinds,
                     requiresUnsafe,
@@ -993,7 +1449,9 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
                     FactState(MethodDefinitionFacts.IsOperator(method, callee.Name, callee.HasThis)),
-                    MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
+                    MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle),
+                    overloadFacts.State,
+                    overloadFacts.SameReceiverSiblingParameters);
             }
 
             return match;
@@ -2054,7 +2512,9 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataFactState DeclaringTypeIsDelegate,
         MetadataFactState IsExtension,
         MetadataFactState IsOperator,
-        AccessorKind AccessorKind);
+        AccessorKind AccessorKind,
+        MetadataFactState TypeArgumentElisionOverloadSafety,
+        ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters);
 
     readonly record struct ResolvedFieldFacts(
         bool HasNormalizedMemorySafetyContract,

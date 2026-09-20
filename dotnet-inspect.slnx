@@ -27,6 +27,7 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures/ILInspector.Analysis.StringMaterializationFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures/ILInspector.Analysis.TopLevelAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures/ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.UnoptimizedAsyncFixtures/ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />

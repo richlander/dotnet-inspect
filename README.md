@@ -158,7 +158,7 @@ stderr rather than mixed into structured output.
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
-| Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Performance analysis *(experimental)* | `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
@@ -308,6 +308,7 @@ workflow in more depth.
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
+dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
@@ -1227,9 +1228,13 @@ dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
   -S "Ecosystem Dependencies" \
   --columns "Ecosystem,Kind,Dependency,Declared By"
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
-  -S "Dependency Hierarchy" --tree
+  -S "Dependency Hierarchy" --depth 2 --tree
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends Int128 \
+  --where "Kind=Interface" \
+  --order-by "Target desc" \
+  --top 5 --table
 dotnet-inspect depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -1302,7 +1307,12 @@ remains the direct declaration evidence section and does not acquire transitive
 packages. The removed package `--dependencies` spelling reports replacement
 guidance rather than acting as a second hierarchy selector.
 Positional `depends <type>` retains its existing `Dependency Graph` section
-until Type relationships move to the general Graph operation.
+until Type relationships move to the general Graph operation. That route now
+projects its existing Source, Target, and Kind predicates plus field and
+Traversal ordering through `-Q "Dependency Graph"`. `--top` requires a Source,
+Target, or Kind field order; Traversal is a sequence order. Asset-mode
+`Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
+`--depth` capability from the Dependency operation.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

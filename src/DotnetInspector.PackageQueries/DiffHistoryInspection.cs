@@ -522,13 +522,27 @@ public sealed record DiffHistoryChangedVersionAssessment<T>
 /// Completion evidence retained when Changed Versions cannot supply an exact
 /// Count for the requested logical prefix.
 /// </summary>
+public sealed record DiffHistoryChangedVersionCountAssessment(
+    PackageVersionAddress Predecessor,
+    PackageVersionAddress Destination,
+    DiffHistoryChangedVersionState State)
+{
+    public PackageVersionAddress Predecessor { get; } =
+        Predecessor
+        ?? throw new ArgumentNullException(nameof(Predecessor));
+
+    public PackageVersionAddress Destination { get; } =
+        Destination
+        ?? throw new ArgumentNullException(nameof(Destination));
+}
+
 public sealed class DiffHistoryChangedVersionCountEvidence
 {
     internal DiffHistoryChangedVersionCountEvidence(
         int totalAssessmentCount,
         int establishedAssessmentCount,
         int? requiredChangedVersionPrefix,
-        DiffHistoryChangedVersionAssessment<ApiMemberHandle>?
+        DiffHistoryChangedVersionCountAssessment?
             firstUnestablishedAssessment)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(totalAssessmentCount);
@@ -556,7 +570,7 @@ public sealed class DiffHistoryChangedVersionCountEvidence
 
     public int? RequiredChangedVersionPrefix { get; }
 
-    public DiffHistoryChangedVersionAssessment<ApiMemberHandle>?
+    public DiffHistoryChangedVersionCountAssessment?
         FirstUnestablishedAssessment { get; }
 }
 
@@ -734,7 +748,7 @@ public sealed class DiffHistoryApiMemberDocument
 }
 
 /// <summary>One producer-specific document arm of shared Diff History.</summary>
-public abstract record DiffHistoryDocument
+public abstract partial record DiffHistoryDocument
 {
     private protected DiffHistoryDocument()
     {
