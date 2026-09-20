@@ -93,10 +93,21 @@ The Browser catalog projects `PackageQuery.RegisteredTerms`, the
 Package-specific projection of the effective Query Operation route; it does
 not own an independent predicate table. Closed options become preset controls
 carrying the explicit product-issued `(key, operator, value)` triple plus
-label, summary, weight, tier, optional resolver selection group, optional
-preset replacement group, and optional display group. Free-input descriptors
-carry the same route-issued key and operators plus product-owned value-kind and
-example metadata.
+label, summary, weight, acquisition tier, execution class, optional resolver
+selection group, optional preset replacement group, and optional display
+group. Free-input descriptors carry the same route-issued key and operators
+plus product-owned value-kind and example metadata.
+
+Acquisition tier and execution class are independent product facts. The former
+authorizes source search metadata, nuspec, or package-content work and retains
+its candidate limits. The latter is the UI taxonomy:
+`search-metadata`, `nuspec`, `nuspec-expensive`, `package-content`, `metadata`,
+or `metadata-expensive`. The Browser preserves the class through its generated
+facade and TypeScript catalog instead of deriving it from acquisition tier.
+For example, `references` has package-content acquisition and metadata
+execution. The expensive classes currently have no controls; they reserve
+explicit disclosure for future transitive, call-graph, or decompiler-driven
+queries rather than silently broadening a cheaper class.
 
 ### Active term delivery
 
