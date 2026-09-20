@@ -33,16 +33,19 @@ Source through `TypeSourceInspection` under #7522, CLI type-document printing
 under #7546, and member Source Locations document printing under #7679. CLI
 ordinary PDB Source adopts the shared member operation under #7819, and
 ordinary selected-member Decompiled Source adopts decompiled-only settlement
-under #7918. Broader CLI enrichment and the full source-policy contract remain
-later adoption.
+under #7918. Exact-type decompilation and Browser Type Source fallback adopt
+the same settlement under #7953. Ordinary CLI whole-type Decompiled Source,
+broader CLI enrichment, and the full source-policy contract remain later
+adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
 The current production orchestrator is `AssemblyContextSourceQuery`, which
 resolves an exact member or type and applies authored-first fallback.
-Type/member authored acquisition, selected-member pairs, and exact-member
-decompilation use SourceHouse. Type decompilation still invokes
-`CSharpDecompilerService` directly; `PdbSourceHouse` retains broader enrichment
+Type/member authored acquisition, selected-member pairs, and exact member/type
+decompilation use SourceHouse. Browser Type Source consumes the completed
+shared query result with authored-first preference; its explicit authored
+document requests never decompile. `PdbSourceHouse` retains broader enrichment
 ordering. SourceLinkService owns checksum verification and decoding.
 Query-owned fallback ordering remains migration evidence, not the target
 public House policy boundary.
@@ -345,16 +348,20 @@ gates authored edits from two independently bound fixture assemblies, with
 their endpoint order reversed, through the production batch and output
 projection. This is a focused PR-fast case, not an exhaustive assembly sweep.
 
-#### Shared member decompilation settlement
+#### Shared exact-target decompilation settlement
 
 The focused #7885 delivery settles decompiled C# for one exact MethodDef
 member target through SourceHouse and adopts that operation in
-`MemberSourceInspection`. SourceHouse resolves the Metadata-issued type,
-member anchor, and token against its own detached selected-assembly snapshot,
-then invokes `CSharpDecompilerService.ProduceMember` with the consumer's
-printer options, finite body-projection limit, explicit binding policy, and
-either the selected Library companion or embedded PDB contribution or no PDB.
-It performs no ambient path, adjacent-file, or network discovery.
+`MemberSourceInspection`. The focused #7953 delivery extends the same operation
+to one exact type and adopts it for ordinary shared type fallback and Browser
+Type Source. SourceHouse resolves the Metadata-issued type, or type plus member
+anchor and MethodDef token, against its own detached selected-assembly
+snapshot, then invokes `CSharpDecompilerService.ProduceType` or
+`CSharpDecompilerService.ProduceMember` with the consumer's printer options,
+finite body-projection limit, explicit binding policy, and either the selected
+Library companion or embedded PDB contribution or no PDB. It performs no
+ambient path, adjacent-file, or network discovery. An authored-document
+selector is not a decompilation target.
 
 The decompiled result remains a native `CSharpDecompilationAttempt`, including
 its status, text, imports, fidelity, diagnostics, method-addressed body
@@ -383,23 +390,27 @@ views still use their independently requested direct IR paths; co-selection
 does not make those paths the producer of the displayed ordinary Decompiled
 Source.
 
-The assembly-context adapter keeps one admitted Library alive while the shared
-member operation performs its authorized authored and decompiled work. Each
-House operation receives a fresh lease; the adapter retires the Library only
-after all requested operations settle. Authored-only member requests never
-invoke decompilation. Authored failure, absence, checksum rejection, or finite
-authored bounds do not suppress an independently authorized decompiled
-fallback, while an invalid owner-issued PDB companion remains a visible
-Library admission failure rather than a successful no-PDB retry.
+The assembly-context adapter keeps one admitted Library alive while a shared
+member or ordinary type operation performs its authorized authored and
+decompiled work. Each House operation receives a fresh lease; the adapter
+retires the Library and then its Artifact session before publication, followed
+by final caller-cancellation and binding-currency checks. Authored-only member
+and explicit authored-document type requests never invoke decompilation.
+Authored failure, absence, checksum rejection, deadline, or finite authored
+bounds do not suppress an independently authorized decompiled fallback, while
+an invalid owner-issued PDB companion remains a visible Library admission
+failure rather than a successful no-PDB retry.
 
 CLI same-member Source Diff consumes this path through
 `MemberSourceInspection.CompareAsync`. Browser ordinary member Source consumes
 it through `MemberSourceInspection.ExecuteAsync`, with the existing
 `queryMemberSource` worker and `loadMemberSource` TypeScript call site.
 CLI ordinary selected-member Decompiled Source consumes it through
-`MemberSourceInspection.DecompileAsync`. Implementation Diff's C# lane,
-cross-version authored member pairs, and type decompilation remain separate
-consumers.
+`MemberSourceInspection.DecompileAsync`. Browser ordinary Type Source consumes
+the type path through `TypeSourceInspection.ExecuteAsync`, retaining its
+existing wire shape, source-failure visibility, and viewer. Implementation
+Diff's C# lane, cross-version authored member pairs, and CLI ordinary
+whole-type Decompiled Source remain separate consumers.
 
 ## Authority and exact claim
 
@@ -1040,7 +1051,10 @@ broader CLI enrichment, and remaining callers stay tracked by the twelve steps
 above. CLI ordinary PDB Source (#7819) consumes that completed member operation
 with authored-only declaration demand and retires its duplicated acquisition,
 verification, and slicing path without changing Source Diff or PDB-assisted
-decompilation.
+decompilation. Exact-member decompilation (#7885 and #7918) and exact-type
+decompilation with Browser fallback adoption (#7953) use the same Library
+handoff and native producer attempt. Ordinary CLI whole-type decompilation
+remains the next consumer.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse
@@ -1073,6 +1087,24 @@ post-mapping expiry from earlier stops.
 
 These cases gate the authored-only delivery, not production-host parity,
 external PDB acquisition or decompiled fallback.
+
+### Implemented exact-target decompilation gate
+
+Run
+`dotnet run --project tests/DotnetInspector.SourceHouse.Tests -c Release -- --filter-method '*Decompilation*'`.
+The PR-fast cases cover exact member and nested generic type identity,
+no/supplied/embedded PDB contribution, invalid supplied PDB preservation,
+finite assembly and body-projection bounds, target rejection, native
+body-address evidence, fresh operation leases, and cancellation settlement.
+
+Run
+`dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- --filter-class DotnetInspector.Queries.Tests.AssemblyContextSourceQueryTests`.
+The focused type-source cases cover authored-first short-circuiting, ordinary
+fallback through the House outcome, explicit-document non-substitution,
+authored deadline and source-bound fallback, terminal Library admission,
+existing cancellation, binding-currency and disposal outcomes, and the
+unchanged completed envelope used by Browser Type Source. These cases do not
+independently prove the timing of the final post-retirement checks.
 
 ### Remaining full-composition evidence
 

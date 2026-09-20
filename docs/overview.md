@@ -54,6 +54,19 @@ substrates, and inspection producers that will extend that space.
   bind one operation role and query profile; shared infrastructure then
   derives query discovery and host lowering without inferring facets from
   schemas or rendered fields.
+  [Query Space Composition](design/query-space-composition.md) owns the target
+  host-neutral composition of one operation route with explicit row spaces,
+  Rows or exact Count, structural plan descriptions, and preservation of an
+  adjacent source owner's continuation. It keeps semantic selection, work
+  bounds, source batching, consumer paging, and rendering distinct while
+  exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
+  consumers, and other hosts.
+  [Resource Explanation](design/resource-explanation.md) owns exact,
+  shell-safe product-resource paths and a bounded host-neutral explanation
+  Document over owner-issued structural, query, and value-vocabulary
+  descriptors. It preserves typed owner identities and relationships without
+  acquiring a subject, executing a plan, parsing presentation, or moving those
+  facts into one universal catalog.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,
@@ -126,7 +139,8 @@ substrates, and inspection producers that will extend that space.
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
   package dependency routes without mutating a sealed assembly-context group.
-  The source query owns a Decompiler fallback over retained assembly content;
+  The source query delegates exact member and type decompilation to SourceHouse
+  over retained Library content while it still owns authored-first ordering;
   the
   [authored project dependency facts](design/authored-project-dependency-facts.md)
   owner projects bounded exact project XML into literal target observations,

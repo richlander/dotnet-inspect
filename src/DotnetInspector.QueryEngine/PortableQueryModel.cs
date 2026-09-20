@@ -3,7 +3,7 @@ using DotnetInspector.RowSelection;
 namespace DotnetInspector.PortableQueries;
 
 /// <summary>
-/// The four comparison identities a term may carry.
+/// The eight comparison identities a term may carry.
 /// </summary>
 /// <remarks>
 /// The identity is the canonical text, not this enum's member name. See
@@ -13,6 +13,10 @@ public enum PortableQueryOperator
 {
     Equal,
     NotEqual,
+    StartsWith,
+    NotStartsWith,
+    Contains,
+    NotContains,
     AtLeast,
     AtMost
 }
@@ -43,7 +47,7 @@ public enum PortableQueryOrderKind
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every fixed identity in an intent — the four operators, the two directions, the
+/// Every fixed identity in an intent — the eight operators, the two directions, the
 /// four stage kinds, the two order kinds, and the baseline role — <em>is</em> its
 /// text. The text is what a vocabulary admits, what orders a term, and what any
 /// encoding carries. It is deliberately not derived from an enum member name, a CLI
@@ -139,6 +143,10 @@ public static class PortableQueryModel
     {
         PortableQueryOperator.Equal => "eq",
         PortableQueryOperator.NotEqual => "ne",
+        PortableQueryOperator.StartsWith => "starts-with",
+        PortableQueryOperator.NotStartsWith => "not-starts-with",
+        PortableQueryOperator.Contains => "contains",
+        PortableQueryOperator.NotContains => "not-contains",
         PortableQueryOperator.AtLeast => "gte",
         PortableQueryOperator.AtMost => "lte",
         _ => throw Undefined(value, nameof(value))
@@ -181,6 +189,10 @@ public static class PortableQueryModel
         {
             case "eq": value = PortableQueryOperator.Equal; return true;
             case "ne": value = PortableQueryOperator.NotEqual; return true;
+            case "starts-with": value = PortableQueryOperator.StartsWith; return true;
+            case "not-starts-with": value = PortableQueryOperator.NotStartsWith; return true;
+            case "contains": value = PortableQueryOperator.Contains; return true;
+            case "not-contains": value = PortableQueryOperator.NotContains; return true;
             case "gte": value = PortableQueryOperator.AtLeast; return true;
             case "lte": value = PortableQueryOperator.AtMost; return true;
             default: value = default; return false;

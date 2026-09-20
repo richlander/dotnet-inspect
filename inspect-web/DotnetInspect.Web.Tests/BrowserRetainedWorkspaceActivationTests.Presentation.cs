@@ -270,6 +270,122 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     public Task CatalogFacade_PreservesMixedDefinitionAndAdmission() =>
         AssertCatalogFacadeAsync(includePlatform: true);
 
+    [Fact]
+    public async Task CatalogFacade_PreservesConsumerAcceptedReceiptTransaction()
+    {
+        _ = await OptionsAsync();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            string packet = Packet();
+            string preparationJson =
+                await Catalog.CatalogExports.PrepareRetainedWorkspaceDefinition(
+                    "facade-receipt",
+                    "Receipt",
+                    "/workspace",
+                    packet);
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+            Assert.Equal("prepared", preparation.Status);
+            Assert.NotNull(preparation.Preparation);
+            string receipt = Assert.IsType<string>(preparation.Receipt);
+            Assert.Null(
+                Catalog.BrowserRetainedWorkspaceActivationService.Owner.Active);
+
+            string wrongCancelJson =
+                await Catalog.CatalogExports.CancelRetainedWorkspaceActivation(
+                    "workspace-activation-wrong");
+            Catalog.BrowserRetainedWorkspaceActivationResult wrongCancel =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        wrongCancelJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.Equal("failed", wrongCancel.Status);
+            Assert.Equal("InvalidRequest", wrongCancel.Failure?.Kind);
+
+            string wrongCommitJson =
+                await Catalog.CatalogExports.CommitRetainedWorkspaceActivation(
+                    "workspace-activation-wrong");
+            Catalog.BrowserRetainedWorkspaceActivationResult wrongCommit =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        wrongCommitJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.Equal("failed", wrongCommit.Status);
+
+            string activationJson =
+                await Catalog.CatalogExports.CommitRetainedWorkspaceActivation(
+                    receipt);
+            Catalog.BrowserRetainedWorkspaceActivationResult activation =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        activationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.Equal("activated", activation.Status);
+            Assert.Equal(
+                "facade-receipt",
+                Catalog.BrowserRetainedWorkspaceActivationService.Owner.Active!
+                    .RetainedDefinitionId);
+
+            string wrongCompletionJson =
+                Catalog.CatalogExports.CompleteRetainedWorkspaceActivation(
+                    "workspace-activation-wrong",
+                    succeeded: true,
+                    failure: null);
+            Catalog.BrowserRetainedWorkspaceConsumerCompletionResult
+                wrongCompletion = Assert.IsType<
+                    Catalog.BrowserRetainedWorkspaceConsumerCompletionResult>(
+                        JsonSerializer.Deserialize(
+                            wrongCompletionJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspaceConsumerCompletionResult));
+            Assert.Equal("unavailable", wrongCompletion.Status);
+
+            string completionJson =
+                Catalog.CatalogExports.CompleteRetainedWorkspaceActivation(
+                    receipt,
+                    succeeded: true,
+                    failure: null);
+            Catalog.BrowserRetainedWorkspaceConsumerCompletionResult
+                completion = Assert.IsType<
+                    Catalog.BrowserRetainedWorkspaceConsumerCompletionResult>(
+                        JsonSerializer.Deserialize(
+                            completionJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspaceConsumerCompletionResult));
+            Assert.Equal("completed", completion.Status);
+            Assert.True(completion.Succeeded);
+
+            string duplicateJson =
+                Catalog.CatalogExports.CompleteRetainedWorkspaceActivation(
+                    receipt,
+                    succeeded: true,
+                    failure: null);
+            Catalog.BrowserRetainedWorkspaceConsumerCompletionResult duplicate =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspaceConsumerCompletionResult>(
+                        JsonSerializer.Deserialize(
+                            duplicateJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspaceConsumerCompletionResult));
+            Assert.Equal("unavailable", duplicate.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
     static async Task AssertCatalogFacadeAsync(
         bool includePlatform)
     {

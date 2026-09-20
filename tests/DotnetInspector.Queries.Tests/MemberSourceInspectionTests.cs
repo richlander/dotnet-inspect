@@ -83,7 +83,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.NotNull(body.Projection.Output);
         var house =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
+                SourceHouseDecompilationOutcome.Completed>(
                     settled.HouseOutcome);
         Assert.Same(settled.Attempt, house.Attempt);
         Assert.Equal(
@@ -231,13 +231,15 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Contains("public int Count { get; }", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
-        SourceHouseMemberDecompilationOutcome.Completed house =
+        SourceHouseDecompilationOutcome.Completed house =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
+                SourceHouseDecompilationOutcome.Completed>(
                 available.DecompilationHouseOutcome);
         Assert.Equal(
             getter.MetadataToken,
-            house.Request.Target.MetadataToken);
+            Assert.IsType<SourceHouseTarget.MemberTarget>(
+                house.Request.Target)
+                .MetadataToken);
         Assert.Same(source.Decompilation, house.Attempt);
         Assert.Empty(envelope.Diagnostics);
     }
@@ -263,13 +265,15 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Contains($"public int Count => {expression};", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
-        SourceHouseMemberDecompilationOutcome.Completed house =
+        SourceHouseDecompilationOutcome.Completed house =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
+                SourceHouseDecompilationOutcome.Completed>(
                 available.DecompilationHouseOutcome);
         Assert.Equal(
             getter.MetadataToken,
-            house.Request.Target.MetadataToken);
+            Assert.IsType<SourceHouseTarget.MemberTarget>(
+                house.Request.Target)
+                .MetadataToken);
         Assert.Same(source.Decompilation, house.Attempt);
         Assert.Empty(envelope.Diagnostics);
     }
@@ -338,9 +342,9 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(PdbMemberSourceOutcome.ChecksumMismatch, source.PdbAttempt.Outcome);
         Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
         Assert.IsType<SourceHouseOutcome.Failed>(available.HouseOutcome);
-        SourceHouseMemberDecompilationOutcome.Completed decompiled =
+        SourceHouseDecompilationOutcome.Completed decompiled =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
+                SourceHouseDecompilationOutcome.Completed>(
                 available.DecompilationHouseOutcome);
         Assert.Same(source.Decompilation, decompiled.Attempt);
         Assert.Equal(
@@ -444,9 +448,9 @@ public sealed partial class AssemblyContextSourceQueryTests
                 : SourceHouseIncompleteBoundary.SourceBytes,
                 Assert.IsType<SourceHouseOutcome.Incomplete>(available.HouseOutcome).Boundary);
         }
-        SourceHouseMemberDecompilationOutcome.Completed decompiled =
+        SourceHouseDecompilationOutcome.Completed decompiled =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
+                SourceHouseDecompilationOutcome.Completed>(
                 available.DecompilationHouseOutcome);
         Assert.Same(
             source.Decompilation,
@@ -658,9 +662,9 @@ public sealed partial class AssemblyContextSourceQueryTests
         var available = Assert.IsType<AssemblyMemberSourceComparisonEntry.Available>(inspection.Content);
         var decompiled = Assert.IsType<AssemblyMemberDecompiledSourceAttempt.Available>(available.Decompiled);
         Assert.True(decompiled.Result.PdbSupplied);
-        SourceHouseMemberDecompilationOutcome.Completed decompiledHouse =
+        SourceHouseDecompilationOutcome.Completed decompiledHouse =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
+                SourceHouseDecompilationOutcome.Completed>(
                 decompiled.HouseOutcome);
         Assert.Same(decompiled.Result, decompiledHouse.Attempt);
         Assert.Equal(
@@ -690,7 +694,7 @@ public sealed partial class AssemblyContextSourceQueryTests
     {
         SourceHouseLimits authored =
             host.Context.MemberSourceLimits;
-        SourceHouseMemberDecompilationLimits decompiled =
+        SourceHouseDecompilationLimits decompiled =
             host.Context.MemberDecompilationLimits;
         return new(
             host.Context.SymbolClient,
