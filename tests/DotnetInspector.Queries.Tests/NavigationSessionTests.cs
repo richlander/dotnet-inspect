@@ -155,7 +155,10 @@ public sealed partial class NavigationSessionTests
         NavigationAction old = fixture.Session.Snapshot.Types[0].Navigation.Action!;
         string initialSubject = fixture.Session.Snapshot.ActiveSubject.Id;
         await fixture.Session.ExecuteAsync(fixture.Session.Snapshot.Types[1].Navigation.Action!, TestContext.Current.CancellationToken);
-        await fixture.Session.ExecuteAsync(fixture.Session.Snapshot.Libraries[1].Navigation.Action!, TestContext.Current.CancellationToken);
+        await fixture.Session.ExecuteAsync(
+            fixture.Session.Snapshot.Libraries
+                .Single(row => row.IsAggregate).Navigation.Action!,
+            TestContext.Current.CancellationToken);
         Assert.Equal(initialSubject, fixture.Session.Snapshot.ActiveSubject.Id);
         fixture.Prepare = _ => throw new InvalidOperationException("Stale action must not gather.");
         NavigationConsumerResult rejected = await fixture.Session.ExecuteAsync(old, TestContext.Current.CancellationToken);
@@ -190,7 +193,6 @@ public sealed partial class NavigationSessionTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
-        await session.ExecuteAsync(session.Snapshot.Libraries[0].Navigation.Action!, TestContext.Current.CancellationToken);
         Assert.True(session.Snapshot.Libraries[0].IsAggregate);
         Assert.Equal(session.Snapshot.Types[0].Navigation.Subject!.Label,
             session.Snapshot.Types[1].Navigation.Subject!.Label);
@@ -241,6 +243,10 @@ public sealed partial class NavigationSessionTests
     public async Task NonDescendantRows_HaveNoPairActions()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Session.ExecuteAsync(
+            fixture.Session.Snapshot.Libraries
+                .Single(row => row.IsPrimary).Navigation.Action!,
+            TestContext.Current.CancellationToken);
         Assert.NotEmpty(fixture.Session.Snapshot.Types[0].DescendantLenses);
         Assert.Empty(fixture.Session.Snapshot.Types[1].DescendantLenses);
         Assert.All(fixture.Session.Snapshot.Members, row => Assert.Empty(row.DescendantLenses));

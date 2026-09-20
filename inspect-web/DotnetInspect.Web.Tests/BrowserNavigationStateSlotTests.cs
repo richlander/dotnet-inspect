@@ -18,6 +18,9 @@ public sealed class BrowserNavigationStateSlotTests
         BrowserNavigationStateSlot slot = fixture.Slot;
         NavigationConsumerResult initialization = slot.Initialization;
         Assert.Same(fixture.Workspace.Identity, slot.Workspace);
+        Assert.Equal(
+            "All libraries",
+            initialization.Snapshot.ActiveSubject.Label);
         Assert.Equal(initialization.Authority!.Session, slot.Id);
         Assert.Equal(
             NavigationAuthorityResult.Accepted,

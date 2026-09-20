@@ -149,13 +149,36 @@ public sealed class NavigationDetachmentTests
                 var facts = new NavigationEvaluationFacts(scope, package, (_, _) => availability);
                 var evaluations = ImmutableArray.CreateBuilder<NavigationEvaluationResult>();
                 NavigationOperationInitialization initialized = NavigationTransitions.Initialize(workspace.Identity, facts, registry);
-                StructuralSubjectIdentity.LibrarySubject library = Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
-                    initialized.State.CurrentSnapshot.ActiveSubject);
+                StructuralSubjectIdentity.AllLibrariesSubject aggregate =
+                    Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
+                        initialized.State.CurrentSnapshot.ActiveSubject);
+                StructuralSubjectIdentity.LibrarySubject library =
+                    StructuralSubjectIdentity.ForLibrary(
+                        aggregate.Package,
+                        libraries[0].Library);
                 Assert.Equal(library, StructuralSubjectIdentity.ForLibrary(library.Package, libraries[0].Library));
                 Assert.Same(library.Identity.Registration,
                     NavigationRegistrationIdentity.From(registration));
-                NavigationTransition libraryBegin = NavigationTransitions.BeginLens(initialized.State,
-                    new(library, new ViewFacetId("library.metadata")));
+                NavigationAction libraryAction = initialized.State.Snapshot.Libraries
+                    .Single(row => !row.IsAggregate).Navigation.Action!;
+                NavigationTransition librarySelectionBegin =
+                    NavigationTransitions.Begin(
+                        initialized.State,
+                        libraryAction);
+                NavigationEvaluationResult librarySelectionEvaluation =
+                    NavigationTransitions.Evaluate(
+                        librarySelectionBegin.Work!,
+                        new NavigationPreparation.Ready(facts),
+                        registry);
+                NavigationTransition librarySelected =
+                    NavigationTransitions.Complete(
+                        librarySelectionBegin.State,
+                        librarySelectionBegin.Work!,
+                        librarySelectionEvaluation);
+                NavigationTransition libraryBegin =
+                    NavigationTransitions.BeginLens(
+                        librarySelected.State,
+                        new(library, new ViewFacetId("library.metadata")));
                 NavigationTransition libraryResult = Complete(libraryBegin);
                 NavigationAction typeAction = libraryResult.State.Snapshot.Types
                     .Single(type => type.Navigation.Subject?.Label == typeof(EmbeddedSourceFixture).FullName).DescendantLenses

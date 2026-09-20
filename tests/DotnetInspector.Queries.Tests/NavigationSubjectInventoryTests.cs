@@ -428,7 +428,7 @@ public sealed class NavigationSubjectInventoryTests
         Assert.Single(inventory.InitialCandidates[0].Types);
         Assert.Empty(inventory.InitialCandidates[1].Types);
         Assert.Equal(
-            inventory.InitialCandidates[0].Subject,
+            inventory.Package,
             NavigationInitialSubjectRecommendation.Recommend(
                 inventory.Package,
                 allLibraries: null,

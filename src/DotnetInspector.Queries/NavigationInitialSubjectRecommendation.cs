@@ -220,12 +220,9 @@ public static class NavigationInitialSubjectRecommendation
             allLibraries,
             libraries);
         StructuralSubjectIdentity subject =
-            (StructuralSubjectIdentity?)basis.Libraries.FirstOrDefault(
-                library => library.IsPrimary)?.Subject
-            ?? (StructuralSubjectIdentity?)basis.Libraries
-                .FirstOrDefault()?.Subject
-            ?? (StructuralSubjectIdentity?)basis.AllLibraries
-            ?? basis.Package;
+            basis.AllLibraries is { } aggregate
+                ? aggregate
+                : basis.Package;
         return new NavigationInitialSubjectOutcome(basis, subject);
     }
 }

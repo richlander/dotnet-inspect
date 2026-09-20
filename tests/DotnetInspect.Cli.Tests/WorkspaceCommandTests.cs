@@ -1961,6 +1961,10 @@ public sealed partial class WorkspaceCommandTests
             root.GetProperty("navigation")[0]
                 .GetProperty("active_kind").GetString());
         Assert.Equal(
+            "All libraries",
+            root.GetProperty("navigation")[0]
+                .GetProperty("active_subject").GetString());
+        Assert.Equal(
             PackageId,
             root.GetProperty("packages")[0]
                 .GetProperty("package").GetString());

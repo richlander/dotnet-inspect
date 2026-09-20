@@ -7,7 +7,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class NavigationInitialSubjectRecommendationTests
 {
     [Fact]
-    public void InitialRecommendation_PrefersLibraryThenPackage()
+    public void InitialRecommendation_PrefersAggregateThenPackage()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
         StructuralSubjectIdentity.PackageSubject package =
@@ -34,7 +34,7 @@ public sealed class NavigationInitialSubjectRecommendationTests
                 package,
                 allLibraries,
                 [primary, other]);
-        Assert.Same(primary.Subject, recommendation.Subject);
+        Assert.Same(allLibraries, recommendation.Subject);
         Assert.Same(package, recommendation.Basis.Package);
         Assert.Same(allLibraries, recommendation.Basis.AllLibraries);
         Assert.Equal([primary, other], recommendation.Basis.Libraries);
@@ -44,7 +44,7 @@ public sealed class NavigationInitialSubjectRecommendationTests
                 package,
                 allLibraries,
                 [primary, otherWithoutTypes]);
-        Assert.Same(primary.Subject, emptyLibrary.Subject);
+        Assert.Same(allLibraries, emptyLibrary.Subject);
 
         Assert.Same(
             allLibraries,
@@ -53,12 +53,12 @@ public sealed class NavigationInitialSubjectRecommendationTests
                 allLibraries,
                 []).Subject);
 
-        NavigationInitialSubjectOutcome primaryLibrary =
+        NavigationInitialSubjectOutcome packageWithLibraries =
             NavigationInitialSubjectRecommendation.Recommend(
                 package,
                 allLibraries: null,
                 [otherWithoutTypes, primary]);
-        Assert.Same(primary.Subject, primaryLibrary.Subject);
+        Assert.Same(package, packageWithLibraries.Subject);
 
         NavigationInitialSubjectOutcome firstLibrary =
             NavigationInitialSubjectRecommendation.Recommend(
@@ -68,7 +68,7 @@ public sealed class NavigationInitialSubjectRecommendationTests
                     package,
                     "Later",
                     isPrimary: false)]);
-        Assert.Same(otherWithoutTypes.Subject, firstLibrary.Subject);
+        Assert.Same(allLibraries, firstLibrary.Subject);
 
         NavigationInitialSubjectOutcome packageOnly =
             NavigationInitialSubjectRecommendation.Recommend(
@@ -188,7 +188,7 @@ public sealed class NavigationInitialSubjectRecommendationTests
     }
 
     [Fact]
-    public void LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes()
+    public void InitialRecommendation_IgnoresPrimaryProducerOrderAndTypes()
     {
         RealizedMemberCoordinate.Package coordinate = Coordinate("1.0.0");
         StructuralSubjectIdentity.PackageSubject package =
@@ -212,8 +212,10 @@ public sealed class NavigationInitialSubjectRecommendationTests
             isPrimary: false,
             ("LaterPublic", "public"));
 
-        Assert.Same(
-            primary.Subject,
+        StructuralSubjectIdentity.AllLibrariesSubject allLibraries =
+            StructuralSubjectIdentity.ForAllLibraries(package);
+        Assert.Equal(
+            allLibraries,
             Recommend(package, primary, otherFirst, otherLater).Subject);
 
         NavigationInitialLibraryCandidate primaryNonDefault =
@@ -223,8 +225,8 @@ public sealed class NavigationInitialSubjectRecommendationTests
                 isPrimary: true,
                 ("PrivateFirst", "private"),
                 ("ProtectedSecond", "protected"));
-        Assert.Same(
-            primaryNonDefault.Subject,
+        Assert.Equal(
+            allLibraries,
             Recommend(
                 package,
                 primaryNonDefault,
@@ -237,8 +239,8 @@ public sealed class NavigationInitialSubjectRecommendationTests
                 "OtherNonDefault",
                 isPrimary: false,
                 ("OtherPrivate", "private"));
-        Assert.Same(
-            primaryNonDefault.Subject,
+        Assert.Equal(
+            allLibraries,
             Recommend(
                 package,
                 primaryNonDefault,
@@ -257,8 +259,8 @@ public sealed class NavigationInitialSubjectRecommendationTests
                 "LaterOtherNonDefault",
                 isPrimary: false,
                 ("LaterPrivate", "private"));
-        Assert.Same(
-            firstOtherNonDefault.Subject,
+        Assert.Equal(
+            allLibraries,
             Recommend(
                 package,
                 firstOtherNonDefault,
@@ -290,7 +292,8 @@ public sealed class NavigationInitialSubjectRecommendationTests
 
         NavigationInitialSubjectOutcome outcome = Recommend(package, library);
 
-        Assert.Same(library.Subject, outcome.Subject);
+        Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
+            outcome.Subject);
         Assert.IsNotType<StructuralSubjectIdentity.TypeSubject>(
             outcome.Subject);
         Assert.IsNotType<StructuralSubjectIdentity.MemberSubject>(
@@ -306,7 +309,7 @@ public sealed class NavigationInitialSubjectRecommendationTests
         params NavigationInitialLibraryCandidate[] libraries) =>
         NavigationInitialSubjectRecommendation.Recommend(
             package,
-            allLibraries: null,
+            StructuralSubjectIdentity.ForAllLibraries(package),
             [.. libraries]);
 
     static NavigationInitialLibraryCandidate EqualCandidate(

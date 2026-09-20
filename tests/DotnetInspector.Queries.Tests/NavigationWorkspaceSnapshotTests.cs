@@ -217,6 +217,8 @@ public sealed class NavigationWorkspaceSnapshotTests
                 registry,
                 availability);
 
+        Assert.IsType<StructuralSubjectIdentity.AllLibrariesSubject>(
+            snapshot.ActiveSubject);
         Assert.Same(snapshot.ActiveSubject, evaluatedSubject);
         Assert.Same(snapshot.Inventory, evaluatedInventory);
         NavigationLensEvaluationBasis.Recommendation basis =
@@ -579,7 +581,10 @@ public sealed class NavigationWorkspaceSnapshotTests
                 NavigationSnapshotTestData.AllAvailable(registry));
         var library =
             Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
-                snapshot.ActiveSubject);
+                Assert.Single(
+                    snapshot.Libraries,
+                    candidate => candidate.Subject
+                        is StructuralSubjectIdentity.LibrarySubject).Subject);
 
         NavigationSnapshotSelectorResolution.Incomplete result =
             Assert.IsType<NavigationSnapshotSelectorResolution.Incomplete>(
@@ -638,7 +643,10 @@ public sealed class NavigationWorkspaceSnapshotTests
                 NavigationSnapshotTestData.AllAvailable(registry));
         var library =
             Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
-                snapshot.ActiveSubject);
+                Assert.Single(
+                    snapshot.Libraries,
+                    candidate => candidate.Subject
+                        is StructuralSubjectIdentity.LibrarySubject).Subject);
 
         NavigationSnapshotSelectorResolution.Selected selected =
             Assert.IsType<NavigationSnapshotSelectorResolution.Selected>(

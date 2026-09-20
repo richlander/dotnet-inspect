@@ -435,6 +435,8 @@ public sealed partial class NavigationSessionTests
         NavigationConsumerResult first = await session.RefreshAsync(TestContext.Current.CancellationToken);
         NavigationConsumerLensDescriptor firstLens = first.Snapshot.Types[0].DescendantLenses
             .Single(row => row.Facet.Id == "type.compare");
+        StructuralSubjectIdentity.TypeSubject destination =
+            session.CurrentSnapshot.Types[0].Row.Subject;
         Assert.Equal(NavigationDescriptorState.Failed, firstLens.State);
         Assert.Null(firstLens.Action);
         Assert.NotEqual(session.Initialization.Authority!.Revision, first.Authority!.Revision);
@@ -446,7 +448,9 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(firstLens, second.Snapshot.Types[0].DescendantLenses.Single(row => row.Facet.Id == "type.compare"));
         Assert.NotEqual(first.Authority.Revision, second.Authority!.Revision);
         NavigationDescendantLensDescriptor retained = session.CurrentSnapshot.DescendantLenses
-            .Single(row => row.Request.Destination.Facet.Value == "type.compare");
+            .Single(row =>
+                row.Request.Destination.Subject == destination
+                && row.Request.Destination.Facet.Value == "type.compare");
         Assert.Same(secondEvidence, Assert.IsType<ViewFacetAvailability.Failed>(retained.Option.Availability).Evidence);
         fixture.Acknowledge(second);
         NavigationConsumerResult same = await session.RefreshAsync(TestContext.Current.CancellationToken);
@@ -679,8 +683,13 @@ public sealed partial class NavigationSessionTests
             ? session.Snapshot.Members[0].DescendantLenses
             : session.Snapshot.Types[0].DescendantLenses).Single(row => row.Facet.Id == facet);
         NavigationAction action = lens.Action!;
+        StructuralSubjectIdentity destination = member
+            ? current.Members[0].Row.Subject
+            : current.Types[0].Row.Subject;
         DescendantSubjectLensRequest expected = current.DescendantLenses
-            .Single(row => row.Request.Destination.Facet.Value == facet).Request;
+            .Single(row =>
+                row.Request.Destination.Subject == destination
+                && row.Request.Destination.Facet.Value == facet).Request;
         var evidence = new VariantDiagnostic(42);
         var reason = ViewFacetUnavailableReason.CapabilityAbsent("exact destination unavailable");
         fixture.Override = id => id.Value == facet
@@ -741,7 +750,11 @@ public sealed partial class NavigationSessionTests
         NavigationTestHost session = fixture.Session;
         NavigationWorkspaceSnapshot current = session.CurrentSnapshot;
         NavigationAction action = session.Snapshot.Types[0].DescendantLenses.Single().Action!;
-        DescendantSubjectLensRequest expected = current.DescendantLenses.Single().Request;
+        StructuralSubjectIdentity.TypeSubject destination =
+            current.Types[0].Row.Subject;
+        DescendantSubjectLensRequest expected = current.DescendantLenses
+            .Single(row => row.Request.Destination.Subject == destination)
+            .Request;
         applicable = false;
         NavigationOperationResult operation = await session.ExecuteOperationAsync(action, TestContext.Current.CancellationToken);
         NavigationConsumerResult result = operation.Consumer;
