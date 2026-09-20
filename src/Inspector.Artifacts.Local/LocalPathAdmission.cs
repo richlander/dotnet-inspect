@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
@@ -178,7 +179,7 @@ internal readonly record struct WindowsReparseInformation(
     string? TargetPath,
     bool IsRelative);
 
-internal static class LocalPathAdmission
+internal static partial class LocalPathAdmission
 {
     private const int UnixFileTypeMask = 0xF000;
     private const int UnixDirectory = 0x4000;
@@ -1333,31 +1334,30 @@ internal static class LocalPathAdmission
         return @"\\?\" + path;
     }
 
-    [DllImport(
+    [LibraryImport(
         "libSystem.Native",
         EntryPoint = "SystemNative_Stat",
-        SetLastError = true)]
-    private static safe extern int UnixStat(
-        [MarshalAs(UnmanagedType.LPUTF8Str)]
+        SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int UnixStat(
         string path,
         out UnixFileStatus information);
 
-    [DllImport(
+    [LibraryImport(
         "libSystem.Native",
         EntryPoint = "SystemNative_FStat",
         SetLastError = true)]
-    private static safe extern int UnixFStat(
+    private static partial int UnixFStat(
         SafeFileHandle file,
         out UnixFileStatus information);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport(
+    [LibraryImport(
         "kernel32.dll",
         EntryPoint = "CreateFileW",
         SetLastError = true,
-        CharSet = CharSet.Unicode,
-        ExactSpelling = true)]
-    private static safe extern SafeFileHandle CreateFileWindows(
+        StringMarshalling = StringMarshalling.Utf16)]
+    private static partial SafeFileHandle CreateFileWindows(
         string fileName,
         uint desiredAccess,
         FileShare shareMode,
@@ -1367,34 +1367,34 @@ internal static class LocalPathAdmission
         IntPtr templateFile);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static safe extern bool GetFileInformationByHandleEx(
+    private static partial bool GetFileInformationByHandleEx(
         SafeFileHandle file,
         FileInfoByHandleClass informationClass,
         out WindowsFileAttributeTagInformation information,
         uint bufferSize);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport(
+    [LibraryImport(
         "kernel32.dll",
         EntryPoint = "DeviceIoControl",
         SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static safe extern bool DeviceIoControl(
+    private static partial bool DeviceIoControl(
         SafeFileHandle handle,
         uint controlCode,
         IntPtr inputBuffer,
         uint inputBufferSize,
-        [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 5)]
+        [Out, MarshalUsing(CountElementName = nameof(outputBufferSize))]
         byte[] outputBuffer,
         uint outputBufferSize,
         out uint bytesReturned,
         IntPtr overlapped);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static safe extern uint GetFileType(SafeFileHandle file);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial uint GetFileType(SafeFileHandle file);
 
     private enum FileInfoByHandleClass
     {
