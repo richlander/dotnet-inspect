@@ -75,6 +75,7 @@ public sealed class DependencyQueryTests
 
         Assert.True(resolution.IsSuccess);
         Assert.Equal(2, plan.MaximumDepth);
+        Assert.Empty(plan.HierarchyRows.Operations);
         var dependency = new TypeDependencyResult(
             "Demo.Consumer",
             [])
@@ -153,10 +154,58 @@ public sealed class DependencyQueryTests
                 (stage.Kind, stage.Count)));
         Assert.Equal(2, command.MaximumDepth);
         Assert.Equal(2, section.MaximumDepth);
-        Assert.Single(command.Intent.Stages);
+        Assert.Single(command.HierarchyRows.Operations);
+        Assert.Single(section.HierarchyRows.Operations);
         Assert.Equal(
             RowSelectionStageKind.Head,
-            command.Intent.Stages[0].Kind);
+            command.HierarchyRows.Operations[0].Kind);
+        Assert.Empty(command.RelationshipRows.Predicates);
+        Assert.Null(command.RelationshipRows.BaselineOrder);
+        Assert.Empty(command.RelationshipRows.Selection.Operations);
+    }
+
+    [Fact]
+    public void HierarchyRoutes_PreserveOrderedRowStages()
+    {
+        PortableQueryIntent intent = PortableQueryIntent.Create(
+            [],
+            [],
+            [
+                PortableQueryStage.Window(2, 4),
+                PortableQueryStage.Head(2),
+            ],
+            []);
+
+        DependencyQueryPlan command = Accepted(
+            DependencyQuery.ResolveIntent(
+                DependencyQueryRouteKind.AssetHierarchy,
+                intent,
+                TestContext.Current.CancellationToken));
+        DependencyQueryPlan section = Accepted(
+            DependencyQuery.ResolveIntent(
+                DependencyQueryRouteKind.PackageHierarchy,
+                intent,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Window,
+                RowSelectionStageKind.Head,
+            ],
+            command.HierarchyRows.Operations.Select(operation =>
+                operation.Kind));
+        Assert.Equal(
+            command.HierarchyRows.Operations.Select(Operation),
+            section.HierarchyRows.Operations.Select(Operation));
+
+        static (RowSelectionStageKind Kind, int? Start, int? End, int Count)
+            Operation(RowSelectionIntentOperation<string> operation) =>
+            operation.Kind switch
+            {
+                RowSelectionStageKind.Window =>
+                    (operation.Kind, operation.Start, operation.End, 0),
+                _ => (operation.Kind, null, null, operation.Count),
+            };
     }
 
     [Fact]

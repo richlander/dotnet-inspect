@@ -833,7 +833,7 @@ public static class SearchCommandDefinitions
                 return 1;
             }
             RowSelectionIntent<string>? dependencyRowSelection =
-                AppendDependsRows(
+                DependencyQueryOptions.AppendLegacyRows(
                     parseResult,
                     opts,
                     rowSelection);
@@ -1164,45 +1164,6 @@ public static class SearchCommandDefinitions
                     lowering));
 
         return dependsCommand;
-    }
-
-    private static RowSelectionIntent<string>? AppendDependsRows(
-        ParseResult parseResult,
-        SharedOptions opts,
-        RowSelectionIntent<string>? selection)
-    {
-        string? rows = parseResult.GetValue(opts.Rows);
-        if (rows is null)
-            return selection;
-
-        if (!RowSpec.TryParse(
-                rows,
-                out RowSpec spec,
-                out string? error))
-        {
-            throw new RowWindowValidationException(
-                $"--rows {error}");
-        }
-
-        RowSelectionIntentOperation<string> operation =
-            spec.Kind switch
-            {
-                RowSpecKind.Count
-                    when parseResult.GetValue(opts.Tail) =>
-                    RowSelectionIntentOperation<string>.Tail(
-                        spec.Count),
-                RowSpecKind.Count =>
-                    RowSelectionIntentOperation<string>.Head(
-                        spec.Count),
-                RowSpecKind.Range =>
-                    RowSelectionIntentOperation<string>.Window(
-                        spec.Start,
-                        spec.End),
-                _ => throw new InvalidOperationException(
-                    "Unsupported Dependency row selection."),
-            };
-        return (selection ?? RowSelectionIntent<string>.Empty)
-            .Append(operation);
     }
 
     private static DependsAssetRoot[] ParseDependsAssetRoots(

@@ -114,13 +114,18 @@ internal sealed record CliRowSelectionPreparation
 
 internal static class CliRowSelectionCommandRegistry
 {
+    private sealed record PreparedLowering(
+        CliRowSelectionLowering<string> Lowering,
+        IReadOnlyList<string> Arguments,
+        IReadOnlyList<int> ArgumentPositions);
+
     private static readonly ConditionalWeakTable<
         Command,
         CliRowSelectionCommandAdoption> Adoptions = new();
 
     private static readonly ConditionalWeakTable<
         ParseResult,
-        CliRowSelectionLowering<string>> Lowerings = new();
+        PreparedLowering> Lowerings = new();
 
     public static void Register(
         Command command,
@@ -299,7 +304,12 @@ internal static class CliRowSelectionCommandRegistry
             };
         }
 
-        Lowerings.Add(result.ParseResult, lowering);
+        Lowerings.Add(
+            result.ParseResult,
+            new(
+                lowering,
+                result.Arguments,
+                result.ArgumentPositions));
         return CliRowSelectionPreparation.Success(
             result.ParseResult,
             lowering);
@@ -316,8 +326,10 @@ internal static class CliRowSelectionCommandRegistry
 
         if (Lowerings.TryGetValue(
                 parseResult,
-                out CliRowSelectionLowering<string>? lowering))
+                out PreparedLowering? prepared))
         {
+            CliRowSelectionLowering<string> lowering =
+                prepared.Lowering;
             semanticIntent =
                 lowering.SemanticIntent.Operations.Count > 0
                     ? lowering.SemanticIntent
@@ -343,6 +355,54 @@ internal static class CliRowSelectionCommandRegistry
         semanticIntent = null;
         error = null;
         return true;
+    }
+
+    public static IReadOnlyList<int> GetPreparedSemanticOperationPositions(
+        ParseResult parseResult)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        return Lowerings.TryGetValue(
+                parseResult,
+                out PreparedLowering? prepared)
+            ? prepared.Lowering.SemanticOperationPositions
+            : [];
+    }
+
+    public static int? GetPreparedOptionPosition(
+        ParseResult parseResult,
+        Option option)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        ArgumentNullException.ThrowIfNull(option);
+        if (!Lowerings.TryGetValue(
+                parseResult,
+                out PreparedLowering? prepared))
+        {
+            return null;
+        }
+
+        for (int index = 0;
+            index < prepared.Arguments.Count;
+            index++)
+        {
+            string argument = prepared.Arguments[index];
+            string optionToken =
+                argument.Split('=', 2)[0]
+                    .TrimStart('-');
+            if (option.Name.TrimStart('-').Equals(
+                    optionToken,
+                    StringComparison.Ordinal)
+                || option.Aliases.Any(
+                    alias =>
+                        alias.TrimStart('-').Equals(
+                            optionToken,
+                            StringComparison.Ordinal)))
+            {
+                return prepared.ArgumentPositions[index];
+            }
+        }
+
+        return null;
     }
 
     public static bool TryGetActiveAdoption(

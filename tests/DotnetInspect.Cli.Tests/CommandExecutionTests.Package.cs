@@ -1297,9 +1297,24 @@ public partial class CommandExecutionTests
                 "--tfm", "net9.0", "--source", tempDir,
                 "-S", "Dependency Hierarchy",
                 "--plaintext", "--rows", "2..3");
+            var composedPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2..4", "-n", "2", "--tips", "q");
+            var composedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--json", "--rows", "2..4", "-n", "2");
+            var composedMultiSection = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info,Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--plaintext", "--rows", "2..4", "-n", "2",
+                "--tips", "q");
 
-            Assert.Equal(0, table.Exit);
             Assert.Empty(table.Error);
+            Assert.Equal(0, table.Exit);
             Assert.Contains("Parent Occurrence", table.Output);
             Assert.Equal(0, json.Exit);
             Assert.Empty(json.Error);
@@ -1314,6 +1329,12 @@ public partial class CommandExecutionTests
             Assert.Empty(plaintext.Error);
             Assert.Equal(0, dependsPlaintext.Exit);
             Assert.Empty(dependsPlaintext.Error);
+            Assert.Empty(composedPackage.Error);
+            Assert.Equal(0, composedPackage.Exit);
+            Assert.Equal(0, composedDepends.Exit);
+            Assert.Empty(composedDepends.Error);
+            Assert.Equal(0, composedMultiSection.Exit);
+            Assert.Empty(composedMultiSection.Error);
             Assert.Equal(
                 2,
                 plaintext.Output.Split(
@@ -1326,6 +1347,27 @@ public partial class CommandExecutionTests
                 plaintext.Output.Split(
                     "package-dependency",
                     StringSplitOptions.None).Length);
+            using JsonDocument composedPackageJson =
+                JsonDocument.Parse(composedPackage.Output);
+            using JsonDocument composedDependsJson =
+                JsonDocument.Parse(composedDepends.Output);
+            JsonElement packageOccurrences =
+                composedPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement dependsOccurrences =
+                composedDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.Equal(2, packageOccurrences.GetArrayLength());
+            Assert.True(JsonElement.DeepEquals(
+                packageOccurrences,
+                dependsOccurrences));
+            Assert.Equal(
+                2,
+                composedMultiSection.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length - 1);
         }
         finally
         {

@@ -1261,6 +1261,32 @@ public partial class PackageCommand
                         context);
             }
 
+            if (result.DependencyHierarchyProjection is { } hierarchyProjection
+                && options.DependencyQueryPlan?.HierarchyRows
+                    is { Operations.Count: > 0 })
+            {
+                if (!DependsCommand.TrySelectHierarchyRows(
+                        hierarchyProjection,
+                        options.DependencyQueryPlan,
+                        options.Rows,
+                        out IReadOnlyList<
+                            DependencyHierarchyOccurrenceRow>
+                            selectedHierarchyRows))
+                {
+                    return 1;
+                }
+
+                result.DependencyHierarchyProjection =
+                    hierarchyProjection with
+                    {
+                        HierarchyRows = [.. selectedHierarchyRows],
+                    };
+                options = options with
+                {
+                    DependencyHierarchyRowsSelected = true,
+                };
+            }
+
             static DependencyQueryPlan PackageDependencyQueryPlan(
                 InspectionOptions options)
             {

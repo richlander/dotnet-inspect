@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -1876,16 +1877,24 @@ public partial class DependsCommand
         DocumentSchema schema = options.Tabular && !options.Count
             ? DependsAssetSections.CreateTableSchema()
             : DependsAssetSections.CreateSchema();
+        if (!TrySelectHierarchyRows(
+                projection,
+                options.QueryPlan,
+                options.Rows,
+                out IReadOnlyList<DependencyHierarchyOccurrenceRow>
+                    hierarchyRows))
+        {
+            return false;
+        }
         if (options.Count)
             return WriteAssetCount(
                 projection,
                 options,
                 includeSections,
                 schema,
+                hierarchyRows,
                 output);
 
-        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
-            Window(projection.HierarchyRows, options.Rows);
         if (options.Tree || options.MermaidOutput)
         {
             DependencyHierarchyOutputAdapter.Write(
@@ -1908,7 +1917,8 @@ public partial class DependsCommand
             DependsAssetDocument document = DependsAssetDocument.Create(
                 projection,
                 includeSections,
-                options.Rows);
+                options.Rows,
+                hierarchyRows);
             output.WriteLine(
                 JsonSerializer.Serialize(
                     document,
@@ -1934,6 +1944,7 @@ public partial class DependsCommand
             WriteAssetHierarchyFailuresJsonLines(
                 projection,
                 options.Rows,
+                hierarchyRows,
                 output);
             return true;
         }
@@ -1950,11 +1961,13 @@ public partial class DependsCommand
             projection,
             includeSections,
             options.Rows,
+            hierarchyRows,
             options.EmbeddedMermaid);
         DependsAssetTableView tableView = BuildAssetTableView(
             projection,
             includeSections,
-            options.Rows);
+            options.Rows,
+            hierarchyRows);
         if (options.JsonOutput)
         {
             MarkoutField[] summary = MarkoutFieldRecorder.Record(
@@ -1962,6 +1975,7 @@ public partial class DependsCommand
                     projection,
                     NoAssetSections,
                     options.Rows,
+                    hierarchyRows,
                     embeddedMermaid: false),
                 DependsAssetViewContext.Default);
             OutputFormatter.WriteProjectedJson(
@@ -2025,6 +2039,7 @@ public partial class DependsCommand
                     projection,
                     options,
                     includeSections,
+                    hierarchyRows,
                     output);
             }
             return true;
@@ -2037,6 +2052,7 @@ public partial class DependsCommand
                 options,
                 includeSections,
                 tableView,
+                hierarchyRows,
                 output);
             return true;
         }
@@ -2097,12 +2113,14 @@ public partial class DependsCommand
     private static void WriteAssetHierarchyFailuresJsonLines(
         DependsAssetProjection projection,
         RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
         DependsAssetDocument document = DependsAssetDocument.Create(
             projection,
             HierarchyFailureSections,
-            rows);
+            rows,
+            hierarchyRows);
         foreach (DependencyHierarchyJsonOccurrence occurrence in
                  document.DependencyHierarchy?.Occurrences ?? [])
         {
@@ -2134,6 +2152,7 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
         var sections = new HashSet<string>(
@@ -2144,7 +2163,7 @@ public partial class DependsCommand
         string hierarchy = includeHierarchy
             ? RenderHierarchySection(
                 projection,
-                options.Rows,
+                hierarchyRows,
                 options.EmbeddedMermaid)
             : "";
         string evidence = "";
@@ -2161,7 +2180,8 @@ public partial class DependsCommand
                 BuildAssetTableView(
                     projection,
                     sections,
-                    options.Rows),
+                    options.Rows,
+                    hierarchyRows),
                 writer);
             evidence = writer.ToString();
         }
@@ -2193,6 +2213,7 @@ public partial class DependsCommand
         DependsOptions options,
         HashSet<string> includeSections,
         DependsAssetTableView tableView,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
         var summaryWriter = new MarkoutWriter(
@@ -2203,6 +2224,7 @@ public partial class DependsCommand
                 projection,
                 NoAssetSections,
                 options.Rows,
+                hierarchyRows,
                 embeddedMermaid: false),
             summaryWriter);
 
@@ -2227,6 +2249,17 @@ public partial class DependsCommand
         RowWindow? rows,
         bool embeddedMermaid,
         string sectionName = DependsAssetSections.DependencyHierarchy)
+        => RenderHierarchySection(
+            projection,
+            Window(projection.HierarchyRows, rows),
+            embeddedMermaid,
+            sectionName);
+
+    internal static string RenderHierarchySection(
+        DependsAssetProjection projection,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        bool embeddedMermaid,
+        string sectionName = DependsAssetSections.DependencyHierarchy)
     {
         var writer = new MarkoutWriter(
             embeddedMermaid
@@ -2235,12 +2268,28 @@ public partial class DependsCommand
         writer.WriteGraph(
             DependencyHierarchyOutputAdapter.ToGraph(
                 projection.Hierarchy,
-                Window(projection.HierarchyRows, rows),
+                hierarchyRows,
                 markWindowedFragments: !embeddedMermaid));
         string hierarchy = writer.ToString().TrimEnd();
         if (embeddedMermaid)
             return $"## {sectionName}\n\n{hierarchy}";
         return $"## {sectionName}\n\n```text\n{hierarchy}\n```";
+    }
+
+    internal static string RenderHierarchyPlainTextSection(
+        DependsAssetProjection projection,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        string sectionName = DependsAssetSections.DependencyHierarchy)
+    {
+        var writer = new MarkoutWriter(
+            new PlainTextFormatter());
+        writer.WriteHeading(2, sectionName);
+        writer.WriteGraph(
+            DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                hierarchyRows,
+                markWindowedFragments: true));
+        return writer.ToString().TrimEnd();
     }
 
     private static string JoinMarkdown(params string[] fragments) =>
@@ -2255,6 +2304,7 @@ public partial class DependsCommand
         DependsOptions options,
         HashSet<string> includeSections,
         DocumentSchema schema,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
         string[] ordered =
@@ -2276,6 +2326,13 @@ public partial class DependsCommand
         var counts = new CountProjection();
         foreach (string section in ordered)
         {
+            if (section.Equals(
+                    DependsAssetSections.DependencyHierarchy,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                counts.SetRows(section, hierarchyRows.Count);
+                continue;
+            }
             int count = DependsAssetSections.CountRows(projection, section);
             counts.SetRows(
                 section,
@@ -2364,6 +2421,7 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         IReadOnlySet<string> sections,
         RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         bool embeddedMermaid)
     {
         DependencyInspectionSummary summary = projection.Summary;
@@ -2375,7 +2433,7 @@ public partial class DependsCommand
         {
             Description =
                 sections.Contains(DependsAssetSections.DependencyHierarchy)
-                && projection.HierarchyRows.IsEmpty
+                && hierarchyRows.Count == 0
                 ? "No dependency relationships."
                 : null,
             RootSet = summary.RootSetCompletion.ToString(),
@@ -2423,7 +2481,7 @@ public partial class DependsCommand
                 sections.Contains(DependsAssetSections.DependencyHierarchy)
                     ? DependencyHierarchyOutputAdapter.ToGraph(
                         projection.Hierarchy,
-                        Window(projection.HierarchyRows, rows),
+                        hierarchyRows,
                         markWindowedFragments: !embeddedMermaid)
                     : null,
             Roots = Rows(
@@ -2474,7 +2532,8 @@ public partial class DependsCommand
     private static DependsAssetTableView BuildAssetTableView(
         DependsAssetProjection projection,
         IReadOnlySet<string> sections,
-        RowWindow? rows)
+        RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows)
     {
         DependencyEvidenceSourceTokens sourceTokens =
             RootSourceTokens(projection);
@@ -2483,8 +2542,8 @@ public partial class DependsCommand
             DependencyHierarchy = Rows(
                 sections,
                 DependsAssetSections.DependencyHierarchy,
-                projection.HierarchyRows,
-                rows,
+                hierarchyRows,
+                window: null,
                 DependsHierarchyOccurrenceView.From),
             Roots = Rows(
                 sections,
@@ -2543,7 +2602,7 @@ public partial class DependsCommand
     private static List<TView>? Rows<TRow, TView>(
         IReadOnlySet<string> sections,
         string section,
-        ImmutableArray<TRow> rows,
+        IReadOnlyList<TRow> rows,
         RowWindow? window,
         Func<TRow, TView> select)
     {
@@ -2562,6 +2621,37 @@ public partial class DependsCommand
         window is { IsUnlimited: false } bounded
             ? bounded.Apply(rows)
             : rows;
+
+    internal static bool TrySelectHierarchyRows(
+        DependsAssetProjection projection,
+        DependencyQueryPlan? plan,
+        RowWindow? legacyRows,
+        out IReadOnlyList<DependencyHierarchyOccurrenceRow> selected)
+    {
+        if (projection.HierarchyRows.IsEmpty)
+        {
+            selected = projection.HierarchyRows;
+            return true;
+        }
+
+        if (plan?.HierarchyRows is not { Operations.Count: > 0 } intent)
+        {
+            selected = Window(projection.HierarchyRows, legacyRows);
+            return true;
+        }
+
+        return CliSemanticRowSelection.TrySelect(
+            intent,
+            projection.HierarchyRows,
+            DependsAssetSections.DependencyHierarchy,
+            failure =>
+                $"Dependency Hierarchy row selection stage "
+                + $"{failure.Failure.StageNumber} requires row "
+                + $"{failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} hierarchy rows are "
+                + "available.",
+            out selected);
+    }
 
     private static int WindowCount(RowWindow window, int rows)
     {

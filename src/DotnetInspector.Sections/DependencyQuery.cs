@@ -17,6 +17,7 @@ public enum DependencyQueryRouteKind
 public sealed record DependencyQueryPlan(
     PortableQueryIntent Intent,
     RowQueryIntent RelationshipRows,
+    RowSelectionIntent<string> HierarchyRows,
     int? MaximumDepth);
 
 public abstract record DependencyQueryPlanResult
@@ -66,9 +67,21 @@ public static class DependencyQuery
         ArgumentNullException.ThrowIfNull(intent);
         PortableQueryResolution<DependencyQueryPlan> resolution =
             RouteCore(kind).Resolve(intent, cancellationToken);
-        return resolution.IsResolved
-            ? new DependencyQueryPlanResult.Accepted(resolution.Plan)
-            : new DependencyQueryPlanResult.Rejected(resolution.Failure);
+        if (!resolution.IsResolved)
+            return new DependencyQueryPlanResult.Rejected(resolution.Failure);
+
+        DependencyQueryPlan plan = resolution.Plan;
+        if (kind is DependencyQueryRouteKind.AssetHierarchy
+            or DependencyQueryRouteKind.PackageHierarchy)
+        {
+            plan = plan with
+            {
+                RelationshipRows = RowQueryIntent.Empty,
+                HierarchyRows = HierarchyRowSelection(plan.Intent.Stages),
+            };
+        }
+
+        return new DependencyQueryPlanResult.Accepted(plan);
     }
 
     private static QueryOperationRoute<
@@ -244,9 +257,33 @@ public static class DependencyQuery
                     [.. resolved.Stages],
                     orders),
                 relationshipRows,
+                RowSelectionIntent<string>.Empty,
                 maximumDepth);
         }
     }
+
+    private static RowSelectionIntent<string> HierarchyRowSelection(
+        IReadOnlyList<PortableQueryStage> stages) =>
+        RowSelectionIntent<string>.Create(
+            [
+                .. stages.Select(static stage =>
+                    stage.Kind switch
+                    {
+                        RowSelectionStageKind.Head =>
+                            RowSelectionIntentOperation<string>.Head(
+                                stage.Count),
+                        RowSelectionStageKind.Tail =>
+                            RowSelectionIntentOperation<string>.Tail(
+                                stage.Count),
+                        RowSelectionStageKind.Window =>
+                            RowSelectionIntentOperation<string>.Window(
+                                stage.Start,
+                                stage.End),
+                        _ => throw new InvalidOperationException(
+                            "A Dependency hierarchy route resolved an "
+                                + $"unsupported {stage.Kind} row stage."),
+                    }),
+            ]);
 
     private static RowSelectionIntentOperation<RowQueryOrderIntent>
         ToRowSelectionOperation(

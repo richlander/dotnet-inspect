@@ -350,7 +350,8 @@ public partial class PackageCommand
             ?? throw new InvalidOperationException(
                 "The Package dependency hierarchy was not acquired.");
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows =
-            options.Rows is { IsUnlimited: false } window
+            !options.DependencyHierarchyRowsSelected
+            && options.Rows is { IsUnlimited: false } window
                 ? window.Apply(projection.HierarchyRows)
                 : projection.HierarchyRows;
         OutputDestination.Write(
@@ -381,7 +382,9 @@ public partial class PackageCommand
         var projectionOptions = new DependsOptions
         {
             Format = options.Format,
-            Rows = options.Rows,
+            Rows = options.DependencyHierarchyRowsSelected
+                ? null
+                : options.Rows,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,

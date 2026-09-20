@@ -34,6 +34,8 @@ public record InspectionOptions : IProjectionOptions
 
     public DependencyQueryPlan? DependencyQueryPlan { get; init; }
 
+    internal bool DependencyHierarchyRowsSelected { get; init; }
+
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
     /// </summary>

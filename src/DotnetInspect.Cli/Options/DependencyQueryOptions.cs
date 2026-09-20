@@ -1,6 +1,11 @@
 using System.Collections.Immutable;
+using System.CommandLine;
+using System.CommandLine.Parsing;
 
+using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Services;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.QueryOperations;
 using DotnetInspector.RowSelection;
@@ -197,6 +202,60 @@ internal static class DependencyQueryOptions
         plan = ((DependencyQueryPlanResult.Accepted)result).Plan;
         error = "";
         return true;
+    }
+
+    internal static RowSelectionIntent<string>? AppendLegacyRows(
+        ParseResult parseResult,
+        SharedOptions options,
+        RowSelectionIntent<string>? selection)
+    {
+        string? rows = parseResult.GetValue(options.Rows);
+        if (rows is null)
+            return selection;
+
+        if (!RowSpec.TryParse(
+                rows,
+                out RowSpec spec,
+                out string? error))
+        {
+            throw new RowWindowValidationException(
+                $"--rows {error}");
+        }
+
+        RowSelectionIntentOperation<string> operation =
+            spec.Kind switch
+            {
+                RowSpecKind.Count
+                    when parseResult.GetValue(options.Tail) =>
+                    RowSelectionIntentOperation<string>.Tail(
+                        spec.Count),
+                RowSpecKind.Count =>
+                    RowSelectionIntentOperation<string>.Head(
+                        spec.Count),
+                RowSpecKind.Range =>
+                    RowSelectionIntentOperation<string>.Window(
+                        spec.Start,
+                        spec.End),
+                _ => throw new InvalidOperationException(
+                    "Unsupported Dependency row selection."),
+            };
+        var operations =
+            (selection ?? RowSelectionIntent<string>.Empty)
+                .Operations
+                .ToList();
+        int rowsPosition =
+            CliRowSelectionCommandRegistry.GetPreparedOptionPosition(
+                parseResult,
+                options.Rows)
+            ?? int.MaxValue;
+        int insertionIndex =
+            CliRowSelectionCommandRegistry
+                .GetPreparedSemanticOperationPositions(parseResult)
+                .Count(position => position < rowsPosition);
+        operations.Insert(
+            Math.Min(insertionIndex, operations.Count),
+            operation);
+        return RowSelectionIntent<string>.Create(operations);
     }
 
     private static bool TryParseOrder(

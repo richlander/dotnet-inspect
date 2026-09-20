@@ -235,11 +235,17 @@ public static class PackageCommandDefinitions
 
         // Register this fallback first: the registry prepends, so the
         // established package populations below retain short-limit ownership.
+        var legacyPackageSectionRows =
+            new Option<string?>(
+                "--unavailable-package-section-semantic-rows")
+            {
+                Hidden = true,
+            };
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
                 opts.Limit,
-                opts.Rows,
+                legacyPackageSectionRows,
                 top: null,
                 orderBy: null,
                 opts.Head,
@@ -249,10 +255,9 @@ public static class PackageCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            result => PackageOptionsParser.IsCloneCandidateRowSelection(
-                result,
-                opts,
-                commandArgs),
+            isActive: result =>
+                result.GetResult(opts.Select)
+                    is { Implicit: false },
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

@@ -398,6 +398,42 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_TypeLegacyRowsRetainOrderedStagePosition()
+    {
+        var windowThenTop = await RunAppAsync(
+            "depends", "System.Int128",
+            "--where", "Kind=Interface",
+            "--order-by", "Target desc",
+            "--rows", "2..3",
+            "--top", "1",
+            "--jsonl", "--tips", "q");
+        var topThenWindow = await RunAppAsync(
+            "depends", "System.Int128",
+            "--where", "Kind=Interface",
+            "--order-by", "Target desc",
+            "--top", "1",
+            "--rows", "2..3",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, windowThenTop.Exit);
+        Assert.Empty(windowThenTop.Error);
+        Assert.Single(
+            windowThenTop.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Equal(1, topThenWindow.Exit);
+        Assert.Empty(topThenWindow.Output);
+        Assert.Contains(
+            "row selection stage 2",
+            topThenWindow.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "Relationships has 1",
+            topThenWindow.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Depends_RootOnlyTypeJsonRetainsTheSelectedType()
     {
         var (exit, output, error) = await RunAppAsync(

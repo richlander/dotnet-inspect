@@ -285,6 +285,11 @@ public static class PackageOptionsParser
             return new InvalidArguments(
                 packageSectionRowSelectionError!);
         }
+        packageSectionRowSelection =
+            DependencyQueryOptions.AppendLegacyRows(
+                parseResult,
+                opts,
+                packageSectionRowSelection);
         int? dependencyDepth =
             int.TryParse(
                 parseResult.GetValue(args.DepthOption),
