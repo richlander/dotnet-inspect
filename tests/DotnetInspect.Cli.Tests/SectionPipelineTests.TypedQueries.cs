@@ -42,6 +42,35 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryInfoAndEcosystemDependenciesShareAssemblyReferencesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                AssemblyReferencesQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Contains(SectionNames.LibraryInfo, boundSections);
+        Assert.Contains(SectionNames.EcosystemDependencies, boundSections);
+        HashSet<InspectionQueryDefinition> required =
+            pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.LibraryInfo,
+                    SectionNames.EcosystemDependencies,
+                });
+        Assert.Single(
+            required,
+            query => ReferenceEquals(
+                query,
+                AssemblyReferencesQuery.Definition));
+    }
+
+    [Fact]
     public void LibraryIdentifierConfusionSection_DemandsTypedAssemblyReferencesQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();

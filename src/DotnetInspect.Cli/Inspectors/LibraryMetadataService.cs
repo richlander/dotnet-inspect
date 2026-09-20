@@ -2619,6 +2619,7 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         AssemblyReferencesResult result)
     {
+        inspection.AssemblyReferencesQueryResult = result;
         switch (result)
         {
             case AssemblyReferencesResult.Available available:
