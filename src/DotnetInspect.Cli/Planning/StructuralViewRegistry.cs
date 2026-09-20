@@ -1072,6 +1072,17 @@ public static class StructuralViewRegistry
                 return 1;
             }
 
+            DiscoveryOutputRequest detailedRequest =
+                DiscoveryOutputRequest.Create(
+                    request.Format,
+                    request.Tree,
+                    request.TableExplicitlySet,
+                    request.NoHeader,
+                    (int)request.Verbosity,
+                    request.Projection);
+            if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
+                return 1;
+
             DiscoveryDocument? document =
                 DiscoveryDocumentFactory.Create(
                     "library",
@@ -1087,15 +1098,9 @@ public static class StructuralViewRegistry
             if (document is null)
                 return 1;
 
-            return DetailedDiscoverOutput.Execute(
+            return DetailedDiscoverOutput.Write(
                 document,
-                DiscoveryOutputRequest.Create(
-                    request.Format,
-                    request.Tree,
-                    request.TableExplicitlySet,
-                    request.NoHeader,
-                    (int)request.Verbosity,
-                    request.Projection));
+                detailedRequest);
         }
 
         var selectedSections =

@@ -9,9 +9,7 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class DetailedDiscoverOutput
 {
-    public static int Execute(
-        DiscoveryDocument document,
-        DiscoveryOutputRequest request)
+    public static int Validate(DiscoveryOutputRequest request)
     {
         if (request.Tree
             || request.Format == OutputFormat.Mermaid)
@@ -36,6 +34,13 @@ internal static class DetailedDiscoverOutput
             return 1;
         }
 
+        return 0;
+    }
+
+    public static int Write(
+        DiscoveryDocument document,
+        DiscoveryOutputRequest request)
+    {
         List<DetailedDiscoveryRow> rows = ResolveRows(document);
 
         rows = [.. RowWindow.Apply(request.Rows, rows)];

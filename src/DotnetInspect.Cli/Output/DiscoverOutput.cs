@@ -102,13 +102,21 @@ public static class DiscoverOutput
         if (!tree
             && request.AllowsAutomaticTreePromotion
             && discover is { Length: > 0 }
-            && !discover.Any(value => SelectResolver.TryResolveCategory(
-                value, sectionCategories, schema.SectionNames, out _, out _))
-            && ResolvedSectionCount(
-                discover,
-                schema,
-                sectionCategories,
-                exactOnlySections) > 1)
+            && (document is not null
+                ? document.Selection.AddressedResources.Length > 1
+                    && document.Selection.AddressedResources.All(identity =>
+                        identity.Kind == DiscoveryResourceKind.Section)
+                : !discover.Any(value => SelectResolver.TryResolveCategory(
+                        value,
+                        sectionCategories,
+                        schema.SectionNames,
+                        out _,
+                        out _))
+                    && ResolvedSectionCount(
+                        discover,
+                        schema,
+                        sectionCategories,
+                        exactOnlySections) > 1))
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)

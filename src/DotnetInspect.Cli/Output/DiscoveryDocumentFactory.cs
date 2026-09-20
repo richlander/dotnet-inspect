@@ -220,7 +220,8 @@ internal static class DiscoveryDocumentFactory
                 continue;
             }
 
-            if (selector.StartsWith("@", StringComparison.Ordinal))
+            if (!requireExactSelection
+                && selector.StartsWith("@", StringComparison.Ordinal))
             {
                 WriteCategoryNotFound(selector, categories);
                 return null;
