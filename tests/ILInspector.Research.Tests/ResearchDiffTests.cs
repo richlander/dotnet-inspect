@@ -2126,6 +2126,30 @@ public class ResearchDiffTests
             change.Delta,
             newProfile.NormalFlowCyclomaticComplexity
                 - oldProfile.NormalFlowCyclomaticComplexity);
+        var structuralChange = Assert.IsType<ImplementationStructuralChange>(
+            change.StructuralChange);
+        Assert.Equal(13, structuralChange.InstructionDelta);
+        Assert.Equal(1, structuralChange.ComplexityDelta);
+        Assert.Equal(1, structuralChange.LoopDelta);
+        Assert.Equal(1, structuralChange.AllocationDelta);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Instructions);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Complexity);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Loops);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Allocations);
+        Assert.NotNull(change.StructuralCohortContext);
+        Assert.True(change.StructuralCohortContext.PopulationSize > 0);
+        Assert.InRange(
+            change.StructuralCohortContext.CohortSize,
+            1,
+            change.StructuralCohortContext.PopulationSize);
 
         // The delta also carries a population context ranking it against
         // every other delta-bearing change in this same comparison request.
@@ -2290,7 +2314,150 @@ public class ResearchDiffTests
             {
                 Assert.NotNull(change.OldProfile);
                 Assert.NotNull(change.NewProfile);
+                Assert.Null(change.StructuralChange);
+                Assert.Null(change.StructuralCohortContext);
             });
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_GroupsExactStructuralDirectionCohorts()
+    {
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity(
+                    "Fake",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var methodA = FakeMethod(
+            "Widget",
+            "SameDirectionsA",
+            token: 0x06000001);
+        var methodB = FakeMethod(
+            "Widget",
+            "SameDirectionsB",
+            token: 0x06000002);
+        var methodC = FakeMethod(
+            "Widget",
+            "InstructionOnly",
+            token: 0x06000003);
+        var methodD = FakeMethod(
+            "Widget",
+            "Unchanged",
+            token: 0x06000004);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(methodA, methodA),
+            FakeProfile(methodB, methodB),
+            FakeProfile(
+                methodC,
+                methodC,
+                instructionCount: 3),
+            FakeProfile(methodD, methodD));
+        var newProfiles = ImmutableArray.Create(
+            FakeProfile(
+                methodA,
+                methodA,
+                conditionalBranchCount: 1,
+                instructionCount: 3,
+                loopCount: 1,
+                catchCount: 1,
+                directCallCount: 2,
+                allocationCount: 1,
+                async: true),
+            FakeProfile(
+                methodB,
+                methodB,
+                conditionalBranchCount: 2,
+                instructionCount: 5,
+                loopCount: 3,
+                finallyCount: 2,
+                directCallCount: 1,
+                allocationCount: 4,
+                async: true),
+            FakeProfile(
+                methodC,
+                methodC,
+                instructionCount: 2),
+            FakeProfile(methodD, methodD));
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        ImplementationComplexityDiff result =
+            ImplementationComplexityService.Execute(
+                new ImplementationComplexityComparisonRequest(
+                    [oldResult],
+                    [newResult]));
+
+        ImplementationComplexityChange sameDirectionsA = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "SameDirectionsA");
+        ImplementationComplexityChange sameDirectionsB = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "SameDirectionsB");
+        ImplementationComplexityChange instructionOnly = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "InstructionOnly");
+        ImplementationComplexityChange unchanged = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "Unchanged");
+
+        Assert.NotEqual(
+            sameDirectionsA.StructuralChange,
+            sameDirectionsB.StructuralChange);
+        Assert.Equal(
+            sameDirectionsA.StructuralChange?.Signature,
+            sameDirectionsB.StructuralChange?.Signature);
+        Assert.Equal(
+            1,
+            sameDirectionsA.StructuralChange?.ExceptionRegionDelta);
+        Assert.Equal(
+            2,
+            sameDirectionsB.StructuralChange?.ExceptionRegionDelta);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Decreased,
+            (sameDirectionsA.StructuralChange! with
+            {
+                InstructionDelta = -1
+            }).Signature.Instructions);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 2),
+            sameDirectionsA.StructuralCohortContext);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 2),
+            sameDirectionsB.StructuralCohortContext);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 1),
+            instructionOnly.StructuralCohortContext);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Decreased,
+            instructionOnly.StructuralChange?.Signature.Instructions);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 1),
+            unchanged.StructuralCohortContext);
+        Assert.Equal(
+            new ImplementationStructuralChangeSignature(
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged),
+            unchanged.StructuralChange?.Signature);
     }
 
     [Fact]
@@ -2382,7 +2549,12 @@ public class ResearchDiffTests
         Assert.True(result.Complexity.IsAvailable);
         Assert.All(
             result.Complexity.Changes,
-            change => Assert.Null(change.PopulationContext));
+            change =>
+            {
+                Assert.Null(change.PopulationContext);
+                Assert.Null(change.StructuralChange);
+                Assert.Null(change.StructuralCohortContext);
+            });
     }
 
     [Fact]
@@ -2545,29 +2717,38 @@ public class ResearchDiffTests
     static MethodImplementationProfile FakeProfile(
         MethodIdentity logicalMethod,
         MethodIdentity evidenceMethod,
-        int conditionalBranchCount)
+        int conditionalBranchCount = 0,
+        int instructionCount = 1,
+        int loopCount = 0,
+        int catchCount = 0,
+        int filterCount = 0,
+        int finallyCount = 0,
+        int faultCount = 0,
+        int directCallCount = 0,
+        int allocationCount = 0,
+        bool async = false)
         => new(
             logicalMethod,
             evidenceMethod,
             ILBytes: 1,
-            InstructionCount: 1,
+            InstructionCount: instructionCount,
             DistinctOpcodeCount: 1,
             BasicBlockCount: 1,
             BranchCount: 0,
             ConditionalBranchCount: conditionalBranchCount,
             SwitchCount: 0,
             SwitchTargetCount: 0,
-            LoopCount: 0,
-            CatchCount: 0,
-            FilterCount: 0,
-            FinallyCount: 0,
-            FaultCount: 0,
+            LoopCount: loopCount,
+            CatchCount: catchCount,
+            FilterCount: filterCount,
+            FinallyCount: finallyCount,
+            FaultCount: faultCount,
             LocalCount: 0,
-            DirectCallCount: 0,
+            DirectCallCount: directCallCount,
             DistinctCalleeCount: 0,
-            AllocationCount: 0,
+            AllocationCount: allocationCount,
             ThrowCount: 0,
-            Async: false,
+            Async: async,
             Unsafe: false,
             ReflectionCallCount: 0,
             IncomingOverloadCallerCount: 0,
