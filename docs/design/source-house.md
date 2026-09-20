@@ -36,13 +36,14 @@ enrichment and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
-The current production implementation is `AssemblyContextSourceQuery`, which
-resolves an exact member or type, attempts PDB-mapped source, and falls back to
-`CSharpDecompilerService`. Type/member authored acquisition and selected-member pairs
-use SourceHouse; `PdbSourceHouse` retains broader enrichment
+The current production orchestrator is `AssemblyContextSourceQuery`, which
+resolves an exact member or type and applies authored-first fallback.
+Type/member authored acquisition, selected-member pairs, and exact-member
+decompilation use SourceHouse. Type decompilation still invokes
+`CSharpDecompilerService` directly; `PdbSourceHouse` retains broader enrichment
 ordering. SourceLinkService owns checksum verification and decoding.
-The ordinary query's fallback remains migration evidence, not the target public
-House policy boundary.
+Query-owned fallback ordering remains migration evidence, not the target
+public House policy boundary.
 
 ### Authored settlement delivery
 
