@@ -862,21 +862,34 @@ test("validation failure after deletion cutover cannot restore predecessor", asy
 
 test("unknown commit outcome keeps the transaction barrier", async () => {
   const fixture = createFixture();
-  const definition = fixture.controller.retain({
+  const first = fixture.controller.retain({
     label: "A",
     canonicalLocation: "/a",
     canonicalPacket: "packet-a",
   });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
   const commit =
     deferred<BrowserRetainedWorkspaceActivationResult>();
-  fixture.client.commitResponses.set("receipt-1", commit.promise);
+  fixture.client.commitResponses.set("receipt-2", commit.promise);
   fixture.client.activationCompletionError =
     new Error("Completion response was lost.");
 
-  const activation = fixture.controller.activate(definition.id);
-  fixture.client.activations[0]!.resolve({
+  const activation = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
     status: "activated",
-    posting: posting(definition.id, "realization-1"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await new Promise(resolve => setImmediate(resolve));
@@ -888,13 +901,64 @@ test("unknown commit outcome keeps the transaction barrier", async () => {
 
   assert.deepEqual(
     fixture.controller.state.unsettledDefinitionIds,
-    [definition.id],
+    [second.id],
   );
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(fixture.clears(), 1);
   assert.notEqual(fixture.controller.waitForPendingCommit(), null);
   await assert.rejects(
-    fixture.controller.activate(definition.id),
+    fixture.controller.activate(second.id),
     /awaiting consumer completion/,
   );
+});
+
+test("confirmed lost commit finalizes successor deletion", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const commit =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.commitResponses.set("receipt-2", commit.promise);
+  const deletion = fixture.controller.delete(first.id, {
+    successorDefinitionId: second.id,
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  commit.reject(new Error("Commit response was lost."));
+
+  await assert.rejects(deletion, /Commit response was lost/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.equal(fixture.clears(), 1);
+  assert.equal(fixture.controller.waitForPendingCommit(), null);
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Commit response was lost.",
+  });
 });
 
 test("confirmed failed completion reconciles a lost commit response", async () => {

@@ -456,9 +456,7 @@ export function createRetainedWorkspaceActivationController(
     complete: (
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void> = () => {},
-    committed: (
-      posting: BrowserRetainedWorkspacePosting,
-    ) => void = () => {},
+    committed: () => void = () => {},
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -624,7 +622,7 @@ export function createRetainedWorkspaceActivationController(
               );
             }
             activeDefinitionId = posting.retainedDefinitionId;
-            committed(posting);
+            committed();
             try {
               const posted = await postActivation(posting, complete);
               if (!posted) {
@@ -697,22 +695,30 @@ export function createRetainedWorkspaceActivationController(
         const message = error instanceof Error
           ? error.message
           : "Retained Workspace activation ended before consumer completion.";
+        activeDefinitionId = null;
+        pendingDefinitionId = null;
+        let reconciliationError: unknown = null;
+        try {
+          hooks.clear();
+        } catch (clearError) {
+          reconciliationError = clearError;
+        }
         try {
           completionAttempted = true;
           await completeActivationReceipt(receipt, false, message);
           completionAccepted = true;
         } catch (completionError) {
           throw new AggregateError(
-            [error, completionError],
+            reconciliationError === null
+              ? [error, completionError]
+              : [error, reconciliationError, completionError],
             "Retained Workspace activation and completion reporting failed.",
             { cause: completionError },
           );
         }
         activeDefinitionId = definition.id;
-        pendingDefinitionId = null;
-        try {
-          hooks.clear();
-        } catch (reconciliationError) {
+        committed();
+        if (reconciliationError !== null) {
           const reconciliationMessage =
             reconciliationError instanceof Error
               ? reconciliationError.message
@@ -725,7 +731,7 @@ export function createRetainedWorkspaceActivationController(
             [error, reconciliationError],
             "Retained Workspace commit response and presentation "
               + "reconciliation failed.",
-            { cause: reconciliationError },
+            { cause: error },
           );
         }
       }
