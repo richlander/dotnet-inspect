@@ -159,6 +159,20 @@ public partial class PackageCommand
             PackageSections.EcosystemDependencies,
             pipeline);
 
+    private static NuspecData? FindPackageNuspecForInspection(
+        string extractPath,
+        bool ecosystemRecognitionRequested)
+    {
+        try
+        {
+            return NuspecParser.FindAndParse(extractPath);
+        }
+        catch (NuspecParseException) when (ecosystemRecognitionRequested)
+        {
+            return null;
+        }
+    }
+
     private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,

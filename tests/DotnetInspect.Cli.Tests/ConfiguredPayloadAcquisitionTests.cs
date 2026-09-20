@@ -1081,6 +1081,47 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_MalformedManifestDisclosesIncompleteRecognition()
+    {
+        string id = $"Pinned.MalformedManifest.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "malformed manifest ecosystem package",
+            nuspecContent: $"""
+                <package><metadata>
+                  <id>{id}</id><version>{Version}</version>
+                  <description>unterminated
+                """);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Incomplete (2 issues) |",
+            result.Output);
+
+        var files = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.Files, "--tips", "q"]);
+
+        Assert.Equal(1, files.Exit);
+        Assert.Contains(
+            "Package manifest is not well-formed XML",
+            files.Error);
+    }
+
+    [Fact]
     public async Task PackageCommand_CompleteEmptyRecognitionOmitsEcosystemFields()
     {
         string id = $"Pinned.EmptyEcosystems.{Guid.NewGuid():N}";
@@ -1578,7 +1619,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         byte[]? documentation = null,
         string libraryDirectory = "lib/net11.0",
         IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null,
-        IReadOnlyList<(string Id, string Version)>? dependencies = null)
+        IReadOnlyList<(string Id, string Version)>? dependencies = null,
+        string? nuspecContent = null)
     {
         string dependenciesXml = dependencies is { Count: > 0 }
             ? "<dependencies><group targetFramework=\"net11.0\">"
@@ -1589,14 +1631,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
         {
-            WriteEntry(archive, $"{id}.nuspec", $"""
-                <package><metadata>
-                  <id>{id}</id><version>{version}</version>
-                  <authors>Payload tests</authors><description>Exact-pin fixture</description>
-                  <readme>README.md</readme>
-                  {dependenciesXml}
-                </metadata></package>
-                """);
+            WriteEntry(
+                archive,
+                $"{id}.nuspec",
+                nuspecContent ?? $"""
+                    <package><metadata>
+                      <id>{id}</id><version>{version}</version>
+                      <authors>Payload tests</authors><description>Exact-pin fixture</description>
+                      <readme>README.md</readme>
+                      {dependenciesXml}
+                    </metadata></package>
+                    """);
             WriteEntry(archive, "README.md", readme);
             if (library is not null)
             {

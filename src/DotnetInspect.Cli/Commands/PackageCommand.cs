@@ -1088,8 +1088,15 @@ public partial class PackageCommand
             if (options.ListTfms)
                 return ListPackageTfms(extractPath, options);
 
+            bool wantsEcosystemDependencies =
+                RequestsPackageEcosystemDependencies(
+                    producerOptions,
+                    pipeline);
+
             // Parse nuspec for full package inspection.
-            var nuspec = DotnetInspector.Services.NuspecParser.FindAndParse(extractPath);
+            NuspecData? nuspec = FindPackageNuspecForInspection(
+                extractPath,
+                wantsEcosystemDependencies);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1209,9 +1216,7 @@ public partial class PackageCommand
                 packageSize,
                 options.Tfm,
                 logger.Log);
-            if (RequestsPackageEcosystemDependencies(
-                    producerOptions,
-                    pipeline))
+            if (wantsEcosystemDependencies)
             {
                 await ApplyPackageEcosystemDependenciesAsync(
                     result,
