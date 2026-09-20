@@ -60,3 +60,18 @@ public readonly struct ConstructorGetterUnusedParameter
     public ConstructorGetterUnusedParameter(int ignored, int value) => Value = value;
     public int Value { get; }
 }
+
+public interface IConstructorGetterValue
+{
+    int Value { get; }
+}
+
+public readonly struct ConstructorGetterExplicitAutomatic(int value) : IConstructorGetterValue
+{
+    int IConstructorGetterValue.Value { get; } = value;
+}
+
+public readonly struct ConstructorGetterExplicitComputed(int value) : IConstructorGetterValue
+{
+    int IConstructorGetterValue.Value { get => field + 1; } = value;
+}

@@ -318,6 +318,7 @@ public sealed class SelectedPropertyAccessorSource
     internal PropertyInitializationConstructor? FindInitializationConstructor(MetadataSource source)
     {
         if (_accessorKind != "get" || _property.IsStatic
+            || _property.Kind == "explicit-interface-implementation"
             || (!_automaticGetter && _getterStorage is null))
             return null;
 

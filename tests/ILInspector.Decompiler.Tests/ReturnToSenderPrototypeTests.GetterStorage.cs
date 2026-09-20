@@ -148,6 +148,28 @@ public partial class ReturnToSenderPrototypeTests
             handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == ".ctor");
     }
 
+    [Theory]
+    [InlineData("ConstructorGetterExplicitAutomatic")]
+    [InlineData("ConstructorGetterExplicitComputed")]
+    public async Task NativeExplicitGetterDeclinesInitialization(string typeName)
+    {
+        string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget(
+                $"ILInspector.Decompiler.Fixtures.{typeName}",
+                "ILInspector.Decompiler.Fixtures.IConstructorGetterValue.get_Value", 0)],
+            RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
+
+        AssertNativeGetterStorage(path, typeName,
+            "ILInspector.Decompiler.Fixtures.IConstructorGetterValue.Value", result);
+        using var rebuilt = new PEReader(new MemoryStream(result.DonorPe!));
+        var reader = rebuilt.GetMetadataReader();
+        var type = FindGetterType(reader, typeName);
+        Assert.DoesNotContain(type.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == ".ctor");
+    }
+
     static void AssertNativeConstructorStorage(
         string path, string typeName, string propertyName, ReturnToSender.Result result)
     {
@@ -212,8 +234,13 @@ public partial class ReturnToSenderPrototypeTests
         PEReader pe, TypeDefinition type, string propertyName, string? methodName = null)
     {
         var reader = pe.GetMetadataReader();
-        var method = reader.GetMethodDefinition(Assert.Single(type.GetMethods(),
-            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == (methodName ?? $"get_{propertyName}")));
+        var methodHandle = methodName is null
+            ? reader.GetPropertyDefinition(Assert.Single(type.GetProperties(),
+                handle => reader.GetString(reader.GetPropertyDefinition(handle).Name) == propertyName))
+                .GetAccessors().Getter
+            : Assert.Single(type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == methodName);
+        var method = reader.GetMethodDefinition(methodHandle);
         var decoded = MethodInstructions.Decode(pe.GetMethodBody(method.RelativeVirtualAddress));
         Assert.True(decoded.IsComplete);
         return decoded.Instructions;

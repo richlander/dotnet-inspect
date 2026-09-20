@@ -216,6 +216,21 @@ public sealed class MemberBodyProducerTypedBodyTests
         }
     }
 
+    [Theory]
+    [InlineData("ConstructorGetterExplicitAutomatic")]
+    [InlineData("ConstructorGetterExplicitComputed")]
+    public void PropertyInitializationConstructorDeclinesExplicitInterface(string typeName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName,
+            "ILInspector.Decompiler.Fixtures.IConstructorGetterValue.get_Value");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+
+        Assert.Null(property.FindInitializationConstructor(source));
+    }
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         string typeName,

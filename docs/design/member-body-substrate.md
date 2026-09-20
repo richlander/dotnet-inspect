@@ -447,6 +447,10 @@ with one parameter. Its complete body directly stores that argument through
 `this` into the exact field at the owning generic instantiation, then returns.
 No other operation, branch, local, exception region, conversion or constructor
 chain is consumed. Additional storage or constructors decline this association.
+Explicit-interface properties also decline constructor pairing: their accessor
+storage cannot be assigned through the constructor-side property syntax used
+by this bounded composition. Their existing getter-only reconstruction remains
+available; recovering their initializer is a separate source-form concern.
 The source, constructor and field identities come from the same metadata reader;
 display names and printed bodies do not establish the join.
 
@@ -477,6 +481,9 @@ semantics remain outside this claim.
 `NativeGetterDeclinesUnprovenInitialization` gates unchanged getter-only
 artifacts for constructor computation, branches, overloads, additional storage
 and unused-parameter neighbors.
+`PropertyInitializationConstructorDeclinesExplicitInterface` and
+`NativeExplicitGetterDeclinesInitialization` gate automatic and computed
+explicit-interface properties without adding an unassignable constructor.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32
