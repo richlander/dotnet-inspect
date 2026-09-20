@@ -11,6 +11,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
@@ -1881,6 +1882,7 @@ public partial class DependsCommand
                 projection,
                 options.QueryPlan,
                 options.Rows,
+                options.LegacyHierarchyWindowStageIndex,
                 out IReadOnlyList<DependencyHierarchyOccurrenceRow>
                     hierarchyRows))
         {
@@ -2626,6 +2628,7 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         DependencyQueryPlan? plan,
         RowWindow? legacyRows,
+        int? legacyWindowStageIndex,
         out IReadOnlyList<DependencyHierarchyOccurrenceRow> selected)
     {
         if (projection.HierarchyRows.IsEmpty)
@@ -2640,18 +2643,78 @@ public partial class DependsCommand
             return true;
         }
 
-        return CliSemanticRowSelection.TrySelect(
-            intent,
-            projection.HierarchyRows,
-            DependsAssetSections.DependencyHierarchy,
-            failure =>
-                $"Dependency Hierarchy row selection stage "
-                + $"{failure.Failure.StageNumber} requires row "
-                + $"{failure.Failure.RequiredPosition}, but only "
-                + $"{failure.Failure.AvailableCount} hierarchy rows are "
-                + "available.",
-            out selected);
+        if (legacyWindowStageIndex is null)
+        {
+            return CliSemanticRowSelection.TrySelect(
+                intent,
+                projection.HierarchyRows,
+                DependsAssetSections.DependencyHierarchy,
+                failure =>
+                    HierarchyRowSelectionFailure(
+                        failure.Failure.StageNumber,
+                        failure.Failure.RequiredPosition,
+                        failure.Failure.AvailableCount),
+                out selected);
+        }
+
+        int legacyStage = legacyWindowStageIndex.Value;
+        if (legacyStage < 0
+            || legacyStage >= intent.Operations.Count
+            || intent.Operations[legacyStage].Kind
+                != RowSelectionStageKind.Window)
+        {
+            throw new InvalidOperationException(
+                "The legacy hierarchy window stage does not identify "
+                    + "a Window operation.");
+        }
+
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> current =
+            projection.HierarchyRows;
+        for (int index = 0;
+            index < intent.Operations.Count;
+            index++)
+        {
+            RowSelectionIntentOperation<string> operation =
+                intent.Operations[index];
+            if (index == legacyStage)
+            {
+                current =
+                    RowWindow.Range(
+                            operation.Start ?? 1,
+                            operation.End)
+                        .Apply(current);
+                continue;
+            }
+
+            int stageNumber = index + 1;
+            if (!CliSemanticRowSelection.TrySelect(
+                    RowSelectionIntent<string>.Create([operation]),
+                    current,
+                    DependsAssetSections.DependencyHierarchy,
+                    failure =>
+                        HierarchyRowSelectionFailure(
+                            stageNumber,
+                            failure.Failure.RequiredPosition,
+                            failure.Failure.AvailableCount),
+                    out current))
+            {
+                selected = Array.Empty<
+                    DependencyHierarchyOccurrenceRow>();
+                return false;
+            }
+        }
+
+        selected = current;
+        return true;
     }
+
+    private static string HierarchyRowSelectionFailure(
+        int stageNumber,
+        int requiredPosition,
+        int availableCount) =>
+        $"Dependency Hierarchy row selection stage {stageNumber} "
+            + $"requires row {requiredPosition}, but only "
+            + $"{availableCount} hierarchy rows are available.";
 
     private static int WindowCount(RowWindow window, int rows)
     {

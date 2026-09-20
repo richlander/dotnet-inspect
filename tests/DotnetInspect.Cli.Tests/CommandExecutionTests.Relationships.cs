@@ -414,6 +414,10 @@ public partial class CommandExecutionTests
             "--top", "1",
             "--rows", "2..3",
             "--jsonl", "--tips", "q");
+        var legacyTail = await RunAppAsync(
+            "depends", "System.Int128",
+            "--rows", "1", "--tail",
+            "--jsonl", "--tips", "q");
 
         Assert.Equal(0, windowThenTop.Exit);
         Assert.Empty(windowThenTop.Error);
@@ -431,6 +435,12 @@ public partial class CommandExecutionTests
             "Relationships has 1",
             topThenWindow.Error,
             StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, legacyTail.Exit);
+        Assert.Empty(legacyTail.Error);
+        Assert.Single(
+            legacyTail.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Fact]

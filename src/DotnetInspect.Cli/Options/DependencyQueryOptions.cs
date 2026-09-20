@@ -207,8 +207,10 @@ internal static class DependencyQueryOptions
     internal static RowSelectionIntent<string>? AppendLegacyRows(
         ParseResult parseResult,
         SharedOptions options,
-        RowSelectionIntent<string>? selection)
+        RowSelectionIntent<string>? selection,
+        out int? legacyWindowStageIndex)
     {
+        legacyWindowStageIndex = null;
         string? rows = parseResult.GetValue(options.Rows);
         if (rows is null)
             return selection;
@@ -252,9 +254,13 @@ internal static class DependencyQueryOptions
             CliRowSelectionCommandRegistry
                 .GetPreparedSemanticOperationPositions(parseResult)
                 .Count(position => position < rowsPosition);
+        int operationIndex =
+            Math.Min(insertionIndex, operations.Count);
         operations.Insert(
-            Math.Min(insertionIndex, operations.Count),
+            operationIndex,
             operation);
+        if (spec.Kind == RowSpecKind.Range)
+            legacyWindowStageIndex = operationIndex;
         return RowSelectionIntent<string>.Create(operations);
     }
 

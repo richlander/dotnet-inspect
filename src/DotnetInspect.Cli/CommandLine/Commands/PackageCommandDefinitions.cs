@@ -241,6 +241,18 @@ public static class PackageCommandDefinitions
             {
                 Hidden = true,
             };
+        var legacyPackageSectionHead =
+            new Option<bool>(
+                "--unavailable-package-section-semantic-head")
+            {
+                Hidden = true,
+            };
+        var legacyPackageSectionTail =
+            new Option<bool>(
+                "--unavailable-package-section-semantic-tail")
+            {
+                Hidden = true,
+            };
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
@@ -257,7 +269,36 @@ public static class PackageCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
                 result.GetResult(opts.Select)
-                    is { Implicit: false },
+                    is { Implicit: false }
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                legacyPackageSectionHead,
+                legacyPackageSectionTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                result.GetResult(opts.Select)
+                    is { Implicit: false }
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

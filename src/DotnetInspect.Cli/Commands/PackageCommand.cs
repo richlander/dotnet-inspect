@@ -1269,6 +1269,7 @@ public partial class PackageCommand
                         hierarchyProjection,
                         options.DependencyQueryPlan,
                         options.Rows,
+                        options.DependencyHierarchyLegacyWindowStageIndex,
                         out IReadOnlyList<
                             DependencyHierarchyOccurrenceRow>
                             selectedHierarchyRows))

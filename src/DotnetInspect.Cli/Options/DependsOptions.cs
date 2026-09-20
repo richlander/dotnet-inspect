@@ -132,6 +132,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
 
     public DependencyQueryPlan? QueryPlan { get; init; }
 
+    internal int? LegacyHierarchyWindowStageIndex { get; init; }
+
     /// <summary>
     /// Output the number of selected logical dependency edges.
     /// </summary>

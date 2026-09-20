@@ -836,7 +836,8 @@ public static class SearchCommandDefinitions
                 DependencyQueryOptions.AppendLegacyRows(
                     parseResult,
                     opts,
-                    rowSelection);
+                    rowSelection,
+                    out int? legacyHierarchyWindowStageIndex);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
 #if DEBUG
@@ -975,6 +976,8 @@ public static class SearchCommandDefinitions
                         parseResult.GetValue(maxPackagesOption),
                     Depth = queryPlan.MaximumDepth,
                     QueryPlan = queryPlan,
+                    LegacyHierarchyWindowStageIndex =
+                        legacyHierarchyWindowStageIndex,
                     Tfm = parseResult.GetValue(tfmOption),
                     PruningPlatformFamily =
                         parseResult.GetValue(pruningPlatformFamilyOption),
@@ -1122,6 +1125,16 @@ public static class SearchCommandDefinitions
             {
                 Hidden = true,
             };
+        var legacyDependsHead =
+            new Option<bool>("--unavailable-depends-semantic-head")
+            {
+                Hidden = true,
+            };
+        var legacyDependsTail =
+            new Option<bool>("--unavailable-depends-semantic-tail")
+            {
+                Hidden = true,
+            };
         CliRowSelectionCommandRegistry.Register(
             dependsCommand,
             new(
@@ -1138,7 +1151,36 @@ public static class SearchCommandDefinitions
                 | CliRowSelectionCapabilities.Lines,
             isActive: result =>
                 string.IsNullOrEmpty(
-                    result.GetValue(targetTypeArg)),
+                    result.GetValue(targetTypeArg))
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                legacyDependsHead,
+                legacyDependsTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -1157,7 +1199,34 @@ public static class SearchCommandDefinitions
             CliRowSelectionCapabilities.All,
             isActive: result =>
                 !string.IsNullOrEmpty(
-                    result.GetValue(targetTypeArg)),
+                    result.GetValue(targetTypeArg))
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                legacyDependsHead,
+                legacyDependsTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.All,
+            isActive: result =>
+                !string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

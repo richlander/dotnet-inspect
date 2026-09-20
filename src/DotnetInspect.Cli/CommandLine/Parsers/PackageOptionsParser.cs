@@ -289,7 +289,8 @@ public static class PackageOptionsParser
             DependencyQueryOptions.AppendLegacyRows(
                 parseResult,
                 opts,
-                packageSectionRowSelection);
+                packageSectionRowSelection,
+                out int? legacyHierarchyWindowStageIndex);
         int? dependencyDepth =
             int.TryParse(
                 parseResult.GetValue(args.DepthOption),
@@ -350,6 +351,8 @@ public static class PackageOptionsParser
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             DependencyQueryPlan = dependencyQueryPlan,
+            DependencyHierarchyLegacyWindowStageIndex =
+                legacyHierarchyWindowStageIndex,
             TypeFilter = typeFilter,
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),

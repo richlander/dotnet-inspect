@@ -381,22 +381,22 @@ internal static class CliRowSelectionCommandRegistry
             return null;
         }
 
-        for (int index = 0;
-            index < prepared.Arguments.Count;
-            index++)
+        Token? identifier =
+            parseResult.GetResult(option)?.IdentifierToken;
+        if (identifier is null)
+            return null;
+
+        CliArgumentOwnership.ParsedArgument[] arguments =
+            CliArgumentOwnership.MapArguments(
+                parseResult,
+                prepared.Arguments);
+        for (int index = 0; index < arguments.Length; index++)
         {
-            string argument = prepared.Arguments[index];
-            string optionToken =
-                argument.Split('=', 2)[0]
-                    .TrimStart('-');
-            if (option.Name.TrimStart('-').Equals(
-                    optionToken,
-                    StringComparison.Ordinal)
-                || option.Aliases.Any(
-                    alias =>
-                        alias.TrimStart('-').Equals(
-                            optionToken,
-                            StringComparison.Ordinal)))
+            if (arguments[index].Tokens.Any(
+                    token =>
+                        ReferenceEquals(
+                            token,
+                            identifier)))
             {
                 return prepared.ArgumentPositions[index];
             }

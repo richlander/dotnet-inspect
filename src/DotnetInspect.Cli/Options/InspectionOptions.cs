@@ -34,6 +34,8 @@ public record InspectionOptions : IProjectionOptions
 
     public DependencyQueryPlan? DependencyQueryPlan { get; init; }
 
+    internal int? DependencyHierarchyLegacyWindowStageIndex { get; init; }
+
     internal bool DependencyHierarchyRowsSelected { get; init; }
 
     /// <summary>

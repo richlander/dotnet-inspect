@@ -1312,6 +1312,28 @@ public partial class CommandExecutionTests
                 "--tfm", "net9.0", "--source", tempDir,
                 "--plaintext", "--rows", "2..4", "-n", "2",
                 "--tips", "q");
+            var clampedPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--rows", "2..6", "--tips", "q");
+            var clampedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--count", "--rows", "2..6");
+            var tailPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2", "--tail", "--tips", "q");
+            var tailDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--json", "--rows", "2", "--tail");
+            var directDependencyTail = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--rows", "1", "--tail", "--tips", "q");
 
             Assert.Empty(table.Error);
             Assert.Equal(0, table.Exit);
@@ -1335,6 +1357,17 @@ public partial class CommandExecutionTests
             Assert.Empty(composedDepends.Error);
             Assert.Equal(0, composedMultiSection.Exit);
             Assert.Empty(composedMultiSection.Error);
+            Assert.Equal(0, clampedPackage.Exit);
+            Assert.Empty(clampedPackage.Error);
+            Assert.Equal("3", clampedPackage.Output.Trim());
+            Assert.Equal(clampedPackage, clampedDepends);
+            Assert.Empty(tailPackage.Error);
+            Assert.Equal(0, tailPackage.Exit);
+            Assert.Empty(tailDepends.Error);
+            Assert.Equal(0, tailDepends.Exit);
+            Assert.Equal(0, directDependencyTail.Exit);
+            Assert.Empty(directDependencyTail.Error);
+            Assert.Equal("1", directDependencyTail.Output.Trim());
             Assert.Equal(
                 2,
                 plaintext.Output.Split(
@@ -1363,11 +1396,94 @@ public partial class CommandExecutionTests
             Assert.True(JsonElement.DeepEquals(
                 packageOccurrences,
                 dependsOccurrences));
+            using JsonDocument tailPackageJson =
+                JsonDocument.Parse(tailPackage.Output);
+            using JsonDocument tailDependsJson =
+                JsonDocument.Parse(tailDepends.Output);
+            JsonElement tailPackageOccurrences =
+                tailPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement tailDependsOccurrences =
+                tailDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.Equal(2, tailPackageOccurrences.GetArrayLength());
+            Assert.True(JsonElement.DeepEquals(
+                tailPackageOccurrences,
+                tailDependsOccurrences));
             Assert.Equal(
                 2,
                 composedMultiSection.Output.Split(
                     "package-dependency",
                     StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyHierarchy_RowPositionUsesOptionIdentity()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        string rowsDirectory = Path.Combine(tempDir, "rows");
+        Directory.CreateDirectory(rowsDirectory);
+        foreach (string source in Directory.GetFiles(tempDir, "*.nupkg"))
+        {
+            File.Copy(
+                source,
+                Path.Combine(rowsDirectory, Path.GetFileName(source)));
+        }
+
+        string relativePackage =
+            Path.Combine("rows", Path.GetFileName(packagePath));
+        string absolutePackage =
+            Path.Combine(rowsDirectory, Path.GetFileName(packagePath));
+        try
+        {
+            var relative = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", relativePackage,
+                "--source", "rows",
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count", "--tips", "q");
+            var absolute = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", absolutePackage,
+                "--source", rowsDirectory,
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count", "--tips", "q");
+            var relativeDepends = await RunAppInDirectoryAsync(
+                tempDir,
+                "depends", "--package", relativePackage,
+                "--source", "rows",
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count");
+            var absoluteDepends = await RunAppInDirectoryAsync(
+                tempDir,
+                "depends", "--package", absolutePackage,
+                "--source", rowsDirectory,
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count");
+
+            Assert.Equal(absolute, relative);
+            Assert.Equal(0, relative.Exit);
+            Assert.Empty(relative.Error);
+            Assert.Equal("0", relative.Output.Trim());
+            Assert.Equal(absoluteDepends, relativeDepends);
+            Assert.Equal(0, relativeDepends.Exit);
+            Assert.Empty(relativeDepends.Error);
+            Assert.Equal("0", relativeDepends.Output.Trim());
         }
         finally
         {
