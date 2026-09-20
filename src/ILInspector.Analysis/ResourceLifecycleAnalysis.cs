@@ -66,6 +66,76 @@ public sealed record ResourceLifecycleOccurrence
 
 public static class ResourceLifecycleAnalysis
 {
+    public static FindingInspection<ResourceLifecycleOccurrence> Inspect(
+        LibraryResourceLifecycleAnalysisResult result,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        if (!result.WasRequested)
+        {
+            return Failed(
+                subject,
+                "Resource Lifecycle Analysis was not requested.");
+        }
+        if (result.Methods.IsEmpty && !result.Limitations.IsEmpty)
+        {
+            ResourceLifecycleLimitation first = result.Limitations[0];
+            return Failed(
+                subject,
+                $"Resource lifecycle analysis did not produce method "
+                + $"evidence ({first.Kind}: {first.Detail}).");
+        }
+
+        try
+        {
+            ImmutableArray<ResourceLifecycleOccurrence> occurrences =
+            [
+                .. from method in result.Methods
+                   from root in method.Roots
+                   from outcome in root.Outcomes
+                   where outcome.Kind
+                       == ResourceLifecycleOutcomeKind
+                           .ExceptionalCleanupMissing
+                   select CreateOccurrence(
+                       method.Method,
+                       root.Root,
+                       outcome),
+            ];
+            if (occurrences.IsEmpty
+                && result.Methods.Any(method => !method.IsComplete))
+            {
+                ResourceLifecycleLimitation first =
+                    result.Methods
+                        .SelectMany(method =>
+                            method.Limitations.Concat(
+                                method.Roots.SelectMany(root =>
+                                    root.Limitations)))
+                        .First();
+                return Failed(
+                    subject,
+                    $"Resource lifecycle analysis was incomplete "
+                    + $"({first.Kind}: {first.Detail}).");
+            }
+
+            return new FindingInspection<ResourceLifecycleOccurrence>.Complete(
+                AnalysisFindings.InspectResourceLifecycles(
+                    occurrences,
+                    subject));
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+                or ArgumentException
+                or OverflowException
+                or IndexOutOfRangeException)
+        {
+            return Failed(
+                subject,
+                $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
         string path,
         FindingSubject subject)
@@ -140,6 +210,50 @@ public static class ResourceLifecycleAnalysis
                     boundary.ILOffset,
                     boundary.Operation))
                 .ToImmutableArray());
+
+    static ResourceLifecycleOccurrence CreateOccurrence(
+        MethodIdentity method,
+        ResourceOccurrenceRoot root,
+        ResourceLifecycleOutcome outcome)
+        => new(
+            method,
+            ResourceName(root),
+            "pool-churn-on-exception",
+            outcome.AcquisitionOffset,
+            outcome.Boundaries
+                .Select(boundary => new ResourceBoundaryEvidence(
+                    boundary.ILOffset,
+                    boundary.Call.Callee))
+                .ToImmutableArray());
+
+    static string ResourceName(ResourceOccurrenceRoot root)
+    {
+        ResourceKindIdentity kind =
+            AssertSingleResourceKind(root).Identity;
+        return kind == ArrayPoolResourceEffectModel.BufferKind
+            ? "ArrayPool<T>"
+            : kind.Value;
+    }
+
+    static ResourceOccurrenceResourceKind AssertSingleResourceKind(
+        ResourceOccurrenceRoot root)
+    {
+        if (root.ResourceKinds.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "Resource Triage requires one resource kind per lifecycle root.");
+        }
+        return root.ResourceKinds[0];
+    }
+
+    static FindingInspection<ResourceLifecycleOccurrence> Failed(
+        FindingSubject subject,
+        string reason) =>
+        new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+            new InspectionError(
+                subject,
+                AnalysisFindings.ResourceLifecycleDescriptor,
+                reason));
 
     static string FailurePhase(LeakTriageFailureKind kind) =>
         kind switch

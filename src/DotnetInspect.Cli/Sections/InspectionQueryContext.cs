@@ -46,6 +46,13 @@ public sealed class InspectionQueryContext : IDisposable
     public Analysis.LibraryBodyAnalysisFeatures BodyAnalysisFeatures { get; init; }
         = Analysis.LibraryBodyAnalysisFeatures.Default;
 
+    /// <summary>
+    /// Optional parameterized body-analysis request. When present, this owns
+    /// producer selection instead of <see cref="BodyAnalysisFeatures"/>.
+    /// </summary>
+    public Analysis.LibraryBodyAnalysisRequest? BodyAnalysisRequest
+    { get; init; }
+
     private MethodBodyInspectionSession? _bodySession;
     private bool _bodyIndexRecorded;
     private AssemblyInspectionSession? _session;
@@ -243,7 +250,7 @@ public sealed class InspectionQueryContext : IDisposable
     /// Shared focused method-body Analysis results for <see cref="AssemblyPath"/>, produced once
     /// on first use. Work runs sequentially, so no synchronization is required. Execution is
     /// narrowed to the producers the requested work consumes (see
-    /// <see cref="BodyAnalysisFeatures"/>).
+    /// <see cref="BodyAnalysisRequest"/> and <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
     public Analysis.LibraryBodyAnalysisExecution BodyAnalysis()
     {
@@ -287,8 +294,10 @@ public sealed class InspectionQueryContext : IDisposable
         {
             _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
                 AssemblyPath,
-                GetMetadataContext(),
-                BodyAnalysisFeatures,
+                GetMetadataContext().GetPrefetchedImage(),
+                BodyAnalysisRequest
+                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
+                        BodyAnalysisFeatures),
                 BodyReferenceResolver,
                 assembly: AssemblyReference);
         }
@@ -306,7 +315,10 @@ public sealed class InspectionQueryContext : IDisposable
             resource,
             InertString.Format(
                 TextPolicy.Field,
-                $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})"));
+                $"built in {Elapsed(start)} (features: "
+                + $"{BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; "
+                + $"resource lifecycle: "
+                + $"{BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
     }
 
     private static string Elapsed(long start)

@@ -8,7 +8,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
-static class ArrayPoolExceptionPathAnalyzer
+internal static class ResourceExceptionPathAnalyzer
 {
     internal static LeakExitKind PathExitsWithoutRelease(
         ImmutableArray<DecodedInstruction> instructions,
@@ -112,7 +112,8 @@ static class ArrayPoolExceptionPathAnalyzer
     {
         var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
         var seenOffsets = new HashSet<int>();
-        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
+        foreach (var boundary in throwingBoundaries.OrderBy(
+            static boundary => boundary.ILOffset))
         {
             if (seenOffsets.Add(boundary.ILOffset)
                 && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
@@ -134,19 +135,35 @@ static class ArrayPoolExceptionPathAnalyzer
         InstructionExceptionFlowFacts exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
-        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries)
+        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries) =>
+        UnprotectedThrowingBoundaries(
+            graph,
+            exceptionFlow,
+            catchAllCleanup,
+            releases,
+            throwingBoundaries,
+            static boundary => boundary.ILOffset);
+
+    internal static ImmutableArray<TBoundary> UnprotectedThrowingBoundaries<TBoundary>(
+        BlockGraph graph,
+        InstructionExceptionFlowFacts exceptionFlow,
+        IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+        ImmutableArray<int> releases,
+        ImmutableArray<TBoundary> throwingBoundaries,
+        Func<TBoundary, int> offset)
     {
-        var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var result = ImmutableArray.CreateBuilder<TBoundary>();
         var seenOffsets = new HashSet<int>();
-        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
+        foreach (var boundary in throwingBoundaries.OrderBy(offset))
         {
-            if (seenOffsets.Add(boundary.ILOffset)
-                && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
+            int boundaryOffset = offset(boundary);
+            if (seenOffsets.Add(boundaryOffset)
+                && !ReleasedBeforeUseInSameBlock(graph, releases, boundaryOffset)
                 && !HasCleanupReleaseForUse(
                     exceptionFlow,
                     catchAllCleanup,
                     releases,
-                    boundary.ILOffset))
+                    boundaryOffset))
             {
                 result.Add(boundary);
             }

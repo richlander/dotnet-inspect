@@ -1,0 +1,227 @@
+# Resource Lifecycle Analysis
+
+## Authority and exact claim
+
+**Resource Lifecycle Analysis** owns:
+
+> Given root-bound Resource Occurrence Analysis evidence and the exact
+> Analysis-owned body, control-flow, reaching-definition, and exception-flow
+> facts from the same library execution, publish deterministic root-local
+> lifecycle outcomes and typed incompleteness for the supported terminal-
+> resource flow set.
+
+This owner derives lifecycle meaning from resource-neutral occurrence
+operations. A resource model selects effects and resource kinds; it does not
+select a separate lifecycle algorithm.
+
+The first implementation supports:
+
+- release more than once when both releases are ordered in one basic block;
+- use after release when both operations are ordered in one basic block;
+- a supported normal or exceptional exit without release;
+- a potentially throwing direct-call boundary before release without modeled
+  cleanup; and
+- storage or return to the caller without a supported transfer effect.
+
+The result does not assign actionability, confidence, impact, remediation, or
+presentation. Resource Triage remains the policy owner for those concepts.
+
+## Basis
+
+The normative semantic vocabulary comes from
+[Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
+[Resource Occurrence Analysis](resource-occurrence-analysis.md) owns exact
+roots, physical occurrence coordinates, applicable effects, resource domains,
+authorities, and root-local limitations. The
+[Library Body Analysis Service](library-body-analysis-service.md) owns the
+shared execution and detached result association.
+
+The existing ArrayPool lifecycle analyzer supplies compatibility evidence, not
+the generic contract. It remains independently executable until a later
+focused cutover proves sufficient fidelity and retires it.
+
+## Request and execution boundary
+
+Lifecycle analysis is explicitly parameterized by one admitted
+`ResourceEffectAdmission`:
+
+```text
+LibraryBodyAnalysisRequest.CreateResourceLifecycle(admission)
+  -> occurrence-resolved resource effects
+  -> ResourceOccurrenceAnalysisResult
+     + same-execution MethodBodyAnalysisContext
+  -> LibraryResourceLifecycleAnalysisResult
+```
+
+A lifecycle request implies the method evidence and resource-occurrence
+prerequisites. An occurrence-only request does not run lifecycle analysis.
+Unrelated body-analysis requests do not admit the shipped ArrayPool model or
+pay its resolution cost.
+
+Effect resolution receives only calls whose metadata name can match one of the
+admitted member selectors, including explicit-interface name suffixes. This is
+a lossless selector prefilter: nonmatching names cannot satisfy an exact member
+selector. Acquisition, authority, and resource declarations remain
+unconditional candidates. Other exact-selector calls enter lifecycle effect
+resolution only when their receiver or an argument carries a candidate
+acquisition result. Resource Occurrence and Lifecycle Analysis still receive
+the full direct-call population, so participating and unresolved boundaries
+remain visible. Unrelated wrapper calls cannot exhaust lifecycle resolution's
+aggregate work budget. The existing bounded resolver budgets and typed
+exhaustion outcomes remain unchanged.
+
+The producer runs while `MethodBodyAnalysisContext` is alive. The detached
+occurrence result intentionally carries no decoded instructions, block graph,
+reaching definitions, or exception-flow state and is not asked to reconstruct
+them later.
+
+## Root-local result
+
+`LibraryResourceLifecycleAnalysisResult` associates:
+
+- the shared `LibraryBodyAnalysisReceipt`;
+- the exact `ResourceEffectAdmissionReceipt`;
+- deterministic method and resource-root results; and
+- acquisition-wide typed limitations.
+
+Each root result retains its `ResourceOccurrenceRoot` and ordered lifecycle
+outcomes. Each outcome retains:
+
+- a typed outcome kind;
+- the acquisition coordinate;
+- the primary and optional secondary physical coordinates; and
+- exact potentially throwing boundary evidence when the outcome is missing
+  exceptional cleanup.
+
+The supported outcome kinds are:
+
+- `MissingReleaseOnNormalPath`;
+- `MissingReleaseOnExceptionalPath`;
+- `UseAfterRelease`;
+- `DoubleRelease`;
+- `InvalidTransfer`; and
+- `ExceptionalCleanupMissing`.
+
+`InvalidTransfer` means a tracked root reached storage or method return while
+version 1 has no supported transfer effect proving that the obligation moved.
+It is not a claim about the callee's behavior or an interprocedural ownership
+summary.
+
+## Supported flow and completeness
+
+The first slice deliberately uses bounded physical evidence:
+
+- acquisition-call results stored in one local;
+- reaching definitions for that local without address-taking;
+- direct release, storage, return, and call-boundary occurrences associated
+  with the exact root;
+- same-block ordering for use-after-release and double-release;
+- the existing block graph for modeled terminal exits; and
+- validated exception-region correlation for cleanup around a boundary.
+
+An `operation throws=never` effect suppresses that exact direct-call boundary
+as an exceptional-cleanup candidate. Other participating direct-call
+boundaries are conservatively potentially throwing. A call contributes to one
+root only when Resource Occurrence Analysis associated that exact root with the
+call.
+
+The result preserves positive outcomes even when another root or another part
+of the method is incomplete. A root is complete only when:
+
+- its occurrence result is complete;
+- the acquisition local and reaching definitions required by the selected
+  checks are available;
+- exception-flow facts required by a selected boundary check are available;
+  and
+- no unsupported alias, address, transfer, dispatch, state-machine, unsafe,
+  interop, or effect shape affects that root.
+
+Method and library completeness are conjunctions over their contained roots
+plus unassigned limitations. Incomplete evidence never becomes a complete
+empty lifecycle census.
+
+## Resource Triage migration
+
+The Library Resource Triage section requests lifecycle analysis with the
+shipped typed ArrayPool model and consumes
+`LibraryResourceLifecycleAnalysisResult` directly. It no longer requests
+`LibraryBodyAnalysisFeatures.LeakTriage`, materializes `LibraryBodyIndex`, or
+opens a second analysis execution.
+
+The query projects only `ExceptionalCleanupMissing` outcomes into its existing
+`ResourceLifecycleOccurrence` Finding payload:
+
+- resource: `ArrayPool<T>`;
+- shape: `pool-churn-on-exception`;
+- unchanged acquisition and boundary coordinates; and
+- unchanged Finding descriptor, candidate identity, actionability, reason,
+  impact, remediation, confidence, output shape, and cost declaration.
+
+Other generic lifecycle outcomes remain Analysis evidence in this slice. The
+later generalized Resource Triage product work decides how to expose them.
+
+Typed producer failures remain failed query outcomes. Root-local limitations
+remain visible on the focused Analysis result while sound positive
+exceptional-cleanup outcomes can still be projected.
+
+## Pathological case
+
+One method acquires two independent resources. The first has complete release
+and exception-cleanup evidence. The second reaches an address-taking or
+unsupported transfer shape.
+
+The producer publishes the first root as complete and violation-free, the
+second root with its typed limitation and any sound positive outcomes, and the
+method as incomplete. It does not discard the first result, contaminate the
+first root with the second root's limitation, or return a complete empty
+result.
+
+## Real assets and oracle
+
+The motivating production assets remain the pinned Resource Triage corpus:
+
+- MessagePack 2.5.192;
+- Npgsql 8.0.4; and
+- Pipelines.Sockets.Unofficial 2.2.8.
+
+The existing ArrayPool analyzer is the final fidelity oracle for these assets.
+This slice keeps that implementation and its tests unchanged. The generic
+producer and migrated Resource Triage path do not call the legacy analyzer or
+adapt its result.
+
+Retirement is a later focused change after production corpus comparison. No
+source-text absence gate is added for hidden API-specific branches; behavioral
+parity and review own that transition.
+
+## Evidence
+
+The Release `ILInspector.Analysis.Tests` gate establishes:
+
+- explicit lifecycle request selection and occurrence-only non-selection;
+- direct acquisition and release with no violation;
+- supported missing normal and exceptional release;
+- same-block use after release and double release;
+- exceptional cleanup protected and unprotected by `finally`;
+- exact boundary suppression for `throws=never`;
+- invalid storage and caller-return transfer;
+- two roots with one incomplete root retaining the other's result; and
+- unchanged legacy ArrayPool lifecycle tests.
+
+The Release `DotnetInspector.Queries.Tests` and `DotnetInspect.Cli.Tests` gates
+establish:
+
+- unchanged Resource Triage Finding payload and candidate identity;
+- one shared body-analysis execution for selected migrated sections; and
+- no `LibraryBodyIndex` materialization by Resource Triage.
+
+## Non-goals
+
+- No Research ownership-path migration.
+- No ArrayPool legacy analyzer retirement.
+- No new CLI section, option, renderer, wire shape, or Browser/Wasm surface.
+- No actionability-policy change.
+- No complete CLR alias, indirect-dispatch, reflection, unsafe, interop,
+  aggregate, field-reachability, or async-state-machine claim.
+- No non-terminal exclusive-mutable ownership support.
+- No interprocedural proof that storage, return, or a direct call transferred
+  an obligation.

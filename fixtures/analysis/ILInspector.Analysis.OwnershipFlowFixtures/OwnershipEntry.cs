@@ -301,6 +301,70 @@ public static class Entry
         ArrayPool<byte>.Shared.Return(second);
     }
 
+    public static void RentWithoutReturn()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        s_ownershipProbe += buffer.Length;
+    }
+
+    public static void RentUseAfterReturn()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        buffer[0] = 1;
+    }
+
+    public static void RentDoubleReturn()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentTwoWithSecondAddress()
+    {
+        byte[] first = ArrayPool<byte>.Shared.Rent(16);
+        byte[] second = ArrayPool<byte>.Shared.Rent(32);
+        ArrayPool<byte>.Shared.Return(first);
+        ReplaceRentedArray(ref second);
+    }
+
+    public static void RentAcrossThrowingBoundary()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentAcrossProtectedThrowingBoundary()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossNestedThrowingBoundary()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        OwnershipSink.ObserveResource(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static int RentReadBeforeReturn(Stream stream)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(buffer, 0, 16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
+    }
+
     public static byte[] RentAndReturnToCaller() =>
         ArrayPool<byte>.Shared.Rent(16);
 
@@ -339,6 +403,10 @@ public static class Entry
 
     sealed class OwnershipSink
     {
+        internal static void ObserveResource(byte[] buffer)
+        {
+        }
+
         internal OwnershipSink()
         {
         }

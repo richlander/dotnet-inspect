@@ -173,6 +173,13 @@ effect set is carried by the request rather than by an unparameterized feature
 bit. It does not add another property or projection method to
 `LibraryBodyIndex`.
 
+Resource Lifecycle Analysis follows the same parameterized boundary. A
+`CreateResourceLifecycle(admission)` request selects occurrence prerequisites
+and publishes a distinct `LibraryResourceLifecycleAnalysisResult`; an
+occurrence-only request does not select lifecycle work. The lifecycle producer
+composes occurrence evidence with same-execution control-flow and exception
+facts before those operation-local facts are discarded.
+
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
 until their focused owner and consumer move. The adapter must not become the
@@ -205,7 +212,7 @@ shared semantic input.
 | 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
 | 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
 | 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
-| 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
+| 4 | Library Resource Triage section under #6731 | `LibraryResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
 
 Every slice:

@@ -1,5 +1,5 @@
-using System.Buffers;
-using System.Runtime.CompilerServices;
+using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using Inspector.Findings;
 
@@ -7,15 +7,48 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class ResourceTriageQueryTests
 {
+    const string ReadBeforeReturn = "RentReadBeforeReturn";
+
     [Fact]
     public void Execute_ReturnsLifecycleFindingsAndTypedAssessments()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
-            typeof(ResourceTriageQueryTests).Assembly.Location,
-            LibraryBodyAnalysisFeatures.LeakTriage);
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+            });
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        LibraryResourceLifecycleAnalysisResult lifecycle =
+            execution.ResourceLifecycle;
+        ResourceLifecycleMethodResult lifecycleMethod = Assert.Single(
+            lifecycle.Methods,
+            method => method.Method.Name == ReadBeforeReturn);
+        ResourceLifecycleRootResult lifecycleRoot =
+            Assert.Single(lifecycleMethod.Roots);
+        Assert.True(
+            lifecycleRoot.IsComplete,
+            string.Join(
+                "; ",
+                lifecycleRoot.Limitations.Select(limitation =>
+                    $"{limitation.Kind}: {limitation.Detail} "
+                    + $"call={limitation.OccurrenceLimitation?.Call?.Callee} "
+                    + $"gap={limitation.OccurrenceLimitation?.EffectResolutionGap}")));
+        Assert.Contains(
+            lifecycleRoot.Outcomes,
+            outcome =>
+                outcome.Kind
+                == ResourceLifecycleOutcomeKind
+                    .ExceptionalCleanupMissing);
 
         ResourceTriageResult result = ResourceTriageQuery.Execute(
-            index,
+            lifecycle,
             new FindingSubject("query-tests", "query-tests"));
 
         var available =
@@ -24,7 +57,7 @@ public sealed class ResourceTriageQueryTests
             available.Assessments,
             candidate =>
                 candidate.Source.Payload.Method.Name
-                    == nameof(ReadBeforeReturn));
+                    == ReadBeforeReturn);
         Assert.Contains(
             available.Inspection.Findings,
             finding => finding == assessment.Source);
@@ -36,6 +69,27 @@ public sealed class ResourceTriageQueryTests
             boundary =>
                 boundary.Kind
                     == ResourceTriageBoundaryKind.ExternalInput);
+
+        var legacyInspection =
+            Assert.IsType<
+                FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                ResourceLifecycleAnalysis.InspectAssembly(
+                    path,
+                    new FindingSubject(
+                        "query-tests",
+                        "query-tests")).Value);
+        ResourceTriageAssessment legacy = Assert.Single(
+            ResourceTriageAnalysis.Assess(legacyInspection),
+            candidate =>
+                candidate.Source.Payload.Method.Name
+                    == ReadBeforeReturn);
+        Assert.Equal(legacy.Source.Key, assessment.Source.Key);
+        Assert.Equal(legacy.Source.Payload, assessment.Source.Payload);
+        Assert.Equal(
+            legacy.Source.Descriptor,
+            assessment.Source.Descriptor);
+        Assert.Equal(legacy.Source.Detail, assessment.Source.Detail);
+        Assert.Equal(legacy.CandidateId, assessment.CandidateId);
     }
 
     [Fact]
@@ -43,13 +97,4 @@ public sealed class ResourceTriageQueryTests
         => Assert.Equal(
             InspectionCost.Unbounded,
             ResourceTriageQuery.Definition.Cost);
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public static int ReadBeforeReturn(Stream stream)
-    {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
-        int read = stream.Read(buffer, 0, 16);
-        ArrayPool<byte>.Shared.Return(buffer);
-        return read;
-    }
 }

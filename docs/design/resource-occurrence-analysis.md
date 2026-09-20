@@ -84,6 +84,19 @@ Resource Occurrence Analysis receives no path, image, reader, resolver,
 Workspace, or host state. Its detached
 `ResourceOccurrenceAnalysisResult` is not added to `LibraryBodyIndex`.
 
+Before resolved-effect binding, the service losslessly narrows the direct-call
+resolution population to calls whose metadata member name and declaring type
+can match an admitted exact member selector. Explicit-interface name suffixes
+remain candidates. For lifecycle requests, acquisition, authority, and
+resource declarations remain unconditional candidates; other exact-selector
+calls enter effect resolution only when their receiver or an argument carries
+a candidate acquisition result. An unresolved boundary in a method with a
+resource root remains a typed occurrence limitation through the full
+direct-call population. Occurrence-only requests retain every exact-selector
+candidate. Consequently, calls that cannot affect a lifecycle root do not
+consume its aggregate effect-resolution budget or make Lifecycle Analysis
+incomplete.
+
 Selection is parameterized rather than represented by an unbound feature bit:
 `LibraryBodyAnalysisRequest.CreateResourceOccurrences` requires one admitted
 resource-effect set. Resource Occurrence therefore does not participate in
@@ -185,7 +198,9 @@ in one service execution receipt with other focused results.
 the ordered method results and any acquisition-wide limitations; lifecycle,
 Research, sections, and other consumers receive those method results through
 that focused type rather than through `LibraryBodyIndex` or a generic result
-bag.
+bag. [Resource Lifecycle Analysis](resource-lifecycle-analysis.md) consumes
+the occurrence evidence with same-execution path facts and preserves its
+root-local associations in lifecycle outcomes.
 
 The result is not yet the compact Research ownership-path contract. That
 consumer defines its required interprocedural summary under #6732. The
@@ -267,8 +282,8 @@ This owner is step 7 of the 26-step #6544 adoption plan:
    bespoke `ResourceOccurrenceAnalysisResult` published by
    `LibraryBodyAnalysisService`.
 2. #6731 consumes it with Analysis-owned control-flow and exception facts to
-   produce `ResourceLifecycleAnalysisResult` and migrate the Resource Triage
-   section directly to that type.
+   produce `LibraryResourceLifecycleAnalysisResult` and migrate the Resource
+   Triage section directly to that type.
 3. #6732 defines the compact interprocedural summary required by the Research
    call-graph consumer.
 4. ArrayPool parity is evaluated after those consumers exist. The
