@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Web;
 
@@ -34,6 +35,50 @@ internal abstract record BrowserPlatformSurfaceProjectionResult
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformSurfaceProjection
 {
+    internal static BrowserPackageSurfaceInfo Project(
+        CompleteRestorationPlatformInventory inventory)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                inventory.Surface,
+                [
+                    .. inventory.Libraries.Select(
+                        static library => new BrowserSurfaceProjection.Participant(
+                            library.Subject.Registration,
+                            library.Subject.Identity.Name,
+                            library.Subject.Identity.Name,
+                            library.AssetFileName
+                                ?? $"{library.Subject.Identity.Name}.dll")),
+                ],
+                qualifyTypeIds: true,
+                platformPack: BrowserPlatformWorkspace.Pack(inventory.Family));
+        if (projected.Assemblies.Length == 0 && !projected.IsTruncated)
+        {
+            throw new InvalidOperationException(
+                $"Platform '{inventory.Family}' produced no API surface. "
+                    + (projected.InspectionError
+                        ?? "The workspace reported no failure."));
+        }
+
+        string framework = BrowserFrameworkText.Require(inventory.Framework);
+        return new(
+            BrowserPlatformIdentity.PackageName,
+            inventory.Version,
+            [framework],
+            framework,
+            Icon: null,
+            projected.Assemblies.FirstOrDefault()?.Id,
+            BrowserCompileLibraryProjection.Selected(framework),
+            projected.Assemblies,
+            projected.Types,
+            projected.Accessibility,
+            projected.TotalMembers,
+            Documents: [],
+            InspectionErrors: projected.InspectionErrors,
+            InspectionError: projected.InspectionError);
+    }
+
     internal static BrowserPlatformProjectionInfo Project(
         BrowserPlatformScope scope,
         WorkspaceContextMember participant,
