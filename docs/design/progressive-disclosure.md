@@ -25,11 +25,18 @@ unrelated domain categories.
 | --- | --- | --- |
 | Quiet | `-v:q` | Compact identity/context only |
 | Minimal | `-v:m` | One high-value base section |
-| Normal | `-v:n` | Multiple network-free base sections |
-| Detailed | `-v:d` | All applicable base sections |
+| Normal | `-v:n` | Fixed, terse, and informative network-free base sections |
+| Detailed | `-v:d` | All applicable bounded-cost base sections |
 
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
+
+For library inspection, References, Switches, Type Forwarders, and P/Invoke
+Methods are measured `Verbose` inventories. They therefore enter automatic
+output at `-v:d`, not `-v:n`. Exact `-S` selection and the explicit `@Library`
+or `@Surface` category remain available; explicit selection promotes the
+effective verbosity needed to render the requested inventory. Bare `-S`
+remains the fixed overview: Library Info, Symbols, and Signals.
 
 ## Categories
 
