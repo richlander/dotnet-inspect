@@ -25,7 +25,10 @@ public static partial class CatalogExports
                 realizationId,
                 navigationId,
                 typeOffset).ConfigureAwait(false);
-        return BrowserRetainedWorkspaceDetailWireProjection.Serialize(result);
+        result = BrowserRetainedWorkspaceDetailWireProjection.Admit(result);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePackageAdmissionResult);
     }
 
     [JSExport]
@@ -41,7 +44,10 @@ public static partial class CatalogExports
                 realizationId,
                 navigationId,
                 typeOffset).ConfigureAwait(false);
-        return BrowserRetainedWorkspaceDetailWireProjection.Serialize(result);
+        result = BrowserRetainedWorkspaceDetailWireProjection.Admit(result);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
     }
 
     [JSExport]

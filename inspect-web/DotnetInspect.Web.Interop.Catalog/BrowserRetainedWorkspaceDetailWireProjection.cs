@@ -6,8 +6,9 @@ namespace DotnetInspect.Web.Interop.Catalog;
 
 internal static class BrowserRetainedWorkspaceDetailWireProjection
 {
-    internal static string Serialize(BrowserRetainedWorkspacePackageAdmissionResult result) =>
-        Serialize(
+    internal static BrowserRetainedWorkspacePackageAdmissionResult Admit(
+        BrowserRetainedWorkspacePackageAdmissionResult result) =>
+        Admit(
             result,
             BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePackageAdmissionResult,
             static message => new("unavailable", null, message),
@@ -25,8 +26,9 @@ internal static class BrowserRetainedWorkspaceDetailWireProjection
                 }
                 : null);
 
-    internal static string Serialize(BrowserRetainedWorkspacePlatformAdmissionResult result) =>
-        Serialize(
+    internal static BrowserRetainedWorkspacePlatformAdmissionResult Admit(
+        BrowserRetainedWorkspacePlatformAdmissionResult result) =>
+        Admit(
             result,
             BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult,
             static message => new("unavailable", null, message),
@@ -47,7 +49,7 @@ internal static class BrowserRetainedWorkspaceDetailWireProjection
     static BrowserPackageSurface HalfPage(BrowserPackageSurface surface) =>
         surface with { Types = surface.Types[..(surface.Types.Length / 2)] };
 
-    internal static string Serialize<T>(
+    static T Admit<T>(
         T result,
         JsonTypeInfo<T> typeInfo,
         Func<string, T> unavailable,
@@ -64,19 +66,17 @@ internal static class BrowserRetainedWorkspaceDetailWireProjection
             if (entries <= MaxOrdinaryWorkerCollectionEntries
                 && characters <= MaxOrdinaryWorkerJsonCharacters)
             {
-                return document.RootElement.GetRawText();
+                return result;
             }
             if (shrink?.Invoke(result) is { } smaller)
             {
                 result = smaller;
                 continue;
             }
-            return JsonSerializer.Serialize(
-                unavailable(
-                    "The retained row detail exceeds the ordinary Worker transport limit even at its smallest Type page "
-                    + $"({entries} collection entries, {characters} JSON characters; "
-                    + $"limits {MaxOrdinaryWorkerCollectionEntries} and {MaxOrdinaryWorkerJsonCharacters})."),
-                typeInfo);
+            return unavailable(
+                "The retained row detail exceeds the ordinary Worker transport limit even at its smallest Type page "
+                + $"({entries} collection entries, {characters} JSON characters; "
+                + $"limits {MaxOrdinaryWorkerCollectionEntries} and {MaxOrdinaryWorkerJsonCharacters}).");
         }
     }
 }

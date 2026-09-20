@@ -173,7 +173,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             {
                 Package = original.Package with { Surface = oversized },
             };
-            string json = Catalog.BrowserRetainedWorkspaceDetailWireProjection.Serialize(input);
+            string json = SerializePackageDetail(input);
             Catalog.BrowserRetainedWorkspacePackageAdmissionResult result = ReadPackageAdmission(json);
             Assert.Equal("unavailable", result.Status);
             Assert.Null(result.Package);
@@ -218,7 +218,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     TypePage = new(10, 12, null),
                 },
             };
-            string json = Catalog.BrowserRetainedWorkspaceDetailWireProjection.Serialize(input);
+            string json = SerializePackageDetail(input);
             var first = ReadPackageAdmission(json);
             Assert.Equal("admitted", first.Status);
             Assert.NotNull(first.Package);
@@ -235,7 +235,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     TypePage = new(11, 12, null),
                 },
             };
-            json = Catalog.BrowserRetainedWorkspaceDetailWireProjection.Serialize(continuation);
+            json = SerializePackageDetail(continuation);
             var last = ReadPackageAdmission(json);
             Assert.Equal("admitted", last.Status);
             Assert.NotNull(last.Package);
@@ -254,7 +254,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     },
                 },
             };
-            json = Catalog.BrowserRetainedWorkspaceDetailWireProjection.Serialize(indivisible);
+            json = SerializePackageDetail(indivisible);
             var unavailable = ReadPackageAdmission(json);
             Assert.Equal("unavailable", unavailable.Status);
             Assert.Null(unavailable.Package);
@@ -266,6 +266,11 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
         }
     }
+
+    static string SerializePackageDetail(Catalog.BrowserRetainedWorkspacePackageAdmissionResult value) =>
+        JsonSerializer.Serialize(
+            Catalog.BrowserRetainedWorkspaceDetailWireProjection.Admit(value),
+            Catalog.BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePackageAdmissionResult);
 
     static Catalog.BrowserRetainedWorkspaceActivationResult ReadActivation(string json) =>
         Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(

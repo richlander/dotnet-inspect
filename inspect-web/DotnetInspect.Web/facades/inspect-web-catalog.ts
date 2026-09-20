@@ -483,11 +483,40 @@ export interface BrowserRetainedWorkspaceLibraryIdentity {
   readonly publicKeyToken: string | null;
 }
 
+export interface BrowserRetainedWorkspacePackage {
+  readonly navigationId: string;
+  readonly contextIndex: number;
+  readonly consumerPackageSubjectId: string;
+  readonly surface: BrowserPackageSurface;
+  readonly typePage: BrowserRetainedWorkspaceTypePage;
+}
+
+export interface BrowserRetainedWorkspacePackageAdmissionResult {
+  readonly status: string;
+  readonly package: BrowserRetainedWorkspacePackage | null;
+  readonly message: string | null;
+}
+
 export interface BrowserRetainedWorkspacePackageInventory {
   readonly navigationId: string;
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
+}
+
+export interface BrowserRetainedWorkspacePlatform {
+  readonly navigationId: string;
+  readonly contextIndex: number;
+  readonly family: string;
+  readonly runtimeIdentifier: string | null;
+  readonly surface: BrowserPackageSurface;
+  readonly typePage: BrowserRetainedWorkspaceTypePage;
+}
+
+export interface BrowserRetainedWorkspacePlatformAdmissionResult {
+  readonly status: string;
+  readonly platform: BrowserRetainedWorkspacePlatform | null;
+  readonly message: string | null;
 }
 
 export interface BrowserRetainedWorkspacePlatformInventory {
@@ -543,6 +572,12 @@ export interface BrowserRetainedWorkspaceSurfaceSummary {
   readonly memberCount: number;
   readonly documentCount: number;
   readonly hasInspectionNotices: boolean;
+}
+
+export interface BrowserRetainedWorkspaceTypePage {
+  readonly offset: number;
+  readonly totalTypes: number;
+  readonly nextOffset: number | null;
 }
 
 export interface BrowserTypeSurface {
@@ -964,12 +999,16 @@ export async function activateRetainedWorkspaceDefinition(retainedDefinitionId: 
   return $parsed as BrowserRetainedWorkspaceActivationResult;
 }
 
-export async function admitRetainedWorkspacePackage(retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number): Promise<string> {
-  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AdmitRetainedWorkspacePackage.2036994461"](retainedDefinitionId, realizationId, navigationId, typeOffset);
+export async function admitRetainedWorkspacePackage(retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number): Promise<BrowserRetainedWorkspacePackageAdmissionResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AdmitRetainedWorkspacePackage.2036994461"](retainedDefinitionId, realizationId, navigationId, typeOffset);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspacePackageAdmissionResult;
 }
 
-export async function admitRetainedWorkspacePlatform(retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number): Promise<string> {
-  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AdmitRetainedWorkspacePlatform.2036994461"](retainedDefinitionId, realizationId, navigationId, typeOffset);
+export async function admitRetainedWorkspacePlatform(retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number): Promise<BrowserRetainedWorkspacePlatformAdmissionResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AdmitRetainedWorkspacePlatform.2036994461"](retainedDefinitionId, realizationId, navigationId, typeOffset);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserRetainedWorkspacePlatformAdmissionResult;
 }
 
 export function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult {
