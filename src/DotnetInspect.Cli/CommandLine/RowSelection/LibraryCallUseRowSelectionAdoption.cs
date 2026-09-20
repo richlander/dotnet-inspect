@@ -28,6 +28,12 @@ internal static class LibraryCallUseRowSelectionAdoption
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray() is [var section]
             && (section.Equals(
+                    LibraryCallUseSections.ConsumerUseSites,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    LibraryCallUseSections.ProviderApiTypes,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
                     LibraryCallUseSections.CallSites,
                     StringComparison.OrdinalIgnoreCase)
                 || section.Equals(

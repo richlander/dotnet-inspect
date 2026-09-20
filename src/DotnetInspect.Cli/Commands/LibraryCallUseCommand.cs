@@ -320,13 +320,69 @@ public static class LibraryCallUseCommand
             AssemblyPairCallUseProjection.Create(selectedResult!);
         IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
             selectedResult!.Occurrences;
+        bool selectsConsumerUseSiteRows =
+            options.RowSelection is not null
+            && selectedNames.Length == 1
+            && selectedNames[0].Equals(
+                ConsumerUseSitesSection,
+                StringComparison.OrdinalIgnoreCase);
+        bool selectsProviderApiTypeRows =
+            options.RowSelection is not null
+            && selectedNames.Length == 1
+            && selectedNames[0].Equals(
+                ProviderApiTypesSection,
+                StringComparison.OrdinalIgnoreCase);
         bool selectsDirectUseClusterRows =
             options.RowSelection is not null
             && selectedNames.Length == 1
             && selectedNames[0].Equals(
                 DirectUseClustersSection,
                 StringComparison.OrdinalIgnoreCase);
-        if (selectsDirectUseClusterRows)
+        if (selectsConsumerUseSiteRows)
+        {
+            if (!CliSemanticRowSelection.TrySelect(
+                    options.RowSelection,
+                    projection.ConsumerUseSites,
+                    "Library consumer use sites",
+                    failure =>
+                        $"Library consumer-use-site row selection stage "
+                        + $"{failure.Failure.StageNumber} requires use site "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} consumer use sites are available.",
+                    out IReadOnlyList<AssemblyPairCallUseConsumerUseSite>
+                        selectedConsumerUseSites))
+            {
+                return 1;
+            }
+
+            projection = projection with
+            {
+                ConsumerUseSites = [.. selectedConsumerUseSites],
+            };
+        }
+        else if (selectsProviderApiTypeRows)
+        {
+            if (!CliSemanticRowSelection.TrySelect(
+                    options.RowSelection,
+                    projection.ProviderApiTypes,
+                    "Library provider API types",
+                    failure =>
+                        $"Library provider-API-type row selection stage "
+                        + $"{failure.Failure.StageNumber} requires type "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} provider API types are available.",
+                    out IReadOnlyList<AssemblyPairCallUseProviderApiType>
+                        selectedProviderApiTypes))
+            {
+                return 1;
+            }
+
+            projection = projection with
+            {
+                ProviderApiTypes = [.. selectedProviderApiTypes],
+            };
+        }
+        else if (selectsDirectUseClusterRows)
         {
             if (!CliSemanticRowSelection.TrySelect(
                     options.RowSelection,
