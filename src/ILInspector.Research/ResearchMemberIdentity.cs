@@ -191,9 +191,11 @@ public static class ResearchMemberIdentity
             return "";
         }
 
-        string? returnType = signature?.ReturnTypeShape is { } returnTypeShape
-            ? BodyReturnTypeName(returnTypeShape)
-            : signature?.EffectiveCanonicalReturnType ?? member.ReturnType;
+        if (signature?.ReturnTypeShape is { } returnTypeShape)
+            return $"~{BodyReturnTypeName(returnTypeShape)}";
+
+        string? returnType =
+            signature?.EffectiveCanonicalReturnType ?? member.ReturnType;
         return string.IsNullOrWhiteSpace(returnType)
             ? ""
             : $"~{BodyParameterTypeName(returnType)}";
@@ -293,6 +295,11 @@ public static class ResearchMemberIdentity
                     || type.GenericParameterName.Length == 0
                     ? $"!!{type.GenericParameterIndex}"
                     : type.GenericParameterName,
+            TypeRefKind.Unsupported
+                when positionalGenericParameters
+                    && type.TryGetFunctionPointerSignatureIdentity(
+                        out string functionPointer) =>
+                functionPointer,
             _ => type.ToQualifiedDisplayString(),
         };
 

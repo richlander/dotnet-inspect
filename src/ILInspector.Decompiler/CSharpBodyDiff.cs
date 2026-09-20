@@ -1260,7 +1260,15 @@ public static partial class CSharpBodyDiff
         };
 
     static string CanonicalFunctionPointer(TypeRef type)
-        => $"delegate*<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName).Append(CanonicalTypeName(type.ElementType!)))}>";
+    {
+        string convention = type.CallingConvention.Length == 0
+            ? ""
+            : $" {type.CallingConvention}";
+        return $"delegate*{convention}<"
+            + $"{string.Join(",", type.TypeArguments.Select(
+                CanonicalTypeName).Append(
+                    CanonicalTypeName(type.ElementType!)))}>";
+    }
 
     static string GenericParameterList(int arity, bool isMethod)
     {

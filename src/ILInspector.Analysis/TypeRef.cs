@@ -311,6 +311,82 @@ public sealed class TypeRef : IEquatable<TypeRef>
         _ => ToDisplayString(),
     };
 
+    /// <summary>
+    /// Returns the recursively structured signature spelling retained for a
+    /// function-pointer type, including its calling convention.
+    /// </summary>
+    public bool TryGetFunctionPointerSignatureIdentity(out string identity)
+    {
+        TypeRef candidate = this;
+        while (candidate.FunctionPointerSignature is null
+            && candidate.UnmodifiedType is { } unmodified)
+        {
+            candidate = unmodified;
+        }
+
+        if (candidate.FunctionPointerSignature is not { } signature)
+        {
+            identity = "";
+            return false;
+        }
+
+        identity = FunctionPointerSignatureIdentity(signature);
+        return true;
+    }
+
+    static string FunctionPointerSignatureIdentity(
+        MethodSignature<TypeRef> signature)
+    {
+        string convention = signature.Header.CallingConvention switch
+        {
+            SignatureCallingConvention.Default => "",
+            SignatureCallingConvention.CDecl => " unmanaged[Cdecl]",
+            SignatureCallingConvention.StdCall => " unmanaged[Stdcall]",
+            SignatureCallingConvention.ThisCall => " unmanaged[Thiscall]",
+            SignatureCallingConvention.FastCall => " unmanaged[Fastcall]",
+            _ => " unmanaged",
+        };
+        IEnumerable<string> parameters = signature.ParameterTypes.Select(
+            SignatureTypeIdentity);
+        return $"delegate*{convention}<"
+            + $"{string.Join(",", parameters.Append(
+                SignatureTypeIdentity(signature.ReturnType)))}>";
+    }
+
+    static string SignatureTypeIdentity(TypeRef type)
+    {
+        if (type.FunctionPointerSignature is { } functionPointer)
+            return FunctionPointerSignatureIdentity(functionPointer);
+        if (type.UnmodifiedType is { } unmodified)
+            return SignatureTypeIdentity(unmodified);
+
+        return type.Kind switch
+        {
+            TypeRefKind.Definition => type.Resolution?.Type.ToEscapedFullName()
+                ?? type.QualifiedDisplayName(),
+            TypeRefKind.GenericInstance =>
+                $"{SignatureTypeIdentity(type.ElementType!)}"
+                + $"<{string.Join(",", type.TypeArguments.Select(
+                    SignatureTypeIdentity))}>",
+            TypeRefKind.SzArray =>
+                $"{SignatureTypeIdentity(type.ElementType!)}[]",
+            TypeRefKind.Array =>
+                $"{SignatureTypeIdentity(type.ElementType!)}"
+                + $"[{(type.Rank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.Rank))}]",
+            TypeRefKind.ByRef =>
+                $"{SignatureTypeIdentity(type.ElementType!)}&",
+            TypeRefKind.Pointer =>
+                $"{SignatureTypeIdentity(type.ElementType!)}*",
+            TypeRefKind.Pinned =>
+                $"pinned {SignatureTypeIdentity(type.ElementType!)}",
+            TypeRefKind.GenericParameter =>
+                $"!{type.GenericParameterIndex}",
+            TypeRefKind.MethodGenericParameter =>
+                $"!!{type.GenericParameterIndex}",
+            _ => type.ToQualifiedDisplayString(),
+        };
+    }
+
     public override string ToString() => ToDisplayString();
 
     /// <summary>

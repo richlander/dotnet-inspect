@@ -2034,6 +2034,9 @@ Analysis populations and issues the matching full-signature
 spelling, including positional `!n` type parameters and `!!n` method
 parameters rather than source generic-parameter names, and exact `+`-separated
 nested metadata segments rather than display-oriented dotted nesting.
+Structured API return shapes are already canonical and are not reparsed as
+display text. Function pointers retain their parameter, return, and calling-
+convention structure rather than collapsing to an unsupported display label.
 Implementation Diff target resolution adds the same return-qualified alias
 while preserving the ordinary body identity used by other operations.
 Non-colliding members retain their API anchor currency, so API and body

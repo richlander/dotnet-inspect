@@ -736,6 +736,50 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     [Fact]
+    public void DocumentQuery_CorrelatesConstructedGenericReturnTypeCollision()
+    {
+        ImplementationDiffDocument unfiltered =
+            CompareConstructedGenericReturnTypeOverloads();
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. unfiltered.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+
+        Assert.Equal(2, members.Length);
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+
+        string selectedId = members
+            .Select(member => member.Subject.Id)
+            .Order(StringComparer.Ordinal)
+            .First();
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        ImplementationDiffDocument filtered =
+            CompareConstructedGenericReturnTypeOverloads(
+                new HashSet<string>(
+                    [selectedId[..returnSeparator], selectedId],
+                    StringComparer.Ordinal));
+
+        ImplementationDiffDocumentMember selected = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Changed");
+        Assert.Equal(selectedId, selected.Subject.Id);
+    }
+
+    [Fact]
     public void DocumentQuery_CorrelatesNestedReturnTypeCollision()
     {
         ImplementationDiffDocument unfiltered =
@@ -790,6 +834,268 @@ public sealed class ImplementationComparisonQueryTests
             selected.Evidence,
             evidence => evidence.Mechanism
                 == ResearchChangeMechanism.IlBody);
+    }
+
+    [Fact]
+    public void DocumentQuery_CorrelatesFunctionPointerReturnTypeCollision()
+    {
+        ImplementationDiffDocument unfiltered =
+            CompareFunctionPointerReturnTypeOverloads();
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. unfiltered.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+
+        Assert.Equal(2, members.Length);
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+        Assert.Contains(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .EndsWith(
+                        "~delegate*<System.Int32>",
+                        StringComparison.Ordinal)
+                    == true));
+        Assert.Contains(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .EndsWith(
+                        "~delegate*<System.String>",
+                        StringComparison.Ordinal)
+                    == true));
+
+        string selectedId = members
+            .Select(member => member.Subject.Id)
+            .Order(StringComparer.Ordinal)
+            .First();
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        ImplementationDiffDocument filtered =
+            CompareFunctionPointerReturnTypeOverloads(
+                new HashSet<string>(
+                    [selectedId[..returnSeparator], selectedId],
+                    StringComparer.Ordinal));
+
+        ImplementationDiffDocumentMember selected = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Changed");
+        Assert.Equal(selectedId, selected.Subject.Id);
+    }
+
+    static ImplementationDiffDocument
+        CompareConstructedGenericReturnTypeOverloads(
+            IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-constructed-return-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            EmitConstructedGenericReturnTypeOverloads(
+                oldPath,
+                constructReturnValue: false);
+            EmitConstructedGenericReturnTypeOverloads(
+                newPath,
+                constructReturnValue: true);
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "before.dll")],
+                    [StreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "ConstructedGenericReturnSample",
+                    },
+                    MemberTargetIdentities: memberTargetIdentities));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void EmitConstructedGenericReturnTypeOverloads(
+        string path,
+        bool constructReturnValue)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("ConstructedGenericReturnOverloadFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "ConstructedGenericReturnOverloadFixture");
+        TypeBuilder host = module.DefineType(
+            "ConstructedGenericReturnSample",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        EmitConstructedGenericReturnMethod(
+            host,
+            typeof(List<int>),
+            constructReturnValue);
+        EmitConstructedGenericReturnMethod(
+            host,
+            typeof(List<string>),
+            constructReturnValue);
+
+        host.CreateType();
+        assembly.Save(path);
+    }
+
+    static void EmitConstructedGenericReturnMethod(
+        TypeBuilder host,
+        Type returnType,
+        bool constructReturnValue)
+    {
+        MethodBuilder method = host.DefineMethod(
+            "Changed",
+            MethodAttributes.Public | MethodAttributes.Static,
+            returnType,
+            Type.EmptyTypes);
+        ILGenerator il = method.GetILGenerator();
+        if (constructReturnValue)
+        {
+            ConstructorInfo constructor = Assert.Single(
+                returnType.GetConstructors(),
+                candidate => candidate.GetParameters().Length == 0);
+            il.Emit(OpCodes.Newobj, constructor);
+        }
+        else
+        {
+            il.Emit(OpCodes.Ldnull);
+        }
+        il.Emit(OpCodes.Ret);
+    }
+
+    static ImplementationDiffDocument
+        CompareFunctionPointerReturnTypeOverloads(
+            IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-function-pointer-return-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            EmitFunctionPointerReturnTypeOverloads(
+                oldPath,
+                useSecondTarget: false);
+            EmitFunctionPointerReturnTypeOverloads(
+                newPath,
+                useSecondTarget: true);
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "before.dll")],
+                    [StreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "FunctionPointerReturnSample",
+                    },
+                    MemberTargetIdentities: memberTargetIdentities));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static unsafe void EmitFunctionPointerReturnTypeOverloads(
+        string path,
+        bool useSecondTarget)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("FunctionPointerReturnOverloadFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "FunctionPointerReturnOverloadFixture");
+        TypeBuilder host = module.DefineType(
+            "FunctionPointerReturnSample",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+
+        MethodBuilder firstInt = EmitFunctionPointerTarget<int>(
+            host,
+            "FirstInt");
+        MethodBuilder secondInt = EmitFunctionPointerTarget<int>(
+            host,
+            "SecondInt");
+        MethodBuilder firstString = EmitFunctionPointerTarget<string>(
+            host,
+            "FirstString");
+        MethodBuilder secondString = EmitFunctionPointerTarget<string>(
+            host,
+            "SecondString");
+        EmitFunctionPointerReturnMethod(
+            host,
+            typeof(delegate*<int>),
+            useSecondTarget ? secondInt : firstInt);
+        EmitFunctionPointerReturnMethod(
+            host,
+            typeof(delegate*<string>),
+            useSecondTarget ? secondString : firstString);
+
+        host.CreateType();
+        assembly.Save(path);
+    }
+
+    static MethodBuilder EmitFunctionPointerTarget<TReturn>(
+        TypeBuilder host,
+        string name)
+    {
+        MethodBuilder method = host.DefineMethod(
+            name,
+            MethodAttributes.Private | MethodAttributes.Static,
+            typeof(TReturn),
+            Type.EmptyTypes);
+        ILGenerator il = method.GetILGenerator();
+        if (typeof(TReturn).IsValueType)
+        {
+            LocalBuilder local = il.DeclareLocal(typeof(TReturn));
+            il.Emit(OpCodes.Ldloca_S, local);
+            il.Emit(OpCodes.Initobj, typeof(TReturn));
+            il.Emit(OpCodes.Ldloc_0);
+        }
+        else
+        {
+            il.Emit(OpCodes.Ldnull);
+        }
+        il.Emit(OpCodes.Ret);
+        return method;
+    }
+
+    static void EmitFunctionPointerReturnMethod(
+        TypeBuilder host,
+        Type returnType,
+        MethodBuilder target)
+    {
+        MethodBuilder method = host.DefineMethod(
+            "Changed",
+            MethodAttributes.Public | MethodAttributes.Static,
+            returnType,
+            Type.EmptyTypes);
+        ILGenerator il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldftn, target);
+        il.Emit(OpCodes.Ret);
     }
 
     static ImplementationDiffDocument CompareNestedReturnTypeOverloads(
