@@ -67,11 +67,16 @@ public sealed record PackageQueryOptions : IProjectionOptions
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
+        + "depends-transitive=<package ID> requires dependency-target=<TFM> "
+        + "and dependency-depth=2|3|4; "
         + "dependencies=cross-prefix matches a dependency from another first ID segment; "
         + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
         + "dependency-target=all|<TFM> selects its manifest-group scope. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
+        + "Selecting a nuspec-expensive term evaluates at most "
+        + PackageQuery.MaximumNuspecExpensiveCandidates
+        + " candidates. "
         + "Selecting a package-content term authorizes at most "
         + PackageQuery.MaximumPackageContentCandidates
         + " candidates; --nuspec-only rejects those terms. "
@@ -222,6 +227,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 registered.Descriptor.Key == term.Key
                 && registered.Descriptor.Tier
                     == PackageQueryAcquisitionTier.PackageContent));
+        bool requiresNuspecExpensive = terms.Any(term =>
+            CliTerms.Any(registered =>
+                registered.Descriptor.Key == term.Key
+                && registered.Descriptor.ExecutionClass
+                    == PackageQueryExecutionClass.NuspecExpensive));
         if (nuspecOnly && requiresPackageContent)
         {
             error =
@@ -236,13 +246,16 @@ public sealed record PackageQueryOptions : IProjectionOptions
         int? semanticHead = requestedHead is <= MaximumCandidates
             ? requestedHead
             : null;
-        int maximumCandidates = take ?? (requiresPackageContent
-            ? PackageQuery.MaximumPackageContentCandidates
-            : requestedHead is int head
-            && input.Trim().EndsWith('*')
-            && terms.Count == 0
-            ? Math.Min(head, MaximumCandidates)
-                    : PackageQuery.DefaultMaximumCandidates);
+        int defaultMaximumCandidates = requiresNuspecExpensive
+            ? PackageQuery.MaximumNuspecExpensiveCandidates
+            : requiresPackageContent
+                ? PackageQuery.MaximumPackageContentCandidates
+                : requestedHead is int head
+                    && input.Trim().EndsWith('*')
+                    && terms.Count == 0
+                    ? Math.Min(head, MaximumCandidates)
+                    : PackageQuery.DefaultMaximumCandidates;
+        int maximumCandidates = take ?? defaultMaximumCandidates;
         if (maximumCandidates is <= 0 or > MaximumCandidates)
         {
             error =

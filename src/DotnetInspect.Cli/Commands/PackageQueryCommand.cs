@@ -85,9 +85,31 @@ internal static class PackageQueryCommand
         await using ContentProvider? provider = options.Plan.RequiresPackageContent
             ? new ContentProvider(new DesktopPackageSourceComposition(fetchOptions.RequestTimeout), operation)
             : null;
+        await using DesktopPackageSourceComposition? traversalComposition =
+            options.Plan.RequiresDependencyTraversal
+                ? new DesktopPackageSourceComposition(fetchOptions.RequestTimeout)
+                : null;
+        PackageQueryDependencyTraversalServices? traversalServices =
+            traversalComposition is null
+                ? null
+                : new(
+                    new PackageDependencyTraversalCandidateAdapter(
+                        new DesktopPackageDependencyCandidateSource(
+                            traversalComposition,
+                            new NuGetSourceOptions
+                            {
+                                Sources = [PackageSource.NuGetOrg.Url],
+                            })),
+                    new DesktopPackageDependencyTraversalManifestSource(
+                        traversalComposition));
         try
         {
-            return await ExecuteAsync(options, source, provider, deadline.Token).ConfigureAwait(false);
+            return await ExecuteAsync(
+                options,
+                source,
+                provider,
+                traversalServices,
+                deadline.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (
             !cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
@@ -278,6 +300,20 @@ internal static class PackageQueryCommand
         PackageQueryOptions options,
         IPackageSourceClient source,
         IPackageQueryContentProvider? contentProvider,
+        CancellationToken cancellationToken = default) =>
+        await ExecuteAsync(
+            options,
+            source,
+            contentProvider,
+            dependencyTraversalServices: null,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<int> ExecuteAsync(
+        PackageQueryOptions options,
+        IPackageSourceClient source,
+        IPackageQueryContentProvider? contentProvider,
+        PackageQueryDependencyTraversalServices?
+            dependencyTraversalServices,
         CancellationToken cancellationToken = default)
     {
         PackageQueryPlan plan = options.Plan;
@@ -286,7 +322,9 @@ internal static class PackageQueryCommand
                 source,
                 plan,
                 contentProvider,
-                cancellationToken).ConfigureAwait(false);
+                dependencyTraversalServices,
+                nonterminalSink: null,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         PackageQueryDocument document = envelope.Content;
         PackageQuerySummary summary = document.Summary;
         if (options.EnvelopeOutput || options.IsContentJson)

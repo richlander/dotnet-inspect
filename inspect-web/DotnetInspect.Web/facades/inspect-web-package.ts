@@ -54,7 +54,7 @@ export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 
 export type BrowserPackageQueryExecutionClass = "SearchMetadata" | "Nuspec" | "NuspecExpensive" | "PackageContent" | "Metadata" | "MetadataExpensive" | number;
 
-export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
+export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "DependencyTraversal" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
 
 export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
 
@@ -64,7 +64,7 @@ export type BrowserPackageQueryMatchCreditKind = "Granted" | "NotActive" | numbe
 
 export type BrowserPackageQueryOperationFailureKind = "Expected" | "Unexpected" | number;
 
-export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "Assembly" | number;
+export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "DependencyTraversal" | "Assembly" | number;
 
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
