@@ -221,6 +221,19 @@ public class DiffCommand
             }
         }
 
+        if (SelectsComplexityContext(options)
+            && options.IncludeSections is { Count: > 0 } complexitySections
+            && (complexitySections.Count != 1
+                || !complexitySections.Contains(
+                    DiffSections.ComplexityContext.Name)))
+        {
+            CommandError.Write(
+                "Complexity Context must be selected by itself because it is "
+                + "a focused local-population view; use @Diff for composable "
+                + "comparison sections.");
+            return 1;
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -289,9 +302,11 @@ public class DiffCommand
                         options);
                 }
                 WorkspaceImplementationTarget? workspaceTarget =
-                    TryCreateWorkspaceImplementationTarget(
-                        inputs,
-                        options);
+                    SelectsComplexityContext(options)
+                        ? null
+                        : TryCreateWorkspaceImplementationTarget(
+                            inputs,
+                            options);
                 CompiledInspectionPlan<DiffQueryContext> queryPlan =
                     GetRequestedQueryPlan(
                         catalog,
@@ -417,6 +432,45 @@ public class DiffCommand
                             inspectionFailures);
                     }
                     return inspectionFailures.Count > 0 ? 1 : 0;
+                }
+
+                if (SelectsComplexityContext(options))
+                {
+                    ImplementationDiffResult result = queryResults.Get(
+                        ImplementationComparisonQuery.Definition);
+                    ComplexityContextView view =
+                        DiffOutputFormatter.BuildComplexityContextView(
+                            inputs.Name,
+                            result.Complexity,
+                            inputs.FromVersion,
+                            inputs.ToVersion);
+                    if (options.Tabular || options.Tsv || options.Jsonl)
+                    {
+                        OutputFormatter.WriteProjectedTable(
+                            Console.Out,
+                            !options.NoHeader,
+                            options.Tsv,
+                            options.Jsonl,
+                            options.Columns,
+                            options.Fields,
+                            (writer, formatter, writerOptions) =>
+                                MarkoutSerializer.Serialize(
+                                    view,
+                                    writer,
+                                    formatter,
+                                    DiffViewContext.Default,
+                                    writerOptions),
+                            options.Rows);
+                    }
+                    else
+                    {
+                        Console.WriteLine(
+                            DiffOutputFormatter.RenderComplexityContextView(
+                                view,
+                                OutputFormatter.CreateWindowedOptions(
+                                    options.Rows)));
+                    }
+                    return result.Complexity.IsAvailable ? 0 : 1;
                 }
 
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
@@ -654,6 +708,7 @@ public class DiffCommand
             && options.MemberFilter.Count == 0
             && !SelectsAnalysisDiff(options)
             && !SelectsImplementationDiff(options)
+            && !SelectsComplexityContext(options)
             && !SelectsFindingTransitions(options)
             && (options.IncludeSections is null
                 || options.IncludeSections.SetEquals([DiffSections.Changes.Name]));
@@ -1002,6 +1057,9 @@ public class DiffCommand
     private static bool SelectsImplementationDiff(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.ImplementationDiff.Name) == true;
 
+    private static bool SelectsComplexityContext(DiffOptions options)
+        => options.IncludeSections?.Contains(DiffSections.ComplexityContext.Name) == true;
+
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
 
@@ -1031,6 +1089,14 @@ public class DiffCommand
                 StringComparer.OrdinalIgnoreCase)
             {
                 DiffSections.FindingTransitions.Name,
+            };
+        }
+        else if (SelectsComplexityContext(options))
+        {
+            querySections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.ComplexityContext.Name,
             };
         }
         else if (SelectsImplementationDiff(options)
@@ -1211,6 +1277,19 @@ public class DiffCommand
             }
         }
 
+        ComplexityContextView? complexityContextView = null;
+        if (selected.Contains(DiffSections.ComplexityContext.Name))
+        {
+            ImplementationDiffResult result = queryResults.Get(
+                ImplementationComparisonQuery.Definition);
+            complexityContextView =
+                DiffOutputFormatter.BuildComplexityContextView(
+                    inputs.Name,
+                    result.Complexity,
+                    inputs.FromVersion,
+                    inputs.ToVersion);
+        }
+
         FindingTransitionsView? findingTransitionsView = null;
         if (selected.Contains(DiffSections.FindingTransitions.Name))
         {
@@ -1230,7 +1309,8 @@ public class DiffCommand
             analysisView,
             implementationView,
             findingTransitionsView,
-            inspectionFailures);
+            inspectionFailures,
+            complexityContextView);
 
         bool workspaceIncomplete =
             workspaceImplementation is not null
@@ -1387,7 +1467,9 @@ public class DiffCommand
                 options.MemberFilter,
                 options.TypeFilter,
                 requireBodyTargets: true,
-                bodySectionName: "Implementation Diff").MemberIdentities;
+                bodySectionName: SelectsComplexityContext(options)
+                    ? "Complexity Context"
+                    : "Implementation Diff").MemberIdentities;
 
         return new ImplementationComparisonInput(
             fromPaths.Select(CreateImplementationAssemblyInput).ToArray(),

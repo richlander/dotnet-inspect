@@ -57,7 +57,7 @@ public static class DiffSections
 {
     public static IReadOnlySet<string> ExactOnlySections { get; } =
         new HashSet<string>(
-            [FindingTransitions.Name],
+            [FindingTransitions.Name, ComplexityContext.Name],
             StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The reusable fixed-domain catalog for Diff queries.</summary>
@@ -100,6 +100,7 @@ public static class DiffSections
             .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
+            .Add<ComplexityContext>(ImplementationComparisonQuery.Definition)
             .Add<FindingTransitions>()
             .AddBaseCategory(
                 SectionCategoryNames.Diff,
@@ -133,7 +134,27 @@ public static class DiffSections
         return new DocumentSchema()
             .Add(Changes.Name, "column", "Change", "Classification", "Type", "Member", "Kind", "Detail", "Old", "New")
             .Add(AnalysisDiff.Name, "section", "Member", "Signal", "Old", "New", "Delta", "Shape", "Evidence")
-            .Add(ImplementationDiff.Name, "section", "Member", "Mechanism", "Difference", "Change", "Evidence")
+            .Add(
+                ImplementationDiff.Name,
+                "section",
+                "Member",
+                "Mechanism",
+                "Difference",
+                "Change",
+                "Evidence",
+                "Kind")
+            .Add(
+                ComplexityContext.Name,
+                "section",
+                "Member",
+                "State",
+                "Old",
+                "New",
+                "Delta",
+                "Population Size",
+                "Percentile Rank",
+                "Evidence",
+                "Kind")
             .Add(FindingTransitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
     }
 
@@ -164,6 +185,14 @@ public static class DiffSections
     public sealed class ImplementationDiff : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Implementation Diff";
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    public sealed class ComplexityContext : ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Complexity Context";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;

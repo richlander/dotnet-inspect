@@ -1059,9 +1059,27 @@ Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Finding Transitions` remains an exact-name section because its
-focused endpoint-confirmation semantics do not compose with those comparison
+Diff` views. `Complexity Context` and `Finding Transitions` remain exact-name
+sections because their focused semantics do not compose with those comparison
 views.
+
+Select `Implementation Diff` directly to inspect body-level C#, IL, and
+normal-flow complexity evidence. Select `Complexity Context` directly for a
+focused view with nullable `Old`, `New`, `Delta`, `Population Size`, and
+`Percentile Rank` fields. The rank is the inclusive percentage of
+delta-bearing methods in this diff whose absolute complexity delta is no
+greater than the row's. It is positional context, not an unusualness or
+quality judgment; an all-equal population gives every row 100. Use column
+projection with JSON Lines to emit dedicated cells instead of parsing
+`Evidence`:
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriter \
+  -S "Complexity Context" \
+  --columns Member,State,Delta,PopulationSize,PercentileRank,Kind \
+  --jsonl
+```
 
 ### Structural matching
 
