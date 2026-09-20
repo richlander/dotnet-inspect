@@ -58,7 +58,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
             [.. term.Operators.Select(Comparison)],
             term.Descriptor.ValueKind,
             [.. term.Descriptor.Options.Select(option => option.Value)],
-            $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"")),
+            $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
+            PackageQuery.ExecutionClassIdentity(
+                term.Descriptor.ExecutionClass))),
     ];
 
     public static string DiscoverySummary =>

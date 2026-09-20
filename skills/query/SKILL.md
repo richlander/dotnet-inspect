@@ -103,11 +103,16 @@ format.
 discover sections and fields, `-S` to select exact names, categories, compatible
 aliases, or wildcards, `-Q` to discover query facets and operators, and
 `--columns`/`--fields` to project values. Discover first instead of guessing names.
+On `library`, add `--details` to bare `-D` or one exact category or section to
+include supported presentation modes without acquiring the target.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -D "Member Index" --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
+dnx dotnet-inspect -y -- library System.Text.Json -D --details
+dnx dotnet-inspect -y -- library System.Text.Json -D @Dependencies --details
+dnx dotnet-inspect -y -- library System.Text.Json -D "Reference Hierarchy" --details
 ```
 
 Structural discovery describes authored membership without running producers;
@@ -118,10 +123,17 @@ effective discovery probes for data. Package and library differ:
 | Orient to a target | `package X -D` — effective base catalog. | `library X -D` — cheap target-aware base catalog. |
 | Inspect a category | `package X -D @Category` — effective members. | `library X -D @Category` — structural members; add `--effective` for populated members. |
 | Inspect section fields | `package X -D Section` — effective fields. | `library X -D Section` — structural fields; add `--effective` for rendered fields. |
+| Inspect output formats | Not yet adopted. | `library X -D --details` or `library X -D <exact-category-or-section> --details` — structural complete-selection capabilities. |
 | Read the static graph | `package -D --schema` | `library -D --schema` |
 
 On library, `-D --effective` runs full probes and remains scoped to base
 evidence unless a category is named.
+
+For an exact category, detailed discovery reports both the complete category
+and its members. It does not choose a compatible member or narrow the category.
+For an exact section, `--details` reports the section row; omit it to drill into
+fields or columns. After discovery, use exact `-S` section selection for
+single-result formats such as tree or Mermaid.
 
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |

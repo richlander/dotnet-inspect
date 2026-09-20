@@ -9,10 +9,11 @@ by [#7401](https://github.com/richlander/dotnet-inspect/issues/7401).
 
 The owner defines one host-neutral query, its detached result, and the
 construction invariant that binds physical package selection to outgoing
-dependency declarations. It does not own package acquisition, compile-asset
-selection, manifest projection, dependency-group selection, dependency
-normalization, traversal, destination realization, Workspace policy, or host
-presentation.
+dependency declarations. `RealizedPackageDependencyContextQuery` implements
+that boundary in `DotnetInspector.Queries`. It does not own package acquisition,
+compile-asset selection, manifest projection, dependency-group selection,
+dependency normalization, traversal, destination realization, Workspace
+policy, or host presentation.
 
 Adjacent owners retain their authority:
 
@@ -253,32 +254,28 @@ silently move to another package occurrence.
 
 ## Required gates
 
-| Property | Release gate |
+| Property | Release gate or status |
 | --- | --- |
-| Construction projects dependency evidence from the binding's exact retained content and accepts no independently produced evidence root. | Query construction tests with two equal coordinates backed by distinct content generations. |
-| Group selection receives the Root request's compile target and compatible-selection authorization, independently from whether asset fallback was used; selected asset and group frameworks may differ without losing either outcome. | Selector-spy table covering framework-neutral, exact-only, exact asset with compatible-only group, compatible asset fallback, no-match, and differing-nearest-framework cases. |
-| Polly.Core `netstandard2.0` retains its four declarations and direct assembly references; compatible `net11.0` realization retains the selected empty `net8.0` group as a separate context. | Pinned `Polly.Core@8.8.0` integration test plus equivalent deterministic fixtures. |
-| Selected empty, no dependency groups, no matching framework, no manifest, and dependency-group failure remain distinct result arms. | Closed result-algebra table tests. |
-| A selected group containing one surviving declaration and one conflicting declaration produces an available incomplete context that retains both the usable edge and typed declaration failure. | Mixed valid/conflicting declaration projection and traversal test. |
-| Equal coordinates under different content generations or selection identities cannot exchange contexts. | Same-coordinate cross-generation and independently repeated selection tests. |
-| The detached result's public shape contains the Root request, exact opaque identities, and dependency evidence needed by consumers. | Public consumer construction/observation test plus post-Workspace-close evidence test. |
-| Reacquisition issues a new binding, selection, and context without transferring the old association; same-snapshot cache reuse may preserve generation identity, while replacement content changes it. | Same-generation cache-hit and replacement-generation reacquisition tests across independent Workspaces. |
-| Traversal preserves the complete context for shared nodes, revisits, cycles, selected-empty sources, and source failure. | Focused Package Traversal adoption gates. |
-
-The design is specification-only. Every property is unverified until its named
-Release gate lands.
+| Construction projects dependency evidence from the binding's exact retained content and accepts no independently produced evidence root. | `ExecuteAsync_DoesNotExchangeEqualCoordinateContexts`. |
+| Group selection receives the Root request's compile target and compatible-selection authorization, independently from whether asset fallback was used; selected asset and group frameworks may differ without losing either outcome. | `ExecuteAsync_UsesFrozenRootSelectionIntent`. |
+| Polly.Core `netstandard2.0` retains its four declarations and direct assembly references; compatible `net11.0` realization retains the selected empty `net8.0` group as a separate context. | `PollyCore_RetainsSourceDeclarationsAndCompatibleEmptyGroup` plus deterministic selection cases. |
+| Selected empty, no dependency groups, no matching framework, no manifest, and dependency-group failure remain distinct result arms. | `ExecuteAsync_PreservesClosedResultAlgebra`. |
+| A selected group containing one surviving declaration and one conflicting declaration produces an available incomplete context that retains both the usable edge and typed declaration failure. | `ExecuteAsync_RetainsIncompleteSelectedEvidence`; traversal preservation remains unverified. |
+| Equal coordinates under different content generations or selection identities cannot exchange contexts. | `ExecuteAsync_DoesNotExchangeEqualCoordinateContexts`. |
+| The detached result's public shape contains the Root request, exact opaque identities, and dependency evidence needed by consumers. | `ExecuteAsync_ExternalConsumerObservesDetachedPublicShape`; post-Workspace-close observation remains unverified. |
+| Reissuing the query produces a new selection and context; same retained content preserves generation identity while replacement content changes it. | `ExecuteAsync_ReissuesContextForSameAndReplacementGenerations`; independent-Workspace reacquisition remains unverified. |
+| Traversal preserves the complete context for shared nodes, revisits, cycles, selected-empty sources, and source failure. | Unverified until focused Package Traversal adoption. |
 
 ## Production adoption
 
 Issue #7401 is the end-to-end tracker. There are five capability steps:
 
-1. Have Artifact Acquisition preserve compatible target-selection
-   authorization independently from observed compatible implementation
-   fallback under #7230.
-2. Implement the host-neutral context query and its result algebra in
-   `DotnetInspector.Queries`.
-3. Have package realization issue the context while it holds the exact
-   `PackageRootBinding`; do not add a second manifest acquisition path.
+1. Artifact Acquisition preserves compatible target-selection authorization
+   independently from observed compatible implementation fallback under #7230.
+2. `RealizedPackageDependencyContextQuery` implements the host-neutral context
+   query and result algebra in `DotnetInspector.Queries`.
+3. The query accepts the exact live `PackageRootBinding` and projects through
+   `PackageDependencyGroupsQuery` over that binding's retained package content.
 4. Have Package Dependency Traversal consume the context for realized source
    expansion and combine its declarations with #6424 destination realization.
 5. Retain the shared result through CLI and Browser/Wasm call-graph

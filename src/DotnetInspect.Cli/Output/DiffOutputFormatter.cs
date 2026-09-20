@@ -157,7 +157,8 @@ public static class DiffOutputFormatter
         ImplementationDiffView? implementationDiff,
         FindingTransitionsView? findingTransitions,
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
-        ComplexityContextView? complexityContext = null)
+        ComplexityContextView? complexityContext = null,
+        StructuralContextView? structuralContext = null)
         => new(
             DiffViewText.Field($"Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
@@ -168,6 +169,8 @@ public static class DiffOutputFormatter
             DistinctStatusMessage(implementationDiff),
             complexityContext?.SummaryText,
             DistinctStatusMessage(complexityContext),
+            structuralContext?.SummaryText,
+            DistinctStatusMessage(structuralContext),
             findingTransitions is null
                 ? null
                 : DiffViewText.Field(findingTransitions.Status.Message),
@@ -182,6 +185,7 @@ public static class DiffOutputFormatter
             AnalysisDiff = analysisDiff?.Rows,
             ImplementationDiff = implementationDiff?.Rows,
             ComplexityContext = complexityContext?.Rows,
+            StructuralContext = structuralContext?.Rows,
             FindingTransitions = findingTransitions?.Rows,
             InspectionFailures =
                 BuildInspectionFailureRows(inspectionFailures),
@@ -285,6 +289,79 @@ public static class DiffOutputFormatter
                 }));
         }
 
+        if (view.StructuralContextSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Structural Context",
+                view.StructuralContextSummary,
+                view.StructuralContextNote,
+                [
+                    "Member",
+                    "State",
+                    "Instruction Delta",
+                    "Complexity Delta",
+                    "Loop Delta",
+                    "Exception Region Delta",
+                    "Direct Call Delta",
+                    "Allocation Delta",
+                    "Async Delta",
+                    "Instruction Direction",
+                    "Complexity Direction",
+                    "Loop Direction",
+                    "Exception Region Direction",
+                    "Direct Call Direction",
+                    "Allocation Direction",
+                    "Async Direction",
+                    "Population Size",
+                    "Cohort Size",
+                    "Kind",
+                ],
+                [
+                    "member",
+                    "state",
+                    "instruction_delta",
+                    "complexity_delta",
+                    "loop_delta",
+                    "exception_region_delta",
+                    "direct_call_delta",
+                    "allocation_delta",
+                    "async_delta",
+                    "instruction_direction",
+                    "complexity_direction",
+                    "loop_direction",
+                    "exception_region_direction",
+                    "direct_call_direction",
+                    "allocation_direction",
+                    "async_direction",
+                    "population_size",
+                    "cohort_size",
+                    "kind",
+                ],
+                view.StructuralContext?.Select(row => new[]
+                {
+                    MarkoutInline.Code(row.MemberText),
+                    row.State,
+                    row.InstructionDelta.ToString(CultureInfo.InvariantCulture),
+                    row.ComplexityDelta.ToString(CultureInfo.InvariantCulture),
+                    row.LoopDelta.ToString(CultureInfo.InvariantCulture),
+                    row.ExceptionRegionDelta.ToString(CultureInfo.InvariantCulture),
+                    row.DirectCallDelta.ToString(CultureInfo.InvariantCulture),
+                    row.AllocationDelta.ToString(CultureInfo.InvariantCulture),
+                    row.AsyncDelta.ToString(CultureInfo.InvariantCulture),
+                    row.InstructionDirection,
+                    row.ComplexityDirection,
+                    row.LoopDirection,
+                    row.ExceptionRegionDirection,
+                    row.DirectCallDirection,
+                    row.AllocationDirection,
+                    row.AsyncDirection,
+                    row.PopulationSize.ToString(CultureInfo.InvariantCulture),
+                    row.CohortSize.ToString(CultureInfo.InvariantCulture),
+                    row.Kind,
+                }));
+        }
+
         if (view.FindingTransitionsSummary is not null)
         {
             WriteDocumentSection(
@@ -372,6 +449,11 @@ public static class DiffOutputFormatter
             : null;
 
     private static InertString? DistinctStatusMessage(ComplexityContextView? view)
+        => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
+            ? DiffViewText.Prose(view.Status.Message)
+            : null;
+
+    private static InertString? DistinctStatusMessage(StructuralContextView? view)
         => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
             ? DiffViewText.Prose(view.Status.Message)
             : null;
@@ -704,6 +786,77 @@ public static class DiffOutputFormatter
                     ? "Percentile Rank is the inclusive position of |Delta| "
                       + "within all delta-bearing methods in this comparison; "
                       + "it is not an unusualness or quality judgment."
+                    : summary),
+            Rows = rows.Count > 0 ? rows : null,
+        };
+    }
+
+    public static StructuralContextView BuildStructuralContextView(
+        string name,
+        ImplementationComplexityDiff complexity,
+        string fromVersion,
+        string toVersion)
+    {
+        List<StructuralContextRow> rows = complexity.IsAvailable
+            ? [
+                .. complexity.Changes
+                    .Where(change => change.StructuralChange is not null
+                        && change.StructuralCohortContext is not null)
+                    .Select(change =>
+                    {
+                        ImplementationStructuralChange structural =
+                            change.StructuralChange!;
+                        ImplementationStructuralChangeCohortContext cohort =
+                            change.StructuralCohortContext!;
+                        return new StructuralContextRow(
+                            change.Subject.Display,
+                            change.Kind.ToString().ToLowerInvariant(),
+                            structural.InstructionDelta,
+                            structural.ComplexityDelta,
+                            structural.LoopDelta,
+                            structural.ExceptionRegionDelta,
+                            structural.DirectCallDelta,
+                            structural.AllocationDelta,
+                            structural.AsyncDelta,
+                            structural.Signature.Instructions
+                                .ToString().ToLowerInvariant(),
+                            structural.Signature.Complexity
+                                .ToString().ToLowerInvariant(),
+                            structural.Signature.Loops
+                                .ToString().ToLowerInvariant(),
+                            structural.Signature.ExceptionRegions
+                                .ToString().ToLowerInvariant(),
+                            structural.Signature.DirectCalls
+                                .ToString().ToLowerInvariant(),
+                            structural.Signature.Allocations
+                                .ToString().ToLowerInvariant(),
+                            structural.Signature.Async
+                                .ToString().ToLowerInvariant(),
+                            cohort.PopulationSize,
+                            cohort.CohortSize,
+                            ImplementationComplexityFindings
+                                .StructuralCohortDescriptor.Id);
+                    }),
+            ]
+            : [];
+        string summary = !complexity.IsAvailable
+            ? $"Structural context unavailable: {complexity.UnavailableReason}"
+            : rows.Count == 0
+                ? "No complete, unambiguous structural profile pairs detected."
+                : $"{rows.Count} complete, unambiguous structural profile pair"
+                  + (rows.Count == 1 ? "." : "s.");
+
+        return new StructuralContextView(
+            DiffViewText.Field($"Structural Context: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(summary))
+        {
+            Status = new Callout(
+                CalloutSeverity.Note,
+                complexity.IsAvailable
+                    ? "Direction fields define exact cohort membership. Cohort "
+                      + "Size is local frequency within complete, unambiguous "
+                      + "profile pairs; it is not an outlier or quality judgment."
                     : summary),
             Rows = rows.Count > 0 ? rows : null,
         };
@@ -1294,6 +1447,13 @@ public static class DiffOutputFormatter
     }
 
     public static string RenderComplexityContextView(ComplexityContextView view, MarkoutWriterOptions? options = null)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.Complete().TrimEnd();
+    }
+
+    public static string RenderStructuralContextView(StructuralContextView view, MarkoutWriterOptions? options = null)
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
