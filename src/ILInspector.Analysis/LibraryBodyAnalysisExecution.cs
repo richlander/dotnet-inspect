@@ -122,6 +122,12 @@ public sealed class LibraryBodyAnalysisExecution
             plan.ResourceEffects?.Receipt,
             analysis.ResourceOccurrences?.Methods ?? [],
             analysis.ResourceOccurrences?.Limitations ?? []);
+        ResourceLifecycle = new(
+            Receipt,
+            plan.IncludesResourceLifecycle,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceLifecycle?.Methods ?? [],
+            analysis.ResourceLifecycle?.Limitations ?? []);
     }
 
     /// <summary>
@@ -152,6 +158,10 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused root-bound Resource Occurrence result.</summary>
     public LibraryResourceOccurrenceAnalysisResult ResourceOccurrences
+    { get; }
+
+    /// <summary>Focused root-bound Resource Lifecycle result.</summary>
+    public LibraryResourceLifecycleAnalysisResult ResourceLifecycle
     { get; }
 
     internal bool HasMaterializedCompatibilityIndex =>

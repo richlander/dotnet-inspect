@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Sections;
 using Inspector.Findings;
 using Microsoft.CodeAnalysis;
@@ -189,10 +190,12 @@ public class IndexBuildInvariantTests
     public async Task LibraryCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
+        string fixture =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
 
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
-            AssemblyName = FixtureAssembly,
+            AssemblyName = fixture,
             IncludeSections =
             [
                 SectionNames.UnsafeMembers,

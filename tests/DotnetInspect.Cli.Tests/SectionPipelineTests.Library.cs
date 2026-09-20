@@ -305,7 +305,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void ResourceTriageQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    public void ResourceTriageQuery_NoMetadata_DoesNotAcquireLifecycleAnalysis()
     {
         bool acquired = false;
 
@@ -372,7 +372,7 @@ public partial class SectionPipelineTests
         var error = new InspectionError(
             new FindingSubject("broken.dll", "broken.dll"),
             Analysis.AnalysisFindings.ResourceLifecycleDescriptor,
-            "body index failed");
+            "body analysis failed");
 
         LibraryMetadataService.ApplyResourceTriageResult(
             inspection,

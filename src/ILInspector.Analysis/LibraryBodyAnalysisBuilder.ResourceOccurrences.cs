@@ -41,10 +41,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             plan.Features,
             !plan.IsScoped,
             analysis.Diagnostics);
+        LibraryBodyAnalysisResult resolutionAnalysis =
+            SelectEffectResolutionCalls(
+                analysis,
+                admission,
+                plan.IncludesResourceLifecycle);
         var callGraph = new LibraryCallGraphAnalysisResult(
             receipt,
             _reader.GetString(_reader.GetModuleDefinition().Name),
-            analysis);
+            resolutionAnalysis);
         var participant =
             new CatalogCallGraphParticipant(callGraph, rootAssembly);
         ResourceEffectResolutionOutcome outcome =
@@ -138,6 +143,114 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 "Unknown resource effect resolution outcome."),
         };
 
+    static LibraryBodyAnalysisResult SelectEffectResolutionCalls(
+        LibraryBodyAnalysisResult analysis,
+        ResourceEffectAdmission admission,
+        bool restrictToLifecycleParticipants)
+    {
+        var declarations =
+            admission.Models
+                .SelectMany(static model => model.Declarations)
+                .Where(static declaration =>
+                    declaration.Target
+                        is ResourceEffectTargetSelector.Member)
+                .Select(static declaration =>
+                    (
+                        Target:
+                            (ResourceEffectTargetSelector.Member)
+                                declaration.Target,
+                        declaration.Effect))
+                .ToImmutableArray();
+        ImmutableArray<ResourceEffectMemberSelector> targets =
+            declarations
+                .Select(static declaration =>
+                    declaration.Target.Selector)
+                .ToImmutableArray();
+        if (targets.IsEmpty)
+        {
+            return analysis with
+            {
+                Methods = analysis.Methods with
+                {
+                    DirectCalls = [],
+                },
+            };
+        }
+
+        ImmutableArray<ResourceEffectMemberSelector> alwaysResolveTargets =
+            declarations
+                .Where(static declaration =>
+                    declaration.Effect is ResourceEffect.Acquire
+                        or ResourceEffect.Authority
+                        or ResourceEffect.Resource)
+                .Select(static declaration =>
+                    declaration.Target.Selector)
+                .ToImmutableArray();
+        ImmutableArray<ResourceEffectMemberSelector> acquisitionTargets =
+            declarations
+                .Where(static declaration =>
+                    declaration.Effect is ResourceEffect.Acquire)
+                .Select(static declaration =>
+                    declaration.Target.Selector)
+                .ToImmutableArray();
+        ImmutableHashSet<(int MethodToken, int ILOffset)>
+            candidateAcquisitions =
+            restrictToLifecycleParticipants
+                ? analysis.Methods.DirectCalls
+                    .Where(call =>
+                        CouldMatchTarget(call, acquisitionTargets))
+                    .Select(call =>
+                        (
+                            call.EvidenceMethod.MetadataToken,
+                            call.ILOffset))
+                    .ToImmutableHashSet()
+                : [];
+        ImmutableArray<DirectCall> calls =
+        [
+            .. analysis.Methods.DirectCalls.Where(call =>
+                CouldMatchTarget(call, targets)
+                && (!restrictToLifecycleParticipants
+                    || CouldMatchTarget(call, alwaysResolveTargets)
+                    || CarriesCandidateAcquisition(
+                        call,
+                        candidateAcquisitions))),
+        ];
+        return analysis with
+        {
+            Methods = analysis.Methods with
+            {
+                DirectCalls = calls,
+            },
+        };
+    }
+
+    static bool CarriesCandidateAcquisition(
+        DirectCall call,
+        ImmutableHashSet<(int MethodToken, int ILOffset)>
+            candidateAcquisitions) =>
+        call.ResolvedArgumentValues
+            .Concat(
+                call.ResolvedReceiverValue is { } receiver
+                    ? [receiver]
+                    : Enumerable.Empty<ResolvedValueSet>())
+            .Any(value =>
+                value.IsResolved
+                && value.Sources.Any(source =>
+                    source.IsCallResult
+                    && candidateAcquisitions.Contains(
+                        (
+                            call.EvidenceMethod.MetadataToken,
+                            source.ILOffset))));
+
+    static bool CouldMatchTarget(
+        DirectCall call,
+        ImmutableArray<ResourceEffectMemberSelector> targets) =>
+        targets.Any(target =>
+            ResourceEffectSelectorBinder.MemberShapeCouldMatch(
+                target,
+                call.Callee,
+                allowExplicitInterfaceName: true));
+
     static ImmutableArray<ResourceOccurrenceLimitation> Limitations(
         ResourceEffectResolutionOutcome outcome) =>
         outcome switch
@@ -182,9 +295,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             gap.Kind == ResourceEffectResolutionGapKind.PopulationIncomplete
                 ? ResourceOccurrenceLimitationKind.BodyAnalysis
                 : ResourceOccurrenceLimitationKind.EffectResolution;
+        string selectorDetail = gap.SelectorGap is null
+            ? ""
+            : $" ({gap.SelectorGap})";
         return new(
             kind,
-            $"Resource effect resolution was incomplete: {gap.Kind}.")
+            $"Resource effect resolution was incomplete: {gap.Kind}"
+            + $"{selectorDetail}.")
         {
             Method = method,
             Call = call is null

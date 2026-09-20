@@ -398,7 +398,7 @@ public static class LibrarySections
     {
         ResourceTriageResult result = ExecuteResourceTriageQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex,
+            () => context.BodyAnalysis().ResourceLifecycle,
             new Inspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
@@ -409,10 +409,11 @@ public static class LibrarySections
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         bool hasMetadata,
-        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+        Func<ILInspector.Analysis.LibraryResourceLifecycleAnalysisResult>
+            acquireLifecycle,
         Inspector.Findings.FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireLifecycle);
         ArgumentNullException.ThrowIfNull(subject);
 
         if (!hasMetadata)
@@ -421,7 +422,7 @@ public static class LibrarySections
         try
         {
             return ResourceTriageQuery.Execute(
-                acquireIndex(),
+                acquireLifecycle(),
                 subject);
         }
         catch (CostDeclarationException)

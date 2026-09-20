@@ -904,7 +904,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 scope,
                                 methodHandle),
                             token =>
-                                ArrayPoolExceptionPathAnalyzer.ResolveCatchTypeRef(
+                                ResourceExceptionPathAnalyzer.ResolveCatchTypeRef(
                                     reader,
                                     MetadataTokens.EntityHandle(token),
                                     scope));
@@ -1354,7 +1354,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         scope,
                         methodHandle),
                     token =>
-                        ArrayPoolExceptionPathAnalyzer.ResolveCatchTypeRef(
+                        ResourceExceptionPathAnalyzer.ResolveCatchTypeRef(
                             reader,
                             MetadataTokens.EntityHandle(token),
                             scope));
