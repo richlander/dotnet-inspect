@@ -752,11 +752,20 @@ What to notice: the final physical call site is selected before JSONL
 lowering. Strict Window failure withholds the complete command output, while
 explicit `--lines` continues to select rendered text.
 
-Bare `-S`, summary sections, Direct Use Clusters, Public Root Paths, wildcard
-or category selection, and every multi-section view remain outside this
-declaration because they expose independent row sets with different schemas.
-They retain the legacy `--rows` contract and use rendered-line fallback for
-bare `-n`.
+Exact `-S "Direct Use Clusters"` selection, including repeated identical exact
+selectors after case-insensitive deduplication, declares a separate semantic row
+per complete `AssemblyPairDirectUseCluster` in the Query-issued deterministic
+cluster order.
+Selection runs after pair inspection, complete cluster derivation, and optional
+`--where "Cluster=N"` scoping. The selected cluster identities feed Count,
+Markdown, plaintext, table, TSV, JSONL, and JSON without changing their
+retained call-site references. Incomplete pair evidence remains visible and
+nonzero after selected cluster output.
+
+Bare `-S`, summary sections, Public Root Paths, wildcard or category selection,
+and every multi-section view remain outside these declarations because they
+expose independent row sets with different schemas. They retain the legacy
+`--rows` contract and use rendered-line fallback for bare `-n`.
 
 ## Type catalog adoption
 
@@ -1438,7 +1447,7 @@ The Integration graph adoption is enforced by:
 | `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
 | `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
 | `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation. |
-| `InspectionGraphCommandTests.LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `LibrariesCommand_StrictUnavailableWindowWithholdsOutput`, `LibrariesCommand_RejectsLegacyCountRows`, `LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `LibrariesCommand_SummarySectionRetainsRenderedLineFallback` | The default and exact Call Sites views select the same physical occurrence before every row lowering, reject legacy numeric `--rows`, withhold output for unavailable strict Window, and permit semantic Head with complete JSON; independent summary and multi-section views remain on rendered-line fallback. |
+| `InspectionGraphCommandTests.LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `LibrariesCommand_SemanticTailSelectsTheSameClusterAcrossFormats`, `LibrariesCommand_StrictUnavailableWindowWithholdsOutput`, `LibrariesCommand_StrictUnavailableClusterWindowWithholdsOutput`, `LibrariesCommand_ClusterScopePrecedesSemanticWindow`, `LibrariesCommand_SemanticClusterSelectionPreservesIncompleteEvidence`, `LibrariesCommand_RejectsLegacyCountRows`, `LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `LibrariesCommand_SummarySectionRetainsRenderedLineFallback` | The default and exact Call Sites views select the same physical occurrence before every row lowering, while exact Direct Use Clusters selects the same Query-issued cluster identity after optional cluster scoping; both declarations reject legacy numeric `--rows`, withhold output for unavailable strict Window, and permit semantic Head with complete JSON. Selected cluster output preserves incomplete pair evidence and its nonzero exit. Independent summary, path, and multi-section views remain on rendered-line fallback. |
 
 The Type catalog adoption is enforced by:
 

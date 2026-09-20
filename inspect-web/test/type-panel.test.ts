@@ -238,6 +238,10 @@ function typeDisplayName(item: TypeSummary) {
   return item?.displayName || item?.name || "";
 }
 
+function noTypeLibraryLabel() {
+  return "";
+}
+
 function kindIcon(kind: string) {
   if (kind.includes("struct")) return "S";
   if (kind === "enum") return "E";
@@ -685,6 +689,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     filterSummary: "public",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: item =>
+      item.id === jsonSerializer.id ? "System.Text.Json" : "",
     kindIcon,
     shortKind,
   });
@@ -712,6 +718,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, />System\.Text\.Json<\/span>/);
   assert.doesNotMatch(html, /type-library-context/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
+  assert.match(html, /System\.Text\.Json · class/);
 });
 
 test("the type nav reports no matches for an empty filtered group", () => {
@@ -732,6 +739,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
     filterSummary: "nothing-matches · public",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
     shortKind,
   });
@@ -758,6 +766,7 @@ test("the type nav omits a parent action when the Library has no visible parent"
     filterSummary: "public",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
     shortKind,
   });
@@ -783,6 +792,7 @@ test("the type nav handles a package with no projected types", () => {
     filterSummary: "All types",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
     shortKind,
   });
@@ -927,6 +937,22 @@ test("the type heading reports the owning package and library", () => {
   assert.match(html, /<h1>JsonSerializer<\/h1>/);
   assert.match(html, /System\.Text\.Json\.dll/);
   assert.match(html, /System\.Text\.Json@9\.0\.0/);
+});
+
+test("the type heading accepts a product-owned defining Library label", () => {
+  const html = typeHeading({
+    item: jsonSerializer,
+    packageContext: { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" },
+    libraryLabel: "System.Text.Json · lib/net9.0/right/System.Text.Json.dll",
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /System\.Text\.Json · lib\/net9\.0\/right\/System\.Text\.Json\.dll/);
 });
 
 test("pending graph-member rendering composes the extracted type heading", () => {

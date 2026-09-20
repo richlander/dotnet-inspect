@@ -517,16 +517,16 @@ for (const [subject, width] of [
       "System.Text.Json@10.0.0", "net10.0",
     ]);
     if (subject === "package") {
-      const inventory = await box(page, ".package-overview-inventory");
+      const summary = await box(page, ".package-overview-summary");
       const resources = await box(page, ".package-overview-resources");
       if (width === 1440) {
         expect(resources.x).toBeGreaterThanOrEqual(
-          inventory.x + inventory.width);
-        expect(resources.y).toBeCloseTo(inventory.y, 0);
+          summary.x + summary.width);
+        expect(resources.y).toBeCloseTo(summary.y, 0);
       } else {
-        expect(resources.x).toBeCloseTo(inventory.x, 0);
+        expect(resources.x).toBeCloseTo(summary.x, 0);
         expect(resources.y).toBeGreaterThanOrEqual(
-          inventory.y + inventory.height);
+          summary.y + summary.height);
       }
       await expect(page.locator(".package-overview-resources")).toContainText(
         "Comparison targets");
@@ -592,7 +592,7 @@ for (const [subject, width] of [
       const toggle = await box(page, "#content-navigation-toggle");
       expect(toggle.y).toBeGreaterThanOrEqual(header.y);
       expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
-      await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Types", exact: true }).click();
+      await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
       await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
     }
@@ -656,18 +656,18 @@ test("Package Overview resources retain focus across allocation changes", async 
   await page.setViewportSize({ width: 800, height: 900 });
   await expect(document).toBeFocused();
 
-  const inventory = await box(page, ".package-overview-inventory");
+  const summary = await box(page, ".package-overview-summary");
   const resources = await box(page, ".package-overview-resources");
-  expect(resources.y).toBeGreaterThanOrEqual(inventory.y + inventory.height);
+  expect(resources.y).toBeGreaterThanOrEqual(summary.y + summary.height);
 
   const diffTarget = page.locator("#package-diff-target");
   await diffTarget.focus();
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(diffTarget).toBeFocused();
-  const wideInventory = await box(page, ".package-overview-inventory");
+  const wideSummary = await box(page, ".package-overview-summary");
   const wideResources = await box(page, ".package-overview-resources");
   expect(wideResources.x).toBeGreaterThanOrEqual(
-    wideInventory.x + wideInventory.width);
+    wideSummary.x + wideSummary.width);
 });
 
 test("Member Facts presents a compact summary separate from member identity", async ({
