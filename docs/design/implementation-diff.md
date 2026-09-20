@@ -283,8 +283,8 @@ work can build directly on this paired evidence instead of re-deriving
 correspondence. The explicit CLI Implementation Diff section renders only
 non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes; broad PDB-source enrichment preserves an already
-computed complexity lane rather than resetting it to unavailable. Clustering
-and quality shades remain later consumers.
+computed complexity lane rather than resetting it to unavailable. Quality
+shades remain a later consumer.
 
 Every change with a non-null `Delta` also carries an
 `ImplementationComplexityPopulationContext` (`PopulationSize`,
@@ -301,6 +301,43 @@ less than or equal to this change's own. It does not by itself identify an
 unusual change: when all absolute deltas are equal, every change has a
 percentile of 100. A small `PopulationSize` (for example 1-2) also limits the
 context the value provides.
+
+Every complete, unambiguous before/after profile pair also carries a structural
+change vector over seven deliberately non-overlapping or user-distinct
+dimensions: instruction count, normal-flow cyclomatic complexity, loop count,
+exception-region count, direct-call count, allocation count, and async
+state-machine presence. Exception-region count is the sum of catch, filter,
+finally, and fault regions; the retained profiles preserve those constituent
+facts. Cyclomatic complexity represents ordinary branching and switches, so
+correlated branch, switch, basic-block, IL-byte, and opcode counts do not add
+extra dimensions to the first vector.
+
+The vector retains each signed numeric delta. Its structural change signature
+reduces each dimension only to Decreased, Unchanged, or Increased. Exact
+signature equality partitions the local population of complete, unambiguous
+profile pairs into deterministic direction cohorts. Each eligible change
+carries the complete population size and the size of its own cohort. The
+population includes the all-Unchanged signature because that cohort is useful
+context for how sparse structural movement is. Added, Removed, incomplete, and
+ambiguous pairs receive no vector or cohort context.
+
+This first clustering step deliberately groups direction rather than magnitude.
+Two changes can share a cohort while retaining different numeric deltas. Cohort
+size is an exact local frequency, not an outlier probability or quality shade;
+a singleton says only that no other eligible method changed in the same
+directions. This avoids arbitrary weights, normalization, distance thresholds,
+and small-population statistics while keeping every partition explainable from
+the retained Analysis facts. NDepend's per-method metric and threshold
+presentation motivates preserving metric-level evidence, but its source-level
+constructs, fixed thresholds, and maintainability conclusions do not transfer
+to this compiled-IL diff contract.
+
+The Research result is the first half of a two-slice production path tracked by
+issue #7696. A following CLI slice may project the vector and cohort facts from
+`ImplementationComparisonQuery`; this slice does not change `Complexity
+Context`, default output, or any quality interpretation. The same host-neutral
+result remains available to a future browser consumer without reimplementing
+cohort assignment.
 
 The exact-name `Complexity Context` section projects non-unchanged complexity
 observations as a focused table with nullable numeric `Old`, `New`, `Delta`,

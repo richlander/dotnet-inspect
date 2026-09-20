@@ -60,6 +60,65 @@ public sealed record ImplementationComplexityPopulationContext(
     int PopulationSize,
     double PercentileRank);
 
+public enum ImplementationStructuralChangeDirection
+{
+    Decreased = -1,
+    Unchanged = 0,
+    Increased = 1,
+}
+
+/// <summary>
+/// Direction-only signature for one complete paired structural change.
+/// Magnitudes remain available on <see cref="ImplementationStructuralChange"/>.
+/// </summary>
+public sealed record ImplementationStructuralChangeSignature(
+    ImplementationStructuralChangeDirection Instructions,
+    ImplementationStructuralChangeDirection Complexity,
+    ImplementationStructuralChangeDirection Loops,
+    ImplementationStructuralChangeDirection ExceptionRegions,
+    ImplementationStructuralChangeDirection DirectCalls,
+    ImplementationStructuralChangeDirection Allocations,
+    ImplementationStructuralChangeDirection Async);
+
+/// <summary>
+/// Signed deltas over the first explainable structural-change vector.
+/// </summary>
+public sealed record ImplementationStructuralChange(
+    int InstructionDelta,
+    int ComplexityDelta,
+    int LoopDelta,
+    int ExceptionRegionDelta,
+    int DirectCallDelta,
+    int AllocationDelta,
+    int AsyncDelta)
+{
+    public ImplementationStructuralChangeSignature Signature =>
+        new(
+            Direction(InstructionDelta),
+            Direction(ComplexityDelta),
+            Direction(LoopDelta),
+            Direction(ExceptionRegionDelta),
+            Direction(DirectCallDelta),
+            Direction(AllocationDelta),
+            Direction(AsyncDelta));
+
+    static ImplementationStructuralChangeDirection Direction(int delta)
+        => delta switch
+        {
+            < 0 => ImplementationStructuralChangeDirection.Decreased,
+            > 0 => ImplementationStructuralChangeDirection.Increased,
+            _ => ImplementationStructuralChangeDirection.Unchanged,
+        };
+}
+
+/// <summary>
+/// Exact local frequency of one direction-only structural change signature.
+/// It is not an outlier probability or quality score.
+/// </summary>
+public sealed record ImplementationStructuralChangeCohortContext(
+    int PopulationSize,
+    int CohortSize);
+
 /// <summary>
 /// One paired complexity observation for a logical member. <see cref="OldProfile"/>
 /// and <see cref="NewProfile"/> retain the full Analysis-owned structural
@@ -80,7 +139,9 @@ public sealed record ImplementationComplexityChange(
     MethodIdentity? NewEvidenceMethod = null,
     MethodImplementationProfile? OldProfile = null,
     MethodImplementationProfile? NewProfile = null,
-    ImplementationComplexityPopulationContext? PopulationContext = null);
+    ImplementationComplexityPopulationContext? PopulationContext = null,
+    ImplementationStructuralChange? StructuralChange = null,
+    ImplementationStructuralChangeCohortContext? StructuralCohortContext = null);
 
 public sealed record ImplementationComplexityDiff(
     bool IsAvailable,
