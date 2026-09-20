@@ -1180,7 +1180,11 @@ public static class DiscoverOutput
         {
             DiscoveryResource section = document.GetResource(
                 document.Selection.AddressedResources[0]);
-            if (section.Members.IsEmpty)
+            DiscoveryResourceIdentity[] treeMembers =
+            [
+                .. TreeMembers(section),
+            ];
+            if (treeMembers.Length == 0)
             {
                 return
                 [
@@ -1194,7 +1198,7 @@ public static class DiscoverOutput
 
             return
             [
-                .. section.Members.Select(identity =>
+                .. treeMembers.Select(identity =>
                     CreateTreeNode(
                         document,
                         identity,
@@ -1256,7 +1260,7 @@ public static class DiscoverOutput
             Children = includeMembers
                 ?
                 [
-                    .. resource.Members.Select(member =>
+                    .. TreeMembers(resource).Select(member =>
                         CreateTreeNode(
                             document,
                             member,
@@ -1267,6 +1271,13 @@ public static class DiscoverOutput
                 : [],
         };
     }
+
+    private static IEnumerable<DiscoveryResourceIdentity> TreeMembers(
+        DiscoveryResource resource) =>
+        resource.Identity.Kind == DiscoveryResourceKind.Section
+            ? resource.Members.Where(member =>
+                member.ItemKind is "field" or "column")
+            : resource.Members;
 
     private static void WriteOutput(
         DiscoveryOutputRequest request,

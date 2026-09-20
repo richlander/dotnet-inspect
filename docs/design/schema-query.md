@@ -105,6 +105,11 @@ member-section identities. This lets `-D`, tree output, temporary detailed
 output, and the future `explain` facade consume one completed value without
 re-resolving membership.
 
+Presentation still selects the resource kinds defined by its existing shape.
+In particular, a section tree projects structural `field` and `column` items;
+query-only items such as filterable and sortable keys remain available to flat
+discovery and future explanation without entering that tree.
+
 Names use the product's stable section, field, and column vocabulary. Schema
 owners must not derive identity from a rendered heading after formatting or
 invent item names that do not correspond to an addressable projection.
@@ -401,7 +406,7 @@ The current Release CLI suite owns the executable contract:
 | `CloneCandidatesSectionTests.StructuralSchemaUsesGeneratedCandidateColumns`, `FieldsAreRejectedAcrossOutputFormats`, and `SummaryFieldNamesAreRejectedWithoutAliases` | Clone-candidate discovery is generated from the row view, columns remain projectable, and field projection fails visibly without stale-name aliases. |
 | `DiscoveryDocumentTests` | The shared model preserves section identity across category membership, distinguishes same-named section items by item kind, rejects dangling joins, and has no direct CLI or Markout assembly reference. |
 | `DiscoveryDocumentFactoryTests` | The authentic Library catalog constructs one resource graph with stable catalog order, complete category capabilities, canonical shared sections, and section-scoped item identities. |
-| `CommandExecutionTests.LibraryCommand_DiscoverDetails_*`, `LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog`, `LibraryCommand_DiscoverSchema_GroupsOptInSections`, `LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically`, and `LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns` | Compact, tree, and temporary detailed Library discovery preserve their established presentation while consuming the completed Document, including owner-issued query-item vocabularies. |
+| `CommandExecutionTests.LibraryCommand_DiscoverDetails_*`, `LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog`, `LibraryCommand_DiscoverSchema_GroupsOptInSections`, `LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically`, `LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns`, and `LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems` | Compact, tree, and temporary detailed Library discovery preserve their established presentation while consuming the completed Document, including flat query-item vocabulary without leaking query-only items into trees. |
 
 New schema composition forms require a focused gate that proves their generated,
 merged, augmented, or dynamic vocabulary matches the product document. A

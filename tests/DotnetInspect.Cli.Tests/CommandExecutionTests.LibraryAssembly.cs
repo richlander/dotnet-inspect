@@ -2341,6 +2341,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-D",
+            "Performance: Boxing",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Member (column)", output);
+        Assert.Contains("Confidence (column)", output);
+        Assert.DoesNotContain("(default-order)", output);
+        Assert.DoesNotContain("(order-step)", output);
+        Assert.DoesNotContain("(filterable)", output);
+        Assert.DoesNotContain("(sortable)", output);
+    }
+
+    [Fact]
     public async Task LibraryCommand_StringPerformance_IncludesTopLevelProgramOccurrences()
     {
         string probePath = Path.Combine(
