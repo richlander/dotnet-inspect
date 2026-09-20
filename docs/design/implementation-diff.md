@@ -2113,7 +2113,10 @@ The document contains:
 - changed members keyed by `ResearchSubjectKey`, with detached scalar transition
   facts and the producer-owned C# and IL rows or typed failures that support
   them; each per-hunk IL change retains only its own hunk rows, while failure
-  changes retain only their directly associated typed failure;
+  changes retain only their directly associated typed failure; added and
+  removed methods additionally retain their one-sided typed IL Finding
+  comparison, including endpoint topology and canonical operations, because no
+  two-sided semantic IL hunk exists to project;
 - complexity changes with endpoint completeness and image-issued method
   evidence coordinates plus the owner-issued local population context for
   delta-bearing changes; and
@@ -2122,9 +2125,11 @@ The document contains:
   distinct count of `Subject.Id` values in that category; a subject with
   several physical evidence changes contributes once to each applicable
   category. For C# and IL, a subject with typed unavailability or failure is
-  counted in that state instead of `ChangedSubjectCount`. `IsComplete` remains
-  false when any requested mechanism is unavailable or has unavailable,
-  incomplete, or failed subjects.
+  counted in that state instead of `ChangedSubjectCount`. Complexity additions
+  and removals are complete changes when their present endpoint completed;
+  expected absence on the other endpoint is not incomplete analysis.
+  `IsComplete` remains false when any requested mechanism is unavailable or has
+  unavailable, incomplete, or failed subjects.
 
 The exact-pair scope is deliberate. The legacy assembly-wide Research join uses
 member selectors that do not include assembly identity, so a document spanning

@@ -192,6 +192,79 @@ public sealed class ImplementationDiffEnvelopeCommandTests
                 .GetInt32() > 0);
     }
 
+    [Fact]
+    public async Task OneSidedMethods_PreserveIlEvidenceAndCompleteCoverage()
+    {
+        var result = await Run(
+            "--json",
+            "-S",
+            "Implementation Diff",
+            "--type",
+            "MethodRemovalSample");
+
+        Assert.True(result.Exit == 0, result.Error);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        JsonElement[] members = [
+            .. json.RootElement.GetProperty("members")
+                .EnumerateArray()
+                .Where(member => member.GetProperty("subject")
+                    .GetProperty("memberName")
+                    .GetString() == "Removed"),
+        ];
+        Assert.Equal(2, members.Length);
+        Assert.All(members, member =>
+        {
+            JsonElement comparison =
+                member.GetProperty("ilFindingComparison");
+            JsonElement topology =
+                comparison.GetProperty("inspectionTransition");
+            Assert.Equal(
+                "Complete",
+                topology.GetProperty("old").GetString());
+            Assert.Equal(
+                "SubjectAbsent",
+                topology.GetProperty("new").GetString());
+            JsonElement[] operations = [
+                .. comparison.GetProperty("operations").EnumerateArray(),
+            ];
+            Assert.NotEmpty(operations);
+            Assert.All(
+                operations,
+                operation =>
+                {
+                    Assert.Equal(
+                        "Removed",
+                        operation.GetProperty("kind").GetString());
+                    Assert.Equal(
+                        "None",
+                        operation.GetProperty("difference").GetString());
+                    Assert.False(string.IsNullOrWhiteSpace(
+                        operation.GetProperty("old")
+                            .GetProperty("operation")
+                            .GetProperty("opcodeFamily")
+                            .GetString()));
+                    Assert.False(operation.TryGetProperty("new", out _));
+                });
+        });
+
+        JsonElement complexity = Assert.Single(
+            json.RootElement.GetProperty("coverage")
+                .GetProperty("mechanisms")
+                .EnumerateArray(),
+            mechanism => mechanism.GetProperty("mechanism").GetString()
+                == "Complexity");
+        Assert.Equal(
+            2,
+            complexity.GetProperty("changedSubjectCount").GetInt32());
+        Assert.Equal(
+            0,
+            complexity.GetProperty("incompleteSubjectCount").GetInt32());
+        Assert.True(
+            json.RootElement.GetProperty("coverage")
+                .GetProperty("isComplete")
+                .GetBoolean());
+    }
+
     [Theory]
     [InlineData("--rows", "1..1")]
     [InlineData("--table", null)]

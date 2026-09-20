@@ -2,6 +2,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using Inspector.Findings;
 
 namespace ILInspector.Research;
 
@@ -55,7 +56,24 @@ public sealed record ImplementationDiffEvidence(
 
 public sealed record ImplementationDiffDocumentMember(
     ResearchSubjectKey Subject,
-    IReadOnlyList<ImplementationDiffEvidence> Evidence);
+    IReadOnlyList<ImplementationDiffEvidence> Evidence,
+    ImplementationDiffIlFindingComparison? IlFindingComparison);
+
+public sealed record ImplementationDiffIlFindingComparison(
+    FindingInspectionTransition InspectionTransition,
+    IReadOnlyList<ImplementationDiffIlFindingTransition> Operations);
+
+public sealed record ImplementationDiffIlFindingTransition(
+    PairKind Kind,
+    FindingDifferenceKind Difference,
+    ImplementationDiffIlFinding? Old,
+    ImplementationDiffIlFinding? New,
+    string? Detail);
+
+public sealed record ImplementationDiffIlFinding(
+    CanonicalIlOperation Operation,
+    int? Ordinal,
+    string? Detail);
 
 public sealed record ImplementationDiffMethodEvidence(
     string AssemblyName,
@@ -127,13 +145,36 @@ public static partial class ImplementationDiff
             [newAssembly],
             options);
 
+        var members = result.Members.ToDictionary(
+            member => member.Subject.Id,
+            StringComparer.Ordinal);
+        var oneSidedIlComparisons = result.Research.RetainedComparisons
+            .Get<CanonicalIlOperation>(IlFindings.OperationDescriptor)
+            .Select(comparison => (
+                comparison.Subject,
+                Comparison: CreateOneSidedIlComparison(
+                    comparison.Comparison)))
+            .Where(item => item.Comparison is not null)
+            .ToDictionary(
+                item => item.Subject.Id,
+                item => item,
+                StringComparer.Ordinal);
+        var subjects = members.Values
+            .Select(member => member.Subject)
+            .Concat(oneSidedIlComparisons.Values.Select(item => item.Subject))
+            .DistinctBy(subject => subject.Id, StringComparer.Ordinal);
+
         return new ImplementationDiffDocument(
             CreateRequest(options),
             CreateEndpoint(oldAssembly),
             CreateEndpoint(newAssembly),
-            [.. result.Members
-                .OrderBy(member => member.Subject.Id, StringComparer.Ordinal)
-                .Select(CreateMember)],
+            [.. subjects
+                .OrderBy(subject => subject.Id, StringComparer.Ordinal)
+                .Select(subject => CreateMember(
+                    subject,
+                    members.GetValueOrDefault(subject.Id),
+                    oneSidedIlComparisons.GetValueOrDefault(subject.Id)
+                        .Comparison))],
             new ImplementationDiffDocumentComplexity(
                 result.Complexity.IsAvailable,
                 result.Complexity.UnavailableReason,
@@ -184,10 +225,77 @@ public static partial class ImplementationDiff
     }
 
     static ImplementationDiffDocumentMember CreateMember(
-        ImplementationDiffMember member)
+        ResearchSubjectKey subject,
+        ImplementationDiffMember? member,
+        ImplementationDiffIlFindingComparison? ilFindingComparison)
         => new(
-            member.Subject,
-            [.. member.Changes.Select(CreateEvidence)]);
+            subject,
+            member is null
+                ? []
+                : [.. member.Changes.Select(CreateEvidence)],
+            ilFindingComparison);
+
+    static ImplementationDiffIlFindingComparison? CreateOneSidedIlComparison(
+        FindingComparison<CanonicalIlOperation> comparison)
+    {
+        if (comparison.Value is not
+            FindingComparison<CanonicalIlOperation>.Complete complete
+            || (complete.Transition.Old
+                    != FindingInspectionState.SubjectAbsent
+                && complete.Transition.New
+                    != FindingInspectionState.SubjectAbsent))
+        {
+            return null;
+        }
+
+        return new(
+            complete.Transition,
+            [.. complete.Pairs.Select(CreateIlFindingTransition)]);
+    }
+
+    static ImplementationDiffIlFindingTransition CreateIlFindingTransition(
+        PairFinding<CanonicalIlOperation> pair)
+        => new(
+            pair.Kind,
+            pair.Difference,
+            CreateIlFinding(OldSide(pair)),
+            CreateIlFinding(NewSide(pair)),
+            pair.Detail);
+
+    static ImplementationDiffIlFinding? CreateIlFinding(
+        Finding<CanonicalIlOperation>? finding)
+        => finding is null
+            ? null
+            : new(
+                finding.Payload,
+                finding.Ordinal,
+                finding.Detail);
+
+    static Finding<T>? OldSide<T>(PairFinding<T> pair)
+        where T : notnull
+        => pair switch
+        {
+            PairFinding<T>.Added => null,
+            PairFinding<T>.Removed
+                => ((PairFinding<T>.Removed)pair.Value!).Old,
+            PairFinding<T>.Present
+                => ((PairFinding<T>.Present)pair.Value!).Old,
+            PairFinding<T>.Changed
+                => ((PairFinding<T>.Changed)pair.Value!).Old,
+        };
+
+    static Finding<T>? NewSide<T>(PairFinding<T> pair)
+        where T : notnull
+        => pair switch
+        {
+            PairFinding<T>.Added
+                => ((PairFinding<T>.Added)pair.Value!).New,
+            PairFinding<T>.Removed => null,
+            PairFinding<T>.Present
+                => ((PairFinding<T>.Present)pair.Value!).New,
+            PairFinding<T>.Changed
+                => ((PairFinding<T>.Changed)pair.Value!).New,
+        };
 
     static ImplementationDiffEvidence CreateEvidence(ResearchChange change)
         => new(
@@ -367,8 +475,12 @@ public static partial class ImplementationDiff
             IncompleteSubjectCount: CountComplexitySubjects(
                 complexity.Changes.Where(change =>
                     change.Kind == ImplementationComplexityChangeKind.Incomplete
-                    || !change.OldIsComplete
-                    || !change.NewIsComplete)),
+                    || (change.Kind
+                            == ImplementationComplexityChangeKind.Added
+                        && !change.NewIsComplete)
+                    || (change.Kind
+                            == ImplementationComplexityChangeKind.Removed
+                        && !change.OldIsComplete))),
             FailedSubjectCount: 0);
     }
 

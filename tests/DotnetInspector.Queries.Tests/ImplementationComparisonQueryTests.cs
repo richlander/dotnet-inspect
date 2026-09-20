@@ -236,6 +236,82 @@ public sealed class ImplementationComparisonQueryTests
         Assert.False(document.Coverage.IsComplete);
     }
 
+    [Theory]
+    [InlineData(
+        false,
+        PairKind.Removed,
+        FindingInspectionState.Complete,
+        FindingInspectionState.SubjectAbsent)]
+    [InlineData(
+        true,
+        PairKind.Added,
+        FindingInspectionState.SubjectAbsent,
+        FindingInspectionState.Complete)]
+    public void DocumentQuery_PreservesOneSidedIlFindingEvidence(
+        bool reverse,
+        PairKind expectedKind,
+        FindingInspectionState expectedOldState,
+        FindingInspectionState expectedNewState)
+    {
+        string oldPath = reverse
+            ? FixtureCatalog.DiffPair.NewAssemblyPath()
+            : FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = reverse
+            ? FixtureCatalog.DiffPair.OldAssemblyPath()
+            : FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "old.dll")],
+                    [StreamBackedInput(newPath, "new.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "MethodRemovalSample",
+                    }));
+
+        ImplementationDiffDocumentMember[] members = [
+            .. document.Members.Where(member =>
+                member.Subject.MemberName == "Removed"),
+        ];
+        Assert.Equal(2, members.Length);
+        Assert.All(members, member =>
+        {
+            ImplementationDiffIlFindingComparison comparison =
+                Assert.IsType<ImplementationDiffIlFindingComparison>(
+                    member.IlFindingComparison);
+            Assert.Equal(
+                expectedOldState,
+                comparison.InspectionTransition.Old);
+            Assert.Equal(
+                expectedNewState,
+                comparison.InspectionTransition.New);
+            Assert.NotEmpty(comparison.Operations);
+            Assert.All(comparison.Operations, operation =>
+            {
+                Assert.Equal(expectedKind, operation.Kind);
+                if (reverse)
+                {
+                    Assert.Null(operation.Old);
+                    Assert.NotNull(operation.New);
+                }
+                else
+                {
+                    Assert.NotNull(operation.Old);
+                    Assert.Null(operation.New);
+                }
+            });
+        });
+
+        ImplementationDiffMechanismCoverage ilCoverage = Assert.Single(
+            document.Coverage.Mechanisms,
+            coverage => coverage.Mechanism
+                == ImplementationDiffDocumentMechanism.IlBody);
+        Assert.Equal(2, ilCoverage.ChangedSubjectCount);
+        Assert.Equal(0, ilCoverage.UnavailableSubjectCount);
+    }
+
     [Fact]
     public void ComplexityCoverage_CountsDistinctSubjectsAcrossPhysicalEvidence()
     {
@@ -282,6 +358,62 @@ public sealed class ImplementationComparisonQueryTests
         Assert.Equal(0, coverage.UnavailableSubjectCount);
         Assert.Equal(1, coverage.IncompleteSubjectCount);
         Assert.Equal(0, coverage.FailedSubjectCount);
+        Assert.False(new ImplementationDiffCoverage([coverage]).IsComplete);
+    }
+
+    [Fact]
+    public void ComplexityCoverage_DoesNotTreatExpectedEndpointAbsenceAsIncomplete()
+    {
+        var removed = new ImplementationComplexityChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                "M:DiffFixtureSample.MethodRemovalSample.Removed",
+                "DiffFixtureSample.MethodRemovalSample.Removed()",
+                "DiffFixtureSample.MethodRemovalSample",
+                "Removed"),
+            ImplementationComplexityChangeKind.Removed,
+            OldValue: 1,
+            NewValue: null,
+            Delta: null,
+            OldIsComplete: true,
+            NewIsComplete: false);
+
+        ImplementationDiffMechanismCoverage coverage =
+            ImplementationDiff.CreateComplexityCoverage(
+                new ImplementationComplexityDiff(true, null, [removed]));
+
+        Assert.Equal(1, coverage.ChangedSubjectCount);
+        Assert.Equal(0, coverage.IncompleteSubjectCount);
+        Assert.True(new ImplementationDiffCoverage([coverage]).IsComplete);
+    }
+
+    [Theory]
+    [InlineData(ImplementationComplexityChangeKind.Added)]
+    [InlineData(ImplementationComplexityChangeKind.Removed)]
+    public void ComplexityCoverage_RetainsIncompletePresentEndpoint(
+        ImplementationComplexityChangeKind kind)
+    {
+        bool isAdded = kind == ImplementationComplexityChangeKind.Added;
+        var change = new ImplementationComplexityChange(
+            new ResearchSubjectKey(
+                ResearchSubjectKind.Member,
+                "M:DiffFixtureSample.MethodRemovalSample.Removed",
+                "DiffFixtureSample.MethodRemovalSample.Removed()",
+                "DiffFixtureSample.MethodRemovalSample",
+                "Removed"),
+            kind,
+            OldValue: isAdded ? null : 1,
+            NewValue: isAdded ? 1 : null,
+            Delta: null,
+            OldIsComplete: false,
+            NewIsComplete: false);
+
+        ImplementationDiffMechanismCoverage coverage =
+            ImplementationDiff.CreateComplexityCoverage(
+                new ImplementationComplexityDiff(true, null, [change]));
+
+        Assert.Equal(1, coverage.ChangedSubjectCount);
+        Assert.Equal(1, coverage.IncompleteSubjectCount);
         Assert.False(new ImplementationDiffCoverage([coverage]).IsComplete);
     }
 
