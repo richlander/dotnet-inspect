@@ -1345,7 +1345,8 @@ public static partial class CSharpBodyDiff
         foreach (TypeRefCustomModifier modifier in type.CustomModifiers)
         {
             if (omitNormalizedConventionModifiers
-                && IsNormalizedFunctionPointerConventionModifier(modifier))
+                && TypeRef.IsRecognizedFunctionPointerConventionModifier(
+                    modifier))
             {
                 continue;
             }
@@ -1355,19 +1356,6 @@ public static partial class CSharpBodyDiff
         }
         return identity;
     }
-
-    static bool IsNormalizedFunctionPointerConventionModifier(
-        TypeRefCustomModifier modifier)
-        => !modifier.IsRequired
-            && modifier.Modifier.Namespace
-                == "System.Runtime.CompilerServices"
-            && modifier.Modifier.Name is
-                "CallConvCdecl"
-                or "CallConvStdcall"
-                or "CallConvThiscall"
-                or "CallConvFastcall"
-                or "CallConvSuppressGCTransition"
-                or "CallConvMemberFunction";
 
     static string GenericParameterList(int arity, bool isMethod)
     {

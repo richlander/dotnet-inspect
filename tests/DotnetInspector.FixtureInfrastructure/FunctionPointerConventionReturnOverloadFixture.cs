@@ -22,6 +22,9 @@ public static class FunctionPointerConventionReturnOverloadFixture
     public const string DuplicateConventionModifierTypeName =
         "FunctionPointerDuplicateConventionModifierReturnSample";
 
+    public const string CoreLibraryLookalikeModifierTypeName =
+        "FunctionPointerCoreLibraryLookalikeReturnSample";
+
     public enum IdentityCase
     {
         ConventionModifiers,
@@ -29,6 +32,7 @@ public static class FunctionPointerConventionReturnOverloadFixture
         UnsupportedModifier,
         RequiredModifier,
         DuplicateConventionModifier,
+        CoreLibraryLookalikeModifier,
     }
 
     public static string GetTypeName(IdentityCase identityCase)
@@ -40,6 +44,8 @@ public static class FunctionPointerConventionReturnOverloadFixture
             IdentityCase.RequiredModifier => RequiredModifierTypeName,
             IdentityCase.DuplicateConventionModifier =>
                 DuplicateConventionModifierTypeName,
+            IdentityCase.CoreLibraryLookalikeModifier =>
+                CoreLibraryLookalikeModifierTypeName,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(identityCase)),
         };
@@ -109,6 +115,18 @@ public static class FunctionPointerConventionReturnOverloadFixture
                         0x00, 0x01, 0x1B, 0x01, 0x00,
                         0x20, 0x05, 0x08, 0x02,
                     }),
+                IdentityCase.CoreLibraryLookalikeModifier => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x11, 0x08, 0x02,
+                    }),
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(identityCase)),
             };
@@ -155,6 +173,11 @@ public static class FunctionPointerConventionReturnOverloadFixture
             EntityHandle.ModuleDefinition,
             metadata.GetOrAddString("Probe"),
             metadata.GetOrAddString("Marker"));
+        metadata.AddTypeReference(
+            EntityHandle.ModuleDefinition,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("CallConvCdecl"));
         TypeReferenceHandle objectType =
             metadata.AddTypeReference(
                 coreReference,
@@ -189,6 +212,14 @@ public static class FunctionPointerConventionReturnOverloadFixture
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: firstChanged);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic | TypeAttributes.Sealed,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("CallConvCdecl"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            firstChanged);
         metadata.AddTypeDefinition(
             TypeAttributes.Public
                 | TypeAttributes.Abstract

@@ -567,6 +567,40 @@ public class MemberIdentityValueEqualityTests
 
     [Fact]
     public void
+        FunctionPointerSignatureIdentity_DoesNotNormalizeCoreLibraryLookalikes()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef lookalike = TypeRef.Definition(
+            "Sample",
+            "System.Runtime.CompilerServices",
+            "CallConvCdecl");
+        TypeRef modifiedReturn = TypeRef.UnsupportedModified(
+            lookalike,
+            integer,
+            isRequired: false);
+        TypeRef pointer = TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.Unmanaged,
+                    SignatureAttributes.None),
+                modifiedReturn,
+                requiredParameterCount: 0,
+                genericParameterCount: 0,
+                []));
+
+        Assert.True(
+            pointer.TryGetFunctionPointerSignatureIdentity(
+                out string identity));
+        Assert.Equal(
+            "delegate* unmanaged"
+                + "<modopt(System.Runtime.CompilerServices.CallConvCdecl)"
+                + "int>",
+            identity);
+    }
+
+    [Fact]
+    public void
         FunctionPointerSignatureIdentity_PreservesSignatureHeaderStructure()
     {
         TypeRef integer = TypeRef.CoreLib("System", "Int32");

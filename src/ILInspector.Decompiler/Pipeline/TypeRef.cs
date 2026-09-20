@@ -552,18 +552,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         convention = callingConvention;
         if (returnType.CustomModifiers.Any(modifier =>
-            modifier.Modifier.Namespace
-                != "System.Runtime.CompilerServices"
-            || !modifier.Modifier.Name.StartsWith(
-                "CallConv",
-                StringComparison.Ordinal)))
+            !IsRecognizedFunctionPointerConventionModifier(modifier)))
         {
             return false;
         }
         var modifiers = returnType.CustomModifiers
-            .Where(modifier =>
-                modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
-                && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal))
             .Select(modifier => (
                 modifier.IsRequired,
                 Name: modifier.Modifier.Name["CallConv".Length..]))
@@ -616,7 +609,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ImmutableArray<TypeRef> parameters)
     {
         if (HasNestedCustomModifiers(returnType)
-            || returnType.CustomModifiers.Any(modifier => !IsOptionalCallConvModifier(modifier)))
+            || returnType.CustomModifiers.Any(modifier =>
+                !IsRecognizedFunctionPointerConventionModifier(modifier)))
         {
             return false;
         }
@@ -667,11 +661,18 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => (type.ElementType?.ContainsCustomModifiers ?? false)
             || type.TypeArguments.Any(argument => argument.ContainsCustomModifiers);
 
-    static bool IsOptionalCallConvModifier(TypeRefCustomModifier modifier)
+    internal static bool IsRecognizedFunctionPointerConventionModifier(
+        TypeRefCustomModifier modifier)
         => !modifier.IsRequired
             && modifier.Modifier.Assembly == CoreLibrary
             && modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
-            && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal);
+            && modifier.Modifier.Name is
+                "CallConvCdecl"
+                or "CallConvStdcall"
+                or "CallConvThiscall"
+                or "CallConvFastcall"
+                or "CallConvSuppressGCTransition"
+                or "CallConvMemberFunction";
 
     static bool IsExactFunctionPointerParameterModifier(TypeRefCustomModifier modifier)
         => modifier.IsRequired

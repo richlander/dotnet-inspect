@@ -405,10 +405,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
         while (current.ModifierType is { } modifier
             && current.UnmodifiedType is { } unmodified)
         {
-            if (modifier.Namespace == "System.Runtime.CompilerServices"
-                && modifier.Name.StartsWith(
-                    "CallConv",
-                    StringComparison.Ordinal))
+            if (IsRecognizedFunctionPointerConventionModifier(
+                modifier,
+                current.IsRequiredModifier))
             {
                 modifiers.Add((
                     current.IsRequiredModifier,
@@ -466,6 +465,20 @@ public sealed class TypeRef : IEquatable<TypeRef>
             : $"unmanaged[{string.Join(", ", parts)}]";
         return true;
     }
+
+    static bool IsRecognizedFunctionPointerConventionModifier(
+        TypeRef modifier,
+        bool isRequired)
+        => !isRequired
+            && modifier.Assembly == CoreLibrary
+            && modifier.Namespace == "System.Runtime.CompilerServices"
+            && modifier.Name is
+                "CallConvCdecl"
+                or "CallConvStdcall"
+                or "CallConvThiscall"
+                or "CallConvFastcall"
+                or "CallConvSuppressGCTransition"
+                or "CallConvMemberFunction";
 
     static string SignatureTypeIdentity(TypeRef type)
     {

@@ -979,6 +979,10 @@ public sealed class ImplementationComparisonQueryTests
         FunctionPointerConventionReturnOverloadFixture.IdentityCase
             .DuplicateConventionModifier,
         "modopt(System.Runtime.CompilerServices.CallConvCdecl)")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .CoreLibraryLookalikeModifier,
+        "modopt(System.Runtime.CompilerServices.CallConvCdecl)")]
     public void
         DocumentQuery_CorrelatesFunctionPointerStructuralReturnCollisions(
             FunctionPointerConventionReturnOverloadFixture.IdentityCase

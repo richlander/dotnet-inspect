@@ -2037,10 +2037,12 @@ nested metadata segments rather than display-oriented dotted nesting.
 Structured API return shapes are already canonical and are not reparsed as
 display text. Function pointers retain their parameter, return, and calling-
 convention structure rather than collapsing to an unsupported display label.
-Recognized optional `System.Runtime.CompilerServices.CallConv*` modifiers are
-normalized into the ordered `unmanaged[...]` convention list; unsupported or
-required custom modifiers remain explicit structural signature components
-rather than being erased. Identity-only function-pointer spelling also retains
+Recognized optional core-library
+`System.Runtime.CompilerServices.CallConv*` modifiers are normalized into the
+ordered `unmanaged[...]` convention list; same-named types from another
+assembly, unsupported modifiers, and required modifiers remain explicit
+structural signature components rather than being erased. Identity-only
+function-pointer spelling also retains
 signature-header attributes, generic arity, and the required/optional parameter
 boundary. Non-default values appear between the convention and type list as
 `{calling=0xNN;flags=0xNN;generic=N;required=N}` with the raw calling-
