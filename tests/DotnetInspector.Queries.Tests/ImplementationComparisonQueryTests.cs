@@ -680,6 +680,149 @@ public sealed class ImplementationComparisonQueryTests
         Assert.Equal(selectedId, member.Subject.Id);
     }
 
+    [Fact]
+    public void DocumentQuery_CorrelatesGenericReturnTypeCollision()
+    {
+        ImplementationDiffDocument unfiltered =
+            CompareGenericReturnTypeOverloads();
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. unfiltered.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+
+        Assert.Equal(2, members.Length);
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+        ImplementationDiffDocumentMember genericMember = Assert.Single(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .EndsWith("~!!0", StringComparison.Ordinal)
+                    == true));
+
+        string selectedId = genericMember.Subject.Id;
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        ImplementationDiffDocument filtered =
+            CompareGenericReturnTypeOverloads(
+                new HashSet<string>(
+                    [selectedId[..returnSeparator], selectedId],
+                    StringComparer.Ordinal));
+
+        ImplementationDiffDocumentMember selected = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Changed");
+        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.CSharp);
+        Assert.Contains(
+            selected.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.IlBody);
+    }
+
+    static ImplementationDiffDocument CompareGenericReturnTypeOverloads(
+        IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-generic-return-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            EmitGenericReturnTypeOverloads(
+                oldPath,
+                intValue: 1,
+                returnArgument: false);
+            EmitGenericReturnTypeOverloads(
+                newPath,
+                intValue: 2,
+                returnArgument: true);
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "before.dll")],
+                    [StreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "GenericReturnSample",
+                    },
+                    MemberTargetIdentities: memberTargetIdentities));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void EmitGenericReturnTypeOverloads(
+        string path,
+        int intValue,
+        bool returnArgument)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("GenericReturnOverloadFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("GenericReturnOverloadFixture");
+        TypeBuilder type = module.DefineType(
+            "GenericReturnSample",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+
+        MethodBuilder genericMethod = type.DefineMethod(
+            "Changed",
+            MethodAttributes.Public | MethodAttributes.Static);
+        GenericTypeParameterBuilder genericReturn =
+            Assert.Single(genericMethod.DefineGenericParameters("T"));
+        genericMethod.SetReturnType(genericReturn);
+        genericMethod.SetParameters(genericReturn);
+        ILGenerator genericIl = genericMethod.GetILGenerator();
+        if (returnArgument)
+        {
+            genericIl.Emit(OpCodes.Ldarg_0);
+        }
+        else
+        {
+            LocalBuilder local = genericIl.DeclareLocal(genericReturn);
+            genericIl.Emit(OpCodes.Ldloca_S, local);
+            genericIl.Emit(OpCodes.Initobj, genericReturn);
+            genericIl.Emit(OpCodes.Ldloc_0);
+        }
+        genericIl.Emit(OpCodes.Ret);
+
+        MethodBuilder intMethod = type.DefineMethod(
+            "Changed",
+            MethodAttributes.Public | MethodAttributes.Static);
+        GenericTypeParameterBuilder intParameter =
+            Assert.Single(intMethod.DefineGenericParameters("T"));
+        intMethod.SetReturnType(typeof(int));
+        intMethod.SetParameters(intParameter);
+        ILGenerator intIl = intMethod.GetILGenerator();
+        intIl.Emit(OpCodes.Ldc_I4, intValue);
+        intIl.Emit(OpCodes.Ret);
+
+        type.CreateType();
+        assembly.Save(path);
+    }
+
     static ImplementationDiffDocument CompareReturnTypeOverloads(
         string methodName,
         int oldIntValue,

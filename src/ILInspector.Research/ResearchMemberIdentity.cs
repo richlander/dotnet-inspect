@@ -97,7 +97,7 @@ public static class ResearchMemberIdentity
         => methods
             .Select(method => (
                 BaseSubject: SubjectFromMethod(method),
-                ReturnType: BodyTypeName(method.ReturnType)))
+                ReturnType: BodyReturnTypeName(method.ReturnType)))
             .GroupBy(
                 item => item.BaseSubject.Id,
                 StringComparer.Ordinal)
@@ -120,7 +120,7 @@ public static class ResearchMemberIdentity
             $"({string.Join(",", method.ParameterTypes.Select(BodyTypeName))})",
             includeReturnType
                 || ApiMemberIdentity.IsConversionOperator(method.Name)
-                ? $"~{BodyTypeName(method.ReturnType)}"
+                ? $"~{BodyReturnTypeName(method.ReturnType)}"
                 : "");
 
     static BodyMemberIdentity BodyIdentityFromMember(MemberRef member)
@@ -140,7 +140,7 @@ public static class ResearchMemberIdentity
                         static index => $"!!{index}"))}>",
             $"({string.Join(",", member.OpenSignatureParameters.Select(BodyTypeName))})",
             ApiMemberIdentity.IsConversionOperator(member.Name)
-                ? $"~{BodyTypeName(member.OpenSignatureReturn)}"
+                ? $"~{BodyReturnTypeName(member.OpenSignatureReturn)}"
                 : "");
 
     static BodyMemberIdentity BodyIdentityFromTarget(
@@ -191,7 +191,9 @@ public static class ResearchMemberIdentity
             return "";
         }
 
-        string? returnType = signature?.ReturnType ?? member.ReturnType;
+        string? returnType = signature?.ReturnTypeShape is { } returnTypeShape
+            ? BodyReturnTypeName(returnTypeShape)
+            : signature?.EffectiveCanonicalReturnType ?? member.ReturnType;
         return string.IsNullOrWhiteSpace(returnType)
             ? ""
             : $"~{BodyParameterTypeName(returnType)}";
@@ -239,20 +241,135 @@ public static class ResearchMemberIdentity
     }
 
     public static string BodyTypeName(TypeRef type)
+        => BodyTypeName(
+            type,
+            positionalGenericParameters: false);
+
+    static string BodyReturnTypeName(TypeRef type)
+        => BodyTypeName(
+            type,
+            positionalGenericParameters: true);
+
+    static string BodyTypeName(
+        TypeRef type,
+        bool positionalGenericParameters)
         => type.Kind switch
         {
             TypeRefKind.Definition => type.Namespace.Length == 0
                 ? type.Name.Replace("+", ".", StringComparison.Ordinal)
                 : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
-            TypeRefKind.GenericInstance => $"{BodyTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(BodyTypeName))}>",
-            TypeRefKind.SzArray => $"{BodyTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{BodyTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.Rank))}]",
-            TypeRefKind.ByRef => $"{BodyTypeName(type.ElementType!)}&",
-            TypeRefKind.Pointer => $"{BodyTypeName(type.ElementType!)}*",
-            TypeRefKind.Pinned => $"pinned {BodyTypeName(type.ElementType!)}",
-            TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
-                => type.GenericParameterName.Length == 0 ? $"!{type.GenericParameterIndex}" : type.GenericParameterName,
+            TypeRefKind.GenericInstance =>
+                $"{BodyTypeName(type.ElementType!, positionalGenericParameters)}"
+                + $"<{string.Join(",", type.TypeArguments.Select(argument =>
+                    BodyTypeName(argument, positionalGenericParameters)))}>",
+            TypeRefKind.SzArray =>
+                $"{BodyTypeName(type.ElementType!, positionalGenericParameters)}[]",
+            TypeRefKind.Array =>
+                $"{BodyTypeName(type.ElementType!, positionalGenericParameters)}"
+                + $"[{(type.Rank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.Rank))}]",
+            TypeRefKind.ByRef =>
+                $"{BodyTypeName(type.ElementType!, positionalGenericParameters)}&",
+            TypeRefKind.Pointer =>
+                $"{BodyTypeName(type.ElementType!, positionalGenericParameters)}*",
+            TypeRefKind.Pinned =>
+                $"pinned {BodyTypeName(type.ElementType!, positionalGenericParameters)}",
+            TypeRefKind.GenericParameter =>
+                positionalGenericParameters
+                    || type.GenericParameterName.Length == 0
+                    ? $"!{type.GenericParameterIndex}"
+                    : type.GenericParameterName,
+            TypeRefKind.MethodGenericParameter =>
+                positionalGenericParameters
+                    || type.GenericParameterName.Length == 0
+                    ? $"!!{type.GenericParameterIndex}"
+                    : type.GenericParameterName,
             _ => type.ToQualifiedDisplayString(),
+        };
+
+    static string BodyReturnTypeName(ApiTypeShape type)
+        => type.Kind switch
+        {
+            ApiTypeShapeKind.Primitive => BodyPrimitiveTypeName(
+                type.Primitive!.Value),
+            ApiTypeShapeKind.Named => BodyDefinitionTypeName(
+                type.Definition!),
+            ApiTypeShapeKind.GenericInstance =>
+                $"{BodyDefinitionTypeName(type.Definition!)}"
+                + $"<{string.Join(",", type.TypeArguments.Select(
+                    BodyReturnTypeName))}>",
+            ApiTypeShapeKind.GenericParameter =>
+                $"{(type.IsMethodGenericParameter ? "!!" : "!")}"
+                + type.GenericParameterIndex,
+            ApiTypeShapeKind.SzArray =>
+                $"{BodyReturnTypeName(type.ElementType!)}[]",
+            ApiTypeShapeKind.Array =>
+                $"{BodyReturnTypeName(type.ElementType!)}"
+                + $"[{(type.ArrayRank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.ArrayRank))}]",
+            _ => throw new InvalidOperationException(
+                $"Unsupported API return-type shape '{type.Kind}'."),
+        };
+
+    static string BodyDefinitionTypeName(
+        ApiTypeReferenceIdentity definition)
+    {
+        if (definition.DefinitionName is not { } name)
+            return definition.FullName.Replace("+", ".", StringComparison.Ordinal);
+
+        string segments = string.Join(
+            "+",
+            name.Segments.Select(
+                static segment => EscapeMetadataName(
+                    segment,
+                    escapeDot: true)));
+        return name.Namespace.Length == 0
+            ? segments
+            : $"{EscapeMetadataName(name.Namespace, escapeDot: false)}.{segments}";
+    }
+
+    static string EscapeMetadataName(
+        string value,
+        bool escapeDot)
+    {
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (char character in value)
+        {
+            if (char.IsLetterOrDigit(character)
+                || character is '_' or '`'
+                || character == '.' && !escapeDot)
+            {
+                builder.Append(character);
+            }
+            else
+            {
+                builder.Append('\\').Append(character);
+            }
+        }
+        return builder.ToString();
+    }
+
+    static string BodyPrimitiveTypeName(ApiPrimitiveType primitive)
+        => primitive switch
+        {
+            ApiPrimitiveType.Void => "System.Void",
+            ApiPrimitiveType.Boolean => "System.Boolean",
+            ApiPrimitiveType.Char => "System.Char",
+            ApiPrimitiveType.SByte => "System.SByte",
+            ApiPrimitiveType.Byte => "System.Byte",
+            ApiPrimitiveType.Int16 => "System.Int16",
+            ApiPrimitiveType.UInt16 => "System.UInt16",
+            ApiPrimitiveType.Int32 => "System.Int32",
+            ApiPrimitiveType.UInt32 => "System.UInt32",
+            ApiPrimitiveType.Int64 => "System.Int64",
+            ApiPrimitiveType.UInt64 => "System.UInt64",
+            ApiPrimitiveType.Single => "System.Single",
+            ApiPrimitiveType.Double => "System.Double",
+            ApiPrimitiveType.Decimal => "System.Decimal",
+            ApiPrimitiveType.String => "System.String",
+            ApiPrimitiveType.Object => "System.Object",
+            ApiPrimitiveType.IntPtr => "System.IntPtr",
+            ApiPrimitiveType.UIntPtr => "System.UIntPtr",
+            _ => throw new InvalidOperationException(
+                $"Unsupported API primitive return type '{primitive}'."),
         };
 
     public static string MethodGenericList(MethodIdentity method)

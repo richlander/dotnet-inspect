@@ -3058,6 +3058,33 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void AddResearchReturnTypeBodyIdentity_UsesPositionalGenericParameter()
+    {
+        var type = new ApiType { Namespace = "Sample", Name = "Widget" };
+        var member = DiffMember(
+            "Changed",
+            signature: "T Changed<T>(T value)",
+            genericArity: 1);
+        member.SignatureModel!.ReturnTypeShape =
+            ApiTypeShape.GenericParameter(
+                index: 0,
+                isMethodParameter: true);
+        var target = ResolvedTarget(type, member);
+        HashSet<string> identities = new(StringComparer.Ordinal);
+
+        Assert.True(
+            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
+                target,
+                identities));
+
+        const string canonical =
+            "M:Sample.Widget.Changed<T>(T)~!!0";
+        Assert.Equal(
+            $"Changed~{MemberAnchor.ComputeFingerprint(canonical)}",
+            Assert.Single(identities));
+    }
+
+    [Fact]
     public void ResearchBodyIdentity_TargetAliasMatchesMethodSubjectCanonicalFormatter()
     {
         AssertTargetAliasMatchesMethodSubject(
