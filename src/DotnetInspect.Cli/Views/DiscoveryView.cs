@@ -9,6 +9,26 @@ namespace DotnetInspect.Cli.Views;
 public record DiscoveryRow(string Name, string Kind);
 
 /// <summary>
+/// Detailed structural discovery row.
+/// </summary>
+[MarkoutSerializable]
+public sealed record DetailedDiscoveryRow(
+    string Name,
+    string Kind,
+    List<string> Formats)
+{
+    public string Name { get; init; } =
+        LibraryViewText.Contain(Name);
+
+    public string Kind { get; init; } =
+        LibraryViewText.Contain(Kind);
+
+    [MarkoutJoin(", ")]
+    public List<string> Formats { get; init; } =
+        [.. Formats.Select(format => LibraryViewText.Contain(format))];
+}
+
+/// <summary>
 /// List view for discovery results. Rendered as a compact table, markdown table, or JSON array.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
@@ -16,6 +36,16 @@ public class DiscoveryListView
 {
     [MarkoutSection(Headless = true)]
     public List<DiscoveryRow> Items { get; set; } = [];
+}
+
+/// <summary>
+/// List view for detailed structural discovery.
+/// </summary>
+[MarkoutSerializable(AutoFields = false)]
+public sealed class DetailedDiscoveryView
+{
+    [MarkoutSection(Headless = true)]
+    public List<DetailedDiscoveryRow> Items { get; set; } = [];
 }
 
 /// <summary>
@@ -31,6 +61,8 @@ public class DiscoveryTreeView
 [MarkoutContext(typeof(DiscoveryRow))]
 [MarkoutContext(typeof(DiscoveryListView))]
 [MarkoutContext(typeof(DiscoveryTreeView))]
+[MarkoutContext(typeof(DetailedDiscoveryRow))]
+[MarkoutContext(typeof(DetailedDiscoveryView))]
 public partial class DiscoveryContext : MarkoutSerializerContext
 {
 }
