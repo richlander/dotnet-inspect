@@ -1,6 +1,10 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Research;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -87,78 +91,129 @@ public class RenderAbSensorTests
     }
 
     [Fact]
-    public void RenderAbSemanticLane_BindsSiblingAssemblyTypesDuringInference()
+    public void RenderAbSemanticLane_BindsInspectedSiblingApiDuringInference()
     {
-        const string key = "fixture.dll!T::M()";
-        TypeRef valueType = TypeRef.Definition(
-            typeof(ILInspector.Metadata.TypeDiff).Assembly.GetName().Name!,
-            typeof(ILInspector.Metadata.TypeDiff).Namespace!,
-            nameof(ILInspector.Metadata.TypeDiff),
-            ValueTypeHint.ReferenceType);
-        TypeRef valuesType = TypeRef.GenericInstance(
-            TypeRef.CoreLib(
-                "System.Collections.Generic",
-                "IReadOnlyList`1"),
-            [valueType]);
-        var function = new IrFunction(
-            "M",
-            TypeRef.CoreLib("Synthetic", "T"),
-            new MethodSignature(
-                TypeRef.CoreLib("System", "Void"),
-                [new Parameter("values", valuesType)],
-                HasThis: false,
-                GenericParameterCount: 0),
-            [],
-            new BlockContainer());
-        var shellContext = ValidityCheck.MethodShellContext.Create(
-            function,
-            requiresUnsafeContext: false);
-        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
-            StringComparer.Ordinal)
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-render-ab-sibling-").FullName;
+        try
         {
-            [key] = new(
+            string siblingPath = Path.Combine(
+                root,
+                "DotnetInspector.Services.dll");
+            ImmutableArray<MetadataReference> frameworkReferences =
+                [.. RoslynTestReferences.TrustedPlatform.Where(
+                    reference => !string.Equals(
+                        Path.GetFileName(reference.Display),
+                        Path.GetFileName(siblingPath),
+                        StringComparison.OrdinalIgnoreCase))];
+            EmitAssembly(
+                siblingPath,
+                "DotnetInspector.Services",
                 """
-                foreach (string name in values.Select<ILInspector.Metadata.TypeDiff, string>(value => value.TypeFullName).OrderBy<string, string>(name => name))
+                namespace DotnetInspector.Services;
+
+                public sealed class NuspecData
                 {
+                    public string Description { get; set; } = "";
                 }
                 """,
-                shellContext),
-        };
-        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
-            StringComparer.Ordinal)
-        {
-            [key] = new(
-                "T",
+                frameworkReferences);
+
+            string targetPath = Path.Combine(
+                root,
+                "RenderAbCollisionTarget.dll");
+            EmitAssembly(
+                targetPath,
+                "RenderAbCollisionTarget",
+                """
+                using DotnetInspector.Services;
+
+                public static class CollisionTarget
+                {
+                    public static string Read(NuspecData value) =>
+                        value.Description;
+                }
+                """,
+                [.. frameworkReferences,
+                    MetadataReference.CreateFromFile(siblingPath)]);
+
+            const string key = "fixture.dll!T::M()";
+            TypeRef valueType = TypeRef.Definition(
+                "DotnetInspector.Services",
+                "DotnetInspector.Services",
+                "NuspecData",
+                ValueTypeHint.ReferenceType);
+            TypeRef valuesType = TypeRef.GenericInstance(
+                TypeRef.CoreLib(
+                    "System.Collections.Generic",
+                    "IReadOnlyList`1"),
+                [valueType]);
+            var function = new IrFunction(
                 "M",
-                "(System.Collections.Generic.IReadOnlyList<ILInspector.Metadata.TypeDiff> values)",
-                typeof(RenderAbSensorTests).Assembly.Location,
-                "fixture.dll",
-                """
-                foreach (string name in values.Select(value => value.TypeFullName).OrderBy(name => name))
+                TypeRef.CoreLib("Synthetic", "T"),
+                new MethodSignature(
+                    TypeRef.CoreLib("System", "Void"),
+                    [new Parameter("values", valuesType)],
+                    HasThis: false,
+                    GenericParameterCount: 0),
+                [],
+                new BlockContainer());
+            var shellContext = ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: false);
+            var baseline =
+                new Dictionary<string, RenderAbSensor.BaselineMethod>(
+                    StringComparer.Ordinal)
                 {
-                }
-                """,
-                shellContext,
-                new RenderAbSensor.SemanticContext(
-                    "T",
-                    "M",
-                    function,
-                    new Dictionary<string, Dictionary<string, string>>(
-                        StringComparer.Ordinal),
-                    ProductParameterList: null)),
-        };
+                    [key] = new(
+                        """
+                        foreach (string description in values.Select<DotnetInspector.Services.NuspecData, string>(value => value.Description))
+                        {
+                        }
+                        """,
+                        shellContext),
+                };
+            var current =
+                new Dictionary<string, RenderAbSensor.RenderedMethod>(
+                    StringComparer.Ordinal)
+                {
+                    [key] = new(
+                        "T",
+                        "M",
+                        "(System.Collections.Generic.IReadOnlyList<DotnetInspector.Services.NuspecData> values)",
+                        targetPath,
+                        "fixture.dll",
+                        """
+                        foreach (string description in values.Select(value => value.Description))
+                        {
+                        }
+                        """,
+                        shellContext,
+                        new RenderAbSensor.SemanticContext(
+                            "T",
+                            "M",
+                            function,
+                            new Dictionary<string, Dictionary<string, string>>(
+                                StringComparer.Ordinal),
+                            ProductParameterList: null)),
+                };
 
-        string output = CaptureConsole(
-            () => RenderAbSensor.Compare(
-                baseline,
-                current,
-                maxExamples: 5),
-            expectedExitCode: 2);
+            string output = CaptureConsole(
+                () => RenderAbSensor.Compare(
+                    baseline,
+                    current,
+                    maxExamples: 5),
+                expectedExitCode: 2);
 
-        Assert.Contains("Changed: 1", output);
-        Assert.Contains(
-            "Semantic: valid->valid: 1, invalid->valid: 0, valid->invalid: 0, invalid->invalid: 0",
-            output);
+            Assert.Contains("Changed: 1", output);
+            Assert.Contains(
+                "Semantic: valid->valid: 1, invalid->valid: 0, valid->invalid: 0, invalid->invalid: 0",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -778,6 +833,29 @@ public class RenderAbSensorTests
         {
             File.Delete(path);
         }
+    }
+
+    static void EmitAssembly(
+        string path,
+        string assemblyName,
+        string source,
+        ImmutableArray<MetadataReference> references)
+    {
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                nullableContextOptions: NullableContextOptions.Enable));
+        using var stream = File.Create(path);
+        var result = compilation.Emit(stream);
+        Assert.True(
+            result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics));
     }
 
     static IrFunction SyntheticFunction()
