@@ -860,21 +860,31 @@ export function createRetainedWorkspaceActivationController(
         options.completeSuccessor,
       );
       const successorGeneration = selectionGeneration;
-      const result = await successorActivation;
+      const completeCommittedDeletion = (): void => {
+        if (selectionGeneration !== successorGeneration
+          || activeDefinitionId !== successor.id
+          || committingDefinitionId !== null
+          || hasUnsettledActivation(retainedDefinitionId)
+          || !definitions.some(
+            definition => definition.id === retainedDefinitionId,
+          )) {
+          return;
+        }
+        definitions = definitions.filter(
+          definition => definition.id !== retainedDefinitionId,
+        );
+      };
+      let result: BrowserRetainedWorkspaceActivationResult;
+      try {
+        result = await successorActivation;
+      } catch (error) {
+        completeCommittedDeletion();
+        throw error;
+      }
       if (result.status !== "activated" && result.status !== "noEffect") {
         return;
       }
-      if (selectionGeneration !== successorGeneration
-        || activeDefinitionId !== successor.id
-        || hasUnsettledActivation(retainedDefinitionId)
-        || !definitions.some(
-          definition => definition.id === retainedDefinitionId,
-        )) {
-        return;
-      }
-      definitions = definitions.filter(
-        definition => definition.id !== retainedDefinitionId,
-      );
+      completeCommittedDeletion();
       return;
     }
 

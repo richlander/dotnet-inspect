@@ -1520,6 +1520,51 @@ test("active deletion activates the next definition before removal", async () =>
   );
 });
 
+test("active deletion removes retired definition after cutover failure", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const deletion = fixture.controller.delete(first.id, {
+    completeSuccessor: () => {
+      throw new Error("Successor presentation failed.");
+    },
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+
+  await assert.rejects(deletion, /Successor presentation failed/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Successor presentation failed.",
+  });
+});
+
 test("active deletion cannot overwrite an in-flight commit barrier", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
