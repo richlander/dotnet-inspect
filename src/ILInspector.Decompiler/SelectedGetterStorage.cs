@@ -69,16 +69,7 @@ internal sealed class SelectedGetterStorage(
                 return null;
             var field = IrImporter.ResolveField(
                 reader, MetadataTokens.EntityHandle((int)instruction.OperandValue), scope);
-            if (field.DeclaringType.Kind == TypeRefKind.GenericInstance)
-            {
-                var arguments = field.DeclaringType.TypeArguments;
-                if (arguments.Length != genericNames.Length
-                    || arguments.Where((argument, index) =>
-                        argument.Kind != TypeRefKind.GenericParameter
-                        || argument.GenericParameterIndex != index).Any())
-                    return null;
-            }
-            else if (genericNames.Length != 0)
+            if (!SelectedPropertyAccessorSource.HasOwnTypeArguments(field.DeclaringType, genericNames.Length))
                 return null;
             hasRead = true;
         }

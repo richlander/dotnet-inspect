@@ -93,6 +93,85 @@ public partial class ReturnToSenderPrototypeTests
         Assert.Contains($"{propertyName} {{ get; }}", result.Source);
     }
 
+    [Theory]
+    [InlineData("ConstructorGetterList`1", "Items")]
+    [InlineData("ConstructorGetterCounter", "Value")]
+    [InlineData("ConstructorGetterComputed", "Value")]
+    [InlineData("ConstructorGetterParameterName", "Value")]
+    [InlineData("ConstructorGetterKeywordParameter", "Value")]
+    public async Task NativeGetterRetainsInitialization(string typeName, string propertyName)
+    {
+        string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget(
+                $"ILInspector.Decompiler.Fixtures.{typeName}", $"get_{propertyName}", 0)],
+            RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
+
+        AssertNativeGetterStorage(path, typeName, propertyName, result);
+        AssertNativeConstructorStorage(path, typeName, propertyName, result);
+    }
+
+    [Fact]
+    public async Task PublishedDocoptNativeGetterRetainsInitialization()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "FieldGetter", "DocoptNet.dll");
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget("DocoptNet.Internals.ReadOnlyList`1", "get_List", 0)],
+            RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
+
+        AssertNativeGetterStorage(path, "ReadOnlyList`1", "List", result);
+        AssertNativeConstructorStorage(path, "ReadOnlyList`1", "List", result);
+        Assert.Contains("this.List = list;", result.Source);
+    }
+
+    [Theory]
+    [InlineData("ConstructorGetterCalculated")]
+    [InlineData("ConstructorGetterConditional")]
+    [InlineData("ConstructorGetterOverloads")]
+    [InlineData("ConstructorGetterOtherStorage")]
+    [InlineData("ConstructorGetterUnusedParameter")]
+    public async Task NativeGetterDeclinesUnprovenInitialization(string typeName)
+    {
+        string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget(
+                $"ILInspector.Decompiler.Fixtures.{typeName}", "get_Value", 0)],
+            RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
+        AssertNativeGetterStorage(path, typeName, "Value", result);
+        using var rebuilt = new PEReader(new MemoryStream(result.DonorPe!));
+        var reader = rebuilt.GetMetadataReader();
+        var type = FindGetterType(reader, typeName);
+        Assert.DoesNotContain(type.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == ".ctor");
+    }
+
+    static void AssertNativeConstructorStorage(
+        string path, string typeName, string propertyName, ReturnToSender.Result result)
+    {
+        using var original = new PEReader(File.OpenRead(path));
+        using var rebuilt = new PEReader(new MemoryStream(result.DonorPe!));
+        var originalReader = original.GetMetadataReader();
+        var rebuiltReader = rebuilt.GetMetadataReader();
+        var originalType = FindGetterType(originalReader, typeName);
+        var rebuiltType = FindGetterType(rebuiltReader, typeName);
+        var before = ReadGetterInstructions(original, originalType, propertyName, ".ctor");
+        var after = ReadGetterInstructions(rebuilt, rebuiltType, propertyName, ".ctor");
+        Assert.Equal(before.Select(instruction => instruction.OpCode),
+            after.Select(instruction => instruction.OpCode));
+        Assert.Equal(before.Select(instruction => GetterOperand(originalReader, instruction)),
+            after.Select(instruction => GetterOperand(rebuiltReader, instruction)));
+
+        var store = Assert.Single(after, instruction => instruction.OpCode == ILOpCode.Stfld);
+        var reads = ReadGetterInstructions(rebuilt, rebuiltType, propertyName)
+            .Where(instruction => instruction.OpCode == ILOpCode.Ldfld);
+        Assert.NotEmpty(reads);
+        Assert.All(reads, load =>
+            Assert.Equal(GetterOperand(rebuiltReader, store), GetterOperand(rebuiltReader, load)));
+    }
+
     static void AssertNativeGetterStorage(
         string path, string typeName, string propertyName, ReturnToSender.Result result)
     {
@@ -129,11 +208,12 @@ public partial class ReturnToSenderPrototypeTests
         => reader.GetFieldDefinition(Assert.Single(type.GetFields(),
             handle => reader.GetString(reader.GetFieldDefinition(handle).Name) == $"<{propertyName}>k__BackingField"));
 
-    static IReadOnlyList<DecodedInstruction> ReadGetterInstructions(PEReader pe, TypeDefinition type, string propertyName)
+    static IReadOnlyList<DecodedInstruction> ReadGetterInstructions(
+        PEReader pe, TypeDefinition type, string propertyName, string? methodName = null)
     {
         var reader = pe.GetMetadataReader();
         var method = reader.GetMethodDefinition(Assert.Single(type.GetMethods(),
-            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == $"get_{propertyName}"));
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == (methodName ?? $"get_{propertyName}")));
         var decoded = MethodInstructions.Decode(pe.GetMethodBody(method.RelativeVirtualAddress));
         Assert.True(decoded.IsComplete);
         return decoded.Instructions;
@@ -150,9 +230,10 @@ public partial class ReturnToSenderPrototypeTests
                 System.Reflection.Metadata.Ecma335.MetadataTokens.UserStringHandle((int)instruction.OperandValue & 0x00ffffff)),
             _ => instruction.OperandValue,
         };
-        // The published netstandard witness is rebuilt against the current core-library reference.
+        // The pinned framework facades are rebuilt against the current core-library reference.
         return operand is string canonical
             ? canonical.Replace("['netstandard']", "[System.Private.CoreLib]", StringComparison.Ordinal)
+                .Replace("[System.Runtime]", "[System.Private.CoreLib]", StringComparison.Ordinal)
             : operand;
     }
 }
