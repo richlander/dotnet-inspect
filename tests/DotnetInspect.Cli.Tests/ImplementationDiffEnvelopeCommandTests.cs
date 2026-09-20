@@ -129,6 +129,26 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     }
 
     [Fact]
+    public async Task WildcardSelection_DoesNotActivateCompleteTransport()
+    {
+        var result = await Run(
+            "--json",
+            "-S",
+            "*Implementation*",
+            "--type",
+            "DiffSample",
+            "--rows",
+            "1..1");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        Assert.False(json.RootElement.TryGetProperty("request", out _));
+        Assert.True(
+            json.RootElement.TryGetProperty("implementation_diff", out _));
+    }
+
+    [Fact]
     public async Task MemberSelector_IsRecordedAsSemanticRequestInput()
     {
         var result = await Run(

@@ -105,9 +105,23 @@ public class DiffCommand
             return 1;
         }
         if (selectResult.Sections != null)
-            options = options with { IncludeSections = selectResult.Sections };
+        {
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
+        }
         implementationTransport =
             RequestsCompleteImplementationDiff(options);
+        if (implementationTransport
+            && HasIncompatibleImplementationTransportProjection(options))
+        {
+            CommandError.Write(
+                "Complete Implementation Diff transport cannot be combined "
+                    + "with presentation projection or another diff operation.");
+            return 1;
+        }
         if (options.Finding is not null && options.IncludeSections is null)
         {
             options = options with
@@ -1167,7 +1181,9 @@ public class DiffCommand
         if (options.IncludeSections is not null)
         {
             selectsOnlyImplementationDiff = options.IncludeSections.SetEquals(
-                [DiffSections.ImplementationDiff.Name]);
+                    [DiffSections.ImplementationDiff.Name])
+                && options.ExactIncludeSections?.SetEquals(
+                    [DiffSections.ImplementationDiff.Name]) == true;
         }
         else
         {
@@ -3922,6 +3938,18 @@ public record DiffOptions
     /// </summary>
     public bool SelectDefault { get; init; }
     public HashSet<string>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories or globs. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public RowWindow? Rows { get; init; }

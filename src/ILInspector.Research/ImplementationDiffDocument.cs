@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
@@ -24,10 +25,34 @@ public sealed record ImplementationDiffDocumentRequest(
     IReadOnlyList<string> TypeFilters,
     IReadOnlyList<string> MemberTargetIdentities);
 
+public enum ImplementationDiffEndpointProvenanceKind
+{
+    [JsonStringEnumMemberName("package")]
+    Package,
+
+    [JsonStringEnumMemberName("platform")]
+    Platform,
+
+    [JsonStringEnumMemberName("project")]
+    Project,
+
+    [JsonStringEnumMemberName("local")]
+    Local,
+
+    [JsonStringEnumMemberName("embedded")]
+    Embedded,
+
+    [JsonStringEnumMemberName("designated")]
+    Designated,
+}
+
+public sealed record ImplementationDiffEndpointProvenance(
+    ImplementationDiffEndpointProvenanceKind Kind);
+
 public sealed record ImplementationDiffEndpoint(
     AssemblyReferenceIdentity AssemblyIdentity,
     Guid ModuleVersionId,
-    AssemblyResolutionProvenance Provenance);
+    ImplementationDiffEndpointProvenance Provenance);
 
 public sealed record ImplementationDiffEvidence(
     ResearchChangeMechanism Mechanism,
@@ -221,8 +246,30 @@ public static partial class ImplementationDiff
         return new(
             module.AssemblyIdentity,
             module.ModuleVersionId,
-            input.Assembly.Provenance);
+            CreateEndpointProvenance(input.Assembly.Provenance));
     }
+
+    static ImplementationDiffEndpointProvenance CreateEndpointProvenance(
+        AssemblyResolutionProvenance provenance)
+        => provenance switch
+        {
+            AssemblyResolutionProvenance.PackageAsset
+                => new(ImplementationDiffEndpointProvenanceKind.Package),
+            AssemblyResolutionProvenance.PlatformAsset
+                => new(ImplementationDiffEndpointProvenanceKind.Platform),
+            AssemblyResolutionProvenance.ProjectAsset
+                => new(ImplementationDiffEndpointProvenanceKind.Project),
+            AssemblyResolutionProvenance.LocalAsset
+                => new(ImplementationDiffEndpointProvenanceKind.Local),
+            AssemblyResolutionProvenance.EmbeddedAsset
+                => new(ImplementationDiffEndpointProvenanceKind.Embedded),
+            AssemblyResolutionProvenance.DesignatedAsset
+                => new(ImplementationDiffEndpointProvenanceKind.Designated),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(provenance),
+                provenance,
+                "Unsupported assembly resolution provenance."),
+        };
 
     static ImplementationDiffDocumentMember CreateMember(
         ResearchSubjectKey subject,

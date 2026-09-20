@@ -2109,7 +2109,9 @@ The document contains:
 - the requested C#, IL/body, and complexity mechanisms plus normalized type and
   member selectors;
 - one Before and one After endpoint carrying exact assembly identity, MVID, and
-  acquisition provenance without paths, streams, sessions, or resolver state;
+  a Research-owned source-kind projection of acquisition provenance. The
+  projection is constructed by an explicit case mapping and carries no
+  acquisition-layer strings, paths, streams, sessions, or resolver state;
 - changed members keyed by `ResearchSubjectKey`, with detached scalar transition
   facts and the producer-owned C# and IL rows or typed failures that support
   them; each per-hunk IL change retains only its own hunk rows, while failure
@@ -2149,11 +2151,16 @@ diagnostics, not a second home for member evidence.
 The first host adoption is complete CLI transport for
 `diff --library before.dll..after.dll -S "Implementation Diff" --json` and
 `--envelope`. Exact section selection selects this operation; it does not
-project or truncate Content. Type and member selectors remain semantic request
-inputs recorded in the document. Row windows, fields, columns, row formats,
-PDB Source enrichment, categories, and additional sections remain incompatible
-with complete transport. A pre-comparison admission or acquisition failure does
-not manufacture an envelope; per-member unavailable or failed evidence remains
+project or truncate Content. The command retains the selector resolver's exact
+section provenance when choosing this transport; a glob or category that
+resolves to the same section remains an ordinary rendered projection. Complete
+transport admission is checked again after section resolution so no
+post-resolution operation choice can silently discard a row or field
+projection. Type and member selectors remain semantic request inputs recorded
+in the document. Row windows, fields, columns, row formats, PDB Source
+enrichment, categories, and additional sections remain incompatible with
+complete transport. A pre-comparison admission or acquisition failure does not
+manufacture an envelope; per-member unavailable or failed evidence remains
 inside a successfully constructed document.
 
 This envelope-first adoption intentionally leaves ordinary Markdown, table,

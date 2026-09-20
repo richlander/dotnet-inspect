@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -117,8 +118,9 @@ public sealed class ImplementationComparisonQueryTests
         Assert.Equal(
             oldInput.BodyIndex.ModuleIdentity.ModuleVersionId,
             document.Before.ModuleVersionId);
-        Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
-            document.Before.Provenance);
+        Assert.Equal(
+            ImplementationDiffEndpointProvenanceKind.Local,
+            document.Before.Provenance.Kind);
         Assert.Equal(
             newInput.Assembly.Identity,
             document.After.AssemblyIdentity);
@@ -145,6 +147,51 @@ public sealed class ImplementationComparisonQueryTests
                     == ImplementationDiffDocumentMechanism.CSharp
                 && coverage.EvaluatedSubjectCount > 0
                 && coverage.ChangedSubjectCount > 0);
+    }
+
+    [Fact]
+    public void DocumentQuery_ProjectsPathFreeEndpointProvenance()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+        ImplementationAssemblyInput oldInput =
+            StreamBackedInput(oldPath, "old.dll");
+        ImplementationAssemblyInput newInput =
+            StreamBackedInput(newPath, "new.dll");
+        oldInput = oldInput with
+        {
+            Assembly = ResolvedAssemblyReference.Create(
+                oldInput.Assembly.Identity,
+                oldInput.Assembly.Path,
+                oldInput.Assembly.OpenRead,
+                AssemblyResolutionProvenance.Local(oldPath)),
+        };
+        newInput = newInput with
+        {
+            Assembly = ResolvedAssemblyReference.Create(
+                newInput.Assembly.Identity,
+                newInput.Assembly.Path,
+                newInput.Assembly.OpenRead,
+                AssemblyResolutionProvenance.Local(newPath)),
+        };
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [oldInput],
+                    [newInput]));
+
+        Assert.Equal(
+            new ImplementationDiffEndpointProvenance(
+                ImplementationDiffEndpointProvenanceKind.Local),
+            document.Before.Provenance);
+        Assert.Equal(
+            new ImplementationDiffEndpointProvenance(
+                ImplementationDiffEndpointProvenanceKind.Local),
+            document.After.Provenance);
+        string json = JsonSerializer.Serialize(document);
+        Assert.DoesNotContain(oldPath, json, StringComparison.Ordinal);
+        Assert.DoesNotContain(newPath, json, StringComparison.Ordinal);
     }
 
     [Fact]
