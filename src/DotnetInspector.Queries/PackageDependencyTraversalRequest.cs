@@ -23,6 +23,24 @@ public enum PackageDependencyTraversalExpansionAuthority
 }
 
 /// <summary>
+/// Whether an exact dependency may close onto root-supplied evidence without
+/// owner-issued candidate correspondence.
+/// </summary>
+public enum PackageDependencyTraversalRootRecurrenceAuthority
+{
+    /// <summary>
+    /// The root owner has not authorized coordinate-only recurrence.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// The root owner authorizes its admitted evidence for an exact recurrence of
+    /// the same canonical coordinate.
+    /// </summary>
+    ExactCoordinate,
+}
+
+/// <summary>
 /// The owner-issued evidence source for one admitted package traversal root.
 /// </summary>
 public abstract record PackageDependencyTraversalRootSource
@@ -70,25 +88,32 @@ public sealed record PackageDependencyTraversalRootOccurrence
 {
     public PackageDependencyTraversalRootOccurrence(
         PackageDependencyEvidenceRoot root,
-        PackageDependencyTraversalExpansionAuthority authority)
+        PackageDependencyTraversalExpansionAuthority authority,
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority =
+            PackageDependencyTraversalRootRecurrenceAuthority.None)
         : this(
             new PackageDependencyTraversalRootSource.ProjectedEvidence(root),
-            authority)
+            authority,
+            recurrenceAuthority)
     {
     }
 
     public PackageDependencyTraversalRootOccurrence(
         RealizedPackageDependencyContext context,
-        PackageDependencyTraversalExpansionAuthority authority)
+        PackageDependencyTraversalExpansionAuthority authority,
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority =
+            PackageDependencyTraversalRootRecurrenceAuthority.None)
         : this(
             new PackageDependencyTraversalRootSource.RealizedPackage(context),
-            authority)
+            authority,
+            recurrenceAuthority)
     {
     }
 
     private PackageDependencyTraversalRootOccurrence(
         PackageDependencyTraversalRootSource source,
-        PackageDependencyTraversalExpansionAuthority authority)
+        PackageDependencyTraversalExpansionAuthority authority,
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority)
     {
         ArgumentNullException.ThrowIfNull(source);
         PackageDependencyEvidenceRoot root = source.Evidence;
@@ -109,6 +134,7 @@ public sealed record PackageDependencyTraversalRootOccurrence
 
         Source = source;
         Authority = authority;
+        RecurrenceAuthority = recurrenceAuthority;
     }
 
     public PackageDependencyTraversalRootSource Source { get; }
@@ -116,6 +142,10 @@ public sealed record PackageDependencyTraversalRootOccurrence
     public PackageDependencyEvidenceRoot Root => Source.Evidence;
 
     public PackageDependencyTraversalExpansionAuthority Authority { get; }
+
+    public PackageDependencyTraversalRootRecurrenceAuthority
+        RecurrenceAuthority
+    { get; }
 
     internal PackageSourceCoordinate Coordinate =>
         ((PackageDependencyEvidenceRootIdentity.Package)Root.Identity).Coordinate;

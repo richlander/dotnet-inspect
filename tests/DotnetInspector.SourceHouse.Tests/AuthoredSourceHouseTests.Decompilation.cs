@@ -21,10 +21,10 @@ public sealed partial class AuthoredSourceHouseTests
         LibraryOperationLease firstLease =
             library.IssueOperation();
 
-        SourceHouseMemberDecompilationOutcome.Completed first =
+        SourceHouseDecompilationOutcome.Completed first =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -53,10 +53,10 @@ public sealed partial class AuthoredSourceHouseTests
             first.Attempt.BodyProjectionsAttempted,
             first.Work.BodyProjectionsAttempted);
 
-        SourceHouseMemberDecompilationOutcome.Completed second =
+        SourceHouseDecompilationOutcome.Completed second =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -76,10 +76,10 @@ public sealed partial class AuthoredSourceHouseTests
                 asset.AssemblyPath,
                 asset.PdbPath);
 
-        SourceHouseMemberDecompilationOutcome.Completed completed =
+        SourceHouseDecompilationOutcome.Completed completed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -110,10 +110,10 @@ public sealed partial class AuthoredSourceHouseTests
                 asset.AssemblyPath,
                 "not a portable pdb"u8.ToArray());
 
-        SourceHouseMemberDecompilationOutcome.Completed completed =
+        SourceHouseDecompilationOutcome.Completed completed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -144,10 +144,10 @@ public sealed partial class AuthoredSourceHouseTests
                 asset.AssemblyPath,
                 asset.PdbPath);
 
-        SourceHouseMemberDecompilationOutcome.Completed completed =
+        SourceHouseDecompilationOutcome.Completed completed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -181,10 +181,10 @@ public sealed partial class AuthoredSourceHouseTests
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(assemblyPath);
 
-        SourceHouseMemberDecompilationOutcome.Completed completed =
+        SourceHouseDecompilationOutcome.Completed completed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         target,
@@ -216,10 +216,10 @@ public sealed partial class AuthoredSourceHouseTests
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(asset.AssemblyPath);
 
-        SourceHouseMemberDecompilationOutcome.Completed completed =
+        SourceHouseDecompilationOutcome.Completed completed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -244,10 +244,10 @@ public sealed partial class AuthoredSourceHouseTests
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(asset.AssemblyPath);
 
-        SourceHouseMemberDecompilationOutcome.Completed completed =
+        SourceHouseDecompilationOutcome.Completed completed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Completed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -271,10 +271,10 @@ public sealed partial class AuthoredSourceHouseTests
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(asset.AssemblyPath);
 
-        SourceHouseMemberDecompilationOutcome.Incomplete incomplete =
+        SourceHouseDecompilationOutcome.Incomplete incomplete =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Incomplete>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Incomplete>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -305,10 +305,10 @@ public sealed partial class AuthoredSourceHouseTests
             },
             asset.MemberTarget.MetadataToken);
 
-        SourceHouseMemberDecompilationOutcome.Rejected rejected =
+        SourceHouseDecompilationOutcome.Rejected rejected =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Rejected>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Rejected>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         target,
@@ -350,10 +350,10 @@ public sealed partial class AuthoredSourceHouseTests
             MetadataTokens.GetToken(
                 MetadataTokens.MethodDefinitionHandle(1)));
 
-        SourceHouseMemberDecompilationOutcome.Failed failed =
+        SourceHouseDecompilationOutcome.Failed failed =
             Assert.IsType<
-                SourceHouseMemberDecompilationOutcome.Failed>(
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                SourceHouseDecompilationOutcome.Failed>(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         target,
@@ -391,7 +391,7 @@ public sealed partial class AuthoredSourceHouseTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () =>
-                await SourceHouse.ExecuteMemberDecompilationAsync(
+                await SourceHouse.ExecuteDecompilationAsync(
                     DecompilationRequest(
                         library,
                         asset.MemberTarget,
@@ -404,25 +404,185 @@ public sealed partial class AuthoredSourceHouseTests
             library.Reference.ApiAssembly);
     }
 
-    private static SourceHouseMemberDecompilationRequest
+    // PR-fast: bounded exact-type cases over local test and source fixtures.
+    [Fact]
+    public async Task
+        TypeDecompilation_ExactNestedGenericTypePreservesIdentityAndNativeAttempt()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.Outer<>.Inner<>).Assembly.Location;
+        SourceHouseTarget.TypeTarget target = TypeTarget(
+            assemblyPath,
+            typeof(DecompilationFixture.Outer<>.Inner<>).FullName!
+                .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(assemblyPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(target.Type, completed.Request.Target.Type);
+        Assert.Equal(
+            SourceHousePdbContributionKind.Unavailable,
+            completed.PdbContribution.Kind);
+        Assert.Equal(
+            CSharpDecompilationStatus.Available,
+            completed.Attempt.Status);
+        Assert.False(completed.Attempt.PdbSupplied);
+        Assert.Contains(
+            "Inner<",
+            completed.Attempt.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Value()",
+            completed.Attempt.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            completed.Attempt.BodyProjections,
+            projection => projection.ContributesToOutput);
+        Assert.Equal(
+            completed.Attempt.BodyProjectionsAttempted,
+            completed.Work.BodyProjectionsAttempted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        TypeDecompilation_SuppliedOrEmbeddedPdbContributesNativeSymbols(
+            bool embedded)
+    {
+        RealAsset asset = embedded
+            ? EmbeddedSourceComparisonAsset()
+            : MemberSlicingAsset();
+        await using LibraryFixture library = embedded
+            ? await LibraryFixture.CreateAsync(asset.AssemblyPath)
+            : await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        new SourceHouseTarget.TypeTarget(
+                            asset.MemberTarget.Type),
+                        asset.AssemblyPath),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            embedded
+                ? SourceHousePdbContributionKind.Embedded
+                : SourceHousePdbContributionKind.SuppliedCompanion,
+            completed.PdbContribution.Kind);
+        Assert.True(completed.Attempt.PdbSupplied);
+        Assert.Equal(
+            CSharpDecompilationStatus.Available,
+            completed.Attempt.Status);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilation_FiniteBodyProjectionLimitIsIncomplete()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(asset.AssemblyPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        new SourceHouseTarget.TypeTarget(
+                            asset.MemberTarget.Type),
+                        asset.AssemblyPath,
+                        maximumBodyProjections: 0),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            CSharpDecompilationStatus.Incomplete,
+            completed.Attempt.Status);
+        Assert.Equal(0, completed.Attempt.BodyProjectionsAttempted);
+        Assert.Equal(0, completed.Work.BodyProjectionsAttempted);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilation_ExplicitAuthoredDocumentIsNotADecompilationTarget()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(asset.AssemblyPath);
+
+        Assert.Throws<ArgumentException>(
+            "target",
+            () => DecompilationRequest(
+                library,
+                new SourceHouseTarget.TypeTarget(
+                    asset.MemberTarget.Type,
+                    "/source/MemberTextSlicer.cs"),
+                asset.AssemblyPath));
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilation_MissingExactTypeIsRejected()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(asset.AssemblyPath);
+        MetadataTypeDefinitionName missing = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "CSharpText.MemberSlicing",
+                    ["MissingType"]))
+            .Name;
+
+        SourceHouseDecompilationOutcome.Rejected rejected =
+            Assert.IsType<SourceHouseDecompilationOutcome.Rejected>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        new SourceHouseTarget.TypeTarget(missing),
+                        asset.AssemblyPath),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            SourceHouseRejectionKind.TargetMismatch,
+            rejected.Rejection.Kind);
+    }
+
+    private static SourceHouseDecompilationRequest
         DecompilationRequest(
             LibraryFixture library,
-            SourceHouseTarget.MemberTarget target,
+            SourceHouseTarget target,
             string assemblyPath,
-            SourceHouseMemberDecompilationLimits? limits = null,
+            SourceHouseDecompilationLimits? limits = null,
             int maximumBodyProjections =
                 CSharpDecompilerService.DefaultMaxBodyProjections) =>
         new(
             SourceHouseRequestIdentity.Create(
-                "test-member-decompilation"),
+                "test-decompilation"),
             library.Reference,
             library.Reference.ApiAssembly,
             target,
             new(
                 SourceHouseOperationPlanIdentity.Create(
-                    "test-member-decompilation-plan"),
+                    "test-decompilation-plan"),
                 SourceHousePolicyGeneration.Create(
-                    "test-member-decompilation-policy"),
+                    "test-decompilation-policy"),
                 limits ?? DecompilationLimits(),
                 new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(
@@ -430,7 +590,7 @@ public sealed partial class AuthoredSourceHouseTests
                 maximumBodyProjections:
                     maximumBodyProjections));
 
-    private static SourceHouseMemberDecompilationLimits
+    private static SourceHouseDecompilationLimits
         DecompilationLimits(
             int maximumAssemblyBytes = 64 * 1024 * 1024,
             int maximumPortablePdbBytes = 64 * 1024 * 1024) =>
@@ -467,5 +627,16 @@ public sealed partial class AuthoredSourceHouseTests
             type.DefinitionName!,
             ApiMemberIdentity.GetMemberAnchor(type, accessor),
             accessor.MetadataToken!.Value);
+    }
+
+    private static class DecompilationFixture
+    {
+        public sealed class Outer<TOuter>
+        {
+            public sealed class Inner<TInner>
+            {
+                public int Value() => 42;
+            }
+        }
     }
 }

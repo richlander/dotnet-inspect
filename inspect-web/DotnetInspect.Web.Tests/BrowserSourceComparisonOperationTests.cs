@@ -120,6 +120,14 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         {
             Assert.True(Assert.IsType<AssemblyTypeSource.Decompiled>(available.Source)
                 .Decompilation.PdbSupplied);
+            var decompilationHouse =
+                Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                    available.DecompilationHouseOutcome);
+            Assert.IsType<SourceHouseTarget.TypeTarget>(
+                decompilationHouse.Request.Target);
+            Assert.Equal(
+                SourceHousePdbContributionKind.Embedded,
+                decompilationHouse.PdbContribution.Kind);
             Assert.NotNull(source.PdbSourceLimitation);
             Assert.Null(source.Url);
             if (scenario == "deadline")
