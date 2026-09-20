@@ -31,10 +31,17 @@ internal static class ResourceLifecycleAnalysisService
             .. calls.Where(call =>
                 call.EvidenceMethod == context.Method),
         ];
-        IReadOnlyDictionary<int, MemberRef> callsByOffset =
+        IReadOnlyDictionary<int, DirectCall> directCallsByOffset =
             methodCalls.ToDictionary(
-                static call => call.ILOffset,
-                static call => call.Callee);
+                static call => call.ILOffset);
+        IReadOnlyDictionary<int, MemberRef> callsByOffset =
+            directCallsByOffset.ToDictionary(
+                static pair => pair.Key,
+                static pair => pair.Value.Callee);
+        bool hasIndirectDispatch = methodCalls.Any(call =>
+            call.Kind is CallKind.LoadFunction
+                or CallKind.LoadVirtualFunction
+                or CallKind.CallIndirect);
 
         ReachingDefinitionsResult? reaching = null;
         ResourceLifecycleLimitation? reachingLimitation = null;
@@ -136,15 +143,26 @@ internal static class ResourceLifecycleAnalysisService
             {
                 rootLimitations.Add(ForRoot(exceptionLimitation, root));
             }
+            if (hasIndirectDispatch)
+            {
+                rootLimitations.Add(new(
+                    ResourceLifecycleLimitationKind.UnsupportedFlow,
+                    "Indirect dispatch or a method-group value occurs "
+                    + "in the method.",
+                    context.Method,
+                    root));
+            }
 
             roots.Add(AnalyzeAcquisition(
                 context,
                 acquisition,
                 rootOccurrences,
+                directCallsByOffset,
                 callsByOffset,
                 reaching,
                 exceptionFlow,
                 catchAllCleanup,
+                hasIndirectDispatch,
                 rootLimitations));
         }
 
@@ -158,10 +176,12 @@ internal static class ResourceLifecycleAnalysisService
         MethodBodyAnalysisContext context,
         ResourceOccurrenceRoot.Acquisition root,
         ImmutableArray<ResourceOccurrence> occurrences,
+        IReadOnlyDictionary<int, DirectCall> directCallsByOffset,
         IReadOnlyDictionary<int, MemberRef> callsByOffset,
         ReachingDefinitionsResult? reaching,
         InstructionExceptionFlowFacts? exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+        bool hasIndirectDispatch,
         ImmutableArray<ResourceLifecycleLimitation>.Builder limitations)
     {
         var outcomes =
@@ -288,25 +308,49 @@ internal static class ResourceLifecycleAnalysisService
         }
 
         ImmutableArray<ResourceLifecycleBoundaryEvidence> boundaries =
-            ThrowingBoundaries(occurrences);
+            hasIndirectDispatch
+                ? []
+                : IsArrayPoolRoot(root)
+                && acquisitionDefinition is not null
+                && reaching?.IsComplete == true
+                    ? ArrayPoolThrowingBoundaries(
+                        context,
+                        root,
+                        acquisitionDefinition,
+                        reaching,
+                        directCallsByOffset,
+                        callsByOffset,
+                        occurrences)
+                    : ThrowingBoundaries(occurrences);
         if (!boundaries.IsEmpty && exceptionFlow is not null)
         {
-            ImmutableArray<ResourceLifecycleBoundaryEvidence> unprotected =
-                ResourceExceptionPathAnalyzer.UnprotectedThrowingBoundaries(
+            ResourceExceptionPathAnalyzer.ThrowingBoundaryClassification<
+                ResourceLifecycleBoundaryEvidence> classification =
+                ResourceExceptionPathAnalyzer.ClassifyThrowingBoundaries(
                     context.Blocks,
                     exceptionFlow,
                     catchAllCleanup,
                     releases,
                     boundaries,
                     static boundary => boundary.ILOffset);
-            if (!unprotected.IsEmpty)
+            foreach (ResourceLifecycleBoundaryEvidence boundary
+                in classification.Indeterminate)
+            {
+                limitations.Add(new(
+                    ResourceLifecycleLimitationKind.ExceptionFlow,
+                    $"Cleanup release coverage is not proven for "
+                    + $"IL_{boundary.ILOffset:X4}.",
+                    context.Method,
+                    root));
+            }
+            if (!classification.Unprotected.IsEmpty)
             {
                 outcomes.Add(new(
                     ResourceLifecycleOutcomeKind.ExceptionalCleanupMissing,
                     root.Call.ILOffset,
-                    unprotected[0].ILOffset,
+                    classification.Unprotected[0].ILOffset,
                     SecondaryOffset: null,
-                    unprotected));
+                    classification.Unprotected));
             }
         }
 
@@ -376,7 +420,8 @@ internal static class ResourceLifecycleAnalysisService
     }
 
     static ImmutableArray<ResourceLifecycleBoundaryEvidence>
-        ThrowingBoundaries(ImmutableArray<ResourceOccurrence> occurrences) =>
+        ThrowingBoundaries(
+            ImmutableArray<ResourceOccurrence> occurrences) =>
     [
         .. occurrences
             .Where(occurrence =>
@@ -395,6 +440,110 @@ internal static class ResourceLifecycleAnalysisService
             .Distinct()
             .OrderBy(static boundary => boundary.ILOffset),
     ];
+
+    static ImmutableArray<ResourceLifecycleBoundaryEvidence>
+        ArrayPoolThrowingBoundaries(
+            MethodBodyAnalysisContext context,
+            ResourceOccurrenceRoot.Acquisition root,
+            LocalDefinition acquisitionDefinition,
+            ReachingDefinitionsResult reaching,
+            IReadOnlyDictionary<int, DirectCall> directCalls,
+            IReadOnlyDictionary<int, MemberRef> calls,
+            ImmutableArray<ResourceOccurrence> occurrences)
+    {
+        var boundaries =
+            ImmutableArray.CreateBuilder<
+                ResourceLifecycleBoundaryEvidence>();
+        string? firstAmbiguousShape = null;
+        Dictionary<int, ResourceOccurrence> occurrencesByOffset =
+            occurrences
+                .Where(occurrence => occurrence.Call is not null)
+                .ToDictionary(occurrence => occurrence.ILOffset);
+        foreach (LocalUse use in reaching.UsesOf(acquisitionDefinition)
+            .OrderBy(static use => use.Offset))
+        {
+            if (use.Address)
+            {
+                firstAmbiguousShape ??= "alias-or-field-suppressed";
+                continue;
+            }
+            ArrayPoolUseClassifier.UseClassification classification =
+                ArrayPoolUseClassifier.ClassifyUse(
+                    context.Instructions.Instructions,
+                    calls,
+                    use.Offset,
+                    acquisitionDefinition.Slot,
+                    root.Call.Callee.ReturnType);
+            if (classification.Kind
+                is ArrayPoolUseClassifier.UseKind.Release
+                    or ArrayPoolUseClassifier.UseKind.LocalUse)
+            {
+                continue;
+            }
+            firstAmbiguousShape ??= classification.CandidateShape;
+            if (classification.CandidateShape
+                    != "cross-method-suppressed"
+                || classification.Boundary is not { } boundary)
+            {
+                continue;
+            }
+
+            bool nonThrowing =
+                classification.NonThrowingSetupBoundary
+                || occurrencesByOffset.TryGetValue(
+                    boundary.ILOffset,
+                    out ResourceOccurrence? occurrence)
+                    && !CanThrow(occurrence);
+            if (!nonThrowing)
+            {
+                AddBoundary(boundary);
+            }
+            if ((classification.NonThrowingSetupBoundary
+                    || ArrayPoolUseClassifier
+                        .IsTransparentWrapperBoundary(
+                            boundary.Operation))
+                && ResourceExceptionPathAnalyzer.FindBoundaryAfterSetup(
+                    context.Instructions.Instructions,
+                    reaching,
+                    calls,
+                    boundary) is { } downstream)
+            {
+                AddBoundary(downstream);
+            }
+        }
+
+        if (!string.Equals(
+                firstAmbiguousShape,
+                "cross-method-suppressed",
+                StringComparison.Ordinal))
+        {
+            return [];
+        }
+
+        return
+        [
+            .. boundaries
+                .Distinct()
+                .OrderBy(static boundary => boundary.ILOffset),
+        ];
+
+        void AddBoundary(ArrayPoolExceptionBoundary boundary)
+        {
+            if (directCalls.TryGetValue(
+                    boundary.ILOffset,
+                    out DirectCall? directCall))
+            {
+                boundaries.Add(new(
+                    boundary.ILOffset,
+                    ResourceOccurrenceCallSite.From(directCall)));
+            }
+        }
+    }
+
+    static bool IsArrayPoolRoot(
+        ResourceOccurrenceRoot.Acquisition root) =>
+        root.ResourceKinds.Any(kind =>
+            kind.Identity == ArrayPoolResourceEffectModel.BufferKind);
 
     static bool CanThrow(ResourceOccurrence occurrence)
     {

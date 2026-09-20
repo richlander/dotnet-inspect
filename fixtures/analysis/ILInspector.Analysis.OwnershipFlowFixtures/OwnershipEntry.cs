@@ -377,6 +377,21 @@ public static class Entry
         }
     }
 
+    public static void RentAcrossConditionalFinally(
+        bool release)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            if (release)
+                ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     public interface IOwnershipResourcePool
     {
         byte[] Acquire(int length);

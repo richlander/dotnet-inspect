@@ -119,7 +119,8 @@ The first slice deliberately uses bounded physical evidence:
   with the exact root;
 - same-block ordering for use-after-release and double-release;
 - the existing block graph for modeled terminal exits; and
-- validated exception-region correlation for cleanup around a boundary.
+- validated exception-region correlation plus structural handler-entry
+  coverage for cleanup around a boundary.
 
 Terminal-exit analysis with multiple release sites remains explicitly
 incomplete until predicate correlation can prove that alternative releases
@@ -131,6 +132,21 @@ as an exceptional-cleanup candidate. Other participating direct-call
 boundaries are conservatively potentially throwing. A call contributes to one
 root only when Resource Occurrence Analysis associated that exact root with the
 call.
+
+Cleanup in an enclosing `finally` or credited catch-all handler is guaranteed
+only when a release occurs in the handler-entry basic block, which every
+handler path traverses. A release elsewhere in the handler is indeterminate:
+the root gains an exception-flow limitation and the boundary produces no
+speculative exceptional-cleanup outcome.
+
+Resource Triage preserves its legacy ArrayPool boundary contract through a
+narrow compatibility walk over the root local's reaching-definition uses. The
+walk reuses the established ArrayPool use classifier and downstream
+setup-boundary traversal so transparent framework wrappers retain their
+reported boundary sequence, while nonthrowing setup calls, address-taken
+flows, and indirect dispatch remain suppressed or incomplete exactly as the
+legacy oracle requires. Other resource kinds continue to use occurrence-derived
+direct-call boundaries.
 
 The result preserves positive outcomes even when another root or another part
 of the method is incomplete. A root is complete only when:
@@ -194,7 +210,9 @@ The motivating production assets remain the pinned Resource Triage corpus:
 The existing ArrayPool analyzer is the final fidelity oracle for these assets.
 This slice keeps that implementation and its tests unchanged. The generic
 producer and migrated Resource Triage path do not call the legacy analyzer or
-adapt its result.
+adapt its result. The query gate compares the complete legacy and generic
+Finding populations, including every payload field, boundary sequence, and
+candidate identity.
 
 Retirement is a later focused change after production corpus comparison. No
 source-text absence gate is added for hidden API-specific branches; behavioral
@@ -208,8 +226,10 @@ The Release `ILInspector.Analysis.Tests` gate establishes:
 - direct acquisition and release with no violation;
 - supported missing normal and exceptional release;
 - same-block use after release and double release;
-- exceptional cleanup protected and unprotected by `finally`;
+- exceptional cleanup protected, unprotected, and conditionally protected by
+  `finally`;
 - exact boundary suppression for `throws=never`;
+- legacy suppression for address-taken and indirect-dispatch shapes;
 - invalid storage and caller-return transfer;
 - two roots with one incomplete root retaining the other's result; and
 - unchanged legacy ArrayPool lifecycle tests.
@@ -217,7 +237,8 @@ The Release `ILInspector.Analysis.Tests` gate establishes:
 The Release `DotnetInspector.Queries.Tests` and `DotnetInspect.Cli.Tests` gates
 establish:
 
-- unchanged Resource Triage Finding payload and candidate identity;
+- unchanged complete Resource Triage Finding population, payload, boundary
+  sequence, and candidate identity;
 - one shared body-analysis execution for selected migrated sections; and
 - no `LibraryBodyIndex` materialization by Resource Triage.
 

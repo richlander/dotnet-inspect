@@ -147,6 +147,42 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void LifecycleRequest_DoesNotCreditConditionalFinallyCleanup()
+    {
+        LibraryResourceLifecycleAnalysisResult lifecycle =
+            Analyze().ResourceLifecycle;
+        ResourceLifecycleMethodResult method = Assert.Single(
+            lifecycle.Methods,
+            result =>
+                result.Method.Name
+                    == "RentAcrossConditionalFinally");
+        ResourceLifecycleRootResult root = Assert.Single(method.Roots);
+
+        Assert.False(root.IsComplete);
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+        Assert.Contains(
+            root.Limitations,
+            limitation =>
+                limitation.Kind
+                    == ResourceLifecycleLimitationKind.ExceptionFlow
+                && limitation.Detail.Contains(
+                    "not proven",
+                    StringComparison.Ordinal));
+
+        var inspection = ResourceLifecycleAnalysis.Inspect(
+            lifecycle with { Methods = [method] },
+            new FindingSubject("fixture", "fixture"));
+        Assert.IsType<
+            FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                inspection.Value);
+    }
+
+    [Fact]
     public void LifecycleRequest_CreditsExactThrowsNeverBoundary()
     {
         ResourceEffectAdmissionOutcome outcome =
@@ -170,6 +206,38 @@ public sealed class ResourceLifecycleAnalysisTests
                 candidate.Kind
                 == ResourceLifecycleOutcomeKind
                     .ExceptionalCleanupMissing);
+    }
+
+    [Fact]
+    public void LifecycleRequest_PreservesLegacyNonThrowingSetupBoundary()
+    {
+        ResourceLifecycleRootResult root =
+            Root(Analyze(), "RentAndForwardExternally");
+
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+    }
+
+    [Theory]
+    [InlineData("RentWithMethodGroup")]
+    [InlineData("RentAddressThenObserve")]
+    public void LifecycleRequest_PreservesLegacyAmbiguousFlowSuppression(
+        string methodName)
+    {
+        ResourceLifecycleRootResult root = Root(Analyze(), methodName);
+
+        Assert.False(root.IsComplete);
+        Assert.NotEmpty(root.Limitations);
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
     }
 
     [Fact]

@@ -85,17 +85,20 @@ Workspace, or host state. Its detached
 `ResourceOccurrenceAnalysisResult` is not added to `LibraryBodyIndex`.
 
 Before resolved-effect binding, the service losslessly narrows the direct-call
-resolution population to calls whose metadata member name and declaring type
-can match an admitted exact member selector. Explicit-interface name suffixes
-remain candidates. For lifecycle requests, acquisition, authority, and
-resource declarations remain unconditional candidates; other exact-selector
-calls enter effect resolution only when their receiver or an argument carries
-a candidate acquisition result. An unresolved boundary in a method with a
-resource root remains a typed occurrence limitation through the full
-direct-call population. Occurrence-only requests retain every exact-selector
-candidate. Consequently, calls that cannot affect a lifecycle root do not
-consume its aggregate effect-resolution budget or make Lifecycle Analysis
-incomplete.
+resolution population to calls whose member shape can match an admitted exact
+member selector. The shape check covers metadata or explicit-interface-suffix
+name, generic arity, instance/static and constructor shape, calling convention,
+and parameter count without requiring the concrete declaring type to equal a
+declared interface. Exact declaring-type and interface implementation proof
+remains the resolver's responsibility. For lifecycle requests, acquisition,
+authority, and resource declarations remain unconditional candidates; other
+exact-selector calls enter effect resolution only when their receiver or an
+argument carries a candidate acquisition result. An unresolved boundary in a
+method with a resource root remains a typed occurrence limitation through the
+full direct-call population. Occurrence-only requests retain every
+exact-selector candidate. Consequently, calls that cannot affect a lifecycle
+root do not consume its aggregate effect-resolution budget or make Lifecycle
+Analysis incomplete.
 
 Selection is parameterized rather than represented by an unbound feature bit:
 `LibraryBodyAnalysisRequest.CreateResourceOccurrences` requires one admitted

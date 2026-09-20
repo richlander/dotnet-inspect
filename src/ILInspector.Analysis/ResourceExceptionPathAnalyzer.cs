@@ -10,6 +10,17 @@ namespace ILInspector.Analysis;
 
 internal static class ResourceExceptionPathAnalyzer
 {
+    internal sealed record ThrowingBoundaryClassification<TBoundary>(
+        ImmutableArray<TBoundary> Unprotected,
+        ImmutableArray<TBoundary> Indeterminate);
+
+    enum CleanupCoverage
+    {
+        None,
+        Guaranteed,
+        Indeterminate,
+    }
+
     internal static LeakExitKind PathExitsWithoutRelease(
         ImmutableArray<DecodedInstruction> instructions,
         BlockGraph graph,
@@ -150,26 +161,63 @@ internal static class ResourceExceptionPathAnalyzer
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
         ImmutableArray<TBoundary> throwingBoundaries,
-        Func<TBoundary, int> offset)
+        Func<TBoundary, int> offset) =>
+        ClassifyThrowingBoundaries(
+            graph,
+            exceptionFlow,
+            catchAllCleanup,
+            releases,
+            throwingBoundaries,
+            offset).Unprotected;
+
+    internal static ThrowingBoundaryClassification<TBoundary>
+        ClassifyThrowingBoundaries<TBoundary>(
+            BlockGraph graph,
+            InstructionExceptionFlowFacts exceptionFlow,
+            IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+            ImmutableArray<int> releases,
+            ImmutableArray<TBoundary> throwingBoundaries,
+            Func<TBoundary, int> offset)
     {
-        var result = ImmutableArray.CreateBuilder<TBoundary>();
+        var unprotected = ImmutableArray.CreateBuilder<TBoundary>();
+        var indeterminate = ImmutableArray.CreateBuilder<TBoundary>();
         var seenOffsets = new HashSet<int>();
         foreach (var boundary in throwingBoundaries.OrderBy(offset))
         {
             int boundaryOffset = offset(boundary);
-            if (seenOffsets.Add(boundaryOffset)
-                && !ReleasedBeforeUseInSameBlock(graph, releases, boundaryOffset)
-                && !HasCleanupReleaseForUse(
-                    exceptionFlow,
-                    catchAllCleanup,
+            if (!seenOffsets.Add(boundaryOffset)
+                || ReleasedBeforeUseInSameBlock(
+                    graph,
                     releases,
                     boundaryOffset))
             {
-                result.Add(boundary);
+                continue;
+            }
+
+            switch (CleanupCoverageForUse(
+                graph,
+                exceptionFlow,
+                catchAllCleanup,
+                releases,
+                boundaryOffset))
+            {
+                case CleanupCoverage.None:
+                    unprotected.Add(boundary);
+                    break;
+                case CleanupCoverage.Indeterminate:
+                    indeterminate.Add(boundary);
+                    break;
+                case CleanupCoverage.Guaranteed:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown cleanup coverage.");
             }
         }
 
-        return result.ToImmutable();
+        return new(
+            unprotected.ToImmutable(),
+            indeterminate.ToImmutable());
     }
 
     static bool HasCleanupReleaseForUse(
@@ -212,7 +260,8 @@ internal static class ResourceExceptionPathAnalyzer
         return false;
     }
 
-    static bool HasCleanupReleaseForUse(
+    static CleanupCoverage CleanupCoverageForUse(
+        BlockGraph graph,
         InstructionExceptionFlowFacts exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
@@ -225,6 +274,7 @@ internal static class ResourceExceptionPathAnalyzer
         // resource-policy question: whether every exception that can be
         // intercepted before an outer cleanup still releases the rented array.
         bool interceptingCatchSeen = false;
+        bool indeterminate = false;
         foreach (InstructionExceptionRegion protectedRegion in context
             .Where(static region =>
                 region.Id.Role == InstructionExceptionRegionRole.Protected)
@@ -237,13 +287,17 @@ internal static class ResourceExceptionPathAnalyzer
             {
                 if (clause.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
                 {
-                    if (HandlerContainsRelease(
-                            exceptionFlow,
-                            clause.HandlerRegion,
-                            releases))
+                    CleanupCoverage coverage = HandlerReleaseCoverage(
+                        graph,
+                        exceptionFlow,
+                        clause.HandlerRegion,
+                        releases);
+                    if (coverage == CleanupCoverage.Guaranteed)
                     {
-                        return true;
+                        return CleanupCoverage.Guaranteed;
                     }
+                    indeterminate |=
+                        coverage == CleanupCoverage.Indeterminate;
                     continue;
                 }
 
@@ -251,36 +305,49 @@ internal static class ResourceExceptionPathAnalyzer
                     continue;
 
                 if (!interceptingCatchSeen
-                    && catchAllCleanup.Contains(clause.Id)
-                    && HandlerContainsRelease(
+                    && catchAllCleanup.Contains(clause.Id))
+                {
+                    CleanupCoverage coverage = HandlerReleaseCoverage(
+                        graph,
                         exceptionFlow,
                         clause.HandlerRegion,
-                        releases))
-                {
-                    return true;
+                        releases);
+                    if (coverage == CleanupCoverage.Guaranteed)
+                        return CleanupCoverage.Guaranteed;
+                    indeterminate |=
+                        coverage == CleanupCoverage.Indeterminate;
                 }
 
                 interceptingCatchSeen = true;
             }
         }
 
-        return false;
+        return indeterminate
+            ? CleanupCoverage.Indeterminate
+            : CleanupCoverage.None;
     }
 
-    static bool HandlerContainsRelease(
+    static CleanupCoverage HandlerReleaseCoverage(
+        BlockGraph graph,
         InstructionExceptionFlowFacts exceptionFlow,
         InstructionExceptionRegionId handler,
         ImmutableArray<int> releases)
     {
-        foreach (int release in releases)
-        {
-            if (RequireLocation(exceptionFlow, release)
-                .Any(region => region.Id == handler))
-            {
-                return true;
-            }
-        }
-        return false;
+        InstructionExceptionRegion region = exceptionFlow.Regions
+            .Single(candidate => candidate.Id == handler);
+        ImmutableArray<int> handlerReleases =
+        [
+            .. releases.Where(region.Extent.Contains),
+        ];
+        if (handlerReleases.IsEmpty)
+            return CleanupCoverage.None;
+
+        int entryBlock = graph.BlockIndexAt(region.Extent.Start);
+        return entryBlock >= 0
+            && handlerReleases.Any(release =>
+                graph.BlockIndexAt(release) == entryBlock)
+                ? CleanupCoverage.Guaranteed
+                : CleanupCoverage.Indeterminate;
     }
 
     static ImmutableArray<InstructionExceptionRegion> RequireLocation(
