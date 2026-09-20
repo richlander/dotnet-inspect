@@ -913,6 +913,14 @@ public static class CSharpAuthoredDocumentation
         }
         catch (XmlDocumentationParser.XmlDocumentationLimitException exception)
         {
+            if (exception.Kind
+                is XmlDocumentationParser.XmlDocumentationLimitKind.Members
+                    or XmlDocumentationParser.XmlDocumentationLimitKind
+                        .MemberIdCharacters)
+            {
+                return FragmentParseResult.Invalid(nodes);
+            }
+
             CSharpAuthoredDocumentationIncompleteBoundary boundary =
                 exception.Kind switch
                 {

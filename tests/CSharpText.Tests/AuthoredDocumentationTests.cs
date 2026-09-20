@@ -405,6 +405,43 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void DocumentationAfterSameLineTerminators_AttachesToNextDeclaration()
+    {
+        const string memberSource = """
+            class C
+            {
+                int A; /// <summary>Method.</summary>
+                void M() { }
+            }
+            """;
+        var method = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(memberSource, "M"));
+        Assert.Equal("Method.", method.Documentation.Summary);
+
+        const string enumSource = """
+            enum E
+            {
+                A, /// <summary>Member.</summary>
+                B
+            }
+            """;
+        EnumMemberDeclarationSyntax member =
+            CSharpSyntaxTree.ParseText(
+                    enumSource,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)
+                .GetRoot(TestContext.Current.CancellationToken)
+                .DescendantNodes()
+                .OfType<EnumMemberDeclarationSyntax>()
+                .Single(candidate => candidate.Identifier.ValueText == "B");
+        var enumMember = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                Read(enumSource, member));
+        Assert.Equal("Member.", enumMember.Documentation.Summary);
+    }
+
+    [Fact]
     public void DocumentationAfterTheFirstAttribute_IsNotAttached()
     {
         const string source = """
@@ -475,6 +512,26 @@ public sealed class AuthoredDocumentationTests
             class C
             {
                 {{documentation}}
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Malformed>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationMalformedReason.InvalidXml,
+            result.Reason);
+    }
+
+    [Fact]
+    public void SyntheticWrapperEscape_IsMalformedRatherThanThrown()
+    {
+        const string source = """
+            class C
+            {
+                /// </member><member name="M:Source"><summary>Injected</summary>
                 void M() { }
             }
             """;
