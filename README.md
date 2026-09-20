@@ -388,6 +388,7 @@ not adopted this transport.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
+| Add Library format details | `-D --details`, `-D <exact-name> --details` |
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
@@ -417,6 +418,9 @@ Useful discovery and projection patterns:
 
 ```bash
 dotnet-inspect library System.Text.Json -D
+dotnet-inspect library System.Text.Json -D --details
+dotnet-inspect library System.Text.Json -D @Dependencies --details
+dotnet-inspect library System.Text.Json -D "Reference Hierarchy" --details
 dotnet-inspect library -Q
 dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
@@ -437,6 +441,13 @@ dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 ```
+
+Library `-D --details` is structural and does not acquire the target. It adds a
+`Formats` column to the top-level catalog, or reports one exact category or
+section in detail. A category reports the formats supported by its complete
+expansion plus the formats of each member; it never selects or drops members to
+satisfy a format. Use the result to choose an exact section before requesting a
+single-result projection such as `--tree` or `--mermaid`.
 
 ## Common examples
 
