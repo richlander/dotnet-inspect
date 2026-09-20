@@ -36,7 +36,7 @@ public sealed class NuspecHardeningTests : IDisposable
     }
 
     [Fact]
-    public async Task MalformedNuspec_ProducesOneLineTypedDiagnostic()
+    public async Task MalformedNuspec_NonRecognitionSectionProducesOneLineTypedDiagnostic()
     {
         string package = WritePackage(
             "Malformed.Package",
@@ -48,7 +48,13 @@ public sealed class NuspecHardeningTests : IDisposable
             </package>
             """);
 
-        var (exit, output, error) = await RunAppAsync("package", package, "--tips", "q");
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "-S",
+            "Files",
+            "--tips",
+            "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
