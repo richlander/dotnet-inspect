@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -1164,6 +1167,22 @@ public static class MemberCommand
                     acquisition);
             }
 
+            if (effectiveOptions.OverloadIndex.HasValue
+                && apiDllPath is not null
+                && ApiCommand.GetRequestedMemberSections(
+                        apiType,
+                        effectiveOptions)
+                    .Contains(SectionNames.DecompiledSource))
+            {
+                effectiveOptions =
+                    await AttachMemberDecompilationInspectionAsync(
+                        apiType,
+                        effectiveOptions,
+                        apiDllPath,
+                        sourceAssembly,
+                        context.HttpClient);
+            }
+
             // For caller-scope queries without a specific overload, ensure DllPath is set so we can
             // open the member's own assembly index for aggregated callers across all overloads.
             if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
@@ -1774,6 +1793,201 @@ public static class MemberCommand
                     ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
                     : new MemberTargetSelector(memberName, memberName),
                 options.KindFilter);
+
+    static async Task<MemberOptions>
+        AttachMemberDecompilationInspectionAsync(
+            ApiType apiType,
+            MemberOptions options,
+            string apiDllPath,
+            ResolvedAssemblyReference? sourceAssembly,
+            HttpClient httpClient)
+    {
+        ApiMember? selectedMember =
+            apiType.Members.Count == 1
+                ? apiType.Members[0]
+                : null;
+        ApiMember? sourceAccessor =
+            ResolveSourceAccessor(
+                apiType,
+                selectedMember,
+                options.OverloadIndex);
+        ApiMember? sourceMember =
+            sourceAccessor
+            ?? selectedMember;
+        if (sourceMember?.MetadataToken is not { } sourceMemberToken
+            || MetadataTokens.EntityHandle(sourceMemberToken).Kind
+                != HandleKind.MethodDefinition)
+            return options;
+
+        string tokenOriginAssembly =
+            apiType.SourceAssemblyPath
+            ?? apiDllPath;
+        ResolvedAssemblyReference decompilationAssembly =
+            sourceAssembly
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                tokenOriginAssembly,
+                AssemblyResolutionProvenance.Local(
+                    "member decompilation"));
+        AssemblyMemberSourceRequest request =
+            ResolveMemberDecompilationRequest(
+                apiType,
+                sourceMember,
+                sourceAccessor,
+                options,
+                tokenOriginAssembly,
+                decompilationAssembly);
+        var bindingPolicy =
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    decompilationAssembly.Path
+                    ?? tokenOriginAssembly)
+                {
+                    ProjectAssetsPath =
+                        options.ProjectAssetsPath,
+                    TargetFramework = options.Tfm,
+                    IncludeDepsJsonAssets = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    PreferImplementationAssemblies = true,
+                    AllowPlatformAssemblyVersionRollForward = true,
+                });
+        var participant =
+            new AssemblyContextParticipant(
+                decompilationAssembly,
+                bindingPolicy);
+        var queryContext =
+            new AssemblyContextSourceQueryContext(
+                httpClient,
+                FileSystemPdbStore.CreateDefault(),
+                new SourcePolicyPackageSourceAuthorization(
+                    options.SourceOptions),
+                new SourceFetch(
+                    DotnetInspector.Networking.HttpClientFactory
+                        .SharedUntrustedFetch))
+            {
+                NuGetSourceOptions = options.SourceOptions,
+            };
+
+        string? pdbPath = options.PdbPath;
+        if (pdbPath is null
+            && decompilationAssembly.Path is { } selectedPath)
+        {
+            string adjacentPath =
+                Path.ChangeExtension(selectedPath, ".pdb");
+            if (File.Exists(adjacentPath))
+                pdbPath = adjacentPath;
+        }
+        AssemblyContextLibraryPortablePdb? portablePdb =
+            pdbPath is null
+                ? null
+                : new(
+                    ImmutableArray.CreateRange(
+                        await File.ReadAllBytesAsync(pdbPath)),
+                    new AssemblySourcePdbProvenance(
+                        decompilationAssembly.Registration,
+                        Identity: null,
+                        Location: pdbPath,
+                        Path: pdbPath,
+                        SymbolServer: null));
+
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [participant]);
+        InspectionEnvelope<AssemblyMemberDecompilationEntry>
+            inspection =
+                await MemberSourceInspection.DecompileAsync(
+                    group,
+                    participant,
+                    request,
+                    queryContext,
+                    portablePdb);
+        return options with
+        {
+            MemberDecompilationInspection = inspection,
+        };
+    }
+
+    static AssemblyMemberSourceRequest
+        ResolveMemberDecompilationRequest(
+            ApiType apiType,
+            ApiMember sourceMember,
+            ApiMember? sourceAccessor,
+            MemberOptions options,
+            string tokenOriginAssembly,
+            ResolvedAssemblyReference decompilationAssembly)
+    {
+        string lookupType =
+            sourceMember.DeclaringType
+            ?? apiType.FullName;
+        int lookupOverloadIndex =
+            sourceAccessor is not null
+                ? 0
+                : (sourceMember.DeclaringOverloadIndex
+                    ?? options.OverloadIndex!.Value) - 1;
+        bool directRequest =
+            options.IncludeAll;
+        bool publicOnly =
+            !directRequest
+            && sourceMember.Kind
+                is not ("explicit-interface-implementation"
+                    or "finalizer");
+        bool tokenAddressesSelectedAssembly =
+            decompilationAssembly.Path is null
+            || LibraryMetadataService
+                .ReferenceTreePathComparer(
+                    OperatingSystem.IsWindows())
+                .Equals(
+                    Path.GetFullPath(
+                        decompilationAssembly.Path),
+                    Path.GetFullPath(
+                        tokenOriginAssembly));
+
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                decompilationAssembly);
+        MethodBodySelection selection =
+            session.MethodBodies.ResolveMethod(
+                lookupType,
+                sourceMember.Name,
+                lookupOverloadIndex,
+                publicOnly,
+                tokenAddressesSelectedAssembly
+                    ? sourceMember.MetadataToken
+                    : null)
+            ?? throw new InvalidOperationException(
+                "The selected member could not be resolved in the decompilation assembly.");
+        ApiType targetType =
+            session.ApiSurface(includeAll: true).Types.Single(
+                candidate =>
+                    candidate.FullName == lookupType);
+        ApiMember? targetMember =
+            targetType.Members.FirstOrDefault(
+                candidate =>
+                    candidate.MetadataToken
+                    == selection.MetadataToken);
+        targetMember ??=
+            targetType.Members
+                .SelectMany(
+                    member =>
+                        ApiMemberAccessors.Create(
+                            member,
+                            targetType))
+                .FirstOrDefault(
+                    candidate =>
+                        candidate.MetadataToken
+                        == selection.MetadataToken);
+        if (targetMember is null)
+        {
+            throw new InvalidOperationException(
+                "The selected MethodDef could not be projected as an API member.");
+        }
+
+        return AssemblyMemberSourceRequest.From(
+            targetType,
+            targetMember,
+            options.RenderOptions);
+    }
 
     private static string GetMemberSectionName(string kind) => kind switch
     {
