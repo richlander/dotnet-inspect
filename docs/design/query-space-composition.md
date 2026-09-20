@@ -35,15 +35,17 @@ implementation slice lands and runs in Release.
 **Query Space Composition** owns this exact claim:
 
 > One query-capable route exposes one closed, host-neutral query space that
-> composes an operation-owned query plan, one or more declared row spaces, and
-> one terminal requirement without merging their semantic ownership. The same
-> executable registrations produce its capability descriptor, structural
-> plans, host lowering, source-delegation input, and optional generated
-> consumer API.
+> composes one operation query scope, one or more row-query scopes over
+> declared row sets, and one terminal requirement without merging their
+> semantic ownership. The same executable registrations produce its capability
+> descriptor, structural request lowering, owner-issued plans, host lowering,
+> source-delegation input, and optional generated consumer API.
 
 This owner defines:
 
 - the parts that form one query space;
+- the host-neutral request shape that associates scoped portable intents with
+  operation and row bindings;
 - the distinction between reusable facet definitions and their operation or
   row bindings;
 - the closed query-language boundary shared by hosts;
@@ -68,6 +70,8 @@ This owner does not define:
 - portable payload bytes or compatibility policy;
 - CLI grammar, Browser interaction, Markout rendering, LINQ use, or `jq`
   programs;
+- `explain` resource paths, structural-discovery documents, value-vocabulary
+  contents, or envelope wire-contract registration;
 - a universal executable plan shared by operation owners; or
 - the name, packaging, or publication schedule of the eventual reusable
   library.
@@ -130,6 +134,12 @@ shared semantics:
 - command and section experiences consume the same effective query-space
   descriptor rather than maintaining parallel capability inventories.
 
+That compact host gesture is not one universal portable intent. Host lowering
+uses the descriptor to route each canonical term to its operation or row query
+scope and constructs the explicit row-intent associations required by the
+selected row sets. Ambiguous stage or order targeting fails before execution
+rather than applying one global pipeline by convention.
+
 Another .NET application may instead obtain the descriptor, construct the same
 typed intent directly, execute it through the same plans, and apply LINQ to the
 returned typed rows. A Browser application may construct controls from the
@@ -160,22 +170,28 @@ One query space is an immutable effective binding containing:
 | Part | Meaning |
 | --- | --- |
 | Identity | Stable owner-issued identity for discovery and portable intent resolution. |
-| Operation route | One Query Operation definition, subject role, result grain, and operation profile. |
-| Row spaces | One or more declared row-set identities paired with their row vocabularies and supported shaping capabilities. |
+| Operation scope | One Query Operation definition, operation query-vocabulary identity, subject role, result grain, and operation profile. |
+| Row-query scopes | One or more stable scope identities, each pairing one row query vocabulary with the compatible declared row-set identities and shaping capabilities to which an instance of that intent may apply. |
+| Request shape | One operation intent plus optional section-owned projection intent, zero or more ordered row-intent associations, a non-empty participating row-set selection, and one terminal requirement. |
 | Terminal space | The supported terminal requirements, initially Rows and exact Count, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
-| Descriptor | The complete resource-free capability projection consumed by hosts and generators. |
+| Result-contract references | Optional owner-issued mapping from a terminal/result shape to the output contract it produces; schema, Content Kind, and serialization remain with the output owner. |
+| Descriptor | The complete resource-free, serializable capability projection consumed by hosts and generators without execution or reflection. |
 
 The query space composes these parts without replacing their plans. A successful
 resolution retains:
 
 ```text
-subject binding
-  -> operation-owned executable plan
-  -> typed operation result and declared row sets
-  -> row-space plan for each selected row set
-  -> terminal requirement
+query-space request
+  -> operation PortableQueryIntent -> operation-owned executable plan
+  -> section-owned projection intent and participating row-set selection
+  -> ordered row-intent associations:
+     -> row-query-scope identity
+     -> one PortableQueryIntent
+     -> non-empty ordered compatible row-set identities
+  -> Section-row shaping plans and cohorts
+  -> terminal requirement and optional result-contract reference
 ```
 
 There is no universal executable query-plan type. The query-space binding
@@ -188,21 +204,49 @@ Infrastructure, but it does not form a Rows-or-Count query space under this
 owner and cannot advertise those terminal capabilities. Composition never
 invents an implicit operation-result row set or an undefined zero-entry Count.
 
+Each participating row set is assigned to exactly one row-intent association.
+One association may target multiple sets only when they use the named row query
+scope and all admit the same row intent; independently shaped or heterogeneous
+sets use separate associations. Unknown, repeated, unassigned, or incompatible
+row-set associations fail atomically before execution.
+
+When a request supplies no row-intent associations, Query Space preserves
+Section-row shaping's default association across all participating sets. A
+request with explicit row terms, order, or selection supplies explicit
+associations. One `PortableQueryIntent` always resolves once against its named
+operation or row query vocabulary; it never spans several vocabularies.
+
+Host lowering is deterministic:
+
+1. operation terms and bounds enter the operation intent;
+2. each row term enters the row intent for the unique row query scope named by
+   its canonical key;
+3. each row intent is associated with its explicit non-empty ordered target
+   set; and
+4. row order and selection enter that association rather than a global slot.
+
+A host may offer one shorthand that applies the same row intent to several
+compatible selected sets, but it constructs one explicit association naming
+those sets. If the host cannot determine one target scope for an unqualified
+order or selection gesture, lowering fails before plan resolution. Query Space
+does not guess from schema, position, section name, or display text.
+
 ## Facet definitions and bindings
 
 A reusable **facet definition** declares:
 
 - one stable identity and one canonical query key;
 - one typed value domain;
+- an optional owner-issued value-vocabulary identity;
 - the admitted operator identities;
 - cardinality and repeated-term composition;
-- display label, summary, accepted values, and examples; and
+- display label, summary, query-local constraints, and examples; and
 - compatibility identity for portable replay.
 
 A facet definition does not make the facet executable. It becomes available
 only through one of two bindings. Within one effective query space, the
 canonical query-key namespace is unique across all executable bindings: one key
-resolves to exactly one binding, semantic stage, and optional row-set identity.
+routes to exactly one operation or row query scope.
 Handwritten and generated registration fail before capability discovery or
 host construction when two active bindings claim the same canonical key.
 Portable intent therefore remains a `(key, operator, value)` term and does not
@@ -217,7 +261,7 @@ An **operation facet binding** declares:
 
 A **row facet binding** declares:
 
-- one declared row-set identity;
+- one row-query-scope identity;
 - one typed accessor and operand binder;
 - predicate capabilities;
 - optional sequence or ranking order capabilities; and
@@ -235,33 +279,45 @@ Display labels may coincide across operation and row facets, but bindings
 exposed together use distinct canonical query keys. A displayed field or
 section name never creates a facet or supplies a portable lookup key.
 
-### Effective vocabulary identity
+An external value-vocabulary reference points to the stable legal-value domain
+owned by the `vocabulary` subsystem. The query-space descriptor does not copy
+that domain's complete value catalog. Open-ended facets expose their typed
+domain, constraints, and examples without claiming an enumerated value
+vocabulary.
 
-Query Space constructs one effective portable vocabulary without treating
-owner-local identity strings as one accidental global namespace.
+### Query-vocabulary and identity composition
 
-Caller-addressed identities are unique within each typed lookup namespace.
-Canonical query keys, bound dimensions, and named orders each resolve to
-exactly one effective declaration of their kind. The same text may occur in
-different typed namespaces because portable intent distinguishes their shape,
-but duplicate declarations within one namespace fail composition before
-discovery or host construction.
+In this design, **query vocabulary** means the keys, operators, families,
+bounds, stages, and orders accepted by one `PortableQueryIntent`.
+**Value vocabulary** means an independently owned stable legal-value domain
+such as the existing `VocabularyDocument`. Unqualified *vocabulary* is avoided
+when the distinction matters.
 
-Resolver-internal identities are qualified by their semantic scope. One
-operation-route scope is shared by all operation facet bindings, and one
-row-space scope is shared by all row facet bindings for a declared row set.
-Distinct keys in the same scope therefore retain an owner-declared combining,
-exclusive, or required family and may retain an owner-declared common bound
-predicate identity. The same owner-local family or predicate text in an
-operation scope and a row scope becomes distinct effective identities.
-Required-family checks use the qualified effective family identity.
+Query Space does not merge owner vocabularies into one universal
+`PortableQueryVocabulary`. The operation scope and each row query scope retain
+their own stable query-vocabulary identity, family namespace, predicate
+identity namespace, dimensions, stages, and orders. Each portable intent
+resolves exactly once inside that scope.
 
-The qualification is structural, such as `(operation-route identity,
-owner-local identity)` or `(row-set identity, owner-local identity)`; it is not
-user syntax and need not be serialized into a portable term. A family never
-spans operation and row scopes implicitly. A future cross-scope family would
-require an explicit composition-owned identity and semantics. The initial
-algebra contains no such family.
+Canonical term keys are unique across the complete query space because the
+compact host term has no scope discriminator. That uniqueness lets a host route
+a term to one scope without changing portable term syntax. Bounds, named
+orders, family identities, and bound predicate identities remain local to the
+specific operation or row intent that carries or resolves them.
+
+Distinct keys in one query-vocabulary scope therefore retain an owner-declared
+combining, exclusive, or required family and may retain an owner-declared
+common bound predicate identity. The same owner-local family or predicate text
+in an operation scope and a row scope is unrelated because the two intents
+resolve against different query vocabularies. A family never spans scopes
+implicitly. A future cross-scope family would require an explicit
+composition-owned identity and semantics. The initial algebra contains no such
+family.
+
+For global inspection, the descriptor identifies any scope-local declaration
+structurally, such as `(query-space identity, query-scope identity, local
+identity)`. That composite identity is not user query syntax and is not
+substituted for the owner-local text inside portable intent.
 
 The current Query Operation implementation's `ResultPredicate` term role is
 transitional. Result predicates belong to explicit row-space bindings composed
@@ -368,6 +424,35 @@ the source-specific path is selected through an explicit contract rather than
 an `if (source is SomeConcreteType)` branch. Unlike NLinq, the complete
 runtime-authored query shape is not encoded as nested generic types.
 
+## Discovery and explanation seam
+
+The capability descriptor and a resolved structural plan are distinct
+artifacts.
+
+The descriptor can be enumerated and serialized without execution,
+acquisition, reflection, or live resources. It exposes stable identities and
+typed relationships for the query space, operation and row query scopes,
+eligible row sets, facets, bindings, operators, terminals, effects, and
+continuation acceptance. A facet may reference an external value-vocabulary
+identity, and a terminal/result shape may reference an external result-contract
+identity. Those references remain opaque owner-issued identities; Query Space
+does not copy value catalogs or define output schemas. The descriptor
+representation remains dependency-light, NativeAOT-compatible, and usable in
+single-threaded Browser/Wasm.
+
+A resolved plan adds the normalized operands, selected row-intent
+associations, semantic stages, effects, terminal requirement, and
+source-delegation boundary for one request. It remains inspectable without
+executing that request.
+
+`-Q` may be a compact projection of the descriptor, and a future `explain`
+experience may compose it with structural discovery, value vocabulary, and
+output-contract catalogs. Those consumers must follow typed links rather than
+copying query metadata into `DiscoveryDocument`, parsing labels, or inferring
+semantics from rendered companion sections. Query Space does not own the
+`explain` command, resource-path grammar, discovery document, envelope
+registration, Content Kind, or schema generation.
+
 ## Terminal requirements
 
 Rows and exact Count are peer terminal requirements over each participating
@@ -472,11 +557,12 @@ resuming it supplies current authority through the normal source-selection
 path.
 
 A continuation is not a portable query term, execution bound, selection stage,
-or order operation. It is a source input beside the same canonical query
-intent. A higher-level consumer resumes by composing that unchanged compatible
-intent, the continuation, and a new execution bound or terminal request.
-Portable sharing starts from the source population's beginning unless a
-separate source-owned interchange contract explicitly admits the continuation.
+or order operation. It is a source input beside the same canonical query-space
+request, including its operation intent and row-intent associations. A
+higher-level consumer resumes by composing that unchanged compatible request,
+the continuation, and a new execution bound or terminal requirement. Portable
+sharing starts from the source population's beginning unless a separate
+source-owned interchange contract explicitly admits the continuation.
 
 The useful consistency classes are:
 
@@ -563,7 +649,7 @@ A generator may produce:
 - stable identity constants;
 - immutable registration and descriptor tables;
 - typed intent builders;
-- closed vocabulary-specific predicate and comparer dispatch;
+- closed query-vocabulary-specific predicate and comparer dispatch;
 - source-offer matching tables;
 - portable serialization metadata; and
 - diagnostics for duplicate identities, incompatible operator domains,
@@ -584,10 +670,10 @@ structural plans, failures, and execution behavior.
 The first implementation should remain explicit through at least Package
 Query, Library Query, and one declared References row-space adoption. The
 generator follows only after those consumers expose stable repeated
-boilerplate. It specializes by query space, row vocabulary, and source adapter,
-not by every runtime sequence of terms; full per-query generic specialization
-would create unacceptable NativeAOT code-size growth and cannot represent
-runtime-authored query shapes.
+boilerplate. It specializes by query space, query-vocabulary scope, row schema,
+and source adapter, not by every runtime sequence of terms; full per-query
+generic specialization would create unacceptable NativeAOT code-size growth
+and cannot represent runtime-authored query shapes.
 
 ## Pathological cases
 
@@ -609,11 +695,18 @@ The eventual implementation and adopter gates must preserve these cases:
   distinct canonical query keys, and portable round-trip resolution preserves
   each binding's declared stage without guessing from display spelling.
 - An operation binding and a row binding both declare an owner-local family
-  named `population`. Their qualified effective family identities neither
-  combine, conflict, nor satisfy one another's required-family rule.
+  named `population`. Their scope-local query vocabularies neither combine,
+  conflict, nor satisfy one another's required-family rule.
 - One operation scope declares distinct `package` and `prefix` keys in its
   required exclusive `population` family. Qualification preserves their shared
   family, so either key satisfies the requirement and using both still fails.
+- Two compatible row sets share one row query scope and one explicit row-intent
+  association, so the same predicates, order, and selection apply independently
+  to both. A heterogeneous companion set uses a separate association and cannot
+  consume the first scope's stages or orders.
+- A host supplies an unqualified row order while two incompatible row query
+  scopes are active. Lowering fails before execution rather than assigning the
+  order by declaration position or applying it globally.
 - Two participating row sets contain three and five selected rows. Count
   returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
   total of eight.
@@ -643,9 +736,9 @@ Implementation proceeds as focused owner adoptions:
 1. Lock this composition contract and its owner map.
 2. Extend Portable Query Intent with the explicit Prefix, NotPrefix, Contains,
    and NotContains identities.
-3. Have Query Operation Infrastructure compose explicit row spaces, construct
-   the effective vocabulary's caller-addressed identities and operation-route
-   or row-space-qualified internal identities, and retire its transitional
+3. Have Query Operation Infrastructure introduce the host-neutral query-space
+   request, compose the operation intent with ordered row-intent associations,
+   preserve each scope's query vocabulary, and retire its transitional
    `ResultPredicate` role.
 4. Preserve structural predicate and order nodes through row-query resolution
    beside local executable bindings.
@@ -657,9 +750,12 @@ Implementation proceeds as focused owner adoptions:
 8. Add the References row space and Assembly Reference Prefixes summary over
    owner-issued assembly-reference evidence.
 9. Rebase Inspect Web result demand on the shared execution/continuation
-   boundary without moving scroll or virtualization policy into the substrate.
-10. Add one small non-CLI .NET consumer before selecting the final package name
-    and enabling supported package publication.
+   boundary without moving scroll or virtualization policy into the substrate;
+   migrate `-Q` to the descriptor while leaving future `explain` adoption with
+   its owning effort.
+10. Add one small non-CLI .NET consumer, including descriptor enumeration and
+    owner-issued value-vocabulary and result-contract links, before selecting
+    the final package name and enabling supported package publication.
 11. Evaluate source generation after the first three explicit query-space
     adopters establish repeated boilerplate.
 
@@ -673,7 +769,9 @@ slices:
 | Gate | Required property |
 | --- | --- |
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
-| `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates remain isolated across operation-route and row-space scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
+| `QuerySpaceDescriptorRoundTripsWithoutResources` | The descriptor is enumerable and serializable without execution, acquisition, reflection, or live resources; round-trip preserves scope, facet, value-vocabulary, row-set, terminal, effect, continuation-capability, and result-contract relationships. |
+| `QuerySpaceRequestLowersToExplicitRowAssociations` | One operation intent and zero or more ordered row-intent associations lower deterministically; every participating set is assigned exactly once, one shared association targets only compatible sets, heterogeneous or independently shaped sets remain separate, and ambiguous unqualified order or selection fails before execution. |
+| `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate canonical term keys across the query space; each portable intent resolves inside one operation or row query vocabulary; same-named owner-local families and predicates remain isolated across scopes, while distinct keys within one scope preserve their shared combining, exclusive, required-family, and duplicate-binding behavior. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `SelectedRowSetListIsNonEmpty`, `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `RowsPreserveIndependentSourceOutcomes`, `IncompleteRowsRemainVisibleWithoutBecomingCount`, `CrossCohortRowsAreAtomicOnExecutionFailure`, `CountObservesPrecedingSemanticStages`, `CountPreservesDeclaredRowSetScope`, `CountFailurePrecedenceIsDeterministic`, and `CountSourceFailureBindingPreservesOutcomes`; terminal resolution requires a participating row set, Rows preserves independent source evidence but publishes no partial execution result, and Count preserves its owner-issued success and all-or-failure branches. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
@@ -683,7 +781,7 @@ slices:
 | `ExactCountRequiresAcceptedEvidence` | Source Count, exhaustion, and `Head(N)` witnesses are accepted only under the terminal owner's exact requirement. |
 | `SourcePageSizeDoesNotDefineResultMeaning` | Different physical source batch sizes produce the same rows, Count, completion, and continuation semantics. |
 | `ManualAndGeneratedQuerySpacesAreEquivalent` | When generation is introduced, generated and handwritten paths produce the same descriptors, plans, failures, and results. |
-| `ExternalConsumerBuildsFromQuerySpaceDescriptor` | A non-CLI consumer constructs a valid query and interprets its terminal and continuation without CLI types or reflection. |
+| `ExternalConsumerBuildsFromQuerySpaceDescriptor` | A non-CLI consumer enumerates the descriptor, follows its optional value-vocabulary and result-contract links, constructs scoped intents and row associations, and interprets the terminal and continuation without CLI types or reflection. |
 
 ## Non-claims
 
