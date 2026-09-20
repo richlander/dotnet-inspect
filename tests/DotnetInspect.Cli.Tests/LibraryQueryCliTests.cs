@@ -104,6 +104,70 @@ public sealed class LibraryQueryCliTests
         }
     }
 
+    [Fact]
+    public async Task Directory_CandidateLimitReportsFullPopulation()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"library-query-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            foreach (string fileName in
+                new[] { "A.First.dll", "B.Second.dll", "C.Third.dll" })
+            {
+                File.Copy(
+                    typeof(LibraryQueryCliTests).Assembly.Location,
+                    Path.Combine(directory, fileName));
+            }
+
+            var result = await RunAsync(
+                "library",
+                "query",
+                directory,
+                "--where",
+                "references=System.Runtime",
+                "--take",
+                "1");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains("CandidateLimitReached", result.Error);
+            Assert.Contains("1/3 occurrences evaluated", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitNonLibraryFile_IsRejectedBeforeAcquisition()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"library-query-{Guid.NewGuid():N}.txt");
+        File.Copy(typeof(LibraryQueryCliTests).Assembly.Location, path);
+        try
+        {
+            var result = await RunAsync(
+                "library",
+                "query",
+                path,
+                "--where",
+                "references=System.Runtime");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "must be a .dll or .exe file or a directory",
+                result.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static Task<(int ExitCode, string Output, string Error)> RunAsync(
         params string[] arguments) =>
         ConsoleCapture.RunAsync(() =>

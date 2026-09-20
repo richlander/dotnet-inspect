@@ -255,7 +255,6 @@ internal static class LibraryQueryCommand
             {
                 string[] paths = ExpandSources(
                     sources,
-                    maximumCandidates,
                     cancellationToken);
                 var available = new List<(
                     int Ordinal,
@@ -342,10 +341,9 @@ internal static class LibraryQueryCommand
 
         private static string[] ExpandSources(
             IReadOnlyList<string> sources,
-            int maximumCandidates,
             CancellationToken cancellationToken)
         {
-            var paths = new List<string>(maximumCandidates + 1);
+            var paths = new List<string>();
             foreach (string source in sources)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -359,15 +357,11 @@ internal static class LibraryQueryCommand
                         .Order(StringComparer.Ordinal))
                     {
                         paths.Add(Path.GetFullPath(path));
-                        if (paths.Count > maximumCandidates)
-                            return [.. paths];
                     }
                 }
                 else
                 {
                     paths.Add(Path.GetFullPath(source));
-                    if (paths.Count > maximumCandidates)
-                        return [.. paths];
                 }
             }
 
