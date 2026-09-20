@@ -236,6 +236,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 AnalysisHistoryRequest(
                     PackageVersionCellAnalysisProducerKind.Allocation,
                     population,
+                    type: OrdinalType.ToLowerInvariant(),
                     evaluationPlan:
                         new DiffHistoryEvaluationPlan.AdaptiveBisect(2),
                     maximumEvaluations: 2),
@@ -248,6 +249,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             Assert.Single(document.NextActions));
 
         Assert.Equal(document.SourceReceipt!.Member, action.Member);
+        Assert.Equal(
+            document.SourceReceipt.Member.TypeFullName,
+            action.TypeFullName);
         Assert.Equal(document.SourceReceipt.Asset, action.SourceAsset);
     }
 
@@ -2659,6 +2663,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         PackageVersionCellAnalysisProducerKind finding,
         ImmutableArray<CellFixture> population,
         string member = OrdinalMember,
+        string type = OrdinalType,
         DiffHistoryEvaluationPlan? evaluationPlan = null,
         int maximumEvaluations = 16) =>
         new(
@@ -2673,11 +2678,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             AnalysisLimits(),
             DateTimeOffset.UtcNow.AddMinutes(1),
             new PackageVersionCellMemberSelector(
-                OrdinalType,
+                type,
                 member),
             new FindingSubject(
-                $"history:{OrdinalType}:{member}",
-                $"{OrdinalType}.{member}"));
+                $"history:{type}:{member}",
+                $"{type}.{member}"));
 
     static DiffHistoryApiMemberOperationRequest CountRequest(
         DiffHistoryApiMemberInspectionRequest inspection,

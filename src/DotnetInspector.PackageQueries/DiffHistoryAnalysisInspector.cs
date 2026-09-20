@@ -161,9 +161,10 @@ static class DiffHistoryAnalysisEngine
                     boundary => new DiffHistoryNextAction.PairwiseDiff(
                         boundary,
                         request.Population.Vector.PackageId,
-                        request.Selector.Type,
                         (receipt ?? throw new InvalidOperationException(
                             "An Analysis action requires the source receipt."))
+                            .Member.TypeFullName,
+                        receipt
                             .Member,
                         receipt.Asset,
                         producer.Descriptor.Id,
