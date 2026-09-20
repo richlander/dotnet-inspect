@@ -310,8 +310,8 @@ The package workflow then:
 5. Revalidates both source runs, freshness, and the resolved commit immediately
    before NuGet authentication and publication.
 6. Publishes Native AOT packages, then the managed fallback, then the pointer.
-7. Creates a GitHub release from the package version, verifies that the
-   resulting tag resolves to the exact CI commit, and attaches all packages.
+7. Creates a GitHub release from the package version at the resolved CI commit
+   and attaches all packages.
 
 The pointer is deliberately published last because it references the
 runtime-specific packages.
@@ -342,9 +342,9 @@ commit.
   target or its ancestor; this relationship cannot be overridden.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
-- **The release tag targets another commit:** the post-release result validator
-  fails the package workflow. Move the tag to the resolved CI commit, then rerun
-  the failed verification before treating the release as complete.
+- **The release tag targets another commit:** move it to the resolved CI commit
+  before treating the release as complete. Verify the release version and
+  commit as part of the post-publish checks above.
 - **A package version already exists:** advance `VersionPrefix`; published
   package versions are immutable.
 - **A partially published release is retried:** the workflow uses

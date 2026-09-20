@@ -137,9 +137,8 @@ Open `release.yml` and `promote-inspect-web.yml` together:
    If either is wrong, cancel both workflow runs before package publication
    starts. Do not leave a stale promotion run waiting for approval.
 4. Monitor the package builds and automatic NuGet publication.
-5. Wait for the package workflow and its verification that the GitHub release
-   tag resolves to the selected SHA, then approve the production-site
-   environment. Never promote the site first.
+5. Wait for the package workflow and GitHub release to succeed, then approve
+   the production-site environment. Never promote the site first.
 
 Do not substitute a newer run after the SHA comparison. Production promotion
 automatically invokes the CoreCLR deployment with the resolved SHA, staging run
@@ -148,10 +147,9 @@ and the nested CoreCLR deployment succeed.
 
 ## Verify and recover
 
-The package workflow verifies that the created GitHub release tag resolves to
-the selected package SHA before it reports success. Independently verify the
-package version and commit in NuGet and the GitHub release, then check the
-production and CoreCLR sites' data bars for the same version and linked commit.
+Verify the package version and commit in NuGet and the GitHub release. Then
+check the production and CoreCLR sites' data bars for the same version and
+linked commit.
 
 If the package workflow fails, leave site production unapproved and retry with
 the same CI and certification run IDs. Package retries tolerate
