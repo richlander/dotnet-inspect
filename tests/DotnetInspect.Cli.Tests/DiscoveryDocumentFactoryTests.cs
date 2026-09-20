@@ -47,6 +47,7 @@ public class DiscoveryDocumentFactoryTests
 
         Assert.Equal(
             [
+                Section(SectionNames.EcosystemDependencies),
                 Section(SectionNames.ReferenceHierarchy),
                 Section(SectionNames.References),
             ],

@@ -2826,6 +2826,27 @@ public static class PackageDependencyEvidenceQuery
         return true;
     }
 
+    internal static bool TryGetExactVersionConstraint(
+        string canonicalConstraint,
+        out string version)
+    {
+        if (!VersionRange.TryParse(
+                canonicalConstraint,
+                out VersionRange? range)
+            || range.MinVersion is null
+            || range.MaxVersion is null
+            || !range.IsMinInclusive
+            || !range.IsMaxInclusive
+            || range.MinVersion != range.MaxVersion)
+        {
+            version = "";
+            return false;
+        }
+
+        version = range.MinVersion.ToNormalizedString().ToLowerInvariant();
+        return true;
+    }
+
     private static void ValidatePackageSelection(PackageDependencyGroups source)
     {
         switch (source.SelectionStatus)
