@@ -1155,7 +1155,9 @@ public static partial class CSharpBodyDiff
             TypeRefKind.Pinned => $"pinned {CanonicalTypeName(type.ElementType!)}",
             TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
             TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
-            TypeRefKind.FunctionPointer => CanonicalFunctionPointer(type),
+            TypeRefKind.FunctionPointer => CanonicalFunctionPointer(
+                type,
+                includeOwnModifiers: true),
             _ => $"<unsupported:{type.UnsupportedReason}>",
         };
     }
@@ -1259,16 +1261,113 @@ public static partial class CSharpBodyDiff
                 "Unknown metadata type-name result."),
         };
 
-    static string CanonicalFunctionPointer(TypeRef type)
+    static string CanonicalFunctionPointer(
+        TypeRef type,
+        bool includeOwnModifiers)
     {
         string convention = type.CallingConvention.Length == 0
             ? ""
             : $" {type.CallingConvention}";
-        return $"delegate*{convention}<"
-            + $"{string.Join(",", type.TypeArguments.Select(
-                CanonicalTypeName).Append(
-                    CanonicalTypeName(type.ElementType!)))}>";
+        string signatureShape = CanonicalFunctionPointerSignatureShape(type);
+        var parameters = type.TypeArguments.Select(
+            parameter => CanonicalFunctionPointerComponent(
+                parameter,
+                omitNormalizedConventionModifiers: false));
+        string returnType = CanonicalFunctionPointerComponent(
+            type.ElementType!,
+            omitNormalizedConventionModifiers:
+                type.FunctionPointerConventionModifiersAreExact);
+        string identity = $"delegate*{convention}{signatureShape}<"
+            + $"{string.Join(",", parameters.Append(returnType))}>";
+        return includeOwnModifiers
+            ? ApplyFunctionPointerCustomModifiers(
+                type,
+                identity,
+                omitNormalizedConventionModifiers: false)
+            : identity;
     }
+
+    static string CanonicalFunctionPointerSignatureShape(TypeRef type)
+    {
+        var parts = new List<string>(3);
+        byte callingConvention =
+            (byte)(type.FunctionPointerSignatureDiscriminator & 0x0F);
+        byte attributes =
+            (byte)(type.FunctionPointerSignatureDiscriminator & 0xF0);
+        if (callingConvention is not (0x00
+            or 0x01
+            or 0x02
+            or 0x03
+            or 0x04
+            or 0x09))
+        {
+            parts.Add($"calling=0x{callingConvention:X2}");
+        }
+        if (attributes != 0)
+        {
+            parts.Add(
+                $"flags=0x{attributes:X2}");
+        }
+        if (type.FunctionPointerGenericParameterCount != 0)
+        {
+            parts.Add(
+                $"generic={type.FunctionPointerGenericParameterCount}");
+        }
+        if (type.FunctionPointerRequiredParameterCount
+            != type.TypeArguments.Length)
+        {
+            parts.Add(
+                $"required={type.FunctionPointerRequiredParameterCount}");
+        }
+        return parts.Count == 0
+            ? ""
+            : $"{{{string.Join(";", parts)}}}";
+    }
+
+    static string CanonicalFunctionPointerComponent(
+        TypeRef type,
+        bool omitNormalizedConventionModifiers)
+    {
+        string identity = type.Kind == TypeRefKind.FunctionPointer
+            ? CanonicalFunctionPointer(type, includeOwnModifiers: false)
+            : CanonicalTypeName(type);
+        return ApplyFunctionPointerCustomModifiers(
+            type,
+            identity,
+            omitNormalizedConventionModifiers);
+    }
+
+    static string ApplyFunctionPointerCustomModifiers(
+        TypeRef type,
+        string identity,
+        bool omitNormalizedConventionModifiers)
+    {
+        foreach (TypeRefCustomModifier modifier in type.CustomModifiers)
+        {
+            if (omitNormalizedConventionModifiers
+                && IsNormalizedFunctionPointerConventionModifier(modifier))
+            {
+                continue;
+            }
+            string kind = modifier.IsRequired ? "modreq" : "modopt";
+            identity =
+                $"{kind}({CanonicalTypeName(modifier.Modifier)}){identity}";
+        }
+        return identity;
+    }
+
+    static bool IsNormalizedFunctionPointerConventionModifier(
+        TypeRefCustomModifier modifier)
+        => !modifier.IsRequired
+            && modifier.Modifier.Namespace
+                == "System.Runtime.CompilerServices"
+            && modifier.Modifier.Name is
+                "CallConvCdecl"
+                or "CallConvStdcall"
+                or "CallConvThiscall"
+                or "CallConvFastcall"
+                or "CallConvSuppressGCTransition"
+                or "CallConvMemberFunction";
 
     static string GenericParameterList(int arity, bool isMethod)
     {

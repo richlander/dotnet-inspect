@@ -962,6 +962,100 @@ public sealed class ImplementationComparisonQueryTests
         Assert.Equal(selectedId, selected.Subject.Id);
     }
 
+    [Theory]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .SignatureHeader,
+        "{flags=0x20}")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .UnsupportedModifier,
+        "modopt(Probe.Marker)")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .RequiredModifier,
+        "modreq(Probe.Marker)")]
+    public void
+        DocumentQuery_CorrelatesFunctionPointerStructuralReturnCollisions(
+            FunctionPointerConventionReturnOverloadFixture.IdentityCase
+                identityCase,
+            string distinguishingIdentity)
+    {
+        ImplementationDiffDocument document =
+            CompareFunctionPointerConventionReturnTypeOverloads(
+                identityCase: identityCase);
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. document.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+
+        Assert.True(
+            members.Length == 2,
+            string.Join(
+                Environment.NewLine,
+                members.Select(member =>
+                    $"{member.Subject.Id}: "
+                    + string.Join(
+                        ", ",
+                        member.Evidence.Select(evidence =>
+                            evidence.CSharpRow?.BodyAnchor
+                                ?.CanonicalSignature
+                            ?? evidence.Mechanism.ToString())))));
+        Assert.Equal(
+            2,
+            members.Select(member => member.Subject.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+        Assert.Contains(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .Contains(
+                        distinguishingIdentity,
+                        StringComparison.Ordinal)
+                    == true));
+
+        string selectedId = members
+            .Select(member => member.Subject.Id)
+            .Order(StringComparer.Ordinal)
+            .First();
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        ImplementationDiffDocument filtered =
+            CompareFunctionPointerConventionReturnTypeOverloads(
+                new HashSet<string>(
+                    [selectedId[..returnSeparator], selectedId],
+                    StringComparer.Ordinal),
+                identityCase);
+
+        ImplementationDiffDocumentMember selected = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Changed");
+        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.CSharp);
+        Assert.Contains(
+            selected.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.IlBody);
+    }
+
     static ImplementationDiffDocument
         CompareConstructedGenericReturnTypeOverloads(
             IReadOnlySet<string>? memberTargetIdentities = null)
@@ -1166,7 +1260,11 @@ public sealed class ImplementationComparisonQueryTests
 
     static ImplementationDiffDocument
         CompareFunctionPointerConventionReturnTypeOverloads(
-            IReadOnlySet<string>? memberTargetIdentities = null)
+            IReadOnlySet<string>? memberTargetIdentities = null,
+            FunctionPointerConventionReturnOverloadFixture.IdentityCase
+                identityCase =
+                    FunctionPointerConventionReturnOverloadFixture
+                        .IdentityCase.ConventionModifiers)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1180,11 +1278,13 @@ public sealed class ImplementationComparisonQueryTests
             File.WriteAllBytes(
                 oldPath,
                 FunctionPointerConventionReturnOverloadFixture.Build(
-                    returnOne: false));
+                    returnOne: false,
+                    identityCase: identityCase));
             File.WriteAllBytes(
                 newPath,
                 FunctionPointerConventionReturnOverloadFixture.Build(
-                    returnOne: true));
+                    returnOne: true,
+                    identityCase: identityCase));
             return ImplementationDiffDocumentQuery.Execute(
                 new ImplementationComparisonInput(
                     [StreamBackedInput(oldPath, "before.dll")],
@@ -1193,7 +1293,7 @@ public sealed class ImplementationComparisonQueryTests
                         StringComparer.OrdinalIgnoreCase)
                     {
                         FunctionPointerConventionReturnOverloadFixture
-                            .TypeName,
+                            .GetTypeName(identityCase),
                     },
                     MemberTargetIdentities: memberTargetIdentities));
         }

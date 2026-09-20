@@ -23,6 +23,59 @@ public class FunctionPointerDiagnosticsPassTests
         Assert.Equal(expected, type.ToDisplayString());
     }
 
+    [Theory]
+    [InlineData(
+        0x20,
+        0,
+        0,
+        0,
+        "delegate* unmanaged[Cdecl]{flags=0x20}<System.Object>")]
+    [InlineData(
+        0x60,
+        0,
+        0,
+        0,
+        "delegate* unmanaged[Cdecl]{flags=0x60}<System.Object>")]
+    [InlineData(
+        0x10,
+        2,
+        0,
+        0,
+        "delegate* unmanaged[Cdecl]{flags=0x10;generic=2}<System.Object>")]
+    [InlineData(
+        0x05,
+        0,
+        1,
+        2,
+        "delegate* unmanaged{calling=0x05;required=1}"
+            + "<System.Object,System.Object,System.Object>")]
+    public void CanonicalFunctionPointerIdentity_PreservesSignatureStructure(
+        int signatureDiscriminator,
+        int genericParameterCount,
+        int requiredParameterCount,
+        int parameterCount,
+        string expected)
+    {
+        TypeRef pointer = TypeRef.FunctionPointer(
+            Object,
+            Enumerable.Repeat(Object, parameterCount).ToImmutableArray(),
+            signatureDiscriminator == 0x05
+                ? "unmanaged"
+                : "unmanaged[Cdecl]",
+            callingConventionIsExact: false,
+            signatureDiscriminator: (byte)signatureDiscriminator,
+            genericParameterCount,
+            requiredParameterCount);
+
+        Assert.Equal(expected, CSharpBodyDiff.CanonicalTypeName(pointer));
+        Assert.NotEqual(
+            TypeRef.FunctionPointer(
+                Object,
+                Enumerable.Repeat(Object, parameterCount).ToImmutableArray(),
+                "unmanaged[Cdecl]"),
+            pointer);
+    }
+
     [Fact]
     public void CallIndirect_PreservesInOutFunctionPointerArgumentKeywords()
     {

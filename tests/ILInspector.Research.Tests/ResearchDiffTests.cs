@@ -2204,22 +2204,56 @@ public class ResearchDiffTests
                     integer,
                     isRequired: false),
                 isRequired: false));
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            ordinaryReturn,
+            suppressingReturn,
+            "FunctionPointerConventionReturnSample");
+    }
+
+    [Fact]
+    public void
+        ImplementationComplexityService_FunctionPointerHeaderOverloadsRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef FunctionPointer(SignatureAttributes attributes) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        attributes),
+                    integer,
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            FunctionPointer(SignatureAttributes.None),
+            FunctionPointer(SignatureAttributes.Instance),
+            "FunctionPointerSignatureHeaderReturnSample");
+    }
+
+    static void AssertComplexityFunctionPointerReturnsRemainDistinct(
+        TypeRef firstReturn,
+        TypeRef secondReturn,
+        string typeName)
+    {
         TypeRef declaringType = TypeRef.Definition(
             "Fake",
             "",
-            "FunctionPointerConventionReturnSample");
+            typeName);
         var first = new MethodIdentity(
             "Fake",
             Guid.Empty,
             declaringType,
             "Changed",
             [TypeRef.CoreLib("System", "Boolean")],
-            ordinaryReturn,
+            firstReturn,
             MetadataToken: 0x06000001,
             IsStatic: true);
         var second = first with
         {
-            ReturnType = suppressingReturn,
+            ReturnType = secondReturn,
             MetadataToken = 0x06000002,
         };
         var receipt = new LibraryBodyAnalysisReceipt(

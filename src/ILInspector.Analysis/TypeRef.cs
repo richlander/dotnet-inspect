@@ -357,11 +357,39 @@ public sealed class TypeRef : IEquatable<TypeRef>
         string conventionSuffix = convention.Length == 0
             ? ""
             : $" {convention}";
-        return $"delegate*{conventionSuffix}<"
+        string signatureShape = FunctionPointerSignatureShape(signature);
+        return $"delegate*{conventionSuffix}{signatureShape}<"
             + $"{string.Join(",", parameters.Append(
                 normalizedConvention
                     ? SignatureTypeIdentity(unmodifiedReturnType)
                     : SignatureTypeIdentity(signature.ReturnType)))}>";
+    }
+
+    static string FunctionPointerSignatureShape(
+        MethodSignature<TypeRef> signature)
+    {
+        byte callingConvention =
+            (byte)(signature.Header.RawValue & 0x0F);
+        byte attributes = (byte)(signature.Header.RawValue & 0xF0);
+        var parts = new List<string>(3);
+        if (callingConvention is not (0x00
+            or 0x01
+            or 0x02
+            or 0x03
+            or 0x04
+            or 0x09))
+        {
+            parts.Add($"calling=0x{callingConvention:X2}");
+        }
+        if (attributes != 0)
+            parts.Add($"flags=0x{attributes:X2}");
+        if (signature.GenericParameterCount != 0)
+            parts.Add($"generic={signature.GenericParameterCount}");
+        if (signature.RequiredParameterCount != signature.ParameterTypes.Length)
+            parts.Add($"required={signature.RequiredParameterCount}");
+        return parts.Count == 0
+            ? ""
+            : $"{{{string.Join(";", parts)}}}";
     }
 
     static bool TryApplyFunctionPointerConventionModifiers(

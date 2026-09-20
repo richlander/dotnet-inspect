@@ -10,8 +10,91 @@ public static class FunctionPointerConventionReturnOverloadFixture
     public const string TypeName =
         "FunctionPointerConventionReturnSample";
 
-    public static byte[] Build(bool returnOne)
+    public const string SignatureHeaderTypeName =
+        "FunctionPointerSignatureHeaderReturnSample";
+
+    public const string UnsupportedModifierTypeName =
+        "FunctionPointerUnsupportedModifierReturnSample";
+
+    public const string RequiredModifierTypeName =
+        "FunctionPointerRequiredModifierReturnSample";
+
+    public enum IdentityCase
     {
+        ConventionModifiers,
+        SignatureHeader,
+        UnsupportedModifier,
+        RequiredModifier,
+    }
+
+    public static string GetTypeName(IdentityCase identityCase)
+        => identityCase switch
+        {
+            IdentityCase.ConventionModifiers => TypeName,
+            IdentityCase.SignatureHeader => SignatureHeaderTypeName,
+            IdentityCase.UnsupportedModifier => UnsupportedModifierTypeName,
+            IdentityCase.RequiredModifier => RequiredModifierTypeName,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(identityCase)),
+        };
+
+    public static byte[] Build(
+        bool returnOne,
+        IdentityCase identityCase = IdentityCase.ConventionModifiers)
+    {
+        (string typeName, byte[] firstSignature, byte[] secondSignature) =
+            identityCase switch
+            {
+                IdentityCase.ConventionModifiers => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x20, 0x09, 0x08, 0x02,
+                    }),
+                IdentityCase.SignatureHeader => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x29, 0x00, 0x08, 0x02,
+                    }),
+                IdentityCase.UnsupportedModifier => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x20, 0x0D, 0x08, 0x02,
+                    }),
+                IdentityCase.RequiredModifier => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x1F, 0x0D, 0x08, 0x02,
+                    }),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(identityCase)),
+            };
+
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -50,6 +133,10 @@ public static class FunctionPointerConventionReturnOverloadFixture
                 "System.Runtime.CompilerServices"),
             metadata.GetOrAddString(
                 "CallConvSuppressGCTransition"));
+        metadata.AddTypeReference(
+            EntityHandle.ModuleDefinition,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("Marker"));
         TypeReferenceHandle objectType =
             metadata.AddTypeReference(
                 coreReference,
@@ -66,24 +153,14 @@ public static class FunctionPointerConventionReturnOverloadFixture
                 MethodAttributes.Public | MethodAttributes.Static,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("Changed"),
-                metadata.GetOrAddBlob(
-                    new byte[]
-                    {
-                        0x00, 0x01, 0x1B, 0x09, 0x00,
-                        0x20, 0x05, 0x08, 0x02,
-                    }),
+                metadata.GetOrAddBlob(firstSignature),
                 changedBody,
                 MetadataTokens.ParameterHandle(1));
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Changed"),
-            metadata.GetOrAddBlob(
-                new byte[]
-                {
-                    0x00, 0x01, 0x1B, 0x09, 0x00,
-                    0x20, 0x05, 0x20, 0x09, 0x08, 0x02,
-                }),
+            metadata.GetOrAddBlob(secondSignature),
             changedBody,
             MetadataTokens.ParameterHandle(1));
 
@@ -99,7 +176,7 @@ public static class FunctionPointerConventionReturnOverloadFixture
                 | TypeAttributes.Abstract
                 | TypeAttributes.Sealed,
             default,
-            metadata.GetOrAddString(TypeName),
+            metadata.GetOrAddString(typeName),
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             firstChanged);

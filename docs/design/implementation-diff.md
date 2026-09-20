@@ -2040,7 +2040,13 @@ convention structure rather than collapsing to an unsupported display label.
 Recognized optional `System.Runtime.CompilerServices.CallConv*` modifiers are
 normalized into the ordered `unmanaged[...]` convention list; unsupported or
 required custom modifiers remain explicit structural signature components
-rather than being erased.
+rather than being erased. Identity-only function-pointer spelling also retains
+signature-header attributes, generic arity, and the required/optional parameter
+boundary. Non-default values appear between the convention and type list as
+`{calling=0xNN;flags=0xNN;generic=N;required=N}` with the raw calling-
+convention discriminator present only when ordinary convention spelling is
+lossy and other default-valued fields omitted; ordinary C# display spelling
+remains unchanged.
 Implementation Diff target resolution adds the same return-qualified alias
 from the resolved MethodDef identity while preserving the ordinary body
 identity used by other operations; API display text is not treated as a

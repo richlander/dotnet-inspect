@@ -566,6 +566,84 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void
+        FunctionPointerSignatureIdentity_PreservesSignatureHeaderStructure()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+
+        static TypeRef Pointer(
+            TypeRef returnType,
+            SignatureAttributes attributes,
+            int requiredParameterCount,
+            int genericParameterCount,
+            ImmutableArray<TypeRef> parameters,
+            SignatureCallingConvention callingConvention =
+                SignatureCallingConvention.CDecl)
+            => TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        callingConvention,
+                        attributes),
+                    returnType,
+                    requiredParameterCount,
+                    genericParameterCount,
+                    parameters));
+
+        TypeRef instance = Pointer(
+            integer,
+            SignatureAttributes.Instance,
+            requiredParameterCount: 0,
+            genericParameterCount: 0,
+            []);
+        TypeRef generic = Pointer(
+            integer,
+            SignatureAttributes.Generic,
+            requiredParameterCount: 0,
+            genericParameterCount: 2,
+            []);
+        TypeRef explicitInstance = Pointer(
+            integer,
+            SignatureAttributes.Instance
+                | SignatureAttributes.ExplicitThis,
+            requiredParameterCount: 0,
+            genericParameterCount: 0,
+            []);
+        TypeRef vararg = Pointer(
+            integer,
+            SignatureAttributes.None,
+            requiredParameterCount: 1,
+            genericParameterCount: 0,
+            [integer, integer],
+            SignatureCallingConvention.VarArgs);
+
+        Assert.True(
+            instance.TryGetFunctionPointerSignatureIdentity(
+                out string instanceIdentity));
+        Assert.True(
+            generic.TryGetFunctionPointerSignatureIdentity(
+                out string genericIdentity));
+        Assert.True(
+            explicitInstance.TryGetFunctionPointerSignatureIdentity(
+                out string explicitInstanceIdentity));
+        Assert.True(
+            vararg.TryGetFunctionPointerSignatureIdentity(
+                out string varargIdentity));
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl]{flags=0x20}<int>",
+            instanceIdentity);
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl]{flags=0x10;generic=2}<int>",
+            genericIdentity);
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl]{flags=0x60}<int>",
+            explicitInstanceIdentity);
+        Assert.Equal(
+            "delegate* unmanaged{calling=0x05;required=1}<int,int,int>",
+            varargIdentity);
+    }
+
+    [Fact]
     public void MethodDefinitionMap_VarArgFallbackMatchesRequiredPrefix()
     {
         TypeRef owner =

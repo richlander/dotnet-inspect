@@ -191,6 +191,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     public bool FunctionPointerSignatureIsExact { get; private init; } = true;
 
+    internal byte FunctionPointerSignatureDiscriminator { get; private init; }
+
+    internal int FunctionPointerGenericParameterCount { get; private init; }
+
+    internal int FunctionPointerRequiredParameterCount { get; private init; }
+
+    internal bool FunctionPointerConventionModifiersAreExact { get; private init; } = true;
+
     /// <summary>
     /// Whether an MD-array has no explicit bounds or sizes that the C# type
     /// syntax would erase. Gated by
@@ -394,7 +402,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRef returnType,
         ImmutableArray<TypeRef> parameters,
         string callingConvention,
-        bool callingConventionIsExact)
+        bool callingConventionIsExact,
+        byte signatureDiscriminator = 0,
+        int genericParameterCount = 0,
+        int? requiredParameterCount = null)
     {
         var parameterRefKinds = FunctionPointerParameterRefKindsFor(parameters);
         bool conventionModifiersAreExact = TryApplyFunctionPointerConventionModifiers(
@@ -411,7 +422,16 @@ public sealed class TypeRef : IEquatable<TypeRef>
         bool signatureIsExact = callingConventionIsExact
             && conventionModifiersAreExact
             && FunctionPointerRefKindsAreExact(returnType, parameters);
-        return FunctionPointer(returnType, parameters, convention, parameterRefKinds, signatureIsExact);
+        return FunctionPointer(
+            returnType,
+            parameters,
+            convention,
+            parameterRefKinds,
+            signatureIsExact,
+            signatureDiscriminator,
+            genericParameterCount,
+            requiredParameterCount ?? parameters.Length,
+            conventionModifiersAreExact);
     }
 
     internal static TypeRef FunctionPointer(
@@ -426,7 +446,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ImmutableArray<TypeRef> parameters,
         string callingConvention,
         ImmutableArray<ArgumentRefKind> parameterRefKinds,
-        bool signatureIsExact)
+        bool signatureIsExact,
+        byte signatureDiscriminator = 0,
+        int genericParameterCount = 0,
+        int? requiredParameterCount = null,
+        bool conventionModifiersAreExact = true)
         => new(TypeRefKind.FunctionPointer)
         {
             ElementType = returnType,
@@ -434,6 +458,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
             CallingConvention = callingConvention,
             FunctionPointerParameterRefKinds = parameterRefKinds,
             FunctionPointerSignatureIsExact = signatureIsExact,
+            FunctionPointerSignatureDiscriminator = signatureDiscriminator,
+            FunctionPointerGenericParameterCount = genericParameterCount,
+            FunctionPointerRequiredParameterCount =
+                requiredParameterCount ?? parameters.Length,
+            FunctionPointerConventionModifiersAreExact =
+                conventionModifiersAreExact,
         };
 
     internal static ImmutableArray<ArgumentRefKind> FunctionPointerParameterRefKindsFor(ImmutableArray<TypeRef> parameters)
@@ -521,6 +551,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
         out string convention)
     {
         convention = callingConvention;
+        if (returnType.CustomModifiers.Any(modifier =>
+            modifier.Modifier.Namespace
+                != "System.Runtime.CompilerServices"
+            || !modifier.Modifier.Name.StartsWith(
+                "CallConv",
+                StringComparison.Ordinal)))
+        {
+            return false;
+        }
         var modifiers = returnType.CustomModifiers
             .Where(modifier =>
                 modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
@@ -695,6 +734,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             CallingConvention = callingConvention ?? CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
             FunctionPointerSignatureIsExact = FunctionPointerSignatureIsExact,
+            FunctionPointerSignatureDiscriminator = FunctionPointerSignatureDiscriminator,
+            FunctionPointerGenericParameterCount = FunctionPointerGenericParameterCount,
+            FunctionPointerRequiredParameterCount = FunctionPointerRequiredParameterCount,
+            FunctionPointerConventionModifiersAreExact = FunctionPointerConventionModifiersAreExact,
             ArrayShapeIsExact = ArrayShapeIsExact,
             ValueTypeHint = valueTypeHint ?? ValueTypeHint,
             InlineArray = inlineArray ?? InlineArray,
@@ -907,6 +950,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
             || GenericParameterIndex != other.GenericParameterIndex
             || UnsupportedReason != other.UnsupportedReason
             || CallingConvention != other.CallingConvention
+            || FunctionPointerSignatureDiscriminator
+                != other.FunctionPointerSignatureDiscriminator
+            || FunctionPointerGenericParameterCount
+                != other.FunctionPointerGenericParameterCount
+            || FunctionPointerRequiredParameterCount
+                != other.FunctionPointerRequiredParameterCount
             || FunctionPointerParameterRefKinds.Length != other.FunctionPointerParameterRefKinds.Length
             || !Equals(ElementType, other.ElementType)
             || TypeArguments.Length != other.TypeArguments.Length)
@@ -950,6 +999,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
         hash.Add(Rank);
         hash.Add(GenericParameterIndex);
         hash.Add(CallingConvention);
+        hash.Add(FunctionPointerSignatureDiscriminator);
+        hash.Add(FunctionPointerGenericParameterCount);
+        hash.Add(FunctionPointerRequiredParameterCount);
         foreach (var kind in FunctionPointerParameterRefKinds)
             hash.Add(kind);
         hash.Add(ElementType);

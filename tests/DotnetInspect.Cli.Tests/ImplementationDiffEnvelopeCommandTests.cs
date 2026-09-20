@@ -174,9 +174,23 @@ public sealed class ImplementationDiffEnvelopeCommandTests
                     .GetString()));
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .ConventionModifiers)]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .SignatureHeader)]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .UnsupportedModifier)]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .RequiredModifier)]
     public async Task
-        FunctionPointerConventionReturnOverloads_SelectByExactBodyIdentity()
+        FunctionPointerReturnOverloads_SelectByExactBodyIdentity(
+            FunctionPointerConventionReturnOverloadFixture.IdentityCase
+                identityCase)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -190,22 +204,27 @@ public sealed class ImplementationDiffEnvelopeCommandTests
             File.WriteAllBytes(
                 oldPath,
                 FunctionPointerConventionReturnOverloadFixture.Build(
-                    returnOne: false));
+                    returnOne: false,
+                    identityCase: identityCase));
             File.WriteAllBytes(
                 newPath,
                 FunctionPointerConventionReturnOverloadFixture.Build(
-                    returnOne: true));
+                    returnOne: true,
+                    identityCase: identityCase));
 
             var unfiltered = await RunFunctionPointerConventionPair(
                 oldPath,
-                newPath);
+                newPath,
+                identityCase);
             var first = await RunFunctionPointerConventionPair(
                 oldPath,
                 newPath,
+                identityCase,
                 "Changed:1");
             var second = await RunFunctionPointerConventionPair(
                 oldPath,
                 newPath,
+                identityCase,
                 "Changed:2");
 
             Assert.True(unfiltered.Exit == 0, unfiltered.Error);
@@ -458,6 +477,8 @@ public sealed class ImplementationDiffEnvelopeCommandTests
         RunFunctionPointerConventionPair(
             string oldPath,
             string newPath,
+            FunctionPointerConventionReturnOverloadFixture.IdentityCase
+                identityCase,
             string? member = null)
         => Invoke([
             "--library",
@@ -466,7 +487,8 @@ public sealed class ImplementationDiffEnvelopeCommandTests
             "-S",
             "Implementation Diff",
             "--type",
-            FunctionPointerConventionReturnOverloadFixture.TypeName,
+            FunctionPointerConventionReturnOverloadFixture.GetTypeName(
+                identityCase),
             .. member is null
                 ? Array.Empty<string>()
                 : ["--member", member],
