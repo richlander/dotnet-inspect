@@ -137,7 +137,7 @@ export interface RetainedWorkspaceActivationController {
   ): Promise<void>;
 }
 
-export interface RetainedWorkspaceDeletionOptions {
+interface RetainedWorkspaceDeletionOptions {
   readonly successorDefinitionId?: string | null;
   readonly acceptSuccessor?: (
     preparation: BrowserRetainedWorkspacePreparedPosting,
