@@ -48,6 +48,8 @@ public sealed class ImplementationDiffEnvelopeCommandTests
             root.GetProperty("content")));
 
         JsonElement document = root.GetProperty("content");
+        AssertPopulationContext(contentJson.RootElement);
+        AssertPopulationContext(document);
         Assert.Equal(
             "ExactLibraryPair",
             document.GetProperty("request").GetProperty("scope").GetString());
@@ -257,6 +259,28 @@ public sealed class ImplementationDiffEnvelopeCommandTests
             $"{FixtureCatalog.DiffPair.OldAssemblyPath()}.."
                 + FixtureCatalog.DiffPair.NewAssemblyPath(),
             .. options]);
+
+    static void AssertPopulationContext(JsonElement document)
+    {
+        JsonElement change = Assert.Single(
+            document.GetProperty("complexity")
+                .GetProperty("changes")
+                .EnumerateArray(),
+            change => change.GetProperty("subject")
+                    .GetProperty("memberName")
+                    .GetString()
+                == "RegressesAllocInLoop"
+                && change.GetProperty("delta").GetInt32() == 1);
+        JsonElement populationContext =
+            change.GetProperty("populationContext");
+
+        Assert.True(
+            populationContext.GetProperty("populationSize").GetInt32() > 0);
+        Assert.InRange(
+            populationContext.GetProperty("percentileRank").GetDouble(),
+            0,
+            100);
+    }
 
     static Task<(int Exit, string Output, string Error)> Invoke(
         params string[] arguments)

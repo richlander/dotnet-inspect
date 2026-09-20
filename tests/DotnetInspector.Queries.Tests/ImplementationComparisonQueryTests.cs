@@ -148,6 +148,104 @@ public sealed class ImplementationComparisonQueryTests
     }
 
     [Fact]
+    public void DocumentQuery_PreservesOnlyOwningIlHunkEvidence()
+    {
+        string oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        ImplementationDiffDocument document =
+            ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "old.dll")],
+                    [StreamBackedInput(newPath, "new.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "DiffSample",
+                    }));
+
+        ImplementationDiffDocumentMember member = Assert.Single(
+            document.Members,
+            member => member.Subject.MemberName == "MultipleHunks");
+        ImplementationDiffEvidence[] hunkEvidence = member.Evidence
+            .Where(evidence =>
+                evidence.Mechanism == ResearchChangeMechanism.IlBody
+                && evidence.DescriptorId == "il.hunk.changed")
+            .OrderBy(evidence => evidence.IlRows[0].HunkId)
+            .ToArray();
+
+        Assert.Equal(2, hunkEvidence.Length);
+        Assert.Equal([0, 1], hunkEvidence
+            .Select(evidence => Assert.Single(
+                evidence.IlRows
+                    .Select(row => row.HunkId)
+                    .Distinct()))
+            .ToArray());
+        Assert.All(
+            hunkEvidence,
+            evidence =>
+            {
+                Assert.Equal(2, evidence.IlRows.Count);
+                Assert.Empty(evidence.IlFailureRows);
+            });
+        Assert.Equal(
+            4,
+            hunkEvidence
+                .SelectMany(evidence => evidence.IlRows)
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
+    public void ComplexityCoverage_CountsDistinctSubjectsAcrossPhysicalEvidence()
+    {
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M:DiffFixtureSample.DiffSample.MultipleHunks",
+            "DiffFixtureSample.DiffSample.MultipleHunks(int)",
+            "DiffFixtureSample.DiffSample",
+            "MultipleHunks");
+        ImplementationComplexityChange Change(
+            ImplementationComplexityChangeKind kind,
+            bool oldIsComplete = true,
+            bool newIsComplete = true)
+            => new(
+                subject,
+                kind,
+                OldValue: 1,
+                NewValue: 2,
+                Delta: 1,
+                OldIsComplete: oldIsComplete,
+                NewIsComplete: newIsComplete);
+
+        ImplementationDiffMechanismCoverage coverage =
+            ImplementationDiff.CreateComplexityCoverage(
+                new ImplementationComplexityDiff(
+                    true,
+                    null,
+                    [
+                        Change(ImplementationComplexityChangeKind.Unchanged),
+                        Change(ImplementationComplexityChangeKind.Unchanged),
+                        Change(ImplementationComplexityChangeKind.Changed),
+                        Change(ImplementationComplexityChangeKind.Changed),
+                        Change(
+                            ImplementationComplexityChangeKind.Incomplete,
+                            oldIsComplete: false),
+                        Change(
+                            ImplementationComplexityChangeKind.Incomplete,
+                            newIsComplete: false),
+                    ]));
+
+        Assert.Equal(1, coverage.EvaluatedSubjectCount);
+        Assert.Equal(1, coverage.ExactSubjectCount);
+        Assert.Equal(1, coverage.ChangedSubjectCount);
+        Assert.Equal(0, coverage.UnavailableSubjectCount);
+        Assert.Equal(1, coverage.IncompleteSubjectCount);
+        Assert.Equal(0, coverage.FailedSubjectCount);
+        Assert.False(new ImplementationDiffCoverage([coverage]).IsComplete);
+    }
+
+    [Fact]
     public void DocumentQuery_DistinguishesExactEmptyFromUnavailableComplexity()
     {
         string path = FixtureCatalog.DiffPair.OldAssemblyPath();

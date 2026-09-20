@@ -72,7 +72,8 @@ public sealed record ImplementationDiffDocumentComplexityChange(
     bool OldIsComplete,
     bool NewIsComplete,
     ImplementationDiffMethodEvidence? OldEvidence,
-    ImplementationDiffMethodEvidence? NewEvidence);
+    ImplementationDiffMethodEvidence? NewEvidence,
+    ImplementationComplexityPopulationContext? PopulationContext);
 
 public sealed record ImplementationDiffDocumentComplexity(
     bool IsAvailable,
@@ -209,22 +210,27 @@ public static partial class ImplementationDiff
             change.InLoop,
             change.CSharpRow,
             change.CSharpFailureRow,
-            change.IlBodyDiff is not null
-                ? change.IlBodyDiff.Rows.IsDefault
-                    ? []
-                    : change.IlBodyDiff.Rows
-                : change.IlRow is not null
-                    ? [change.IlRow]
-                    : [],
-            change.IlBodyDiff is not null
-                ? change.IlBodyDiff.FailureRows.IsDefault
-                    ? []
-                    : change.IlBodyDiff.FailureRows
-                : change.IlFailureRow is not null
-                    ? [change.IlFailureRow]
-                    : [],
+            CreateIlRows(change),
+            change.IlFailureRow is not null ? [change.IlFailureRow] : [],
             change.IlBodyDiff?.Outcome,
             change.IlBodyDiff?.Failure);
+
+    static IReadOnlyList<IlDiffRow> CreateIlRows(ResearchChange change)
+    {
+        if (change.IlRow is not null)
+            return [change.IlRow];
+        if (change.IlBodyDiff is not { } diff
+            || diff.Rows.IsDefaultOrEmpty
+            || change.IlDisplayRows.IsDefaultOrEmpty)
+        {
+            return [];
+        }
+
+        HashSet<int> hunkIds = [
+            .. change.IlDisplayRows.Select(row => row.HunkId),
+        ];
+        return [.. diff.Rows.Where(row => hunkIds.Contains(row.HunkId))];
+    }
 
     static ImplementationDiffDocumentComplexityChange CreateComplexityChange(
         ImplementationComplexityChange change)
@@ -237,7 +243,8 @@ public static partial class ImplementationDiff
             change.OldIsComplete,
             change.NewIsComplete,
             CreateMethodEvidence(change.OldEvidenceMethod),
-            CreateMethodEvidence(change.NewEvidenceMethod));
+            CreateMethodEvidence(change.NewEvidenceMethod),
+            change.PopulationContext);
 
     static ImplementationDiffMethodEvidence? CreateMethodEvidence(
         MethodIdentity? method)
@@ -335,31 +342,38 @@ public static partial class ImplementationDiff
             failedSubjects.Count);
     }
 
-    static ImplementationDiffMechanismCoverage CreateComplexityCoverage(
+    internal static ImplementationDiffMechanismCoverage CreateComplexityCoverage(
         ImplementationComplexityDiff complexity)
     {
-        int incomplete = complexity.Changes.Count(change =>
-            change.Kind == ImplementationComplexityChangeKind.Incomplete
-            || !change.OldIsComplete
-            || !change.NewIsComplete);
         return new(
             ImplementationDiffDocumentMechanism.Complexity,
             Requested: true,
             IsAvailable: complexity.IsAvailable,
-            EvaluatedSubjectCount: complexity.Changes
-                .Select(change => change.Subject.Id)
-                .Distinct(StringComparer.Ordinal)
-                .Count(),
-            ExactSubjectCount: complexity.Changes.Count(change =>
-                change.Kind == ImplementationComplexityChangeKind.Unchanged
-                && change.OldIsComplete
-                && change.NewIsComplete),
-            ChangedSubjectCount: complexity.Changes.Count(change =>
-                change.Kind is ImplementationComplexityChangeKind.Changed
-                    or ImplementationComplexityChangeKind.Added
-                    or ImplementationComplexityChangeKind.Removed),
+            EvaluatedSubjectCount: CountComplexitySubjects(
+                complexity.Changes),
+            ExactSubjectCount: CountComplexitySubjects(
+                complexity.Changes.Where(change =>
+                    change.Kind == ImplementationComplexityChangeKind.Unchanged
+                    && change.OldIsComplete
+                    && change.NewIsComplete)),
+            ChangedSubjectCount: CountComplexitySubjects(
+                complexity.Changes.Where(change =>
+                    change.Kind is ImplementationComplexityChangeKind.Changed
+                        or ImplementationComplexityChangeKind.Added
+                        or ImplementationComplexityChangeKind.Removed)),
             UnavailableSubjectCount: 0,
-            IncompleteSubjectCount: incomplete,
+            IncompleteSubjectCount: CountComplexitySubjects(
+                complexity.Changes.Where(change =>
+                    change.Kind == ImplementationComplexityChangeKind.Incomplete
+                    || !change.OldIsComplete
+                    || !change.NewIsComplete)),
             FailedSubjectCount: 0);
     }
+
+    static int CountComplexitySubjects(
+        IEnumerable<ImplementationComplexityChange> changes)
+        => changes
+            .Select(change => change.Subject.Id)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
 }

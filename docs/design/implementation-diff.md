@@ -2107,11 +2107,17 @@ The document contains:
   acquisition provenance without paths, streams, sessions, or resolver state;
 - changed members keyed by `ResearchSubjectKey`, with detached scalar transition
   facts and the producer-owned C# and IL rows or typed failures that support
-  them;
+  them; each per-hunk IL change retains only its own hunk rows, while failure
+  changes retain only their directly associated typed failure;
 - complexity changes with endpoint completeness and image-issued method
-  evidence coordinates; and
+  evidence coordinates plus the owner-issued local population context for
+  delta-bearing changes; and
 - per-mechanism coverage that distinguishes evaluated, exact, changed,
-  unavailable, incomplete, and failed work.
+  unavailable, incomplete, and failed work. Every `*SubjectCount` is the
+  distinct count of `Subject.Id` values in that category; a subject with
+  several physical evidence changes contributes once to each applicable
+  category. `IsComplete` remains false when any requested mechanism is
+  unavailable or has unavailable, incomplete, or failed subjects.
 
 The exact-pair scope is deliberate. The legacy assembly-wide Research join uses
 member selectors that do not include assembly identity, so a document spanning
