@@ -144,6 +144,19 @@ public partial class SectionPipelineTests
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.Switches.SizeClass);
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.PInvokeMethods.SizeClass);
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.TypeForwarders.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.UnionTypes.SizeClass);
+    }
+
+    [Fact]
+    public void LibraryPipeline_InspectionFailuresRemainTerseAndVisible()
+    {
+        Assert.Equal(SectionSizeClass.Terse, LibrarySections.InspectionFailures.SizeClass);
+
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.Contains(
+            SectionNames.InspectionFailures,
+            pipeline.GetCandidateSections(Verbosity.Normal));
     }
 
     [Fact]
@@ -161,7 +174,6 @@ public partial class SectionPipelineTests
                 SectionNames.Symbols,
                 SectionNames.CustomAttributes,
                 SectionNames.Resources,
-                SectionNames.UnionTypes,
             }.OrderBy(static name => name, StringComparer.Ordinal),
             pipeline.GetCandidateSections(Verbosity.Normal)
                 .OrderBy(static name => name, StringComparer.Ordinal));
@@ -195,6 +207,7 @@ public partial class SectionPipelineTests
     [InlineData(SectionNames.Switches)]
     [InlineData(SectionNames.PInvokeMethods)]
     [InlineData(SectionNames.TypeForwarders)]
+    [InlineData(SectionNames.UnionTypes)]
     public void LibraryPipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
         string section)
     {
@@ -219,7 +232,7 @@ public partial class SectionPipelineTests
         // sections that used to be opt-in (Switches, Custom Attributes, Non-normalized Paths, ...).
         var visible = new List<string>
         {
-            "Library Info", "Symbols", "Signals", "References",
+            "Library Info", "Symbols", "Signals", "References", "Ecosystem Dependencies",
             "Async Methods", "Custom Attributes", "Extension Methods",
             "P/Invoke Methods", "Type Forwarders", "Union Types",
             "Switches", "Resources"

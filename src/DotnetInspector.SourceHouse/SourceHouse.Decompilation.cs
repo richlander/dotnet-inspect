@@ -10,20 +10,20 @@ namespace DotnetInspector.SourceHouse;
 
 public static partial class SourceHouse
 {
-    public static ValueTask<SourceHouseMemberDecompilationOutcome>
-        ExecuteMemberDecompilationAsync(
-            SourceHouseMemberDecompilationRequest request,
+    public static ValueTask<SourceHouseDecompilationOutcome>
+        ExecuteDecompilationAsync(
+            SourceHouseDecompilationRequest request,
             LibraryOperationLease operationLease,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(operationLease);
 
-        SourceHouseMemberDecompilationOutcome outcome;
+        SourceHouseDecompilationOutcome outcome;
         try
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            outcome = ExecuteMemberDecompilationCore(
+            outcome = ExecuteDecompilationCore(
                 request,
                 operationLease,
                 cancellationToken);
@@ -37,47 +37,47 @@ public static partial class SourceHouse
         return ValueTask.FromResult(outcome);
     }
 
-    private static SourceHouseMemberDecompilationOutcome
-        ExecuteMemberDecompilationCore(
-            SourceHouseMemberDecompilationRequest request,
+    private static SourceHouseDecompilationOutcome
+        ExecuteDecompilationCore(
+            SourceHouseDecompilationRequest request,
             LibraryOperationLease operationLease,
             CancellationToken cancellationToken)
     {
-        SourceHouseMemberDecompilationRequestEvidence evidence =
+        SourceHouseDecompilationRequestEvidence evidence =
             new(request);
         var settlement = new SourceHouseLibraryLeaseSettlement(
             SourceHouseLibraryLeaseConsumer.SourceHouse);
-        SourceHouseMemberDecompilationWorkCharge emptyWork =
+        SourceHouseDecompilationWorkCharge emptyWork =
             new(0, 0, 0);
         SourceHousePdbContribution noPdb = PdbUnavailable();
 
-        SourceHouseMemberDecompilationOutcome Rejected(
+        SourceHouseDecompilationOutcome Rejected(
             SourceHouseRejectionKind kind,
             SourceHousePdbContribution pdb,
-            SourceHouseMemberDecompilationWorkCharge work) =>
-            new SourceHouseMemberDecompilationOutcome.Rejected(
+            SourceHouseDecompilationWorkCharge work) =>
+            new SourceHouseDecompilationOutcome.Rejected(
                 evidence,
                 pdb,
                 new(kind),
                 work,
                 settlement);
-        SourceHouseMemberDecompilationOutcome Failed(
+        SourceHouseDecompilationOutcome Failed(
             SourceHouseFailureStage stage,
             string code,
             SourceHousePdbContribution pdb,
-            SourceHouseMemberDecompilationWorkCharge work,
+            SourceHouseDecompilationWorkCharge work,
             string? detail = null) =>
-            new SourceHouseMemberDecompilationOutcome.Failed(
+            new SourceHouseDecompilationOutcome.Failed(
                 evidence,
                 pdb,
                 new(stage, code, detail),
                 work,
                 settlement);
-        SourceHouseMemberDecompilationOutcome Incomplete(
+        SourceHouseDecompilationOutcome Incomplete(
             SourceHouseIncompleteBoundary boundary,
             SourceHousePdbContribution pdb,
-            SourceHouseMemberDecompilationWorkCharge work) =>
-            new SourceHouseMemberDecompilationOutcome.Incomplete(
+            SourceHouseDecompilationWorkCharge work) =>
+            new SourceHouseDecompilationOutcome.Incomplete(
                 evidence,
                 pdb,
                 boundary,
@@ -191,7 +191,7 @@ public static partial class SourceHouse
         }
 
         var snapshotWork =
-            new SourceHouseMemberDecompilationWorkCharge(
+            new SourceHouseDecompilationWorkCharge(
                 assembly.Length,
                 portablePdb?.Length ?? 0,
                 0);
@@ -281,9 +281,9 @@ public static partial class SourceHouse
 
         (
             ApiType Type,
-            ApiMember Member,
+            ApiMember? Member,
             bool RequiresAccessorProjection)? target =
-            ResolveMemberTarget(surface, request.Target);
+            ResolveDecompilationTarget(surface, request.Target);
         if (target is null)
         {
             if (CreateTargetInspectionFailure(
@@ -339,16 +339,24 @@ public static partial class SourceHouse
         if (target.Value.RequiresAccessorProjection)
         {
             originalMembers = target.Value.Type.Members;
-            target.Value.Type.Members = [target.Value.Member];
+            target.Value.Type.Members = [target.Value.Member!];
         }
 
         CSharpDecompilationAttempt attempt;
         try
         {
-            attempt =
-                CSharpDecompilerService.ProduceMember(
+            attempt = target.Value.Member is { } member
+                ? CSharpDecompilerService.ProduceMember(
                     target.Value.Type,
-                    target.Value.Member,
+                    member,
+                    descriptor,
+                    request.Plan.BindingPolicy,
+                    pdbImage,
+                    request.Plan.PrinterOptions,
+                    request.Plan.MaximumBodyProjections,
+                    cancellationToken)
+                : CSharpDecompilerService.ProduceType(
+                    target.Value.Type,
                     descriptor,
                     request.Plan.BindingPolicy,
                     pdbImage,
@@ -366,7 +374,7 @@ public static partial class SourceHouse
             BodyProjectionsAttempted =
                 attempt.BodyProjectionsAttempted,
         };
-        return new SourceHouseMemberDecompilationOutcome.Completed(
+        return new SourceHouseDecompilationOutcome.Completed(
             evidence,
             pdbContribution,
             attempt,
@@ -379,7 +387,7 @@ public static partial class SourceHouse
         SourceHousePdbContribution Contribution)
         EmbeddedPdb(
             ResolvedAssemblyReference descriptor,
-            SourceHouseMemberDecompilationLimits limits,
+            SourceHouseDecompilationLimits limits,
             CancellationToken cancellationToken)
     {
         SourceLinkService? source = null;
@@ -469,5 +477,32 @@ public static partial class SourceHouse
         }
 
         return result;
+    }
+
+    private static (
+        ApiType Type,
+        ApiMember? Member,
+        bool RequiresAccessorProjection)?
+        ResolveDecompilationTarget(
+            ApiSurface surface,
+            SourceHouseTarget target)
+    {
+        if (target is SourceHouseTarget.MemberTarget member)
+        {
+            (ApiType Type, ApiMember Member, bool RequiresAccessorProjection)?
+                resolved = ResolveMemberTarget(surface, member);
+            return resolved is { } exact
+                ? (exact.Type, exact.Member, exact.RequiresAccessorProjection)
+                : null;
+        }
+
+        ApiType[] types =
+        [
+            .. surface.Types.Where(
+                candidate => candidate.DefinitionName == target.Type),
+        ];
+        return types.Length == 1
+            ? (types[0], null, false)
+            : null;
     }
 }
