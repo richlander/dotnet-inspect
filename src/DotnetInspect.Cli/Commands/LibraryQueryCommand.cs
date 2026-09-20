@@ -349,8 +349,11 @@ internal static class LibraryQueryCommand
                     foreach (string path in Directory
                         .EnumerateFiles(
                             source,
-                            "*.dll",
+                            "*",
                             SearchOption.TopDirectoryOnly)
+                        .Where(path => path.EndsWith(
+                            ".dll",
+                            StringComparison.OrdinalIgnoreCase))
                         .Order(StringComparer.Ordinal))
                     {
                         paths.Add(Path.GetFullPath(path));

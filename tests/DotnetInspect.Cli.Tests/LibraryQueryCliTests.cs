@@ -141,6 +141,36 @@ public sealed class LibraryQueryCliTests
     }
 
     [Fact]
+    public async Task Directory_AdmitsUppercaseDllExtension()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"library-query-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.Copy(
+                typeof(LibraryQueryCliTests).Assembly.Location,
+                Path.Combine(directory, "UPPER.DLL"));
+
+            var result = await RunAsync(
+                "library",
+                "query",
+                directory,
+                "--where",
+                "references=System.Runtime");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            Assert.Contains("DotnetInspect.Cli.Tests", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ExplicitNonLibraryFile_IsRejectedBeforeAcquisition()
     {
         string path = Path.Combine(
