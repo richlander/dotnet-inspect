@@ -3,10 +3,10 @@ using ILInspector.Decompiler;
 
 namespace DotnetInspector.SourceHouse;
 
-public sealed record SourceHouseMemberDecompilationRequestEvidence
+public sealed record SourceHouseDecompilationRequestEvidence
 {
-    internal SourceHouseMemberDecompilationRequestEvidence(
-        SourceHouseMemberDecompilationRequest request)
+    internal SourceHouseDecompilationRequestEvidence(
+        SourceHouseDecompilationRequest request)
     {
         Identity = request.Identity;
         Library = request.Library;
@@ -19,7 +19,7 @@ public sealed record SourceHouseMemberDecompilationRequestEvidence
     public SourceHouseRequestIdentity Identity { get; }
     public LibraryReference Library { get; }
     public LibraryContentReference SelectedAssembly { get; }
-    public SourceHouseTarget.MemberTarget Target { get; }
+    public SourceHouseTarget Target { get; }
     public SourceHouseOperationPlanIdentity OperationPlan { get; }
     public SourceHousePolicyGeneration PolicyGeneration { get; }
     public SourceHouseSourcePolicy SourcePolicy =>
@@ -28,17 +28,17 @@ public sealed record SourceHouseMemberDecompilationRequestEvidence
         SourceHousePdbAcquisitionPolicy.LibraryCompanionOrEmbeddedOnly;
 }
 
-public sealed record SourceHouseMemberDecompilationWorkCharge(
+public sealed record SourceHouseDecompilationWorkCharge(
     long AssemblyBytesObserved,
     long PortablePdbBytesObserved,
     int BodyProjectionsAttempted);
 
-public abstract class SourceHouseMemberDecompilationOutcome
+public abstract class SourceHouseDecompilationOutcome
 {
-    private protected SourceHouseMemberDecompilationOutcome(
-        SourceHouseMemberDecompilationRequestEvidence request,
+    private protected SourceHouseDecompilationOutcome(
+        SourceHouseDecompilationRequestEvidence request,
         SourceHousePdbContribution pdbContribution,
-        SourceHouseMemberDecompilationWorkCharge work,
+        SourceHouseDecompilationWorkCharge work,
         SourceHouseLibraryLeaseSettlement leaseSettlement)
     {
         Request = request;
@@ -47,18 +47,18 @@ public abstract class SourceHouseMemberDecompilationOutcome
         LeaseSettlement = leaseSettlement;
     }
 
-    public SourceHouseMemberDecompilationRequestEvidence Request { get; }
+    public SourceHouseDecompilationRequestEvidence Request { get; }
     public SourceHousePdbContribution PdbContribution { get; }
-    public SourceHouseMemberDecompilationWorkCharge Work { get; }
+    public SourceHouseDecompilationWorkCharge Work { get; }
     public SourceHouseLibraryLeaseSettlement LeaseSettlement { get; }
 
-    public sealed class Completed : SourceHouseMemberDecompilationOutcome
+    public sealed class Completed : SourceHouseDecompilationOutcome
     {
         internal Completed(
-            SourceHouseMemberDecompilationRequestEvidence request,
+            SourceHouseDecompilationRequestEvidence request,
             SourceHousePdbContribution pdbContribution,
             CSharpDecompilationAttempt attempt,
-            SourceHouseMemberDecompilationWorkCharge work,
+            SourceHouseDecompilationWorkCharge work,
             SourceHouseLibraryLeaseSettlement leaseSettlement)
             : base(request, pdbContribution, work, leaseSettlement)
         {
@@ -68,13 +68,13 @@ public abstract class SourceHouseMemberDecompilationOutcome
         public CSharpDecompilationAttempt Attempt { get; }
     }
 
-    public sealed class Rejected : SourceHouseMemberDecompilationOutcome
+    public sealed class Rejected : SourceHouseDecompilationOutcome
     {
         internal Rejected(
-            SourceHouseMemberDecompilationRequestEvidence request,
+            SourceHouseDecompilationRequestEvidence request,
             SourceHousePdbContribution pdbContribution,
             SourceHouseRejection rejection,
-            SourceHouseMemberDecompilationWorkCharge work,
+            SourceHouseDecompilationWorkCharge work,
             SourceHouseLibraryLeaseSettlement leaseSettlement)
             : base(request, pdbContribution, work, leaseSettlement)
         {
@@ -84,13 +84,13 @@ public abstract class SourceHouseMemberDecompilationOutcome
         public SourceHouseRejection Rejection { get; }
     }
 
-    public sealed class Failed : SourceHouseMemberDecompilationOutcome
+    public sealed class Failed : SourceHouseDecompilationOutcome
     {
         internal Failed(
-            SourceHouseMemberDecompilationRequestEvidence request,
+            SourceHouseDecompilationRequestEvidence request,
             SourceHousePdbContribution pdbContribution,
             SourceHouseFailure failure,
-            SourceHouseMemberDecompilationWorkCharge work,
+            SourceHouseDecompilationWorkCharge work,
             SourceHouseLibraryLeaseSettlement leaseSettlement)
             : base(request, pdbContribution, work, leaseSettlement)
         {
@@ -100,13 +100,13 @@ public abstract class SourceHouseMemberDecompilationOutcome
         public SourceHouseFailure Failure { get; }
     }
 
-    public sealed class Incomplete : SourceHouseMemberDecompilationOutcome
+    public sealed class Incomplete : SourceHouseDecompilationOutcome
     {
         internal Incomplete(
-            SourceHouseMemberDecompilationRequestEvidence request,
+            SourceHouseDecompilationRequestEvidence request,
             SourceHousePdbContribution pdbContribution,
             SourceHouseIncompleteBoundary boundary,
-            SourceHouseMemberDecompilationWorkCharge work,
+            SourceHouseDecompilationWorkCharge work,
             SourceHouseLibraryLeaseSettlement leaseSettlement)
             : base(request, pdbContribution, work, leaseSettlement)
         {
