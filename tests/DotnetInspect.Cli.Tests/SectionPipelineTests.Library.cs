@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(50 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(51 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -135,6 +135,72 @@ public partial class SectionPipelineTests
         Assert.Contains("Array Pool Escapes", pipeline.AllSectionNames);
         Assert.Contains("Context: Return Address", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
+    }
+
+    [Fact]
+    public void LibraryPipeline_MeasuredBaseInventoriesAreVerbose()
+    {
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.References.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.Switches.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.PInvokeMethods.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.TypeForwarders.SizeClass);
+    }
+
+    [Fact]
+    public void LibraryPipeline_BaseCandidatesFollowMeasuredGrowthClasses()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            new[]
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.InspectionFailures,
+                SectionNames.Signals,
+                SectionNames.Symbols,
+                SectionNames.CustomAttributes,
+                SectionNames.Resources,
+                SectionNames.UnionTypes,
+            }.OrderBy(static name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Normal)
+                .OrderBy(static name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            new[]
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.InspectionFailures,
+                SectionNames.References,
+                SectionNames.Signals,
+                SectionNames.Symbols,
+                SectionNames.AsyncMethods,
+                SectionNames.CustomAttributes,
+                SectionNames.ExtensionMethods,
+                SectionNames.PInvokeMethods,
+                SectionNames.Resources,
+                SectionNames.Switches,
+                SectionNames.TypeForwarders,
+                SectionNames.UnionTypes,
+            }.OrderBy(static name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Detailed)
+                .OrderBy(static name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.Symbols, SectionNames.Signals],
+            pipeline.BareSelectSectionNames);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.References)]
+    [InlineData(SectionNames.Switches)]
+    [InlineData(SectionNames.PInvokeMethods)]
+    [InlineData(SectionNames.TypeForwarders)]
+    public void LibraryPipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
+        string section)
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+
+        Assert.Equal(Verbosity.Detailed, pipeline.GetRequiredVerbosity(include));
+        Assert.Equal([section], pipeline.GetCandidateSections(Verbosity.Detailed, include));
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -13,12 +14,12 @@ public class OutputCapabilityCatalogTests
 
         Assert.Equal(
             [
-                OutputMode.Markdown,
-                OutputMode.PlainText,
-                OutputMode.Json,
-                OutputMode.Table,
-                OutputMode.Tsv,
-                OutputMode.Jsonl,
+                DiscoveryOutputMode.Markdown,
+                DiscoveryOutputMode.PlainText,
+                DiscoveryOutputMode.Json,
+                DiscoveryOutputMode.Table,
+                DiscoveryOutputMode.Tsv,
+                DiscoveryOutputMode.Jsonl,
             ],
             catalog.FormatsForSection(SectionNames.References));
         Assert.Equal(
@@ -37,14 +38,17 @@ public class OutputCapabilityCatalogTests
                 SectionCategoryNames.Dependencies];
 
         Assert.Equal(
-            [OutputMode.Markdown, OutputMode.PlainText],
+            [
+                DiscoveryOutputMode.Markdown,
+                DiscoveryOutputMode.PlainText,
+            ],
             catalog.FormatsForSelection(sections));
         Assert.False(
-            catalog.Supports(OutputMode.Tree, sections));
+            catalog.Supports(DiscoveryOutputMode.Tree, sections));
         Assert.False(
-            catalog.Supports(OutputMode.Table, sections));
+            catalog.Supports(DiscoveryOutputMode.Table, sections));
         Assert.False(
-            catalog.Supports(OutputMode.Json, sections));
+            catalog.Supports(DiscoveryOutputMode.Json, sections));
     }
 
     [Fact]
@@ -55,19 +59,19 @@ public class OutputCapabilityCatalogTests
 
         Assert.True(
             catalog.Supports(
-                OutputMode.Table,
+                DiscoveryOutputMode.Table,
                 PerformanceKinds.Sections));
         Assert.True(
             catalog.Supports(
-                OutputMode.Tsv,
+                DiscoveryOutputMode.Tsv,
                 PerformanceKinds.Sections));
         Assert.True(
             catalog.Supports(
-                OutputMode.Jsonl,
+                DiscoveryOutputMode.Jsonl,
                 PerformanceKinds.Sections));
         Assert.False(
             catalog.Supports(
-                OutputMode.Table,
+                DiscoveryOutputMode.Table,
                 LibrarySections.SectionCatalog.SelectionCategoryMap[
                     SectionCategoryNames.Performance]));
     }
@@ -76,7 +80,7 @@ public class OutputCapabilityCatalogTests
     public void LibraryImplementationProfilesExcludesDocumentJson()
     {
         Assert.DoesNotContain(
-            OutputMode.Json,
+            DiscoveryOutputMode.Json,
             LibraryOutputCapabilities.Catalog.FormatsForSection(
                 SectionNames.ImplementationProfiles));
     }

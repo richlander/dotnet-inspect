@@ -31,8 +31,10 @@ member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
 Shared [type acquisition](type-source-acquisition.md) supplies Browser Type
 Source through `TypeSourceInspection` under #7522, CLI type-document printing
 under #7546, and member Source Locations document printing under #7679. CLI
-ordinary PDB Source adopts the shared member operation under #7819. Broader CLI
-enrichment and the full source-policy contract remain later adoption.
+ordinary PDB Source adopts the shared member operation under #7819, and
+ordinary selected-member Decompiled Source adopts decompiled-only settlement
+under #7918. Broader CLI enrichment and the full source-policy contract remain
+later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
@@ -361,6 +363,26 @@ adds exact request correspondence, selected Library content, detached PDB
 contribution evidence, and terminal operation-lease settlement without
 relabeling the result as authored source.
 
+The focused #7918 delivery exposes that work through
+`MemberSourceInspection.DecompileAsync`. The operation admits the exact
+selected participant as a Library, invokes no authored-source acquisition or
+comparison, and preserves terminal Library admission as typed unavailable
+evidence. A host may explicitly supply an already-authorized adjacent or
+acquired Portable PDB; otherwise the House may use the admitted assembly's
+embedded PDB and performs no ambient discovery. The query publishes its
+completed envelope only after Library and artifact retirement, then revalidates
+caller cancellation and the participant binding-policy version.
+
+CLI ordinary selected-member Decompiled Source consumes the exact contributing
+`CSharpBodyProjection`, not the aggregate composed-member text. The native
+projection retains the MethodDef address, body result, contribution status, and
+selected property-accessor declaration evidence needed by the existing CLI
+formatter. Aggregate failed or incomplete status remains authoritative even
+when a body projection exists. Fidelity Causes, Applied Taste, and Research
+views still use their independently requested direct IR paths; co-selection
+does not make those paths the producer of the displayed ordinary Decompiled
+Source.
+
 The assembly-context adapter keeps one admitted Library alive while the shared
 member operation performs its authorized authored and decompiled work. Each
 House operation receives a fresh lease; the adapter retires the Library only
@@ -374,9 +396,10 @@ CLI same-member Source Diff consumes this path through
 `MemberSourceInspection.CompareAsync`. Browser ordinary member Source consumes
 it through `MemberSourceInspection.ExecuteAsync`, with the existing
 `queryMemberSource` worker and `loadMemberSource` TypeScript call site.
-Ordinary CLI Decompiled Source, Implementation Diff's C# lane,
+CLI ordinary selected-member Decompiled Source consumes it through
+`MemberSourceInspection.DecompileAsync`. Implementation Diff's C# lane,
 cross-version authored member pairs, and type decompilation remain separate
-consumers and are not migrated by this delivery.
+consumers.
 
 ## Authority and exact claim
 

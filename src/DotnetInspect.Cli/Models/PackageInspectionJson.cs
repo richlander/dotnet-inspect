@@ -99,8 +99,10 @@ internal sealed class PackageInspectionJson
                 projection,
                 _dependencyHierarchyRowsSelected ? null : _rows)
             : null;
-    public PackageEcosystemDependencyRecognitionJson? EcosystemDependencies =>
-        PackageEcosystemDependencyRecognitionJson.Create(_data);
+    public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
+        EcosystemDependencyRecognitionJson.Create(
+            _data.EcosystemDependencyRecognitionInspection,
+            _data.EcosystemDependencyRows);
     public List<PackageDependencyJson>? RuntimeDependencies => _text.RuntimeDependencies?
         .Select(value => new PackageDependencyJson(value))
         .ToList();
@@ -138,7 +140,7 @@ internal sealed class PackageInspectionJson
         => values?.Select(value => value.ToString()).ToList();
 }
 
-internal sealed class PackageEcosystemDependencyRecognitionJson
+public sealed class EcosystemDependencyRecognitionJson
 {
     public required string Status { get; init; }
 
@@ -146,13 +148,13 @@ internal sealed class PackageEcosystemDependencyRecognitionJson
 
     public required string[] Ecosystems { get; init; }
 
-    public required PackageEcosystemDependencyJson[] Dependencies { get; init; }
+    public required EcosystemDependencyJson[] Dependencies { get; init; }
 
-    internal static PackageEcosystemDependencyRecognitionJson? Create(
-        InspectionResult result)
+    internal static EcosystemDependencyRecognitionJson? Create(
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome>? inspection,
+        IReadOnlyList<EcosystemDependencyRecognitionEntry>? selectedRows)
     {
-        if (result.EcosystemDependencyRecognitionInspection?.Content
-            is not { } outcome)
+        if (inspection?.Content is not { } outcome)
         {
             return null;
         }
@@ -174,11 +176,11 @@ internal sealed class PackageEcosystemDependencyRecognitionJson
             _ => 0,
         };
         IReadOnlyList<EcosystemDependencyRecognitionEntry> entries =
-            result.EcosystemDependencyRows
+            selectedRows
             ?? document?.Classification.Recognized
             ?? [];
 
-        return new PackageEcosystemDependencyRecognitionJson
+        return new EcosystemDependencyRecognitionJson
         {
             Status = outcome switch
             {
@@ -200,13 +202,13 @@ internal sealed class PackageEcosystemDependencyRecognitionJson
                 : entries
                     .Select(entry =>
                         PackageEcosystemDependencyRow.Create(entry, document))
-                    .Select(PackageEcosystemDependencyJson.Create)
+                    .Select(EcosystemDependencyJson.Create)
                     .ToArray(),
         };
     }
 }
 
-internal sealed class PackageEcosystemDependencyJson
+public sealed class EcosystemDependencyJson
 {
     public required string Ecosystem { get; init; }
 
@@ -230,7 +232,7 @@ internal sealed class PackageEcosystemDependencyJson
 
     public int? SelectedGroup { get; init; }
 
-    internal static PackageEcosystemDependencyJson Create(
+    internal static EcosystemDependencyJson Create(
         PackageEcosystemDependencyRow row) =>
         new()
         {

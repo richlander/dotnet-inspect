@@ -148,8 +148,10 @@ family. The path has three steps:
 
 SourceHouse consumes the same service for exact-member decompilation while
 retaining its Library snapshot, finite work, symbol-contribution, and lease
-settlement evidence. Type decompilation and other direct consumers remain later
-adoption under the broader #6512 plan.
+settlement evidence. Ordinary CLI selected-member Decompiled Source now
+consumes that shared operation's exact native body projection while retaining
+its existing declaration formatter. Type decompilation and other direct
+consumers remain later adoption under the broader #6512 plan.
 
 Retire direct composer calls in the adopted shared-query path. Other existing
 `MemberBodyProducer` consumers remain supported until their own adoption;
@@ -163,9 +165,10 @@ steps retain the goal of one shared completed inspection API returning
 `InspectionEnvelope<TContent>`; this producer slice does not claim that
 envelope migration is already complete.
 
-Direct CLI listings outside this shared-query path remain part of that broader
-adoption. Existing CLI Markout/code output and browser code viewers remain the
-host lowering boundaries; this producer introduces no alternative formatter.
+Direct CLI type decompilation and analysis projections outside this
+shared-query path remain part of that broader adoption. Existing CLI
+Markout/code output and browser code viewers remain the host lowering
+boundaries; this producer introduces no alternative formatter.
 
 ## Evidence
 

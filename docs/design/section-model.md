@@ -243,12 +243,58 @@ Candidate selection, effectiveness, and execution cost are independent axes.
 
 `SizeClass` describes output cardinality:
 
-- `Fixed`: bounded across targets
-- `Terse`: target-dependent and small
-- `Informative`: target-dependent and moderate
-- `Verbose`: potentially large
+- `Fixed`: structurally bounded independently of target content
+- `Terse`: target-dependent and approximately 12 rows or fewer in practice
+- `Informative`: target-dependent and approximately 24 rows or fewer in
+  practice
+- `Verbose`: potentially large or observed above the informative range
 
 `Fixed` does not mean fast. It describes row-set shape.
+
+#### Library base-section evidence
+
+The first #3284 growth audit covers the library base-category union:
+`@Library` and `@Surface`. It measured section row counts across .NET platform
+assemblies and pinned nuget.org packages. The representative corpus included
+`System.Runtime`, `System.Linq`, `System.Text.Json`, `System.Net.Http`,
+`System.Xml.ReaderWriter`, `Npgsql` 8.0.4, `Newtonsoft.Json` 13.0.3,
+`MessagePack` 2.5.192, `Polly` 8.5.0, and `SixLabors.ImageSharp` 3.1.6.
+
+The multi-section probe used this command shape:
+
+```sh
+dnx dotnet-inspect -y -- library --package Npgsql@8.0.4 \
+  -S '@Library,@Surface' --json --tips q
+```
+
+Sections not represented reliably in that JSON projection were measured
+directly:
+
+```sh
+dnx dotnet-inspect -y -- library \
+  --package SQLitePCLRaw.provider.e_sqlite3@2.1.10 \
+  -S 'P/Invoke Methods' --count --jsonl --tips q
+```
+
+The audit found four prior declarations outside their stated ranges:
+
+| Section | Evidence | Classification |
+| --- | --- | --- |
+| References | 31 rows in `Npgsql` 8.0.4 | `Verbose` |
+| Switches | 29 rows in `System.Private.CoreLib` | `Verbose` |
+| Type Forwarders | 918 rows in `System.Runtime`; 187 in `System.Xml.ReaderWriter` | `Verbose` |
+| P/Invoke Methods | 150 rows in `SQLitePCLRaw.provider.e_sqlite3` 2.1.10; 12 in `System.Drawing.Common` 8.0.8 | `Verbose` |
+
+The same corpus supported the existing `Verbose` declarations for Async
+Methods (38 rows in `Npgsql` 8.0.4) and Extension Methods (146 rows in
+`SixLabors.ImageSharp` 3.1.6, with a targeted platform probe finding 441 in
+`System.Private.CoreLib`). Custom Attributes and Resources remained within the
+`Terse` range, at maxima of 9 and 4 rows respectively.
+
+This slice does not treat missing corpus evidence as proof of bounded growth.
+Inspection Failures and Union Types retain their existing classifications
+pending a focused contract and representative real-asset basis. Domain,
+package, API, and other command families remain separate #3284 audit work.
 
 ### Cost
 
