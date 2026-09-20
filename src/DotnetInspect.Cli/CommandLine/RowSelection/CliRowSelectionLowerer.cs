@@ -89,17 +89,21 @@ internal sealed class CliRowSelectionLowering<TOrderOperand>
 
     public CliRowSelectionLowering(
         RowSelectionIntent<TOrderOperand> semanticIntent,
+        IReadOnlyList<int> semanticOperationPositions,
         CliLineSelectionIntent? lineIntent,
         bool hasBaselineOrderOperand,
         TOrderOperand baselineOrderOperand)
     {
         SemanticIntent = semanticIntent;
+        SemanticOperationPositions = semanticOperationPositions;
         LineIntent = lineIntent;
         _hasBaselineOrderOperand = hasBaselineOrderOperand;
         _baselineOrderOperand = baselineOrderOperand;
     }
 
     public RowSelectionIntent<TOrderOperand> SemanticIntent { get; }
+
+    public IReadOnlyList<int> SemanticOperationPositions { get; }
 
     public CliLineSelectionIntent? LineIntent { get; }
 
@@ -642,6 +646,7 @@ internal static class CliRowSelectionLowerer
 
         var operations =
             new List<RowSelectionIntentOperation<TOrderOperand>>();
+        var operationPositions = new List<int>();
         for (int index = 0; index < ordered.Count; index++)
         {
             ParsedOccurrence<TOrderOperand> parsed =
@@ -656,6 +661,8 @@ internal static class CliRowSelectionLowerer
                                 .Tail(parsed.Count)
                             : RowSelectionIntentOperation<TOrderOperand>
                                 .Head(parsed.Count));
+                    operationPositions.Add(
+                        parsed.Occurrence.Position);
                     break;
 
                 case CliRowSelectionOccurrenceKind.Rows:
@@ -664,6 +671,8 @@ internal static class CliRowSelectionLowerer
                             .Window(
                                 parsed.Start,
                                 parsed.End));
+                    operationPositions.Add(
+                        parsed.Occurrence.Position);
                     break;
 
                 case CliRowSelectionOccurrenceKind.Top:
@@ -675,6 +684,8 @@ internal static class CliRowSelectionLowerer
                                     order.Value.Occurrence.OrderOperand)
                             : RowSelectionIntentOperation<TOrderOperand>
                                 .Top(parsed.Count));
+                    operationPositions.Add(
+                        parsed.Occurrence.Position);
                     break;
             }
         }
@@ -692,6 +703,7 @@ internal static class CliRowSelectionLowerer
 
         return new(
             RowSelectionIntent<TOrderOperand>.Create(operations),
+            operationPositions,
             lineIntent,
             hasBaselineOrder,
             hasBaselineOrder

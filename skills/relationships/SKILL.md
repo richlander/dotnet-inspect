@@ -94,6 +94,11 @@ dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
+dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
+dnx dotnet-inspect -y -- depends Int128 \
+  --where "Kind=Interface" \
+  --order-by "Target desc" \
+  --top 5 --table
 dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -113,7 +118,7 @@ dnx dotnet-inspect -y -- depends \
 dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
   -S Dependencies
 dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
-  -S "Dependency Hierarchy" --tree
+  -S "Dependency Hierarchy" --depth 1 --tree
 dnx dotnet-inspect -y -- library System.Text.Json \
   -D @Dependencies --details
 dnx dotnet-inspect -y -- library System.Text.Json \
@@ -128,6 +133,10 @@ root-relative parent relationship. Use `Dependencies` for direct declaration
 evidence; use hierarchy table or JSON output when repeated targets and their
 parent context matter. On `package`, selecting `Dependency Hierarchy` invokes
 the same Depends operation, while `--tree` only chooses its projection.
+Both entrances inherit the same Depth capability. For positional type mode,
+`-Q "Dependency Graph"` reports the Source, Target, and Kind predicates plus
+field and Traversal ordering. `--top` requires a Source, Target, or Kind field
+order; Traversal cannot rank.
 On `library`, `References` remains direct assembly metadata and
 `Reference Hierarchy` invokes that same occurrence-addressed Depends operation
 for the exact assembly; `--depth` controls traversal and `--tree` remains only

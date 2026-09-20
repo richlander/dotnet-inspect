@@ -187,7 +187,7 @@ kinds and adds `Kind` when multiple kinds have rows.
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
 target. It is available on `library`, `type`, `member`, `package`,
-`package query`, and `find`.
+`package query`, `find`, `depends`, and `graph libraries`.
 Use it before constructing filters; displayed columns do not imply support for
 `--where`, `--order-by`, or `--top`.
 
@@ -196,6 +196,8 @@ dnx dotnet-inspect -y -- library -Q
 dnx dotnet-inspect -y -- type -Q "Body Shapes"
 dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
 dnx dotnet-inspect -y -- library -Q @Performance
+dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
+dnx dotnet-inspect -y -- package -Q "Dependency Hierarchy"
 ```
 
 Bare `-Q` lists query-capable sections. Named `-Q` lists exact facet keys,
@@ -237,6 +239,20 @@ dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
 dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
+
+The positional-Type Dependency route exposes Source, Target, and Kind
+predicates, field and Traversal ordering, Top ranking, row stages, and Depth:
+
+```bash
+dnx dotnet-inspect -y -- depends Int128 \
+  --where "Kind=Interface" --order-by "Target desc" --top 5
+dnx dotnet-inspect -y -- package System.Text.Json@10.0.0 \
+  -S "Dependency Hierarchy" --depth 2
+```
+
+Traversal is a sequence order and cannot rank `--top`. Asset-mode `depends`
+and Package `Dependency Hierarchy` share the rooted-hierarchy profile: Depth
+limits traversal work, while row selection is applied afterward.
 
 `--where` repeats select product terms, not arbitrary package-field
 expressions. Independent terms are ANDed; the broad `tool=true` term identifies
