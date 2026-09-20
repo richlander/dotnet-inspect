@@ -154,6 +154,39 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
+    public async Task DependsQuery_NonJsonDiscoveryRendersRegisteredKindValues()
+    {
+        var result = await Run(
+            "depends",
+            "-Q",
+            "Dependency Graph",
+            "--table");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        foreach (string kind in Enum.GetNames<TypeDependencyRelationshipKind>())
+            Assert.Contains(kind, result.Output);
+        Assert.DoesNotContain("C# Body Kinds", result.Output);
+    }
+
+    [Fact]
+    public async Task BodyShapeQuery_NonJsonDiscoveryReferencesKindVocabulary()
+    {
+        var result = await Run(
+            "library",
+            "-Q",
+            SectionNames.BodyShapes,
+            "--table");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("C# Body Kinds", result.Output);
+        Assert.Contains(
+            "vocabulary -S \"C# Body Kinds\"",
+            result.Output);
+    }
+
+    [Fact]
     public async Task DependencyHierarchy_InheritsDepthAcrossCommandAndPackageSection()
     {
         var depends = await Run(
