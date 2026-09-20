@@ -682,7 +682,7 @@ internal static class DeclarationIndexBuilder
             int newestRefused = lastChild;
             while (lastChild > alreadyRefused)
             {
-                rows[lastChild].SpanKnown = false;
+                RefuseDeclarationExtent(rows[lastChild]);
                 lastChild = rows[lastChild].PreviousSiblingIndex;
             }
 
@@ -1226,13 +1226,8 @@ internal static class DeclarationIndexBuilder
                         rows[idx].BodyEndLine = tok.Line + 1;
                         rows[idx].EndLine = tok.Line + 1;
                         rows[idx].TerminalEnd = new SourceTextPoint(tok.Line, tok.End);
-                        if (!tok.DepthKnown) rows[idx].SpanKnown = false;
                         if (!tok.DepthKnown)
-                        {
-                            rows[idx].TextPartsKnown = false;
-                            rows[idx].DeclarationTextKnown = false;
-                            rows[idx].DocumentationKnown = false;
-                        }
+                            RefuseDeclarationExtent(rows[idx]);
                         lastClosed = idx;
                         lastClosedSection = tok.Section;
                     }
@@ -1357,7 +1352,8 @@ internal static class DeclarationIndexBuilder
                         // accessor block closed, so it needs the same correction that close took:
                         // a conditional between the block and the initializer puts the ";" in a
                         // branch, and the end this reads is one branch's, not the declaration's.
-                        if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
+                        if (!tok.DepthKnown)
+                            RefuseDeclarationExtent(rows[lastClosed]);
 
                         ResetHeader(tok);
                         lastClosed = -1;
@@ -1589,7 +1585,7 @@ internal static class DeclarationIndexBuilder
             if (r.EndLine < 0 && !r.ClosesAtEndOfFile)
             {
                 r.EndLine = lines.Count;
-                r.SpanKnown = false;
+                RefuseDeclarationExtent(r);
             }
         }
 
@@ -1663,8 +1659,16 @@ internal static class DeclarationIndexBuilder
         {
             active += deltas[i];
             if (active > 0)
-                rows[i].SpanKnown = false;
+                RefuseDeclarationExtent(rows[i]);
         }
+    }
+
+    private static void RefuseDeclarationExtent(Row row)
+    {
+        row.SpanKnown = false;
+        row.TextPartsKnown = false;
+        row.DeclarationTextKnown = false;
+        row.DocumentationKnown = false;
     }
 
     private static void FinalizeFileScopedNamespaces(List<Row> rows, bool depthLost)

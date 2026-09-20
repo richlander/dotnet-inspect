@@ -776,6 +776,51 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void UnclosedDeclaration_IsUncertainRatherThanAvailable()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Text.</summary>
+                void M() {
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(
+                    new(source, MethodSpan(source, "M"))));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty.DeclarationSpanUnvouched,
+            result.Reason);
+    }
+
+    [Fact]
+    public void BranchDependentTerminal_IsUncertainRatherThanAvailable()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Text.</summary>
+                class Subject { }
+            #if X
+                int P { get; set; }
+            #endif
+                ;
+            }
+            """;
+        CSharpSourceSpan subject = TextSpan(source, "class Subject { }");
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(new(source, subject)));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty.DeclarationSpanUnvouched,
+            result.Reason);
+    }
+
+    [Fact]
     public void DetachedConditionalDocumentation_DoesNotPoisonNearestRun()
     {
         const string source = """
