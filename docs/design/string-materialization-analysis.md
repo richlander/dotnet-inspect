@@ -90,6 +90,13 @@ Loop and caller-reach evidence remain static prioritization inputs. They do not
 turn the occurrence into a runtime heat claim. Every proposed fix directs the
 user to dynamic measurement first.
 
+String-materialization rows remain outside bounded member-level optimization
+rankings. Those rankings promise prioritized optimization candidates, while
+this census deliberately has no runtime cost or profitability score. Dedicated
+string sections can enumerate the exact operations without allowing a large
+unscored census to displace established candidates or consume another host's
+bounded result budget.
+
 ## Scope
 
 This first slice is intraprocedural at the reported source method. A public API

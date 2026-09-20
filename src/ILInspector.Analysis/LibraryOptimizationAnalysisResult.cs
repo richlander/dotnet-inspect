@@ -634,7 +634,7 @@ public sealed class LibraryOptimizationAnalysisResult
                     occurrence.Kind);
             yield return new OptimizationOpportunity(
                 occurrence.Method,
-                "string-materialization",
+                AnalysisFindings.StringMaterializationShape,
                 $"Potential string materialization via {strategy} ({occurrence.Operation.ToQualifiedDisplayString()}).",
                 "Confirm realized allocation bytes and frequency with a representative workload before changing this construction strategy.",
                 "high",

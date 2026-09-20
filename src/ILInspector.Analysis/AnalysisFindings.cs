@@ -8,6 +8,9 @@ namespace ILInspector.Analysis;
 /// <summary>Analysis observations and comparisons over the Finding substrate.</summary>
 public static class AnalysisFindings
 {
+    public const string StringMaterializationShape =
+        "string-materialization";
+
     public static readonly FindingDescriptor AllocationDescriptor =
         new("analysis.allocation", "Allocation occurrence");
 

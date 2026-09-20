@@ -261,6 +261,9 @@ public sealed class StringMaterializationAnalysisTests
             Assert.NotNull(opportunity.ILOffset);
             Assert.NotNull(opportunity.OperandToken);
             Assert.Null(opportunity.RuntimeAllocationType);
+            Assert.False(
+                OptimizationOpportunityRanking
+                    .IncludeInMemberTriage(opportunity));
         }
 
         Assert.DoesNotContain(
