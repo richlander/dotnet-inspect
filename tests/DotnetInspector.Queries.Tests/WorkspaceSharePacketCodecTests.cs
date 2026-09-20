@@ -828,25 +828,45 @@ public sealed class WorkspaceSharePacketCodecTests
             WorkspaceSharePacketFailureKind.InvalidBase64Url);
     }
 
-    [Fact]
-    public void Decode_RejectsOverLimitTables()
+    [Theory]
+    [InlineData(
+        WorkspaceSharePacketCodec.LegacyFormatVersion,
+        WorkspaceSharePacketCodec.MaxFormat1Tabs)]
+    [InlineData(
+        WorkspaceSharePacketCodec.Format2Version,
+        WorkspaceSharePacketCodec.MaxFormat2Tabs)]
+    [InlineData(
+        WorkspaceSharePacketCodec.CurrentFormatVersion,
+        WorkspaceSharePacketCodec.MaxFormat3Tabs)]
+    [InlineData(
+        WorkspaceSharePacketCodec.Format4Version,
+        WorkspaceSharePacketCodec.MaxFormat4Tabs)]
+    public void Decode_EnforcesFormatCoordinateLimit(
+        int formatVersion,
+        int maxTabs)
     {
-        string tabs = "["
-            + string.Join(
-                ',',
-                Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs + 1)
-                    .Select(index => $"[\"P{index}\",null,\"net10.0\",null]"))
-            + "]";
-        string singletonContexts = "["
-            + string.Join(
-                ',',
-                Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs + 1)
-                    .Select(index => $"[{index}]"))
-            + "]";
-        AssertFailure(
-            EncodeJson(PacketJson(tabs, singletonContexts)),
-            WorkspaceSharePacketFailureKind.InvalidShape);
+        WorkspaceSharePacket accepted = WorkspaceSharePacketCodec.ParseJson(
+            PacketJson(formatVersion, maxTabs),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(maxTabs, accepted.Tabs.Count);
 
+        AssertFailure(
+            EncodeJson(PacketJson(
+                tabs: "["
+                    + string.Join(
+                        ',',
+                        Enumerable.Range(0, maxTabs + 1)
+                            .Select(index =>
+                                $"[\"P{index}\",null,\"net10.0\",null]"))
+                    + "]",
+                contexts: "[[0]]",
+                formatVersion: formatVersion)),
+            WorkspaceSharePacketFailureKind.InvalidShape);
+    }
+
+    [Fact]
+    public void Decode_RejectsOverLimitContextTable()
+    {
         const int contextTabCount = 5;
         string contextTabs = "["
             + string.Join(
@@ -945,6 +965,43 @@ public sealed class WorkspaceSharePacketCodecTests
 
     private static string PacketJson(string tabs, string contexts) =>
         $$"""{"f":1,"t":{{tabs}},"g":{{contexts}},"a":0,"x":0}""";
+
+    private static string PacketJson(int formatVersion, int tabCount)
+    {
+        string tabs = "["
+            + string.Join(
+                ',',
+                Enumerable.Range(0, tabCount)
+                    .Select(index =>
+                        $"[\"P{index}\",\"1.0.0\",\"net11.0\",null]"))
+            + "]";
+        string contexts = "[["
+            + string.Join(',', Enumerable.Range(0, tabCount))
+            + "]]";
+        return PacketJson(tabs, contexts, formatVersion);
+    }
+
+    private static string PacketJson(
+        string tabs,
+        string contexts,
+        int formatVersion)
+    {
+        if (formatVersion == WorkspaceSharePacketCodec.LegacyFormatVersion)
+            return PacketJson(tabs, contexts);
+
+        string viewStates = """[{"t":null,"u":{"k":"workspace"}}"""
+            + string.Concat(
+                Enumerable.Range(0, CountTabs(tabs))
+                    .Select(index => $",{{\"t\":{index}}}"))
+            + "]";
+        string registrations = formatVersion >= WorkspaceSharePacketCodec.CurrentFormatVersion
+            ? "\"r\":[],"
+            : "";
+        return $$"""{"f":{{formatVersion}},"t":{{tabs}},"g":{{contexts}},{{registrations}}"a":0,"x":0,"v":{{viewStates}}}""";
+    }
+
+    private static int CountTabs(string tabs) =>
+        tabs.Count(character => character == '[') - 1;
 
     private static WorkspaceSharePacketException AssertFailure(
         string encoded,
