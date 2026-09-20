@@ -149,12 +149,14 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     [Fact]
     public void MissingPackageHouseSettlementProducesAttributedUnavailableOutcome()
     {
-        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection =
+        Assert.True(
             PackageEcosystemDependencyRecognitionInspection
-                .CreateUnavailableWithoutAcquiredSettlement(
+                .TryCreateUnavailableWithoutAcquiredSettlement(
                     "Example.Package",
                     "1.2.3",
-                    "explicit-local-input");
+                    "explicit-local-input",
+                    out InspectionEnvelope<
+                        EcosystemDependencyRecognitionOutcome>? inspection));
 
         var outcome =
             Assert.IsType<EcosystemDependencyRecognitionOutcome.Unavailable>(

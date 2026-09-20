@@ -224,14 +224,29 @@ public partial class PackageCommand
         if (resolution.HouseSettlement
             is not PackageHouseSettlement.Acquired settlement)
         {
-            result.EcosystemDependencyRecognitionInspection =
-                PackageEcosystemDependencyRecognitionInspection
-                    .CreateUnavailableWithoutAcquiredSettlement(
+            if (!PackageEcosystemDependencyRecognitionInspection
+                    .TryCreateUnavailableWithoutAcquiredSettlement(
                         result.PackageName,
                         result.Version,
-                        resolution.ProducerKey
-                            ?? throw new InvalidOperationException(
-                                "Package ecosystem recognition requires the producer identity of the acquired package."));
+                        resolution.ProducerKey,
+                        out InspectionEnvelope<
+                            EcosystemDependencyRecognitionOutcome>?
+                            unavailableInspection)
+                && !PackageEcosystemDependencyRecognitionInspection
+                    .TryCreateUnavailableWithoutAcquiredSettlement(
+                        resolution.PackageName,
+                        resolution.Version,
+                        resolution.ProducerKey,
+                        out unavailableInspection))
+            {
+                throw new InvalidOperationException(
+                    "Package ecosystem recognition cannot attribute the "
+                    + "acquired package to an exact canonical package "
+                    + "coordinate.");
+            }
+
+            result.EcosystemDependencyRecognitionInspection =
+                unavailableInspection;
             return;
         }
 

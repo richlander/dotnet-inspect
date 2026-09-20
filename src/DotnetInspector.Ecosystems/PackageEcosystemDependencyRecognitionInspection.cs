@@ -84,23 +84,22 @@ public static class PackageEcosystemDependencyRecognitionInspection
             diagnostics.ToImmutable());
     }
 
-    public static InspectionEnvelope<EcosystemDependencyRecognitionOutcome>
-        CreateUnavailableWithoutAcquiredSettlement(
-            string packageId,
-            string version,
-            string producer)
+    public static bool TryCreateUnavailableWithoutAcquiredSettlement(
+        string? packageId,
+        string? version,
+        string? producer,
+        [NotNullWhen(true)]
+        out InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
+            inspection)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(version);
-        ArgumentException.ThrowIfNullOrWhiteSpace(producer);
-
-        if (!PackageExtractor.TryNormalizePackageVersion(
+        inspection = null;
+        if (string.IsNullOrWhiteSpace(packageId)
+            || string.IsNullOrWhiteSpace(producer)
+            || !PackageExtractor.TryNormalizePackageVersion(
                 version,
                 out string normalizedVersion))
         {
-            throw new ArgumentException(
-                "Package ecosystem recognition requires an exact canonical "
-                + "package coordinate: the package version is not exact.");
+            return false;
         }
 
         if (!RealizedMemberCoordinate.Package.TryCreate(
@@ -110,11 +109,9 @@ public static class PackageEcosystemDependencyRecognitionInspection
                 framework: null,
                 runtimeIdentifier: null,
                 out RealizedMemberCoordinate.Package? coordinate,
-                out string? problem))
+                out _))
         {
-            throw new ArgumentException(
-                "Package ecosystem recognition requires an exact canonical "
-                + $"package coordinate: {problem}.");
+            return false;
         }
 
         var subject = new EcosystemDependencySubject.Package(coordinate);
@@ -167,11 +164,12 @@ public static class PackageEcosystemDependencyRecognitionInspection
             [],
             issues.ToImmutable());
 
-        return EcosystemDependencyRecognizer.Recognize(
+        inspection = EcosystemDependencyRecognizer.Recognize(
             ProductEcosystemPacks.DependencyRecognitionProfile,
             batch,
             CreateShare(subject),
             diagnostics.ToImmutable());
+        return true;
     }
 
     private static EcosystemDependencyRecognitionShare CreateShare(
