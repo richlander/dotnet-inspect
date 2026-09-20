@@ -928,6 +928,13 @@ Package Dependency Evidence or dependency graphs. Rendering or serialization
 consumes the settled values and never reopens an archive, assets file, package
 source, or traversal.
 
+When an explicit package Share request settles an exact package coordinate and
+source authorization, evidence capture consumes that same settlement rather
+than resolving the original selector again. Evidence-only acquisition may add
+typed Evidence, but its verbose and network-traffic logs do not enter the
+ordinary Share stderr stream. A nonprojectable Share remains governed by the
+ordinary sidecar ordering and refusal contract.
+
 ### Thin Debug views and Browser adoption
 
 The four diagnostic sections remain useful Debug views but no longer own
@@ -1003,6 +1010,9 @@ pathological fixtures. They cover:
 - equal extracted baselines for ordinary and enriched execution, including an
   evidence-only producer failure and complete envelope equality for one
   settled request;
+- exact and `@latest` package Share requests reuse the settled coordinate and
+  authorization for evidence acquisition, with evidence-only verbose and
+  network-traffic logging excluded from ordinary Share stderr;
 - selected-plan exclusion of graph, traversal, pruning, and their failures
   when a host adapter supplies values for an unselected phase;
 - one execution, detached lifetime, and serialization without acquisition or
