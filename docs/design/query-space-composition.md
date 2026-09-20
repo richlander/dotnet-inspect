@@ -1,0 +1,601 @@
+# Query space composition
+
+## Status
+
+Focused cross-cutting design for
+[#7712](https://github.com/richlander/dotnet-inspect/issues/7712). This design
+establishes **Query Space Composition** as one architectural owner. It records
+the target contract agreed before the held Depends and Library Query changes in
+[#7944](https://github.com/richlander/dotnet-inspect/pull/7944),
+[#7945](https://github.com/richlander/dotnet-inspect/pull/7945), and
+[#7872](https://github.com/richlander/dotnet-inspect/pull/7872) continue.
+
+The current implementation has several prerequisites:
+
+- `DotnetInspector.QueryEngine` carries portable intent, operation
+  registration, row-query resolution, and semantic row selection;
+- [Query Operation Infrastructure](query-operation-infrastructure.md) derives
+  effective route capabilities from executable operation registration;
+- [L2 row query and ordering](row-query-order.md) resolves typed row predicates
+  and orders;
+- [Section-row shaping](section-row-shaping.md) binds declared row sets,
+  projection, and terminal Count; and
+- [Source delegation](source-delegation.md) defines exact substitution of
+  source work through completion evidence.
+
+Those owners remain authoritative for their own semantics. This design owns
+only their reusable composition into one discoverable query space.
+
+No implementation gate yet verifies this complete design. Every target gate in
+[Required gates](#required-gates) is **unverified** until its named
+implementation slice lands and runs in Release.
+
+## Owner and exact claim
+
+**Query Space Composition** owns this exact claim:
+
+> One query-capable route exposes one closed, host-neutral query space that
+> composes an operation-owned query plan, zero or more declared row spaces, and
+> one terminal requirement without merging their semantic ownership. The same
+> executable registrations produce its capability descriptor, structural
+> plans, host lowering, source-delegation input, and optional generated
+> consumer API.
+
+This owner defines:
+
+- the parts that form one query space;
+- the distinction between reusable facet definitions and their operation or
+  row bindings;
+- the closed query-language boundary shared by hosts;
+- the requirement that resolved plans preserve inspectable structural meaning
+  beside executable machinery;
+- the terminal position of Rows and exact Count;
+- the distinction among semantic selection, work bounds, source continuation,
+  delivery demand, and rendering windows;
+- preservation of an adjacent source owner's continuation without interpreting
+  or manufacturing it;
+- the host-neutral capability descriptor; and
+- the declaration boundary from which optional source generation may produce
+  mechanical wiring.
+
+This owner does not define:
+
+- any Package, Library, Type, Member, Dependency, Graph, or Find semantics;
+- subject or source authority, acquisition, pagination, retry, caching, or
+  completion-evidence construction;
+- row predicate, order, Head, Tail, Window, Top, projection, or Count
+  semantics;
+- portable payload bytes or compatibility policy;
+- CLI grammar, Browser interaction, Markout rendering, LINQ use, or `jq`
+  programs;
+- a universal executable plan shared by operation owners; or
+- the name, packaging, or publication schedule of the eventual reusable
+  library.
+
+The current `DotnetInspector.QueryEngine` project is the strongest physical
+candidate for this contract, but a project boundary is not the owner. The
+eventual substrate must have a product-neutral name, remain dependency-light,
+support NativeAOT and single-threaded Browser/Wasm, and be consumable without a
+CLI dependency.
+
+## Product goal
+
+The query language is one part of a larger composition:
+
+```text
+dotnet-inspect query language
+  + source delegation
+  + agent intelligence
+  + jq, LINQ, and similar downstream tools
+  + section shaping and Markout presentation
+```
+
+The query language therefore does not attempt to become T-SQL, a general
+expression language, or a replacement for `jq`. It obtains high capability by
+composing accurate typed documents with specialized sources and capable
+consumers.
+
+The product favors an accurate, sufficiently structured document over the
+smallest document an arbitrary expression could produce. Operations belong in
+the shared query space when they affect acquisition, source delegation,
+completion, evidence, stable ordering, or an important cross-host experience.
+Ad hoc grouping, calculated fields, arbitrary Boolean reshaping, and
+application-specific projections remain natural downstream work.
+
+## Production experience
+
+The target interaction remains one consistent tuple of facet, operator, and
+operand:
+
+```console
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends prefix Microsoft.Extensions."
+
+dotnet-inspect library query ./artifacts \
+  --where "references=System.Runtime"
+
+dotnet-inspect library ./artifacts/example.dll \
+  -S References \
+  --where "Name contains Http"
+```
+
+The spellings are illustrative until their CLI owner adopts them. They show the
+shared semantics:
+
+- `depends` and `references` are facets, not operator-specific keys;
+- `prefix` and `contains` are explicit operators rather than wildcard
+  conventions embedded in equality;
+- operation qualification and row filtering remain distinct even when a host
+  presents both through one `--where` gesture; and
+- command and section experiences consume the same effective query-space
+  descriptor rather than maintaining parallel capability inventories.
+
+Another .NET application may instead obtain the descriptor, construct the same
+typed intent directly, execute it through the same plans, and apply LINQ to the
+returned typed rows. A Browser application may construct controls from the
+descriptor and use a source continuation to request more data. Neither host
+needs to parse CLI text.
+
+## Conventional basis
+
+This design deliberately derives individual mechanisms from established
+systems:
+
+| Precedent | Adopted idea | Deliberate difference |
+| --- | --- | --- |
+| LINQ query providers | Query composition is separate from provider execution. | The portable and resolved structural plans are inspectable; source capability and completion are not hidden behind provider type tests. |
+| GraphQL schema and introspection | One executable schema drives validation, discovery, and generated clients. | Query Space composes operation and row stages instead of exposing one graph field language. |
+| OData query options | Filtering, ordering, selection, and Count are distinct operations, with explicit text operations such as prefix and contains. | HTTP syntax and provider pushdown do not define product semantics. |
+| Substrait and relational planners | Stable logical operations remain separate from physical execution. | Query Space is a small product algebra rather than a general relational plan. |
+| NLinq | Source-specific static execution and fold lowering avoid opaque runtime type tests. | Runtime-authored queries remain structural data rather than nested generic pipeline types. |
+
+The design is intentionally derivative by layer. No precedent is authoritative
+for dotnet-inspect's work authorization, evidence, completion, or source
+continuation contracts.
+
+## Query-space definition
+
+One query space is an immutable effective binding containing:
+
+| Part | Meaning |
+| --- | --- |
+| Identity | Stable owner-issued identity for discovery and portable intent resolution. |
+| Operation route | One Query Operation definition, subject role, result grain, and operation profile. |
+| Row spaces | Zero or more declared row-set identities paired with their row vocabularies and supported shaping capabilities. |
+| Terminal space | The supported terminal requirements, initially Rows and exact Count. |
+| Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
+| Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
+| Descriptor | The complete resource-free capability projection consumed by hosts and generators. |
+
+The query space composes these parts without replacing their plans. A successful
+resolution retains:
+
+```text
+subject binding
+  -> operation-owned executable plan
+  -> typed operation result and declared row sets
+  -> row-space plan for each selected row set
+  -> terminal requirement
+```
+
+There is no universal executable query-plan type. The query-space binding
+retains the association among the owner-issued plans and the stage at which
+each one executes.
+
+## Facet definitions and bindings
+
+A reusable **facet definition** declares:
+
+- one stable identity and canonical query key;
+- one typed value domain;
+- the admitted operator identities;
+- cardinality and repeated-term composition;
+- display label, summary, accepted values, and examples; and
+- compatibility identity for portable replay.
+
+A facet definition does not make the facet executable. It becomes available
+only through one of two bindings.
+
+An **operation facet binding** declares:
+
+- subject-role and result-grain applicability;
+- one owner-issued operation-plan binder;
+- capability, acquisition, work, and completion effects; and
+- either subject qualification or operation selection as its semantic role.
+
+A **row facet binding** declares:
+
+- one declared row-set identity;
+- one typed accessor and operand binder;
+- predicate capabilities;
+- optional sequence or ranking order capabilities; and
+- no authority to initiate source or acquisition work.
+
+The same facet definition may support more than one binding when its value
+domain and operator meanings remain equivalent. The bindings may still differ
+in quantification, evidence, completion, and failure behavior. For example,
+`references prefix System.` may mean that a Package candidate has at least one
+matching reference across its admitted Libraries, while the Library operation
+evaluates one Library candidate and the References row space evaluates each
+declared reference row.
+
+The same key spelling does not imply the same facet or binding. A displayed
+field or section name never creates a facet.
+
+The current Query Operation implementation's `ResultPredicate` term role is
+transitional. Result predicates belong to explicit row-space bindings composed
+beside the operation route. Removing that role is a focused Query Operation
+Infrastructure adoption of this pattern, not an incidental rename.
+
+## Closed query algebra
+
+The shared algebra is deliberately smaller than SQL, LINQ expressions, or
+`jq`.
+
+The initial canonical predicate operators are:
+
+- Equals;
+- NotEquals;
+- Prefix;
+- NotPrefix;
+- Contains;
+- NotContains;
+- AtLeast; and
+- AtMost.
+
+Portable identity texts and host spellings remain owned by their respective
+contracts. `=` and `!=` are appropriate CLI spellings for equality and
+inequality. Prefix and contains remain named because no terse shell-safe symbol
+has sufficiently consistent meaning.
+
+Comparison behavior belongs to the facet's typed value domain. The generic
+substrate does not impose one text comparison, normalization, culture, or case
+policy.
+
+Terms retain the portable-intent owner's flat composition:
+
+- terms conjoin across families;
+- one owner-declared combining family may form an OR-union;
+- one owner-declared exclusive family rejects conflicting members; and
+- compatibility rules may reject combinations.
+
+The language adds no nested groups, arbitrary Boolean expression tree,
+subquery, join, lambda, user-defined function, regex, glob convention, custom
+comparer, or general aggregate. A future operator is a versioned addition to
+the closed algebra, not arbitrary executable content carried in an intent.
+
+## Fixed stages
+
+The observable order remains fixed:
+
+```text
+subject or population binding
+  -> operation qualification or selection
+  -> declared result rows
+  -> row predicates
+  -> effective baseline order
+  -> semantic Head, Tail, Window, or Top
+  -> projection
+  -> Rows or Count
+```
+
+An owner may perform equivalent work earlier only through source delegation or
+another owner-approved optimization contract. The structural plan continues
+to record the operation in its semantic position.
+
+The fixed order intentionally rules out a general optimizer that arbitrarily
+reorders stages. It makes plan meaning, failure precedence, source
+substitution, and generated execution predictable.
+
+## Structural transparency
+
+Every resolved operation or row term retains inspectable structural meaning:
+
+- facet and binding identity;
+- operator identity;
+- normalized typed operand;
+- semantic stage and declared row set;
+- order and cardinality properties needed by composition;
+- effects and completion consequences; and
+- the owner-issued executable binding used for local execution.
+
+An executable delegate, accessor, comparer, or callback may be cached beside
+that structure, but it is never the sole representation. Source delegation,
+discovery, diagnostics, and generated consumers must not recover meaning by
+inspecting a delegate target or testing a source's concrete CLR type.
+
+A source advertises an explicit offer over structural operations. The offer
+states the operations and compositions it can execute, the order it preserves,
+the result shapes it can return, and the completion evidence it can construct.
+The delegation planner intersects that offer with the resolved structural plan.
+It does not infer capability because a source happens to implement a
+similarly-named method.
+
+This is the query-space equivalent of NLinq's self-typed source specialization:
+the source-specific path is selected through an explicit contract rather than
+an `if (source is SomeConcreteType)` branch. Unlike NLinq, the complete
+runtime-authored query shape is not encoded as nested generic types.
+
+## Terminal requirements
+
+Rows and exact Count are peer terminal requirements over the same preceding
+semantic plan.
+
+**Rows** returns the selected typed rows plus their source and completion
+outcomes. A source-bound or otherwise incomplete result may remain usable when
+the owning row contract permits it, but it stays visibly incomplete.
+
+**Count** returns an exact cardinality or a typed non-count outcome. It never
+returns an observed row count as though it were exact. Count may be satisfied:
+
+- by logical exhaustion after local or delegated execution;
+- by an owner-accepted exact source Count witness; or
+- after `Head(N)`, by witnessing N applicable ordered rows or exhausting the
+  population with fewer than N.
+
+Count remains first class because it tests whether every layer preserves
+semantic scope and completion. A provider's candidate count, total-hit field,
+page size, work bound, or observed match count is not automatically the final
+Count.
+
+A future combined preview-and-count shape would carry two independent
+requirements: bounded row delivery and exact Count over the complete semantic
+population. Exact Count would not imply random row access, and row delivery
+credit would not limit Count work explicitly requested by the consumer.
+
+## Work bounds and semantic selection
+
+An execution bound and a semantic selection remain separate:
+
+| Concept | Meaning |
+| --- | --- |
+| Candidate `take` | The maximum owner-dimensioned source or candidate work authorized for one execution. |
+| Semantic `Head(N)` | The final result contains at most the first N applicable ordered rows. |
+| Source continuation | The source can identify an unconsumed remainder of the ordered source population. |
+
+A lone `Head(N)` may supply an execution optimization when the operation proves
+that stopping after N applicable rows is equivalent. An explicit candidate
+bound may intentionally authorize a larger population. Neither rule makes
+candidate work and result cardinality interchangeable.
+
+## Continuation, not paging
+
+The query language defines no Page, PageSize, page number, or provider offset
+operation. Paging is a higher-level policy that composes ordinary query
+executions.
+
+One execution begins either at its source population's start or from one
+owner-issued source continuation. Its result reports independently:
+
+- whether the requested semantic result is satisfied;
+- whether the underlying source population is exhausted;
+- whether execution stopped at a work or provider bound; and
+- whether another compatible execution can resume from a continuation.
+
+Semantic completion and population exhaustion are orthogonal. A
+`Head(10)` result may be semantically complete while carrying a continuation
+for later source rows. An unbounded Count result carrying only a continuation
+is not exact.
+
+The query-space layer preserves a continuation as an opaque typed receipt. It
+does not interpret the payload, construct a provider token, advance the token,
+or treat its presence as completion evidence. The source owner defines:
+
+- source and ordered-population correspondence;
+- binding to the source-side plan;
+- snapshot, operation, or live consistency;
+- portability and expiration;
+- advancement and replay behavior;
+- containment of untrusted provider data; and
+- which authorization must be supplied again when resuming.
+
+A continuation carries no credential or reusable source authority. A consumer
+resuming it supplies current authority through the normal source-selection
+path.
+
+A continuation is not a portable query term, execution bound, selection stage,
+or order operation. It is a source input beside the same canonical query
+intent. A higher-level consumer resumes by composing that unchanged compatible
+intent, the continuation, and a new execution bound or terminal request.
+Portable sharing starts from the source population's beginning unless a
+separate source-owned interchange contract explicitly admits the continuation.
+
+The useful consistency classes are:
+
+| Class | Meaning |
+| --- | --- |
+| Snapshot-stable | Every continuation resumes one immutable ordered population. |
+| Operation-stable | Exact while the originating live operation remains active. |
+| Live | Resumes against a population that may have changed between requests. |
+| Non-resumable | The source may continue internally but exposes no usable continuation. |
+
+NuGet Search `skip` and `take` can support bounded sequential acquisition, but
+they do not establish a snapshot-stable result population. NuGet Catalog
+cursors and horizons have different semantics and describe a change feed, not
+the same ranked Search population.
+
+[Source delegation](source-delegation.md) currently excludes cursors from its
+result branches. A separate focused adoption must replace that prohibition
+with the owner-issued continuation receipt before a delegated result exposes
+one. This design does not make that source-owner change implicitly.
+
+## Delivery demand and source batches
+
+Delivery demand is an execution-control protocol, not portable query meaning.
+A higher-level consumer may grant cumulative room for final rows:
+
+```text
+initial row credit: 20
+additional credit:  10
+additional credit:  10
+```
+
+The [engine-to-Browser async event stream](engine-browser-async-event-stream.md)
+owner defines credit accounting, pull-ahead, pausing, cancellation, and event
+publication for a live stream. Query Space owns only that delivery demand is
+not query semantics and therefore cannot become a portable term, completion
+witness, or Count bound. A higher-level system may alternatively settle one
+segment, retain its continuation, and start another execution later.
+
+Source acquisition owners define physical batch size and advancement. Ten
+additional final rows may require many source pages when residual predicates
+reject candidates. A physical page size never becomes semantic Head, Count
+evidence, or delivery demand.
+
+Inspect Web's current Package Query behavior is the first production evidence
+for this separation: it grants 20 initial matches and 10 more near the end,
+retains all delivered rows, and mounts at most 30 cards. Those numbers and
+scroll policy remain Browser-owned. The shared query space exposes the
+structural plan and continuation capability that let such a policy reach the
+source without becoming query syntax.
+
+## Downstream shaping
+
+The completed `InspectionEnvelope<TContent>` remains the authoritative typed
+result. A source segment that is not population-exhaustive must retain its
+completion and continuation state; it must not masquerade as a complete
+document.
+
+Downstream consumers may reshape accurate content:
+
+- .NET applications may use LINQ over acquired typed rows;
+- agents may issue additional focused queries;
+- `jq` and similar tools may transform structured output;
+- the section system may select declared rows, projections, summaries, and
+  terminal Count; and
+- Markout may lower those typed shapes into compact presentation.
+
+A section-owned semantic reduction known before execution should lower into
+the shared row and terminal intent so source delegation can observe it.
+Markout-only elision performed after the envelope is complete remains
+presentation and cannot reduce source work.
+
+The substrate must not return a lazy `IEnumerable<T>` whose enumeration hides
+live source resources, deferred failures, or continuation advancement.
+Convenience enumeration may repeatedly execute explicit continuation-bearing
+segments, but each source operation and result remains visible.
+
+## Source-generation seam
+
+Source generation is optional mechanical lowering from explicit declarations.
+The handwritten declarations remain authoritative.
+
+A generator may produce:
+
+- stable identity constants;
+- immutable registration and descriptor tables;
+- typed intent builders;
+- closed vocabulary-specific predicate and comparer dispatch;
+- source-offer matching tables;
+- portable serialization metadata; and
+- diagnostics for duplicate identities, incompatible operator domains,
+  ambiguous stage bindings, or row facets carrying acquisition effects.
+
+A generator must not infer:
+
+- facets from row properties, section columns, or display labels;
+- operator meaning from CLR types or method names;
+- source capability from the presence of a compatible-looking method;
+- work, evidence, completion, or continuation semantics;
+- arbitrary expression execution; or
+- presentation layout.
+
+Generated and handwritten registrations must produce equivalent descriptors,
+structural plans, failures, and execution behavior.
+
+The first implementation should remain explicit through at least Package
+Query, Library Query, and one declared References row-space adoption. The
+generator follows only after those consumers expose stable repeated
+boilerplate. It specializes by query space, row vocabulary, and source adapter,
+not by every runtime sequence of terms; full per-query generic specialization
+would create unacceptable NativeAOT code-size growth and cannot represent
+runtime-authored query shapes.
+
+## Pathological cases
+
+The eventual implementation and adopter gates must preserve these cases:
+
+- A NuGet source page contains 100 candidates but only two survive the query.
+  A ten-row delivery grant continues acquisition rather than treating the page
+  size or short result as completion.
+- `Head(10)` finds ten rows and returns a continuation. The semantic query is
+  complete, while the underlying population is explicitly not exhausted.
+- Unbounded Count reaches a candidate limit with 327 observed matches and a
+  continuation. No exact Count is returned.
+- A source provides an exact filtered Count and only the first 20 rows. Count
+  is exact, row delivery is partial, and seekability is not inferred.
+- NuGet Search reports `totalHits` for its broader ranked query. Exact-prefix
+  filtering and package-ID deduplication prevent that field from satisfying
+  final Count.
+- An operation facet and a row facet use the same displayed word. The route
+  resolves each through its declared stage rather than guessing from spelling.
+- A generated consumer omits a control. The runtime descriptor remains
+  complete and another host can expose the capability.
+- A source advertises prefix filtering but cannot preserve the required
+  comparison or order. Its adoption fails equivalence rather than silently
+  returning plausible rows.
+- A consumer changes the query while retaining an old continuation. The
+  source-owner binding rejects incompatible resumption rather than skipping an
+  unknown portion of the new population.
+
+## Adoption sequence
+
+Implementation proceeds as focused owner adoptions:
+
+1. Lock this composition contract and its owner map.
+2. Extend Portable Query Intent with the explicit Prefix, NotPrefix, Contains,
+   and NotContains identities.
+3. Have Query Operation Infrastructure compose explicit row spaces and retire
+   its transitional `ResultPredicate` role.
+4. Preserve structural predicate and order nodes through row-query resolution
+   beside local executable bindings.
+5. Extend Source Delegation through a separate focused continuation-receipt
+   design and implementation.
+6. Rework #7944 onto the shared `depends prefix VALUE` operator model.
+7. Use #7945 as the focused Library Query operation adoption, then restack the
+   Browser work from #7872 onto its settled query space.
+8. Add the References row space and Assembly Reference Prefixes summary over
+   owner-issued assembly-reference evidence.
+9. Rebase Inspect Web result demand on the shared execution/continuation
+   boundary without moving scroll or virtualization policy into the substrate.
+10. Add one small non-CLI .NET consumer before selecting the final package name
+    and enabling supported package publication.
+11. Evaluate source generation after the first three explicit query-space
+    adopters establish repeated boilerplate.
+
+Each step names one adopting owner and retains every other owner's contract.
+
+## Required gates
+
+The implementation plan assigns these Release gates to their eventual owning
+slices:
+
+| Gate | Required property |
+| --- | --- |
+| `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
+| `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
+| `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
+| `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
+| `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
+| `ContinuationDoesNotImplyCompletion` | A continuation may accompany semantic completion, while its presence alone never establishes exhaustion or exact Count. |
+| `ExactCountRequiresAcceptedEvidence` | Source Count, exhaustion, and `Head(N)` witnesses are accepted only under the terminal owner's exact requirement. |
+| `SourcePageSizeDoesNotDefineResultMeaning` | Different physical source batch sizes produce the same rows, Count, completion, and continuation semantics. |
+| `ManualAndGeneratedQuerySpacesAreEquivalent` | When generation is introduced, generated and handwritten paths produce the same descriptors, plans, failures, and results. |
+| `ExternalConsumerBuildsFromQuerySpaceDescriptor` | A non-CLI consumer constructs a valid query and interprets its terminal and continuation without CLI types or reflection. |
+
+## Non-claims
+
+This design does not claim:
+
+- that every query is source-delegable;
+- that every source exposes a continuation;
+- that continuation implies stable random access;
+- that exact Count implies row seekability;
+- that downstream LINQ or `jq` transformations can be pushed upstream;
+- that a dynamic runtime query can receive NLinq-style full generic
+  specialization;
+- that the current Browser match-credit protocol already implements this
+  general contract;
+- that the current project layout is the final package layout; or
+- that the held Depends and Library Query PRs are correct without focused
+  adoption and renewed review.
