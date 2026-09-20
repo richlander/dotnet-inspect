@@ -197,8 +197,10 @@ For one exact local Library pair, `--json` emits the complete typed
 and diagnostics:
 
 ```bash
+before=old/Foo.dll
+after=new/Foo.dll
 dotnet-inspect diff \
-  --library old/Foo.dll..new/Foo.dll \
+  --library "$before..$after" \
   -S "Implementation Diff" \
   -t Foo.Widget \
   --envelope

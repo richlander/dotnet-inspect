@@ -1056,8 +1056,10 @@ its result; `--type` and `--member` remain semantic request inputs recorded in
 the Content:
 
 ```bash
+before=old/Foo.dll
+after=new/Foo.dll
 dotnet-inspect diff \
-  --library old/Foo.dll..new/Foo.dll \
+  --library "$before..$after" \
   -S "Implementation Diff" --type Foo.Widget --envelope
 ```
 
