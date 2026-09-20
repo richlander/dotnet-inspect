@@ -3,6 +3,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspector.Libraries;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
@@ -209,6 +211,54 @@ public sealed class SourceHouseLimits
     private static void ValidateArrayBound(int value, string parameterName)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(value, parameterName);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            value,
+            Array.MaxLength,
+            parameterName);
+    }
+}
+
+public sealed class SourceHouseMemberDecompilationLimits
+{
+    public SourceHouseMemberDecompilationLimits(
+        int maximumAssemblyBytes,
+        int maximumPortablePdbBytes,
+        ApiSurfaceExtractionBounds targetBounds,
+        SourceLinkReadLimits embeddedPdbReadLimits)
+    {
+        ValidateArrayBound(
+            maximumAssemblyBytes,
+            nameof(maximumAssemblyBytes));
+        ValidateArrayBound(
+            maximumPortablePdbBytes,
+            nameof(maximumPortablePdbBytes));
+        ArgumentNullException.ThrowIfNull(targetBounds);
+        ArgumentNullException.ThrowIfNull(embeddedPdbReadLimits);
+
+        MaximumAssemblyBytes = maximumAssemblyBytes;
+        MaximumPortablePdbBytes = maximumPortablePdbBytes;
+        TargetBounds = targetBounds;
+        EmbeddedPdbReadLimits = new(
+            Math.Min(
+                maximumPortablePdbBytes,
+                embeddedPdbReadLimits.MaxEmbeddedPdbBytes),
+            embeddedPdbReadLimits.MaxMapBytes,
+            embeddedPdbReadLimits.MaxMappings,
+            embeddedPdbReadLimits.EmbeddedPdbBudget);
+    }
+
+    public int MaximumAssemblyBytes { get; }
+    public int MaximumPortablePdbBytes { get; }
+    public ApiSurfaceExtractionBounds TargetBounds { get; }
+    public SourceLinkReadLimits EmbeddedPdbReadLimits { get; }
+
+    private static void ValidateArrayBound(
+        int value,
+        string parameterName)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            value,
+            parameterName);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(
             value,
             Array.MaxLength,
@@ -445,6 +495,69 @@ public sealed class SourceHouseAuthoredRequest
     public LibraryContentReference SelectedAssembly { get; }
     public SourceHouseTarget Target { get; }
     public SourceHouseOperationPlan Plan { get; }
+}
+
+public sealed class SourceHouseMemberDecompilationPlan
+{
+    public SourceHouseMemberDecompilationPlan(
+        SourceHouseOperationPlanIdentity identity,
+        SourceHousePolicyGeneration policyGeneration,
+        SourceHouseMemberDecompilationLimits limits,
+        IAssemblyBindingPolicy bindingPolicy,
+        PrinterOptions? printerOptions = null,
+        int maximumBodyProjections =
+            CSharpDecompilerService.DefaultMaxBodyProjections)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(policyGeneration);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumBodyProjections);
+
+        Identity = identity;
+        PolicyGeneration = policyGeneration;
+        Limits = limits;
+        BindingPolicy = bindingPolicy;
+        PrinterOptions = printerOptions;
+        MaximumBodyProjections = maximumBodyProjections;
+    }
+
+    public SourceHouseOperationPlanIdentity Identity { get; }
+    public SourceHousePolicyGeneration PolicyGeneration { get; }
+    public SourceHouseMemberDecompilationLimits Limits { get; }
+    public IAssemblyBindingPolicy BindingPolicy { get; }
+    public PrinterOptions? PrinterOptions { get; }
+    public int MaximumBodyProjections { get; }
+}
+
+public sealed class SourceHouseMemberDecompilationRequest
+{
+    public SourceHouseMemberDecompilationRequest(
+        SourceHouseRequestIdentity identity,
+        LibraryReference library,
+        LibraryContentReference selectedAssembly,
+        SourceHouseTarget.MemberTarget target,
+        SourceHouseMemberDecompilationPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(selectedAssembly);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        Identity = identity;
+        Library = library;
+        SelectedAssembly = selectedAssembly;
+        Target = target;
+        Plan = plan;
+    }
+
+    public SourceHouseRequestIdentity Identity { get; }
+    public LibraryReference Library { get; }
+    public LibraryContentReference SelectedAssembly { get; }
+    public SourceHouseTarget.MemberTarget Target { get; }
+    public SourceHouseMemberDecompilationPlan Plan { get; }
 }
 
 internal static class SourceHouseContractName

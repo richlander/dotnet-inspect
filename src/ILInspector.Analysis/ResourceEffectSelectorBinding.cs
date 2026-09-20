@@ -376,12 +376,44 @@ public static class ResourceEffectSelectorBinder
         ResourceEffectMemberSelector selector,
         MemberRef member)
     {
+        if (!MemberShapeCouldMatch(
+                selector,
+                member,
+                allowExplicitInterfaceName: false))
+        {
+            return false;
+        }
+
+        TypeRef declaring = member.DeclaringType;
+        if (declaring.Kind == TypeRefKind.GenericInstance)
+        {
+            if (declaring.ElementType is null)
+                return true;
+            declaring = declaring.ElementType;
+        }
+        if (declaring.Kind == TypeRefKind.Unsupported)
+            return true;
+        return TypeNameCouldMatch(selector.DeclaringType, declaring);
+    }
+
+    internal static bool MemberShapeCouldMatch(
+        ResourceEffectMemberSelector selector,
+        MemberRef member,
+        bool allowExplicitInterfaceName)
+    {
         if (member.Kind == MemberKind.Unsupported)
             return true;
-        if (!string.Equals(
-                selector.MetadataName,
-                member.Name,
-                StringComparison.Ordinal)
+        bool nameMatches = string.Equals(
+            selector.MetadataName,
+            member.Name,
+            StringComparison.Ordinal);
+        if (allowExplicitInterfaceName)
+        {
+            nameMatches |= member.Name.EndsWith(
+                $".{selector.MetadataName}",
+                StringComparison.Ordinal);
+        }
+        if (!nameMatches
             || selector.GenericArity != member.GenericArity
             || selector.IsStatic == member.HasThis
             || selector.HasThis != member.HasThis
@@ -408,17 +440,7 @@ public static class ResourceEffectSelectorBinder
         {
             return false;
         }
-
-        TypeRef declaring = member.DeclaringType;
-        if (declaring.Kind == TypeRefKind.GenericInstance)
-        {
-            if (declaring.ElementType is null)
-                return true;
-            declaring = declaring.ElementType;
-        }
-        if (declaring.Kind == TypeRefKind.Unsupported)
-            return true;
-        return TypeNameCouldMatch(selector.DeclaringType, declaring);
+        return true;
     }
 
     internal static bool CouldMatchInterfaceImplementation(

@@ -2327,8 +2327,8 @@ public sealed class PackageAssemblyContextRealizationTests
             ("lib/net11.0/Collision.Sample.Second.dll", image));
         await using var workspace = new InspectionWorkspace();
 
-        InvalidOperationException failure =
-            Assert.Throws<InvalidOperationException>(
+        PackageAssemblyRoleCorrespondenceException failure =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
                 () => workspace.RealizePackageAssemblyContextRoles(
                     [package],
                     cancellationToken: TestContext.Current.CancellationToken));

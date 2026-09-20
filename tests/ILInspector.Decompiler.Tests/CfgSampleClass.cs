@@ -3719,6 +3719,88 @@ public class CfgSampleClass
     public static IEnumerable<int> CachedDelegateChain(IEnumerable<int> items)
         => items.Where(x => x > 0).Select(x => x * 2);
 
+    public static IEnumerable<string> ReceiverInferredExtensionArguments(
+        ICollection<string> values,
+        string extra)
+        => values.Concat([extra]).Distinct();
+
+    public static IEnumerable<string> SameReceiverOverloadsRemainInferable(
+        IEnumerable<string> values)
+        => values.Where(value => value.Length > 0);
+
+    public static IEnumerable<int> ResultInferredExtensionArgumentsRemainExplicit(
+        IEnumerable<string> values)
+        => values.Select(value => value.Length);
+
+    public static int AmbiguousReceiverArgumentsRemainExplicit(AmbiguousGenericReceiver receiver)
+        => receiver.Value<int>();
+
+    public static object CovariantReceiverArgumentsRemainExplicit(
+        IEnumerable<string> receiver)
+        => receiver.CovariantValue<object>();
+
+    public static int ExactSameAssemblyReceiverArgumentsAreOmitted(
+        SingleGenericReceiver receiver)
+        => receiver.Value<int>();
+
+    public static int CompetingGenericArityRemainsExplicit(SingleGenericReceiver receiver)
+        => receiver.Overloaded<int>("value");
+
+    public static IEnumerable<byte> ConflictingArgumentInferenceRemainsExplicit(
+        IEnumerable<byte> values)
+        => values.Append<byte>(1);
+
+    public static int CompetingSiblingInferenceRemainsExplicit(
+        IEnumerable<string> values,
+        Func<object> factory)
+        => values.SiblingInference<string>(factory);
+
+    public static Type BareReceiverInferenceRemainsExplicit(string value)
+        => value.BareReceiverType<object>();
+
+    public static Type LambdaOutputInferenceRemainsExplicit(
+        IEnumerable<byte> values)
+        => values.TakeFactory<byte>(() => 1);
+
+    public static int ParamsCollectionInferenceRemainsExplicit(
+        IEnumerable<string> values)
+        => values.ParamsCollection<string>("a", "b");
+
+    public static string[] ArrayReceiverArgumentsAreOmitted(string[] values)
+        => values.CopyArray<string>();
+
+    public static unsafe Type FunctionPointerParameterInferenceRemainsExplicit(
+        IEnumerable<string> values,
+        delegate*<object, void> callback)
+        => values.FunctionPointerArgument<string>(callback);
+
+    public static int NullSiblingInferenceRemainsExplicit(
+        IEnumerable<string> values,
+        Func<object> factory)
+        => values.NullSiblingInference<string>(null!, factory);
+
+    public static int ConversionSiblingInferenceRemainsExplicit(
+        IEnumerable<string> values,
+        Func<object> factory)
+        => values.ConversionSiblingInference<string>("value", factory);
+
+    public static int SpanSiblingInferenceRemainsExplicit(
+        IEnumerable<string> values,
+        Span<object> span)
+        => values.SpanSiblingInference<string>(span, "value");
+
+    public static int CollectionSiblingInferenceRemainsExplicit(
+        IEnumerable<string> values)
+        => values.CollectionSiblingInference<string>([new object()]);
+
+    public static Type CollectionElementInferenceRemainsExplicit(
+        IEnumerable<byte> values)
+        => values.CollectionArgument<byte>([1]);
+
+    public static Type TupleElementInferenceRemainsExplicit(
+        IEnumerable<byte> values)
+        => values.TupleArgument<byte>((1, 2));
+
     static string CacheMethodGroupIdentity(string value) => value;
 
     // Static method groups use Roslyn's <>O holder and <N>__Method cache fields,

@@ -809,43 +809,41 @@ operation-level compatibility failure remains visible in that operation's
 surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
-Package content retains the admitted-library inventory, comparison targets, and
-document links. At wide inspector widths, the admitted-library inventory owns
-the primary column while comparison targets and package documents share a
-secondary package-resources column. This follows the useful content/resource
-allocation of conventional package-detail pages without adopting their overall
-navigation or adding package facts. At constrained widths, the same complete
-sections return to one ordered stack: Libraries, Documentation, then Comparison
-targets. Package documents precede comparison setup because they describe the
-current package, while comparison choices prepare a later operation. The
-platform library picker remains with the Libraries section.
-The admitted-library placement is a staged migration exception: retaining it
-in this Package slice keeps every exact Library reachable. The Library-subject
-slice moves that inventory to Library and removes the duplicate from Package
-Overview.
-Library rows enter the existing Library subject, whose Overview retains kind
-and namespace navigation. At wide inspector widths, Library Overview makes
-Namespaces the primary region and Type kinds a compact secondary region. This
-follows the assembly -> namespace -> type hierarchy used by conventional .NET
-assembly browsers without adopting their tree or workbench chrome. At
-constrained widths, the same sections return to one ordered stack: Namespaces,
-then Type kinds. Libraries with no public types render explicit empty states for
-both sections rather than an empty bordered region. Comparison selection,
-document opening, counts, and ordering retain their semantics.
-`System.Text.Json@10.0.0` is the motivating ordinary package: its admitted
-libraries remain primary while its README and comparison setup stay visible
-without requiring a second scroll through sparse full-width sections. Its main
-library is also the motivating Library Overview: six public namespaces provide
-the primary navigation while five type-kind counts remain a compact secondary
+Package content retains package facts, comparison targets, and document links.
+At wide inspector widths, Package facts own the primary column while package
+documents and comparison targets share a secondary package-resources column.
+At constrained widths, the same complete sections return to one ordered stack:
+Package Info, Documentation, then Comparison targets. Package documents precede
+comparison setup because they describe the current package, while comparison
+choices prepare a later operation.
+
+Library navigation owns one single-select inventory containing `All libraries`
+followed by every exact admitted Library. `All libraries` is the default
+package-backed Library subject. Its Overview aggregates namespace and type-kind
+composition across the admitted libraries; an exact Library Overview retains
+asset path, assembly identity, namespaces, and kinds. At wide inspector widths,
+Library Overview makes Namespaces the primary region and Type kinds a compact
+secondary region. This follows the assembly -> namespace -> type hierarchy used
+by conventional .NET assembly browsers without adopting their tree or workbench
+chrome. At constrained widths, the same sections return to one ordered stack:
+Namespaces, then Type kinds. Empty aggregate or exact subjects render explicit
+empty states for both sections rather than an empty bordered region. Selecting
+Type preserves the active aggregate or exact Library subject so the Type
+inventory contains the corresponding contributed Types.
+
+`System.Text.Json@10.0.0` is the motivating ordinary package: Package Overview
+keeps its README and comparison setup visible without duplicating structural
+navigation, while Library defaults to the package aggregate and can narrow to
+`System.Text.Json.dll`. Its exact Library Overview uses six public namespaces
+as primary navigation while five type-kind counts remain a compact secondary
 summary.
 
 The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Frameworks (Package) or Types (Library) return
-control shares the quiet header; the local name and icon remain visible in the
-content below it. The legacy Library inventory remains in Overview content only
-during the staged migration above. Controls wrap within their row, and
-header/footer values may elide as complete strings. Local subject names wrap
-rather than disappearing.
+framework. At narrow widths the Frameworks (Package), Libraries (Library), or
+Types (Type and Member) return control shares the quiet header; the local name
+and icon remain visible in the content below it. Controls wrap within their
+row, and header/footer values may elide as complete strings. Local subject
+names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.

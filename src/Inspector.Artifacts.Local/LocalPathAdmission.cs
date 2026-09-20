@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 namespace Inspector.Artifacts.Local;
@@ -195,6 +198,8 @@ internal static partial class LocalPathAdmission
     private const uint WindowsFsctlGetReparsePoint = 0x000900A8;
     private const uint WindowsSymbolicLinkFlagRelative = 1;
     private const int WindowsMaximumReparseDataBufferSize = 16 * 1024;
+    private const int WindowsSymbolicLinkReparseHeaderSize = 20;
+    private const int WindowsMountPointReparseHeaderSize = 16;
     private const int MaximumWindowsLinkDepth = 40;
     private static readonly WindowsReparseTagEntry[] s_windowsReparseTags =
     [
@@ -802,7 +807,7 @@ internal static partial class LocalPathAdmission
                 : LocalPathKind.RegularFile);
     }
 
-    private static unsafe WindowsReparseInformation
+    private static WindowsReparseInformation
         GetWindowsReparseInformation(
         string path)
     {
@@ -841,25 +846,20 @@ internal static partial class LocalPathAdmission
         if (disposition != WindowsReparseDisposition.SupportedLink)
             return new(disposition, TargetPath: null, IsRelative: false);
 
-        Span<byte> buffer =
-            stackalloc byte[WindowsMaximumReparseDataBufferSize];
-        uint bytesReturned;
-        fixed (byte* bufferPointer = buffer)
+        byte[] buffer = new byte[WindowsMaximumReparseDataBufferSize];
+        if (!DeviceIoControl(
+            handle,
+            WindowsFsctlGetReparsePoint,
+            inputBuffer: IntPtr.Zero,
+            inputBufferSize: 0,
+            outputBuffer: buffer,
+            outputBufferSize: (uint)buffer.Length,
+            out uint bytesReturned,
+            overlapped: IntPtr.Zero))
         {
-            if (!DeviceIoControl(
-                handle,
-                WindowsFsctlGetReparsePoint,
-                inputBuffer: null,
-                inputBufferSize: 0,
-                outputBuffer: bufferPointer,
-                outputBufferSize: (uint)buffer.Length,
-                out bytesReturned,
-                overlapped: IntPtr.Zero))
-            {
-                throw new IOException(
-                    $"DeviceIoControl failed with error " +
-                    $"{Marshal.GetLastPInvokeError()}");
-            }
+            throw new IOException(
+                $"DeviceIoControl failed with error " +
+                $"{Marshal.GetLastPInvokeError()}");
         }
 
         if (bytesReturned > buffer.Length)
@@ -874,22 +874,21 @@ internal static partial class LocalPathAdmission
         if (information.ReparseTag
             == (uint)WindowsKnownReparseTag.SymbolicLink)
         {
-            if (!MemoryMarshal.TryRead(
-                    returned,
-                    out WindowsSymbolicLinkReparseBuffer symbolicLink)
-                || symbolicLink.ReparseTag != information.ReparseTag
-                || symbolicLink.Reserved != 0
+            if (returned.Length < WindowsSymbolicLinkReparseHeaderSize
+                || BinaryPrimitives.ReadUInt32LittleEndian(returned)
+                    != information.ReparseTag
+                || BinaryPrimitives.ReadUInt16LittleEndian(returned[6..]) != 0
                 || !TryGetWindowsSymbolicLinkRelativeFlag(
-                    symbolicLink.Flags,
+                    BinaryPrimitives.ReadUInt32LittleEndian(returned[16..]),
                     out bool isRelative)
                 || !TryReadWindowsReparseTarget(
                     returned,
-                    Marshal.SizeOf<WindowsSymbolicLinkReparseBuffer>(),
-                    symbolicLink.ReparseDataLength,
-                    symbolicLink.SubstituteNameOffset,
-                    symbolicLink.SubstituteNameLength,
-                    symbolicLink.PrintNameOffset,
-                    symbolicLink.PrintNameLength,
+                    WindowsSymbolicLinkReparseHeaderSize,
+                    BinaryPrimitives.ReadUInt16LittleEndian(returned[4..]),
+                    BinaryPrimitives.ReadUInt16LittleEndian(returned[8..]),
+                    BinaryPrimitives.ReadUInt16LittleEndian(returned[10..]),
+                    BinaryPrimitives.ReadUInt16LittleEndian(returned[12..]),
+                    BinaryPrimitives.ReadUInt16LittleEndian(returned[14..]),
                     out string targetPath))
             {
                 return new(
@@ -906,20 +905,19 @@ internal static partial class LocalPathAdmission
                 isRelative);
         }
 
-        if (!MemoryMarshal.TryRead(
+        if (returned.Length < WindowsMountPointReparseHeaderSize
+            || BinaryPrimitives.ReadUInt32LittleEndian(returned)
+                != information.ReparseTag
+            || BinaryPrimitives.ReadUInt16LittleEndian(returned[6..]) != 0
+            || !TryReadWindowsReparseTarget(
                 returned,
-                out WindowsMountPointReparseBuffer mountPoint)
-            || mountPoint.ReparseTag != information.ReparseTag
-                || mountPoint.Reserved != 0
-                || !TryReadWindowsReparseTarget(
-                    returned,
-                    Marshal.SizeOf<WindowsMountPointReparseBuffer>(),
-                    mountPoint.ReparseDataLength,
-                    mountPoint.SubstituteNameOffset,
-                    mountPoint.SubstituteNameLength,
-                    mountPoint.PrintNameOffset,
-                    mountPoint.PrintNameLength,
-                    out string mountTarget))
+                WindowsMountPointReparseHeaderSize,
+                BinaryPrimitives.ReadUInt16LittleEndian(returned[4..]),
+                BinaryPrimitives.ReadUInt16LittleEndian(returned[8..]),
+                BinaryPrimitives.ReadUInt16LittleEndian(returned[10..]),
+                BinaryPrimitives.ReadUInt16LittleEndian(returned[12..]),
+                BinaryPrimitives.ReadUInt16LittleEndian(returned[14..]),
+                out string mountTarget))
         {
             return new(
                 WindowsReparseDisposition.Unsupported,
@@ -975,8 +973,8 @@ internal static partial class LocalPathAdmission
             return false;
         }
 
-        target = MemoryMarshal.Cast<byte, char>(
-            buffer.Slice(targetStart, targetLength)).ToString();
+        target = Encoding.Unicode.GetString(
+            buffer.Slice(targetStart, targetLength));
         return true;
     }
 
@@ -1383,12 +1381,13 @@ internal static partial class LocalPathAdmission
         EntryPoint = "DeviceIoControl",
         SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static unsafe partial bool DeviceIoControl(
+    private static partial bool DeviceIoControl(
         SafeFileHandle handle,
         uint controlCode,
-        void* inputBuffer,
+        IntPtr inputBuffer,
         uint inputBufferSize,
-        void* outputBuffer,
+        [Out, MarshalUsing(CountElementName = nameof(outputBufferSize))]
+        byte[] outputBuffer,
         uint outputBufferSize,
         out uint bytesReturned,
         IntPtr overlapped);
@@ -1407,31 +1406,6 @@ internal static partial class LocalPathAdmission
     {
         internal uint FileAttributes;
         internal uint ReparseTag;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowsSymbolicLinkReparseBuffer
-    {
-        internal uint ReparseTag;
-        internal ushort ReparseDataLength;
-        internal ushort Reserved;
-        internal ushort SubstituteNameOffset;
-        internal ushort SubstituteNameLength;
-        internal ushort PrintNameOffset;
-        internal ushort PrintNameLength;
-        internal uint Flags;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowsMountPointReparseBuffer
-    {
-        internal uint ReparseTag;
-        internal ushort ReparseDataLength;
-        internal ushort Reserved;
-        internal ushort SubstituteNameOffset;
-        internal ushort SubstituteNameLength;
-        internal ushort PrintNameOffset;
-        internal ushort PrintNameLength;
     }
 
     [StructLayout(LayoutKind.Sequential)]

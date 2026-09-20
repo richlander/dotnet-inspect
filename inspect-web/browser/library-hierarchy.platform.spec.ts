@@ -3,7 +3,6 @@ import {
   subjectTab,
   chooseInspector,
   chooseSubject,
-  core,
   surface,
   platformVersion,
   alternatePlatformVersion,
@@ -344,7 +343,8 @@ test("pending Platform catalog cannot overwrite a loaded Package selected throug
   ).click();
   await page.locator("#spotlight-input").fill("Example.Package");
   await page.locator('[data-sl-pkg-open="Example.Package"]').click();
-  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText("All libraries");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await chooseSubject(page, "package", "Package");
 
@@ -519,7 +519,8 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await expect(page.locator("[data-workspace-platform]")).toContainText(platformVersion);
   await page.locator("[data-workspace-activate]").click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText("All libraries");
   await page.locator('[data-application-scope="workspace"]').click();
   await page.locator("[data-workspace-platform]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");

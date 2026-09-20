@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
+import {
+  chooseSubject,
+  selectFirstExactLibrary,
+} from "./library-subject-actions.ts";
 
 const site = process.env.INSPECT_WEB_SOURCE_DIFF_URL;
 const fixtureOnly = process.env.INSPECT_WEB_SOURCE_DIFF_FIXTURE_ONLY === "1";
@@ -270,16 +274,17 @@ test.describe("published authored Source comparison transport", () => {
       }).toString();
       applicationUrl.hash = "pkg";
       await applicationPage.goto(applicationUrl.href);
-      const library =
-        applicationPage.locator(".library-list [data-lib-scope]").first();
-      await expect(library.or(applicationPage.locator(".load-error")))
+      const librarySubject =
+        applicationPage.locator('[data-subject-tab][data-scope="library"]');
+      await expect(librarySubject.or(applicationPage.locator(".load-error")))
         .toBeVisible({ timeout: 180_000 });
       if (await applicationPage.locator(".load-error").isVisible()) {
         throw new Error(
           await applicationPage.locator(".load-error").textContent()
             ?? "Published application failed to load the fixture package.");
       }
-      await library.click();
+      await selectFirstExactLibrary(applicationPage);
+      await chooseSubject(applicationPage, "type");
       await applicationPage.locator("#type-list [data-type]")
         .filter({ hasText: /\bCounter\b/ })
         .first()

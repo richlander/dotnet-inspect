@@ -93,7 +93,7 @@ public class SharedOptions
         Description = "Performance Triage: include only shape(s), comma-separated or repeated; run -S \"Performance Triage\" to see shapes",
         AllowMultipleArgumentsPerToken = false
     };
-    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
+    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Show the top N ranked rows for a supported query surface" };
     public Option<string[]> RowWhere { get; } = new("--where")
     {
         Description = "Filter selected section rows with a field predicate, e.g. --where \"Allocation=boxed *\" or --where \"RootReach>=10\"",

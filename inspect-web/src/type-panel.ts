@@ -360,6 +360,7 @@ export interface TypeNavOptions {
   filterSummary: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
+  typeLibraryLabel: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
   shortKind: (kind: string) => string;
 }
@@ -369,7 +370,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
-    typeDisplayName, kindIcon, shortKind,
+    typeDisplayName, typeLibraryLabel, kindIcon, shortKind,
   } = options;
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
@@ -419,10 +420,11 @@ export function renderTypeNav(options: TypeNavOptions): string {
             </button>
             ${types.map(item => {
               const selected = item.id === current?.id;
+              const definingLibrary = typeLibraryLabel(item);
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small>${escapeHtml(shortKind(item.kind))}</small>
+                <small>${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${escapeHtml(shortKind(item.kind))}</small>
               </button>`;
             }).join("")}
           </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
@@ -507,6 +509,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
 export interface TypeHeadingOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
+  libraryLabel?: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
@@ -514,7 +517,10 @@ export interface TypeHeadingOptions {
 }
 
 export function typeHeading(options: TypeHeadingOptions): string {
-  const { item, packageContext, escapeHtml, typeDisplayName, kindIcon, highlight } = options;
+  const {
+    item, packageContext, libraryLabel,
+    escapeHtml, typeDisplayName, kindIcon, highlight,
+  } = options;
   return `<header class="type-heading">
     <div class="type-badge">${kindIcon(item.kind)}</div>
     <div>
@@ -525,7 +531,7 @@ export function typeHeading(options: TypeHeadingOptions): string {
     <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
     <dl class="definition-list">
       <div><dt>TFM:</dt><dd>${escapeHtml(packageContext.activeFramework)}</dd></div>
-      <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
+      <div><dt>Library:</dt><dd>${escapeHtml(libraryLabel ?? item.assembly)}</dd></div>
       <div><dt>Package:</dt><dd>${escapeHtml(packageContext.id)}@${escapeHtml(packageContext.version)}</dd></div>
     </dl>
   </header>`;

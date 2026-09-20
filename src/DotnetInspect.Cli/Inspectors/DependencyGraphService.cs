@@ -109,7 +109,8 @@ internal static class DependencyGraphService
         RowQueryResolutionResult<TypeDependencyRelationship>
             rowQueryResolution =
                 TypeDependencyVocabulary.Resolve(
-                    options.TypeDependencyRowQuery
+                    options.QueryPlan?.RelationshipRows
+                        ?? options.TypeDependencyRowQuery
                         ?? RowQueryIntent.Empty);
         TypeDependencySectionPlan plan =
             new(
@@ -118,7 +119,8 @@ internal static class DependencyGraphService
                     ?? throw new InvalidOperationException(
                         "The canonical Type Dependency row query "
                             + "did not resolve."),
-                options.Depth);
+                options.QueryPlan?.MaximumDepth
+                    ?? options.Depth);
         AssemblySetRequest request =
             options.ToAssemblySetRequest(TempDirPrefix);
         if (ConfiguredPackageSearchWorkspace.IsEligible(

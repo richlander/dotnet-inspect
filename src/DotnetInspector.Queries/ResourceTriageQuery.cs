@@ -31,16 +31,14 @@ public static class ResourceTriageQuery
         new("Resource triage", InspectionCost.Unbounded);
 
     public static ResourceTriageResult Execute(
-        LibraryBodyIndex index,
+        LibraryResourceLifecycleAnalysisResult lifecycle,
         FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(subject);
 
         FindingInspection<ResourceLifecycleOccurrence> inspection =
-            ResourceLifecycleAnalysis.InspectAssembly(
-                () => index,
-                subject);
+            ResourceLifecycleAnalysis.Inspect(lifecycle, subject);
         return inspection.Value switch
         {
             FindingInspection<ResourceLifecycleOccurrence>.Complete complete =>

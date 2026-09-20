@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Threading.Tasks;
 
 namespace Ownership;
 
@@ -155,6 +156,38 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentWithLeadingMethodGroup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            OwnershipSinkWithLeadingCallback(
+                new OwnershipWorker().Work,
+                buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
+    public static int RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup()
+    {
+        Action callback = OwnershipBarrier;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            GC.KeepAlive(callback);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static unsafe void RentWithFunctionPointer(
         delegate*<byte[], void> callback)
     {
@@ -257,6 +290,8 @@ public static class Entry
 
     static byte[]? s_rentedArray;
     static int s_ownershipProbe;
+    static readonly Exception s_lifecycleException =
+        new InvalidOperationException();
 
     static void StoreRentedArray(byte[] buffer) =>
         s_rentedArray = buffer;
@@ -271,6 +306,11 @@ public static class Entry
         s_rentedArray = leaked;
         ArrayPool<byte>.Shared.Return(returned);
     }
+
+    static void OwnershipSinkWithLeadingCallback(
+        Action callback,
+        byte[] leaked) =>
+        s_rentedArray = leaked;
 
     static void OwnershipSinkWithReturnedValue(
         byte[] leaked,
@@ -287,6 +327,9 @@ public static class Entry
     {
     }
 
+    static Task ReleaseRentedArrayAsync<T>(T[] buffer) =>
+        Task.CompletedTask;
+
     public static void RentAndReturnDirectly()
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
@@ -299,6 +342,188 @@ public static class Entry
         byte[] second = ArrayPool<byte>.Shared.Rent(32);
         ArrayPool<byte>.Shared.Return(first);
         ArrayPool<byte>.Shared.Return(second);
+    }
+
+    public static void RentWithoutReturn()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        s_ownershipProbe += buffer.Length;
+    }
+
+    public static void RentUseAfterReturn()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        buffer[0] = 1;
+    }
+
+    public static void RentDoubleReturn()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentAndReturnOnEitherBranch(bool first)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        if (first)
+            ArrayPool<byte>.Shared.Return(buffer);
+        else
+            ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentAndReturnOnSomeBranches(
+        bool first,
+        bool second)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        if (first)
+            ArrayPool<byte>.Shared.Return(buffer);
+        else if (second)
+            ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void AcquireAndReleaseThroughConcreteInterface()
+    {
+        var pool = new OwnershipResourcePool();
+        byte[] buffer = pool.Acquire(16);
+        pool.Release(buffer);
+    }
+
+    public static void RentTwoWithSecondAddress()
+    {
+        byte[] first = ArrayPool<byte>.Shared.Rent(16);
+        byte[] second = ArrayPool<byte>.Shared.Rent(32);
+        ArrayPool<byte>.Shared.Return(first);
+        ReplaceRentedArray(ref second);
+    }
+
+    public static void RentAcrossThrowingBoundary()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentAcrossProtectedThrowingBoundary()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAndReleaseAsyncUnobserved()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ObserveResource(buffer);
+        _ = ReleaseRentedArrayAsync(buffer);
+        s_ownershipProbe += buffer.Length;
+    }
+
+    public static void RentAcrossNormalAndExceptionalExit(bool fail)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        for (int index = 0; index < buffer.Length; index++)
+        {
+            if (fail)
+                throw s_lifecycleException;
+            s_ownershipProbe += buffer[index];
+        }
+    }
+
+    public static void RentAcrossConditionalFinally(
+        bool release)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            if (release)
+                ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossThrowingCleanupSetup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            OwnershipBarrier();
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossConstructorCleanupSetup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            _ = new OwnershipWorker();
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossArrayClearCleanupSetup(int start)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            Array.Clear(buffer, start, 1);
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public interface IOwnershipResourcePool
+    {
+        byte[] Acquire(int length);
+        void Release(byte[] buffer);
+    }
+
+    public sealed class OwnershipResourcePool : IOwnershipResourcePool
+    {
+        public byte[] Acquire(int length) => new byte[length];
+
+        public void Release(byte[] buffer)
+        {
+        }
+    }
+
+    public static void RentAcrossNestedThrowingBoundary()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        OwnershipSink.ObserveResource(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static int RentReadBeforeReturn(Stream stream)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        int read = stream.Read(buffer, 0, 16);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return read;
     }
 
     public static byte[] RentAndReturnToCaller() =>
@@ -339,6 +564,10 @@ public static class Entry
 
     sealed class OwnershipSink
     {
+        internal static void ObserveResource(byte[] buffer)
+        {
+        }
+
         internal OwnershipSink()
         {
         }
