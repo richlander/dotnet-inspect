@@ -291,9 +291,25 @@ Methods (38 rows in `Npgsql` 8.0.4) and Extension Methods (146 rows in
 `System.Private.CoreLib`). Custom Attributes and Resources remained within the
 `Terse` range, at maxima of 9 and 4 rows respectively.
 
-This slice does not treat missing corpus evidence as proof of bounded growth.
-Inspection Failures and Union Types retain their existing classifications
-pending a focused contract and representative real-asset basis. Domain,
+The follow-up audit resolved the two residual base-section classifications from
+their product contracts:
+
+- `Inspection Failures` remains `Terse`. The projection contains a finite set
+  of product-owned failure slots, each contributing at most one row, and the
+  automatic base-query closure remains within the terse range. The section
+  stays in `-v:n` so partial inspection cannot look like a clean result merely
+  because diagnostics were hidden.
+- `Union Types` is `Verbose`. `UnionTypeScanner` walks every type definition and
+  emits one row for every exact
+  `System.Runtime.CompilerServices.UnionAttribute`; the product places no cap
+  on the number of marked declarations in an assembly. Published-package
+  probes found four rows in `DotWasm.Models` 0.1.0, one in `DotWasm.Runtime`
+  0.1.0, and two in `UnionRailway` 1.2.2. The observed counts are small, but the
+  declaration-driven growth contract is not.
+
+`DotWasm.Models` 0.1.0 is pinned as a test asset. Its four native C# union rows
+exercise the production package-acquisition and metadata-inspection path
+without turning the broader package survey into a PR-CI corpus sweep. Domain,
 package, API, and other command families remain separate #3284 audit work.
 
 ### Cost
@@ -599,7 +615,7 @@ The library command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
+| `@Library` | `Library Info`, `Inspection Failures`, `References`, `Ecosystem Dependencies`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
 | `@Audit` | `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Audit: Identifier Confusion`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |
