@@ -110,6 +110,45 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
+        ExactApiMemberActionRetainsResolvedIdentityInsteadOfOrdinal()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "coordinate.sample",
+                "1.0.0",
+                "2.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffPair.OldAssemblyPath()),
+            (population[1], FixtureCatalog.DiffPair.NewAssemblyPath()));
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse("Removed:1");
+
+        var available = Assert.IsType<DiffHistoryOutcome.Available>(
+            await DiffHistoryInspector.InspectApiAsync(
+                ApiHistoryRequest(
+                    DiffHistoryApiFindingKind.Members,
+                    population,
+                    HistoryType,
+                    new DiffHistoryEvaluationPlan.AdaptiveBisect(2),
+                    maximumEvaluations: 2,
+                    member: selector),
+                executor,
+                TestContext.Current.CancellationToken));
+        DiffHistoryExactApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ExactApiMember>(
+                available.Document).Content;
+        var action = Assert.IsType<DiffHistoryNextAction.PairwiseDiff>(
+            Assert.Single(document.History.NextActions));
+
+        Assert.Equal(document.Selection.Member!.Anchor, action.Member);
+        Assert.NotEqual(
+            selector.NormalizedSelector,
+            action.Member!.StableSelector);
+        Assert.Null(action.SourceAsset);
+    }
+
+    [Fact]
+    public async Task
         AnalysisHistoryBindsEveryCheckpointToOneSourceReceipt()
     {
         ImmutableArray<CellFixture> population =
@@ -175,6 +214,41 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 DiffHistoryChangedVersionCountEvidence>.Completed>(
                     available.Count);
         Assert.Equal(2, Assert.Single(count.Counts).Value);
+    }
+
+    [Fact]
+    public async Task
+        AnalysisHistoryActionRetainsReceiptMemberAndSourceAsset()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "coordinate.sample",
+                "1.0.0",
+                "2.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.MetadataApiCorrespondencePair
+                .OldAssemblyPath()),
+            (population[1], FixtureCatalog.AnalysisMethodCorrespondenceRuntime
+                .AssemblyPath()));
+
+        var available = Assert.IsType<DiffHistoryOutcome.Available>(
+            await DiffHistoryInspector.InspectAnalysisAsync(
+                AnalysisHistoryRequest(
+                    PackageVersionCellAnalysisProducerKind.Allocation,
+                    population,
+                    evaluationPlan:
+                        new DiffHistoryEvaluationPlan.AdaptiveBisect(2),
+                    maximumEvaluations: 2),
+                executor,
+                TestContext.Current.CancellationToken));
+        DiffHistoryAnalysisDocument<AllocationOccurrence> document =
+            Assert.IsType<DiffHistoryDocument.Allocations>(
+                available.Document).Content;
+        var action = Assert.IsType<DiffHistoryNextAction.PairwiseDiff>(
+            Assert.Single(document.NextActions));
+
+        Assert.Equal(document.SourceReceipt!.Member, action.Member);
+        Assert.Equal(document.SourceReceipt.Asset, action.SourceAsset);
     }
 
     [Fact]
@@ -682,6 +756,8 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         Assert.Equal(boundary, action.Boundary);
         Assert.Equal("Contoso.History", action.PackageId);
         Assert.Equal(HistoryType, action.TypeFullName);
+        Assert.Null(action.Member);
+        Assert.Null(action.SourceAsset);
         Assert.Equal(
             MetadataFindings.MemberDescriptor.Id,
             action.Finding);

@@ -162,7 +162,10 @@ static class DiffHistoryAnalysisEngine
                         boundary,
                         request.Population.Vector.PackageId,
                         request.Selector.Type,
-                        request.Selector.Member,
+                        (receipt ?? throw new InvalidOperationException(
+                            "An Analysis action requires the source receipt."))
+                            .Member,
+                        receipt.Asset,
                         producer.Descriptor.Id,
                         request.Selector.IncludeAll
                             ? ApiSurfaceScope.IncludeAll
