@@ -164,6 +164,71 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task DependencyHierarchyUsesAdmittedRootAndTraversesChildren()
+    {
+        const string dependencyPackage = "dependency.package";
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            await PackageAsync(
+                SelectedPackage,
+                typeof(ApiType).Assembly.Location,
+                dependencyPackage));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        var requests = new DependencyRequestLog();
+        using var client = new HttpClient(
+            new DependencyHandler(
+                SelectedPackage,
+                dependencyPackage,
+                requests));
+        var context = new CommandContext(
+            verbose: false,
+            client,
+            createPackageSourceComposition: () =>
+                new DesktopPackageSourceComposition(
+                    TimeSpan.FromSeconds(5),
+                    new NoCredentials(),
+                    (_, _) => new DependencyHandler(
+                        SelectedPackage,
+                        dependencyPackage,
+                        requests)));
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            IncludeSections = [PackageSections.DependencyHierarchy],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                context,
+                LoadOptions(client, store)));
+
+        Assert.True(
+            result.ExitCode == 0,
+            result.Error
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, requests.Requests));
+        Assert.Contains(
+            dependencyPackage,
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.True(
+            requests.DependencyRequests > 0,
+            "The child dependency must be traversed through the configured source.");
+        Assert.Equal(0, requests.SelectedPackageRequests);
+    }
+
+    [Fact]
     public async Task UnsupportedShareSectionPreservesOrdinaryOutput()
     {
         var store = await StoreAsync(SelectedPackage);
@@ -405,6 +470,45 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
 #if DEBUG
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EvidenceSidecarRejectsPrimaryOutputAliasBeforeRestoration(
+        bool equivalentSpelling)
+    {
+        using var directory =
+            new TemporaryTestDirectory("package-workspace-output-alias-");
+        string evidencePath =
+            Path.Combine(directory.FullName, "output.json");
+        string outputPath = equivalentSpelling
+            ? Path.Combine(directory.FullName, ".", "output.json")
+            : evidencePath;
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = "not-restored",
+            OutputPath = outputPath,
+            EvidenceEnvelopePath = evidencePath,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(
+                    new HttpClient(new FailingHandler()),
+                    new InMemoryPackageStore())));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--out and --evidence-envelope must name distinct files.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(evidencePath));
+    }
+
     [Fact]
     public async Task EvidenceSidecarPreservesOutputAndPublishesRoutingFrame()
     {
@@ -569,14 +673,15 @@ public sealed class ExactPackageWorkspaceRouteTests
 
     static async Task<byte[]> PackageAsync(
         string packageId,
-        string assemblyPath)
+        string assemblyPath,
+        string? dependencyPackage = null)
     {
         byte[] assembly = await File.ReadAllBytesAsync(
             assemblyPath,
             TestContext.Current.CancellationToken);
         return Archive(
             ($"lib/{Framework}/{packageId}.dll", assembly),
-            ($"{packageId}.nuspec", Nuspec(packageId)));
+            ($"{packageId}.nuspec", Nuspec(packageId, dependencyPackage)));
     }
 
     static async Task CommitAsync(
@@ -630,7 +735,9 @@ public sealed class ExactPackageWorkspaceRouteTests
                 TestContext.Current.CancellationToken));
     }
 
-    static byte[] Nuspec(string packageId) =>
+    static byte[] Nuspec(
+        string packageId,
+        string? dependencyPackage = null) =>
         System.Text.Encoding.UTF8.GetBytes(
             """
             <?xml version="1.0"?>
@@ -640,11 +747,24 @@ public sealed class ExactPackageWorkspaceRouteTests
                 <version>1.0.0</version>
                 <authors>dotnet-inspect tests</authors>
                 <description>Workspace Package route fixture.</description>
+                DEPENDENCIES
               </metadata>
             </package>
             """.Replace(
                 "PACKAGE_ID",
                 packageId,
+                StringComparison.Ordinal)
+            .Replace(
+                "DEPENDENCIES",
+                dependencyPackage is null
+                    ? ""
+                    : $"""
+                      <dependencies>
+                        <group targetFramework="{Framework}">
+                          <dependency id="{dependencyPackage}" version="[{Version}]" />
+                        </group>
+                      </dependencies>
+                      """,
                 StringComparison.Ordinal));
 
     static byte[] Archive(
@@ -710,5 +830,98 @@ public sealed class ExactPackageWorkspaceRouteTests
                     RequestMessage = request,
                 });
         }
+    }
+
+    sealed class DependencyHandler(
+        string selectedPackage,
+        string dependencyPackage,
+        DependencyRequestLog requests) : HttpMessageHandler
+    {
+        const string FlatContainer = "https://example.test/flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            requests.Requests.Add(url);
+            string selectedPath =
+                $"/{selectedPackage.ToLowerInvariant()}/";
+            if (url.Contains(selectedPath, StringComparison.Ordinal))
+            {
+                requests.SelectedPackageRequests++;
+                throw new InvalidOperationException(
+                    "The admitted Workspace Package root was reacquired.");
+            }
+
+            string dependency = dependencyPackage.ToLowerInvariant();
+            string? body;
+            if (url.Equals(SourceUrl, StringComparison.Ordinal))
+            {
+                body =
+                    $$"""
+                    {"resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """;
+            }
+            else if (url.Equals(
+                $"{FlatContainer}{dependency}/index.json",
+                StringComparison.Ordinal))
+            {
+                body = $$"""{"versions":["{{Version}}"]}""";
+            }
+            else if (url.Equals(
+                $"{FlatContainer}{dependency}/{Version}/{dependency}.nuspec",
+                StringComparison.Ordinal))
+            {
+                body = System.Text.Encoding.UTF8.GetString(
+                    Nuspec(dependencyPackage));
+            }
+            else if (url.EndsWith(
+                $"/{dependency}/{Version}/{dependency}.nuspec",
+                StringComparison.Ordinal))
+            {
+                body = System.Text.Encoding.UTF8.GetString(
+                    Nuspec(dependencyPackage));
+            }
+            else
+            {
+                body = null;
+            }
+            if (body is null)
+            {
+                throw new InvalidOperationException(
+                    "The Package dependency traversal attempted an unexpected "
+                        + "feed request: "
+                        + request.RequestUri);
+            }
+
+            if (!url.Equals(SourceUrl, StringComparison.Ordinal))
+                requests.DependencyRequests++;
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body),
+                    RequestMessage = request,
+                });
+        }
+    }
+
+    sealed class DependencyRequestLog
+    {
+        public int DependencyRequests { get; set; }
+        public int SelectedPackageRequests { get; set; }
+        public List<string> Requests { get; } = [];
+    }
+
+    sealed class NoCredentials : NuGetFetch.Plugins.ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "The test feed does not request credentials.");
     }
 }

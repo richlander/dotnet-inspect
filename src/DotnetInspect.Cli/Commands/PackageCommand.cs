@@ -48,6 +48,7 @@ public partial class PackageCommand
             options,
             context,
             preResolved: null,
+            admittedPackageManifest: null,
             inspectionObserver: null,
             workspaceLoadOptions: null).ConfigureAwait(false);
 
@@ -59,6 +60,7 @@ public partial class PackageCommand
             options,
             context,
             preResolved: null,
+            admittedPackageManifest: null,
             inspectionObserver: null,
             workspaceLoadOptions).ConfigureAwait(false);
 
@@ -66,6 +68,7 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         PackageExtractionResult? preResolved,
+        byte[]? admittedPackageManifest,
         Action<InspectionResult>? inspectionObserver,
         WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
@@ -1308,12 +1311,23 @@ public partial class PackageCommand
                     ? resolution.NupkgPath ?? target.OriginalArgument
                     : $"{packageName}@{version}";
                 result.DependencyHierarchyProjection =
-                    await DependsCommand.AcquirePackageSubjectProjectionAsync(
-                        dependencyRoot,
-                        options.Tfm,
-                        options.IncludePrerelease,
-                        options.SourceOptions,
-                        context);
+                    preResolved is null
+                        ? await DependsCommand
+                            .AcquirePackageSubjectProjectionAsync(
+                                dependencyRoot,
+                                options.Tfm,
+                                options.IncludePrerelease,
+                                options.SourceOptions,
+                                context)
+                        : await DependsCommand
+                            .AcquireAdmittedPackageSubjectProjectionAsync(
+                                packageName,
+                                version,
+                                admittedPackageManifest,
+                                options.Tfm,
+                                options.IncludePrerelease,
+                                options.SourceOptions,
+                                context);
             }
 
             // Filter output based on options

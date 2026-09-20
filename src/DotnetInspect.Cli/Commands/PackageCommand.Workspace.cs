@@ -38,6 +38,33 @@ public partial class PackageCommand
             CommandError.Write(evidencePathError!);
             return 1;
         }
+        if (evidencePath is not null
+            && options.OutputPath is { } requestedOutputPath)
+        {
+            string outputPath;
+            try
+            {
+                outputPath = Path.GetFullPath(requestedOutputPath);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException
+                    or NotSupportedException
+                    or PathTooLongException)
+            {
+                CommandError.Write("--out requires a valid file path.");
+                return 1;
+            }
+
+            if (string.Equals(
+                    evidencePath,
+                    outputPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "--out and --evidence-envelope must name distinct files.");
+                return 1;
+            }
+        }
 #endif
 
         WorkspacePacketRestorationResult restorationResult =
@@ -150,7 +177,7 @@ public partial class PackageCommand
         string? temporaryPath = null;
         try
         {
-            PackageExtractionResult resolution =
+            WorkspacePackageResolution workspaceResolution =
                 await target.UseContent(
                     content => CreateWorkspaceResolutionAsync(
                         target,
@@ -172,7 +199,8 @@ public partial class PackageCommand
             int exitCode = await ExecuteCoreAsync(
                 ordinaryOptions,
                 context,
-                resolution,
+                workspaceResolution.Resolution,
+                workspaceResolution.ManifestBytes,
                 result => inspection = result,
                 workspaceLoadOptions: null).ConfigureAwait(false);
             return new(inspection, exitCode);
@@ -184,12 +212,34 @@ public partial class PackageCommand
         }
     }
 
-    static async Task<PackageExtractionResult>
+    static async Task<WorkspacePackageResolution>
         CreateWorkspaceResolutionAsync(
             SelectedContextExactPackageLiveTarget target,
             IPackageContent content,
             Action<string> ownsTemporaryPath)
     {
+        string[] entries = [.. content.EnumerateEntries()];
+        byte[]? manifestBytes = null;
+        string? manifestEntry = entries.FirstOrDefault(entry =>
+            !entry.Contains('/')
+            && entry.EndsWith(".nuspec", StringComparison.Ordinal));
+        if (manifestEntry is not null)
+        {
+            if (!content.TryOpenEntry(manifestEntry, out Stream? manifest))
+            {
+                throw new IOException(
+                    $"The admitted Package entry '{manifestEntry}' could not be opened.");
+            }
+
+            await using (manifest.ConfigureAwait(false))
+            {
+                manifestBytes = await BoundedContentReader.ReadAllBytesAsync(
+                    manifest,
+                    PackageManifestFactsQuery.MaxManifestBytes)
+                    .ConfigureAwait(false);
+            }
+        }
+
         string extractPath;
         if (content.RootPath is { } rootPath)
         {
@@ -202,7 +252,7 @@ public partial class PackageCommand
                 $"dotnet-inspect-package-{Guid.NewGuid():N}");
             Directory.CreateDirectory(extractPath);
             ownsTemporaryPath(extractPath);
-            foreach (string entry in content.EnumerateEntries())
+            foreach (string entry in entries)
             {
                 string destination = ResolveContainedEntry(
                     extractPath,
@@ -226,15 +276,21 @@ public partial class PackageCommand
             }
         }
 
-        return new PackageExtractionResult(
-            extractPath,
-            TempDir: null,
-            target.Root.Root.PackageId,
-            target.Root.Root.PackageVersion,
-            content.NupkgPath,
-            content.FromCache,
-            content.ProducerKey);
+        return new WorkspacePackageResolution(
+            new PackageExtractionResult(
+                extractPath,
+                TempDir: null,
+                target.Root.Root.PackageId,
+                target.Root.Root.PackageVersion,
+                content.NupkgPath,
+                content.FromCache,
+                content.ProducerKey),
+            manifestBytes);
     }
+
+    sealed record WorkspacePackageResolution(
+        PackageExtractionResult Resolution,
+        byte[]? ManifestBytes);
 
     static string ResolveContainedEntry(
         string root,

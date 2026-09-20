@@ -688,6 +688,56 @@ public partial class DependsCommand
     }
 
     internal static Task<DependsAssetProjection>
+        AcquireAdmittedPackageSubjectProjectionAsync(
+            string packageId,
+            string packageVersion,
+            byte[]? manifestBytes,
+            string? targetFramework,
+            bool includePrerelease,
+            NuGetSourceOptions? sourceOptions,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+        ArgumentNullException.ThrowIfNull(context);
+
+        string packageReference = $"{packageId}@{packageVersion}";
+        var root = new DependsAssetRoot(
+            1,
+            DependencyInspectionRootKind.Package,
+            packageReference);
+        var options = new DependsOptions
+        {
+            AssetRoots = [root],
+            Tfm = targetFramework,
+            IncludePrerelease = includePrerelease,
+            SourceOptions = sourceOptions,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        DependencyEvidenceAcquisitionBatch acquisition =
+            DependencyEvidenceAcquisition.AdmitPackageManifestRoot(
+                root,
+                PackageSourceCoordinate.Create(packageId, packageVersion),
+                manifestBytes,
+                targetFramework);
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth: null,
+            share: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken,
+            acquisition);
+    }
+
+    internal static Task<DependsAssetProjection>
         AcquireLibrarySubjectProjectionAsync(
             string assemblyPath,
             string? targetFramework,
@@ -735,7 +785,8 @@ public partial class DependsCommand
             int? traversalDepth,
             InspectionShare? share,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            DependencyEvidenceAcquisitionBatch? suppliedAcquisition = null)
     {
         DependencyEvidenceAcquisitionOptions evidenceOptions =
             EvidenceOptions(options);
@@ -763,17 +814,18 @@ public partial class DependsCommand
         }
         else
         {
-            acquisition =
-                await DependencyEvidenceAcquisition.AcquireDependsRootsAsync(
-                    options.AssetRoots,
-                    evidenceOptions,
-                    context.HttpClient,
-                    context.Logger.Log,
-                    composition,
-                    operationContext,
-                    plan.Traversal,
-                    traversalDepth,
-                    cancellationToken).ConfigureAwait(false);
+            acquisition = suppliedAcquisition
+                ?? await DependencyEvidenceAcquisition.AcquireDependsRootsAsync(
+                        options.AssetRoots,
+                        evidenceOptions,
+                        context.HttpClient,
+                        context.Logger.Log,
+                        composition,
+                        operationContext,
+                        plan.Traversal,
+                        traversalDepth,
+                        cancellationToken)
+                    .ConfigureAwait(false);
             evidenceRequest = acquisition.Request;
         }
 
