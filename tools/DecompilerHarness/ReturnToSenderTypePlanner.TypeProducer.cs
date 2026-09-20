@@ -131,7 +131,8 @@ public static partial class CompileBackSourceComposer
                     : CompileBackStubBodyKind.None,
                 constant,
                 [new CompileBackFact("metadata", "typed-closure-field", fieldName)],
-                DeclarationSignature: fixedBufferSignature);
+                DeclarationSignature: fixedBufferSignature,
+                IsReadOnly: field.Attributes.HasFlag(FieldAttributes.InitOnly));
         }
 
         public static TypeProduction Produce(
@@ -1077,7 +1078,8 @@ public static partial class CompileBackSourceComposer
                         : CompileBackStubBodyKind.None,
                     TargetBody: constant,
                     [new CompileBackFact("metadata", "closure-field", fieldName)],
-                    DeclarationSignature: fixedBufferSignature));
+                    DeclarationSignature: fixedBufferSignature,
+                    IsReadOnly: field.Attributes.HasFlag(FieldAttributes.InitOnly)));
             }
 
             foreach (var propertyHandle in typeDef.GetProperties())

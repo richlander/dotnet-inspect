@@ -318,6 +318,27 @@ public sealed partial class CSharpPrinter
             _ => owner,
         };
 
+    internal static IReadOnlySet<int>? PdbLocalEntryLabelsPrintedOutside(
+        IrFunction function,
+        IrNode declaration,
+        Block declarationBlock)
+    {
+        if (declaration.ChildIndex != 0)
+            return null;
+
+        Block entryBlock = declarationBlock;
+        while (entryBlock.Parent is Block parent)
+            entryBlock = parent;
+        if (entryBlock.Parent is not BlockContainer
+            || entryBlock.StartOffset < 0
+            || !ReferenceOwnership.CollectBranchTargets(function).Contains(
+                entryBlock.StartOffset))
+        {
+            return null;
+        }
+        return new HashSet<int> { entryBlock.StartOffset };
+    }
+
     static IEnumerable<(int Local, IrNode Owner, LoadLocalAddress Address)>
         VerifiedOutLocalDeclarations(
         IrFunction function)
@@ -1985,7 +2006,11 @@ public sealed partial class CSharpPrinter
         if (HasBranchTargetAfterStatement(declaration)
             && (!allowed.Any(statement =>
                     statement is LabelAnchor { RetainsPdbLocalScope: true })
-                || ReferenceOwnership.RewriteWouldInvalidateLabels(function, allowed, [])))
+                || ReferenceOwnership.RewriteWouldInvalidateLabels(
+                    function,
+                    allowed,
+                    [],
+                    PdbLocalEntryLabelsPrintedOutside(function, declaration, block))))
         {
             return false;
         }

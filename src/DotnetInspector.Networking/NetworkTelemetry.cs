@@ -230,6 +230,9 @@ internal sealed class NetworkTrafficLogConsumer(TextWriter sink, Func<string, st
 {
     public void OnNext(NetworkRequestObservation observation)
     {
+        if (HttpClientFactory.IsNetworkTrafficLoggingSuppressed)
+            return;
+
         sink.WriteLine(contain(
             $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}"));
 

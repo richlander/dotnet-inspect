@@ -32,6 +32,8 @@ public static class HttpClientFactory
     private static readonly ConcurrentDictionary<string, Lazy<HttpClient>>
         _packageSourceClients = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
+    private static readonly AsyncLocal<bool>
+        _networkTrafficLoggingSuppressed = new();
     private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
     private static Func<string, HttpMessageHandler>?
         _packageSourceHandlerOverride;
@@ -112,6 +114,20 @@ public static class HttpClientFactory
     }
 
     /// <summary>
+    /// Suppresses network traffic log output for the current asynchronous flow
+    /// while preserving request observations and policy enforcement.
+    /// </summary>
+    public static IDisposable SuppressNetworkTrafficLogging()
+    {
+        bool previous = _networkTrafficLoggingSuppressed.Value;
+        _networkTrafficLoggingSuppressed.Value = true;
+        return new NetworkTrafficLoggingSuppressionScope(previous);
+    }
+
+    internal static bool IsNetworkTrafficLoggingSuppressed =>
+        _networkTrafficLoggingSuppressed.Value;
+
+    /// <summary>
     /// Resets the shared instance so the next access creates a fresh one.
     /// Test-only: allows toggling offline mode between tests.
     /// </summary>
@@ -129,6 +145,13 @@ public static class HttpClientFactory
         _packageSourceClients.Clear();
         _networkTrafficLoggingSubscription?.Dispose();
         _networkTrafficLoggingSubscription = null;
+    }
+
+    private sealed class NetworkTrafficLoggingSuppressionScope(
+        bool previous) : IDisposable
+    {
+        public void Dispose() =>
+            _networkTrafficLoggingSuppressed.Value = previous;
     }
 
     /// <summary>
