@@ -23,6 +23,70 @@ public sealed partial class ApiSurfaceExtractorBoundsTests
 {
     static readonly string SelfPath = typeof(ApiSurfaceExtractorBoundsTests).Assembly.Location;
 
+    static int CompilerGeneratedProjectionMarker(int value)
+    {
+        static int Marker(int input) => input + 1;
+        return Marker(value);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompilerGeneratedBoundedProjection_IsOptInAndFinite()
+    {
+        var generous = new ApiSurfaceExtractionBounds(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(SelfPath);
+
+        ApiSurface ordinary = Assert.IsType<
+                ApiSurfaceExtractionResult.Extracted>(
+                session.BoundedApiSurface(
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    generous))
+            .Surface;
+        ApiSurface generated = Assert.IsType<
+                ApiSurfaceExtractionResult.Extracted>(
+                session.BoundedApiSurface(
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    generous,
+                    includeCompilerGenerated: true))
+            .Surface;
+
+        static bool IsMarker(ApiMember member) =>
+            member.Name.Contains(
+                "g__Marker|",
+                StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ordinary.Types.SelectMany(type => type.Members),
+            IsMarker);
+        Assert.Contains(
+            generated.Types.SelectMany(type => type.Members),
+            IsMarker);
+
+        int generatedMembers =
+            generated.Types.Sum(type => type.Members.Count);
+        var exceeded = Assert.IsType<
+            ApiSurfaceExtractionResult.Exceeded>(
+            session.BoundedApiSurface(
+                ApiSurfaceExtractionScope.IncludeAll,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    generatedMembers - 1,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue),
+                includeCompilerGenerated: true));
+        Assert.Equal(
+            ApiSurfaceExtractionBound.Members,
+            exceeded.Bound);
+    }
+
     [Fact]
     public void GenerousBounds_ExtractTheSameSurfaceAsTheUnboundedWalk()
     {
