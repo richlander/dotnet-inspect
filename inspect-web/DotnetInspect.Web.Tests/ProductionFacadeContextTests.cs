@@ -140,6 +140,8 @@ public sealed class ProductionFacadeContextTests
             "AbandonRetainedWorkspaceNavigation",
             "AcknowledgeRetainedWorkspaceNavigation",
             "ActivateRetainedWorkspaceDefinition",
+            "AdmitRetainedWorkspacePackage",
+            "AdmitRetainedWorkspacePlatform",
             "CanonicalizeWorkspaceSharePacket",
             "DeactivateRetainedWorkspaceDefinition",
             "DecodeWorkspaceShareState",
@@ -195,10 +197,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 85 operations, and no operation name in two modules: a move that forgot to delete its
+        // 87 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(85, everyExport.Length);
+        Assert.Equal(87, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -335,6 +337,22 @@ public sealed class ProductionFacadeContextTests
         Assert.True(
             assemblyLocalWireTypes > 0,
             "No assembly-local wire type was discovered.");
+    }
+
+    [Theory]
+    [InlineData("Package", "BrowserRetainedWorkspacePackageAdmissionResult")]
+    [InlineData("Platform", "BrowserRetainedWorkspacePlatformAdmissionResult")]
+    public void ProductionCatalogFacade_DecodesTypedRetainedDetailPages(
+        string rowKind, string resultType)
+    {
+        string declarations = File.ReadAllText(Path.Combine(
+            InspectWebRoot(), "src", "facades", "inspect-web-catalog.d.ts"));
+        Assert.Contains(
+            $"admitRetainedWorkspace{rowKind}(retainedDefinitionId: string, "
+            + "realizationId: string, navigationId: string, typeOffset: number): "
+            + $"Promise<{resultType}>;",
+            declarations,
+            StringComparison.Ordinal);
     }
 
     [Fact]

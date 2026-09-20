@@ -3,12 +3,53 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
+using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
+using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 
 [SupportedOSPlatform("browser")]
 public static partial class CatalogExports
 {
+    [JSExport]
+    public static async Task<string> AdmitRetainedWorkspacePackage(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        int typeOffset = 0)
+    {
+        BrowserRetainedWorkspacePackageAdmissionResult result =
+            await BrowserRetainedWorkspaceActivationService.AdmitPackageAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId,
+                typeOffset).ConfigureAwait(false);
+        result = BrowserRetainedWorkspaceDetailWireProjection.Admit(result);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePackageAdmissionResult);
+    }
+
+    [JSExport]
+    public static async Task<string> AdmitRetainedWorkspacePlatform(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        int typeOffset = 0)
+    {
+        BrowserRetainedWorkspacePlatformAdmissionResult result =
+            await BrowserRetainedWorkspaceActivationService.AdmitPlatformAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId,
+                typeOffset).ConfigureAwait(false);
+        result = BrowserRetainedWorkspaceDetailWireProjection.Admit(result);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
+    }
+
     [JSExport]
     public static async Task<string> ActivateRetainedWorkspaceDefinition(
         string retainedDefinitionId,
@@ -135,6 +176,57 @@ internal static class BrowserRetainedWorkspaceActivationService
         CreateOwner();
 
     internal static BrowserRetainedWorkspaceActivationOwner Owner => _owner;
+
+    internal static async Task<BrowserRetainedWorkspacePackageAdmissionResult>
+        AdmitPackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            int typeOffset)
+    {
+        PackageAdmission result =
+            await _owner.AdmitPackageAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId).ConfigureAwait(false);
+        return result switch
+        {
+            PackageAdmission.Admitted admitted when
+                ValidOffset(typeOffset, admitted.Presentation.Surface) =>
+                new("admitted", Package(admitted.Presentation, typeOffset), null),
+            PackageAdmission.Admitted =>
+                new("unavailable", null, "The requested Type offset is outside the retained Package inventory."),
+            PackageAdmission.Superseded => new("superseded", null, null),
+            PackageAdmission.Unavailable unavailable =>
+                new("unavailable", null, unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Retained Package admission returned an unsupported result."),
+        };
+    }
+
+    internal static async Task<BrowserRetainedWorkspacePlatformAdmissionResult>
+        AdmitPlatformAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            int typeOffset)
+    {
+        PlatformAdmission result = await _owner.AdmitPlatformAsync(
+            retainedDefinitionId, realizationId, navigationId).ConfigureAwait(false);
+        return result switch
+        {
+            PlatformAdmission.Admitted admitted when
+                ValidOffset(typeOffset, admitted.Presentation.Surface) =>
+                new("admitted", Platform(admitted.Presentation, typeOffset), null),
+            PlatformAdmission.Admitted =>
+                new("unavailable", null, "The requested Type offset is outside the retained Platform inventory."),
+            PlatformAdmission.Superseded => new("superseded", null, null),
+            PlatformAdmission.Unavailable unavailable =>
+                new("unavailable", null, unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Retained Platform admission returned an unsupported result."),
+        };
+    }
 
     internal static async Task<BrowserRetainedWorkspaceActivationResult>
         ActivateAsync(
@@ -301,15 +393,24 @@ internal static class BrowserRetainedWorkspaceActivationService
                     "The packet activation export cannot project a non-packet retained definition."),
             posting.RealizationId,
             posting.PublicationOrdinal,
+            Definition(posting),
             BrowserCatalogWireProjection.Project(posting.Navigation),
             [
                 .. posting.Packages.Select(
-                    static package =>
-                        new BrowserRetainedWorkspacePackage(
-                            package.NavigationId,
-                            package.ConsumerPackageSubjectId,
-                            BrowserCatalogWireProjection.Project(
-                                package.Surface))),
+                    static package => new BrowserRetainedWorkspacePackageInventory(
+                        package.NavigationId,
+                        package.ContextIndex,
+                        package.ConsumerPackageSubjectId,
+                        Summary(package.Surface))),
+            ],
+            [
+                .. posting.Platforms.Select(
+                    static platform => new BrowserRetainedWorkspacePlatformInventory(
+                        platform.NavigationId,
+                        platform.ContextIndex,
+                        platform.Family,
+                        platform.RuntimeIdentifier,
+                        Summary(platform.Surface))),
             ],
             posting.Predecessor is null
                 ? null
@@ -319,6 +420,157 @@ internal static class BrowserRetainedWorkspaceActivationService
             posting.Cleanup is null
                 ? null
                 : new(posting.Cleanup.Message));
+
+    static BrowserRetainedWorkspacePackage Package(
+        BrowserRetainedWorkspacePackagePresentation package,
+        int typeOffset) =>
+        new(
+            package.NavigationId,
+            package.ContextIndex,
+            package.ConsumerPackageSubjectId,
+            PageSurface(package.Surface, typeOffset),
+            TypePage(package.Surface, typeOffset));
+
+    static BrowserRetainedWorkspacePlatform Platform(
+        BrowserRetainedWorkspacePlatformPresentation platform,
+        int typeOffset) =>
+        new(
+            platform.NavigationId,
+            platform.ContextIndex,
+            platform.Family,
+            platform.RuntimeIdentifier,
+            PageSurface(platform.Surface, typeOffset),
+            TypePage(platform.Surface, typeOffset));
+
+    static bool ValidOffset(int offset, BrowserPackageSurfaceInfo surface) =>
+        offset >= 0 && offset <= surface.Types.Length;
+
+    static BrowserRetainedWorkspaceTypePage TypePage(
+        BrowserPackageSurfaceInfo surface, int offset)
+    {
+        int end = offset + Math.Min(100, surface.Types.Length - offset);
+        return new(offset, surface.Types.Length, end < surface.Types.Length ? end : null);
+    }
+
+    static BrowserPackageSurface PageSurface(
+        BrowserPackageSurfaceInfo surface, int offset)
+    {
+        int count = Math.Min(100, surface.Types.Length - offset);
+        return BrowserCatalogWireProjection.Project(surface with
+        {
+            Types = surface.Types[offset..(offset + count)],
+        });
+    }
+
+    static BrowserRetainedWorkspaceSurfaceSummary Summary(
+        BrowserPackageSurfaceInfo surface) =>
+        new(
+            surface.CompileLibrary.TargetFramework,
+            surface.Assemblies.Length,
+            surface.Types.Length,
+            surface.TotalMembers,
+            surface.Documents.Count,
+            surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
+
+    static BrowserRetainedWorkspaceDefinitionState Definition(
+        DotnetInspect.Web.BrowserRetainedWorkspacePosting posting)
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            posting.CanonicalPacket
+                ?? throw new InvalidOperationException(
+                    "The packet activation export requires a canonical packet."));
+        CommittedNavigationDefinition navigation =
+            posting.Definition.Navigation
+            ?? throw new InvalidOperationException(
+                "A restored Workspace requires its Navigation definition.");
+        WorkspaceDefinition workspace =
+            posting.Definition.Workspace
+            ?? throw new InvalidOperationException(
+                "A restored Workspace requires its Workspace definition.");
+        return new(
+            [
+                .. packet.Tabs.Select((tab, index) => new BrowserWorkspaceShareTab(
+                    navigation.Tabs[index].Id,
+                    tab.SourceKind == WorkspaceShareSourceKind.Package
+                        ? "package" : "group",
+                    tab.Source,
+                    tab.Version,
+                    tab.Framework,
+                    tab.RuntimeIdentifier)),
+            ],
+            [
+                .. packet.Contexts.Select((context, index) =>
+                    new BrowserWorkspaceShareContext(
+                        workspace.Contexts[index].Name,
+                        [
+                            .. context.TabIndexes.Select(
+                                tabIndex => navigation.Tabs[tabIndex].Id),
+                        ])),
+            ],
+            [.. workspace.Registrations.Select(Registration)],
+            navigation.Focus,
+            posting.Definition.Scenario.Context);
+    }
+
+    static BrowserRetainedWorkspaceRegistration Registration(
+        WorkspaceRegistration registration) =>
+        registration switch
+        {
+            WorkspaceRegistration.ExactLibrary exact =>
+                new("exactLibrary", ExactLibrary(exact.Coordinate), null, null),
+            WorkspaceRegistration.PackagePrefix prefix =>
+                new("packagePrefix", null, prefix.Prefix.Prefix, null),
+            WorkspaceRegistration.Ecosystem ecosystem =>
+                new("ecosystem", null, null, new(
+                    ecosystem.Declaration.Id.Value,
+                    [.. ecosystem.Declaration.NamespaceRoots],
+                    [.. ecosystem.Declaration.CorePackages.Select(
+                        static package => package.PackageId)],
+                    [.. ecosystem.Declaration.Populations.Select(EcosystemPopulation)])),
+            _ => throw new InvalidOperationException(
+                "The completed packet contains an unsupported Workspace registration."),
+        };
+
+    static BrowserRetainedWorkspaceEcosystemPopulation EcosystemPopulation(
+        WorkspaceEcosystemPopulationDeclaration population) =>
+        population switch
+        {
+            WorkspaceEcosystemPopulationDeclaration.ExactLibrary exact =>
+                new("exactLibrary", ExactLibrary(exact.Coordinate), null, null),
+            WorkspaceEcosystemPopulationDeclaration.Platform platform =>
+                new("platform", null, platform.Population.Family.ToString(), null),
+            WorkspaceEcosystemPopulationDeclaration.PackagePrefix prefix =>
+                new("packagePrefix", null, null, prefix.Prefix.Prefix),
+            _ => throw new InvalidOperationException(
+                "The completed packet contains an unsupported Ecosystem population."),
+        };
+
+    static BrowserRetainedWorkspaceExactLibrary ExactLibrary(
+        ExactLibrarySourceCoordinate coordinate)
+    {
+        ILInspector.Metadata.AssemblyReferenceIdentity identity =
+            coordinate.LibraryIdentity.Identity;
+        var library = new BrowserRetainedWorkspaceLibraryIdentity(
+            identity.Name,
+            identity.Version?.ToString(4)
+                ?? throw new InvalidOperationException(
+                    "A completed exact Library registration requires an assembly version."),
+            identity.Culture,
+            identity.PublicKeyToken);
+        return coordinate switch
+        {
+            ExactLibrarySourceCoordinate.Package package =>
+                new("package", library,
+                    package.PackageCoordinate.PackageId,
+                    package.PackageCoordinate.Version,
+                    null),
+            ExactLibrarySourceCoordinate.Platform platform =>
+                new("platform", library, null, null,
+                    platform.Population.Family.ToString()),
+            _ => throw new InvalidOperationException(
+                "The completed packet contains an unsupported exact Library source."),
+        };
+    }
 
     static BrowserRetainedWorkspaceSettlement Settlement(
         WorkspaceRealizationSettlement settlement) =>
