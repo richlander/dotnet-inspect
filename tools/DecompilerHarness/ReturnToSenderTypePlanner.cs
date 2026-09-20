@@ -14,6 +14,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using PropertyInitializationConstructor = ILInspector.Decompiler.SelectedPropertyAccessorSource.PropertyInitializationConstructor;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -98,7 +99,8 @@ public static partial class CompileBackSourceComposer
                 closure.MemberRequirements,
                 request.BodyPolicy,
                 request.TargetBody.RequiresUnsafeModifier,
-                request.TargetBody.UsesAutomaticGetterBody),
+                request.TargetBody.UsesAutomaticGetterBody,
+                getter.InitializationConstructor),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -694,7 +696,8 @@ public static partial class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
         bool targetBodyRequiresUnsafeModifier = false,
-        bool usesAutomaticGetterBody = false)
+        bool usesAutomaticGetterBody = false,
+        PropertyInitializationConstructor? initializationConstructor = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -764,6 +767,21 @@ public static partial class CompileBackSourceComposer
                     targetBodyRequiresUnsafeModifier
                     || function.RequiresUnsafeContract)
         };
+        if (initializationConstructor is { } constructor)
+        {
+            var requirement = TypeProducer.MethodRequirement(
+                reader, targetTypeDef, targetIdentity, constructor.Address.Handle)
+                ?? throw new CompileBackSourceUnavailableException(
+                    "The proven property initialization constructor has no supported declaration shell.");
+            targetMembers.Add(requirement with
+            {
+                CompanionBody = constructor.Body,
+                MetadataToken = MetadataTokens.GetToken(constructor.Address.Handle),
+                SourceFacts = [.. requirement.SourceFacts,
+                    new CompileBackFact("product", "getter-initialization-constructor",
+                        $"0x{MetadataTokens.GetToken(constructor.Address.Handle):X8}")],
+            });
+        }
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
         var requirements = new List<CompileBackTypeRequirement>
@@ -2633,9 +2651,14 @@ public static partial class CompileBackSourceComposer
         CompileBackMemberRequirement requirement,
         int primaryConstructorParameterCount,
         bool usesUpdatedMemorySafetyRules)
-        => CSharpMemberShellProducer.BuildPolicy(
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(
             ToMemberShellSpec(requirement, usesUpdatedMemorySafetyRules),
             primaryConstructorParameterCount);
+        return requirement.CompanionBody is { } body
+            ? new CSharpMemberPolicy(policy.Member, CSharpBodyPolicy.Full, body)
+            : policy;
+    }
 
     static CSharpMemberShellSpec ToMemberShellSpec(
         CompileBackMemberRequirement requirement,
