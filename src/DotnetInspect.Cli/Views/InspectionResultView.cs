@@ -1157,11 +1157,10 @@ public sealed class PackageEcosystemDependencyRow
         EcosystemDependencyRecognitionEntry entry,
         EcosystemDependencyRecognitionDocument document)
     {
-        var packageContext =
-            (EcosystemDependencyInputContext.Package)
-                document.InputContext;
         PackageDependencyGroups? groups =
-            packageContext.DependencyGroup
+            document.InputContext
+                is EcosystemDependencyInputContext.Package packageContext
+            && packageContext.DependencyGroup
                 is EcosystemDependencyInputComponent<
                     PackageDependencyGroups>.Available available
                 ? available.Value
