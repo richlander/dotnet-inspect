@@ -162,7 +162,7 @@ One query space is an immutable effective binding containing:
 | Identity | Stable owner-issued identity for discovery and portable intent resolution. |
 | Operation route | One Query Operation definition, subject role, result grain, and operation profile. |
 | Row spaces | Zero or more declared row-set identities paired with their row vocabularies and supported shaping capabilities. |
-| Terminal space | The supported terminal requirements, initially Rows and exact Count. |
+| Terminal space | The supported terminal requirements, initially Rows and exact Count, preserving each participating row-set identity. |
 | Effects | The capability, acquisition, work, and completion consequences reachable through the effective bindings. |
 | Continuation acceptance | Whether this result composition can preserve an adjacent source contract's continuation; the selected source offer supplies any effective continuation capability. |
 | Descriptor | The complete resource-free capability projection consumed by hosts and generators. |
@@ -299,7 +299,8 @@ the closed algebra, not arbitrary executable content carried in an intent.
 ## Fixed stages
 
 Query Space preserves the stage order issued by the operation, row, selection,
-and section-row owners. For a section-shaped row set, the observable order is:
+and section-row owners. For each participating section-shaped row set, the
+observable order is:
 
 ```text
 subject or population binding
@@ -318,7 +319,8 @@ This is the [Section-row shaping](section-row-shaping.md#reference-composition)
 branch, not a projection contract defined by Query Space. A row space without
 projection support treats the two projection positions as absent. Count still
 validates applicable cell-projection intent through the section-row owner but
-does not execute cell projection.
+does not execute cell projection. The completed per-set results retain their
+declared row-set identities and are assembled in declaration order.
 
 An owner may perform equivalent work earlier only through source delegation or
 another owner-approved optimization contract. The structural plan continues
@@ -359,19 +361,24 @@ runtime-authored query shape is not encoded as nested generic types.
 
 ## Terminal requirements
 
-Rows and exact Count are peer terminal requirements over the same selected-row
-sequence after membership projection, predicates, effective order, and semantic
-selection.
+Rows and exact Count are peer terminal requirements over each participating
+row set's selected sequence after membership projection, predicates, effective
+order, and semantic selection.
 
 **Rows** then applies any validated cell projection and returns the selected
-typed rows plus their source and completion outcomes. A source-bound or
+typed rows plus their row-set identity, source, and completion outcomes. The
+assembled result preserves participating declaration order. A source-bound or
 otherwise incomplete result may remain usable when the owning row contract
 permits it, but it stays visibly incomplete.
 
 **Count** validates cell-projection intent but does not execute it, because the
-terminal result has no row cells. It returns an exact cardinality or a typed
-non-count outcome and never returns an observed row count as though it were
-exact. Count may be satisfied:
+terminal result has no row cells. A successful result contains one exact
+cardinality, including zero, for every participating selected row set in
+declaration order. It does not invent an aggregate across independently
+declared sets; an aggregate exists only when the producer declared one
+aggregate row set before shaping. A typed non-count outcome remains visible,
+and an observed row count is never returned as though it were exact. Count may
+be satisfied for a participating set:
 
 - by logical exhaustion after local or delegated execution;
 - by an owner-accepted exact source Count witness; or
@@ -384,9 +391,10 @@ page size, work bound, or observed match count is not automatically the final
 Count.
 
 A future combined preview-and-count shape would carry two independent
-requirements: bounded row delivery and exact Count over the complete semantic
-population. Exact Count would not imply random row access, and row delivery
-credit would not limit Count work explicitly requested by the consumer.
+requirements: bounded row delivery and exact Count over each participating
+set's complete semantic population. Exact Count would not imply random row
+access, and row delivery credit would not limit Count work explicitly requested
+by the consumer.
 
 ## Work bounds and semantic selection
 
@@ -578,6 +586,9 @@ The eventual implementation and adopter gates must preserve these cases:
 - An operation binding and a row binding both declare an owner-local family
   named `population`. Their qualified effective family identities neither
   combine, conflict, nor satisfy one another's required-family rule.
+- Two participating row sets contain three and five selected rows. Count
+  returns ordered entries `(first, 3)` and `(second, 5)` rather than an invented
+  total of eight.
 - A generated consumer omits a control. The runtime descriptor remains
   complete and another host can expose the capability.
 - A source advertises prefix filtering but cannot preserve the required
@@ -625,7 +636,7 @@ slices:
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
 | `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates in different binding scopes cannot combine, conflict, satisfy, or collapse one another. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
-| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, and `CountObservesPrecedingSemanticStages`; Count validates but never executes cell projection. |
+| `QuerySpacePreservesSectionRowBranch` | The composed plan reuses `MembershipProjectionPrecedesRowQuery`, `CellProjectionFollowsSelectionAndPreservesCardinality`, `CountObservesPrecedingSemanticStages`, and `CountPreservesDeclaredRowSetScope`; Count validates but never executes cell projection, and successful results preserve one ordered entry per participating row set without inventing an aggregate. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
 | `SemanticHeadAndCandidateTakeRemainDistinct` | Candidate work and final-row cardinality coincide only through an explicitly proven optimization. |
