@@ -265,12 +265,15 @@ successful because every edge through that boundary is known without
 acquiring endpoint manifests.
 
 Transitive evidence counts matching admitted declaration edges. Each preview
-is one deterministic shortest root path for that edge and retains every
-declared version range and resolved exact package coordinate along the path.
-This avoids unbounded enumeration when shared nodes or cycles provide multiple
-paths. `Microsoft.Extensions.Http@10.0.0` on `net10.0` is the motivating real
-package: it reaches `Microsoft.Extensions.Primitives@10.0.0` at depth 2
-through `Microsoft.Extensions.Configuration.Abstractions@10.0.0`, while that
+is one deterministic shortest root path constructed from the declared version
+ranges and resolved exact package coordinates for that edge. The shared
+160-character `InertString` display budget applies after construction, so a
+shortened preview may omit or truncate later path text and must not be treated
+as a complete path record or package coordinate. This avoids unbounded
+enumeration when shared nodes or cycles provide multiple paths.
+`Microsoft.Extensions.Http@10.0.0` on `net10.0` is the motivating real package:
+it reaches `Microsoft.Extensions.Primitives@10.0.0` at depth 2 through
+`Microsoft.Extensions.Configuration.Abstractions@10.0.0`, while that
 intermediate direct dependency does not itself satisfy `depends-transitive`.
 
 `dependencies=cross-prefix` derives each package's comparison segment from the

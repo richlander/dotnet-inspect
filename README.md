@@ -557,9 +557,11 @@ dotnet-inspect package query Microsoft.Extensions.Http \
 ```
 
 The result is not a NuGet restore claim. Evidence counts matching declaration
-edges and previews deterministic shortest paths with declared ranges and
-resolved exact package coordinates. A direct-only dependency does not satisfy
-the transitive term, and incomplete traversal remains a visible failure.
+edges and previews deterministic shortest paths built from declared ranges and
+resolved exact package coordinates. The shared 160-character display budget
+may shorten a preview, so it is not a complete path record or package
+coordinate. A direct-only dependency does not satisfy the transitive term, and
+incomplete traversal remains a visible failure.
 
 Use `dependencies=cross-prefix` to find packages with a direct dependency from a
 different first dot-delimited package-ID segment. It uses the same
