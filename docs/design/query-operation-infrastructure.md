@@ -26,6 +26,14 @@ Graph Libraries is the second adopter: one command route and five row-set
 routes supply its Cluster plan, CLI lowering, and section discovery. The
 remaining operations still bind their syntax through separate paths.
 
+[Query Space Composition](query-space-composition.md) now owns the target
+composition of one operation route with explicit row spaces, terminal
+requirements, structural plan descriptions, and optional source continuation.
+The current `ResultPredicate` operation-term role and route-local projection of
+row capabilities are transitional implementation surfaces. Their retirement is
+a focused adoption of that pattern; this document continues to own operation
+definition, route binding, and operation-plan resolution.
+
 ## Authority and exact claim
 
 **Query Operation Infrastructure** is the single normative owner established
@@ -114,6 +122,9 @@ infer them.
 
 This pattern composes existing focused owners:
 
+- [Query Space Composition](query-space-composition.md) owns the effective
+  composition of this operation route with row spaces, terminal requirements,
+  structural plan descriptions, and adjacent continuation capability.
 - [Portable query intent](portable-query-intent.md) owns the canonical
   serializable vocabulary, terms, execution bounds, ordered selection stages,
   and order operations.
@@ -247,7 +258,7 @@ Its supported semantic roles are:
 | --- | --- |
 | Subject qualification | Determines whether a candidate subject belongs in the operation result. |
 | Operation selector | Selects an owner-defined mode, occurrence population, traversal projection, or other pre-result plan input. |
-| Result predicate | Filters one declared typed result-row set. |
+| Result predicate | Transitional current role that filters one declared typed result-row set; Query Space adoption moves this binding to the corresponding explicit row space. |
 
 An **order binding** instead records:
 
