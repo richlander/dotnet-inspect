@@ -660,6 +660,59 @@ public static class DiscoverOutput
         return filtered;
     }
 
+    internal static List<DiscoveryRow> GetTopLevelRows(
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations = null)
+    {
+        var items = schema.Discover()!;
+
+        if (listedCategoryDoors != null)
+        {
+            var doorRows = sectionCategories?
+                .Where(category => listedCategoryDoors.Contains(category.Key))
+                .Select(category => new DiscoveryRow(category.Key, "category"))
+                .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+
+            var effectiveRows = items
+                .Where(i => catalogHiddenSections is null
+                    || !catalogHiddenSections.Contains(i.Name))
+                .Select(i => new DiscoveryRow(i.Name, i.Kind))
+                .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return [.. doorRows, .. effectiveRows];
+        }
+
+        var categoryRows = sectionCategories?
+            .Where(category => catalogHiddenSections is null
+                || !string.Equals(
+                    category.Key,
+                    SectionCategoryNames.Hidden,
+                    StringComparison.OrdinalIgnoreCase))
+            .Select(category => new DiscoveryRow(category.Key, "category"))
+            .ToList() ?? [];
+
+        var sectionRows = items
+            .Where(i => catalogHiddenSections is null
+                || !catalogHiddenSections.Contains(i.Name))
+            .Select(i => new DiscoveryRow(
+                i.Name,
+                AnnotateKind(
+                    i.Kind,
+                    i.Name,
+                    sectionCostAnnotations)))
+            .ToList();
+
+        return sectionRows.Concat(categoryRows)
+            .OrderBy(GetDiscoveryRowSortRank)
+            .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private static List<DiscoveryRow>? GetDiscoveryRows(
         string[]? discover,
         DocumentSchema schema,
@@ -674,46 +727,12 @@ public static class DiscoverOutput
         // pipelines use the same category/section/opt-in grouping.
         if (discover is null or { Length: 0 })
         {
-            var items = schema.Discover()!;
-
-            if (listedCategoryDoors != null)
-            {
-                var doorRows = sectionCategories?
-                    .Where(category => listedCategoryDoors.Contains(category.Key))
-                    .Select(category => new DiscoveryRow(category.Key, "category"))
-                    .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList() ?? [];
-
-                var effectiveRows = items
-                    .Where(i => catalogHiddenSections is null || !catalogHiddenSections.Contains(i.Name))
-                    .Select(i => new DiscoveryRow(i.Name, i.Kind))
-                    .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                return [.. doorRows, .. effectiveRows];
-            }
-
-            var categoryRows = sectionCategories?
-                // The @Hidden pole is the computed complement of the listed catalog. It is a
-                // --schema/exact-name entrypoint only: excluded from the curated top-level catalog
-                // (catalogHidden applied), but shown in the full schema (catalogHidden null).
-                .Where(category => catalogHiddenSections is null
-                    || !string.Equals(category.Key, SectionCategoryNames.Hidden, StringComparison.OrdinalIgnoreCase))
-                .Select(category => new DiscoveryRow(category.Key, "category"))
-                .ToList() ?? new List<DiscoveryRow>();
-
-            var sectionRows = items
-                // Catalog-hidden sections (ListedInCatalog=false) are omitted from the top-level
-                // listing so their curated @category is the single discoverable entrypoint; they
-                // remain reachable by drilling into that category (-D @Category) or by exact name.
-                .Where(i => catalogHiddenSections is null || !catalogHiddenSections.Contains(i.Name))
-                .Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations)))
-                .ToList();
-
-            return sectionRows.Concat(categoryRows)
-                .OrderBy(GetDiscoveryRowSortRank)
-                .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return GetTopLevelRows(
+                schema,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors,
+                sectionCostAnnotations);
         }
 
         // -D SectionName: list items within section

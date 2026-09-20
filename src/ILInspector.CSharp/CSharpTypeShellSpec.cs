@@ -34,7 +34,7 @@ public sealed record CSharpFixedBufferField(string ElementType, int Length)
 /// </summary>
 /// <param name="Handle">The type definition whose metadata supplies the remaining
 /// shell facts (type parameters, custom attributes, and abstract/sealed/static
-/// modifiers).</param>
+/// and readonly modifiers).</param>
 /// <param name="Namespace">The type's C# namespace, or the empty string for the
 /// global namespace.</param>
 /// <param name="MetadataName">The type's metadata name (arity ticks preserved),
