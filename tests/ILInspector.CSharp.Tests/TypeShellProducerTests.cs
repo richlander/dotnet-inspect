@@ -161,6 +161,30 @@ public sealed class TypeShellProducerTests
     }
 
     [Theory]
+    [InlineData("ReadOnlyMemory`1", true)]
+    [InlineData("ValueTuple`1", false)]
+    public void BuildPrintRequest_PreservesReadonlyStorageModifiers(string name, bool isReadOnly)
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+        var reader = pe.GetMetadataReader();
+        var handle = reader.TypeDefinitions.Single(candidate =>
+        {
+            var type = reader.GetTypeDefinition(candidate);
+            return reader.GetString(type.Namespace) == "System" && reader.GetString(type.Name) == name;
+        });
+        var field = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            "Value", CSharpShellMemberKind.Field, false, [], "int", [],
+            CSharpShellBodyKind.None, null, IsReadOnly: isReadOnly));
+        var spec = new CSharpTypeShellSpec(
+            handle, "System", name, CSharpTypeShellKind.Struct, [], [field], [], []);
+
+        var request = TypeShellProducer.BuildPrintRequest(reader, spec);
+
+        Assert.Equal(isReadOnly, request.Type.IsReadOnly);
+        Assert.Equal(isReadOnly, Assert.Single(request.Type.Members).IsReadOnly);
+    }
+
+    [Theory]
     [InlineData("A+B")]
     [InlineData("A<B")]
     [InlineData(" ")]

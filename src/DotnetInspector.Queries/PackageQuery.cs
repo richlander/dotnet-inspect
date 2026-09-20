@@ -25,6 +25,17 @@ public enum PackageQueryAcquisitionTier
     SearchMetadata,
 }
 
+/// <summary>The UI and disclosure class for one package-query term.</summary>
+public enum PackageQueryExecutionClass
+{
+    SearchMetadata,
+    Nuspec,
+    NuspecExpensive,
+    PackageContent,
+    Metadata,
+    MetadataExpensive,
+}
+
 /// <summary>A bounded package-query request over one package input.</summary>
 public sealed record PackageQueryRequest(
     string Input,
@@ -470,6 +481,24 @@ public static partial class PackageQuery
 {
     private const int RequiredPortableTermCount = 2;
 
+    public static string ExecutionClassIdentity(
+        PackageQueryExecutionClass executionClass) =>
+        executionClass switch
+        {
+            PackageQueryExecutionClass.SearchMetadata =>
+                "search-metadata",
+            PackageQueryExecutionClass.Nuspec => "nuspec",
+            PackageQueryExecutionClass.NuspecExpensive =>
+                "nuspec-expensive",
+            PackageQueryExecutionClass.PackageContent =>
+                "package-content",
+            PackageQueryExecutionClass.Metadata => "metadata",
+            PackageQueryExecutionClass.MetadataExpensive =>
+                "metadata-expensive",
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query execution class."),
+        };
+
     public const int DefaultMaximumCandidates = 200;
     public const int DefaultMaximumMatches = 100;
     public const int MaximumCandidates = 1_000;
@@ -517,6 +546,7 @@ public static partial class PackageQuery
             "Selects one exact package ID.",
             10,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "NuGet package ID",
             "Newtonsoft.Json",
@@ -531,6 +561,7 @@ public static partial class PackageQuery
             "Selects package IDs beginning with one literal prefix.",
             20,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "NuGet package ID prefix",
             "Microsoft.Extensions.",
@@ -545,6 +576,7 @@ public static partial class PackageQuery
             "Selects stable versions or includes prerelease versions.",
             30,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "closed value",
             "include",
@@ -567,6 +599,7 @@ public static partial class PackageQuery
             "Matches dependency absence or package-ID boundary in the selected scope.",
             100,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "closed value",
             "none",
@@ -592,6 +625,7 @@ public static partial class PackageQuery
             "Scopes dependency terms to all manifest groups or one TFM-selected group.",
             150,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "all or NuGet target framework",
             "net8.0",
@@ -607,6 +641,7 @@ public static partial class PackageQuery
             "Matches a direct dependency in the selected dependency scope.",
             200,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "NuGet package ID",
             "Microsoft.Extensions.DependencyInjection",
@@ -618,6 +653,7 @@ public static partial class PackageQuery
             "Matches a direct dependency in a registered ecosystem package population.",
             210,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "canonical ecosystem ID",
             "ecosystem.aspire",
@@ -629,6 +665,7 @@ public static partial class PackageQuery
             "Matches license presence or a closed license identity derived from nuspec metadata.",
             250,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "closed value",
             "MIT",
@@ -651,6 +688,7 @@ public static partial class PackageQuery
             "Matches a closed lifetime-download threshold reported by the package source.",
             300,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "closed value",
             "100k",
@@ -671,6 +709,7 @@ public static partial class PackageQuery
             "Matches a package manifest that declares an embedded README.",
             400,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "boolean",
             "true",
@@ -688,6 +727,7 @@ public static partial class PackageQuery
             "Matches the .NET tool package type from the package manifest.",
             500,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "boolean",
             "true",
@@ -708,6 +748,7 @@ public static partial class PackageQuery
             "Downloads the package and matches its .NET tool CLI format.",
             510,
             PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.PackageContent,
             EqualityOperator,
             "closed value",
             "v2",
@@ -731,6 +772,7 @@ public static partial class PackageQuery
             "Downloads the package and matches AssemblyRef simple names across managed ref and lib assets.",
             550,
             PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.Metadata,
             EqualityOperator,
             "assembly simple name",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
@@ -742,6 +784,7 @@ public static partial class PackageQuery
             "Downloads the package and matches a skills/SKILL.md or skills/**/SKILL.md file.",
             600,
             PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.PackageContent,
             EqualityOperator,
             "boolean",
             "true",

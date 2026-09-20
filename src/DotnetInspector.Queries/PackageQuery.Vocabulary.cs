@@ -35,6 +35,7 @@ public sealed record PackageQueryTermDescriptor(
     string Summary,
     int Weight,
     PackageQueryAcquisitionTier Tier,
+    PackageQueryExecutionClass ExecutionClass,
     ImmutableArray<string> Operators,
     string ValueKind,
     string ExampleValue,

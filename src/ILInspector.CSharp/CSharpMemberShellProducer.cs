@@ -83,7 +83,8 @@ public sealed record CSharpMemberShellSpec(
     int? GetterToken = null,
     int? SetterToken = null,
     int? AdderToken = null,
-    int? RemoverToken = null);
+    int? RemoverToken = null,
+    bool IsReadOnly = false);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -264,6 +265,7 @@ public static class CSharpMemberShellProducer
             ReturnType = spec.ReturnType,
             Signature = DeclarationSignature(spec),
             IsStatic = spec.IsStatic,
+            IsReadOnly = spec.IsReadOnly,
             IsAbstract = spec.IsAbstract,
             IsVirtual = spec.IsVirtual,
             IsOverride = spec.IsOverride,
