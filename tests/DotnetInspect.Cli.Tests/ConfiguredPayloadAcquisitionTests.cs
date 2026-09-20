@@ -925,6 +925,531 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_PackageInfoAndDetailRenderEcosystemDependencies()
+    {
+        string id = $"Pinned.Ecosystems.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreatePackage(
+            id,
+            "ecosystem package",
+            library: library,
+            libraryName: $"{id}.dll",
+            dependencies:
+            [
+                ("Microsoft.Extensions.AI.Abstractions", "10.0.0"),
+                ("ThirdParty.Unrecognized", "1.0.0"),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        var info = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(info.Exit == 0, $"Exit {info.Exit}: {info.Error}");
+        Assert.Contains(
+            "| Ecosystem Dependencies | .NET Runtime, Microsoft.Extensions, AI |",
+            info.Output);
+        Assert.DoesNotContain(
+            "| Ecosystem Dependency Status |",
+            info.Output);
+
+        var details = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--columns", "Ecosystem,Kind,Dependency,Declared By",
+                "--tips", "q"]);
+
+        Assert.True(
+            details.Exit == 0,
+            $"Exit {details.Exit}: {details.Error}");
+        Assert.Contains(
+            "| Microsoft.Extensions | Package declaration | Microsoft.Extensions.AI.Abstractions 10.0.0 |",
+            details.Output);
+        Assert.Contains(
+            "| AI | Package declaration | Microsoft.Extensions.AI.Abstractions 10.0.0 |",
+            details.Output);
+        Assert.DoesNotContain("ThirdParty.Unrecognized", details.Output);
+
+        var selected = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "-n", "1",
+                "--tips", "q"]);
+
+        Assert.True(
+            selected.Exit == 0,
+            $"Exit {selected.Exit}: {selected.Error}");
+        Assert.Equal(
+            3,
+            selected.Output.Split('\n').Count(
+                static line => line.StartsWith("| ", StringComparison.Ordinal)));
+
+        var windowed = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--rows", "2..3",
+                "--tips", "q"]);
+
+        Assert.True(
+            windowed.Exit == 0,
+            $"Exit {windowed.Exit}: {windowed.Error}");
+        Assert.Equal(
+            4,
+            windowed.Output.Split('\n').Count(
+                static line => line.StartsWith("| ", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_JsonRetainsRecognitionAndSelectedPairRows()
+    {
+        string id = $"Pinned.EcosystemJson.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "ecosystem JSON package",
+            dependencies:
+            [
+                ("Microsoft.Extensions.AI.Abstractions", "10.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--rows", "2..2",
+                "--json", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement recognition = document.RootElement.GetProperty(
+            "ecosystem_dependencies");
+        Assert.Equal(
+            "complete",
+            recognition.GetProperty("status").GetString());
+        Assert.Equal(
+            0,
+            recognition.GetProperty("issue_count").GetInt32());
+        Assert.Equal(
+            ["Microsoft.Extensions", "AI"],
+            recognition.GetProperty("ecosystems")
+                .EnumerateArray()
+                .Select(static value => value.GetString()!)
+                .ToArray());
+        JsonElement dependency = Assert.Single(
+            recognition.GetProperty("dependencies").EnumerateArray());
+        Assert.Equal(
+            "AI",
+            dependency.GetProperty("ecosystem").GetString());
+        Assert.Equal(
+            "Package declaration",
+            dependency.GetProperty("kind").GetString());
+        Assert.Equal(
+            "Microsoft.Extensions.AI.Abstractions 10.0.0",
+            dependency.GetProperty("dependency").GetString());
+        Assert.Equal(
+            $"{id.ToLowerInvariant()}@{Version}",
+            dependency.GetProperty("declared_by").GetString());
+        Assert.Equal(
+            "10.0.0",
+            dependency.GetProperty("version_or_range").GetString());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_LocalPackageDisclosesUnavailableRecognition()
+    {
+        string id = $"Local.Ecosystems.{Guid.NewGuid():N}";
+        string packagePath = Path.Combine(
+            _root,
+            $"{id}.{Version}.nupkg");
+        await File.WriteAllBytesAsync(
+            packagePath,
+            CreatePackage(
+                id,
+                "local ecosystem package",
+                dependencies:
+                [
+                    ("Microsoft.Extensions.Logging.Abstractions", "10.0.0"),
+                ]),
+            TestContext.Current.CancellationToken);
+
+        var result = await RunCommandAsync(
+            ["package", packagePath,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Unavailable (3 issues) |",
+            result.Output);
+
+        var details = await RunCommandAsync(
+            ["package", packagePath,
+                "-S", PackageSections.EcosystemDependencies,
+                "--tips", "q"]);
+
+        Assert.True(
+            details.Exit == 0,
+            $"Exit {details.Exit}: {details.Error}");
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-manifest-unavailable",
+            details.Error);
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-dependencies-not-attempted",
+            details.Error);
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-compile-selection-unavailable",
+            details.Error);
+
+        var multiSectionDetails = await RunCommandAsync(
+            ["package", packagePath,
+                "-S",
+                $"{PackageSections.EcosystemDependencies},{PackageSections.Dependencies}",
+                "--tips", "q"]);
+
+        Assert.True(
+            multiSectionDetails.Exit == 0,
+            $"Exit {multiSectionDetails.Exit}: {multiSectionDetails.Error}");
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-manifest-unavailable",
+            multiSectionDetails.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_OfflineCachedPackageDisclosesUnavailableRecognition()
+    {
+        string id = $"Offline.Ecosystems.{Guid.NewGuid():N}";
+        string nupkgPath = Path.Combine(
+            _root,
+            $"{id}.{Version}.nupkg");
+        string stagedPath = Path.Combine(
+            _root,
+            $"offline-staged-{Guid.NewGuid():N}");
+        await File.WriteAllBytesAsync(
+            nupkgPath,
+            CreatePackage(
+                id,
+                "offline ecosystem package",
+                dependencies:
+                [
+                    ("Microsoft.Extensions.Logging.Abstractions", "10.0.0"),
+                ]),
+            TestContext.Current.CancellationToken);
+        ZipFile.ExtractToDirectory(nupkgPath, stagedPath);
+        NuGetCache.CommitPackage(
+            stagedPath,
+            nupkgPath,
+            id,
+            Version,
+            NuGetCache.GetSourceKey(FirstFeed));
+
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            CoreHttpClientFactory.ResetSharedForTesting();
+
+            var result = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tips", "q"]);
+
+            Assert.True(
+                result.Exit == 0,
+                $"Exit {result.Exit}: {result.Error}");
+            Assert.DoesNotContain(
+                "| Ecosystem Dependencies |",
+                result.Output);
+            Assert.Contains(
+                "| Ecosystem Dependency Status | Unavailable (3 issues) |",
+                result.Output);
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = wasOffline });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_IncompleteRecognitionOmitsRollupAndDisclosesStatus()
+    {
+        string id = $"Pinned.EcosystemFailure.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "incomplete ecosystem package",
+            library: new byte[17],
+            libraryName: $"{id}.dll",
+            dependencies:
+            [
+                ("Microsoft.Extensions.AI.Abstractions", "10.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Incomplete (1 issue) |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task PackageCommand_EmptyIncompleteDetailDisclosesRecognitionIssue()
+    {
+        string id = $"Pinned.EmptyIncompleteEcosystem.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "empty incomplete ecosystem package",
+            library: new byte[17],
+            libraryName: $"{id}.dll",
+            dependencies:
+            [
+                ("ThirdParty.Unrecognized", "1.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.Contains(
+            "Warning: ecosystem-dependency-recognition.package-",
+            result.Error);
+        Assert.DoesNotContain(
+            "| Ecosystem |",
+            result.Output);
+
+        var multiSectionResult = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S",
+                $"{PackageSections.EcosystemDependencies},{PackageSections.Dependencies}",
+                "--tips", "q"]);
+
+        Assert.True(
+            multiSectionResult.Exit == 0,
+            $"Exit {multiSectionResult.Exit}: {multiSectionResult.Error}");
+        Assert.Contains(
+            "Warning: ecosystem-dependency-recognition.package-",
+            multiSectionResult.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_MultiSectionJsonRejectsEcosystemRowWindow()
+    {
+        string id = $"Pinned.MultiSectionEcosystemJson.{Guid.NewGuid():N}";
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S",
+                $"{PackageSections.PackageInfo},{PackageSections.EcosystemDependencies}",
+                "--rows", "2..2",
+                "--json", "--tips", "q"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_MalformedSiblingRetainsValidEcosystemEvidence()
+    {
+        string id = $"Pinned.PartialEcosystem.{Guid.NewGuid():N}";
+        byte[] validLibrary = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreatePackage(
+            id,
+            "partial ecosystem package",
+            library: validLibrary,
+            libraryName: "A.Valid.dll",
+            extraEntries:
+            [
+                ("lib/net11.0/Z.Invalid.dll", new byte[17]),
+            ],
+            dependencies:
+            [
+                ("ThirdParty.Unrecognized", "1.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--json", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement recognition = document.RootElement.GetProperty(
+            "ecosystem_dependencies");
+        Assert.Equal(
+            "incomplete",
+            recognition.GetProperty("status").GetString());
+        Assert.Equal(
+            1,
+            recognition.GetProperty("issue_count").GetInt32());
+        JsonElement[] dependencies = recognition.GetProperty("dependencies")
+            .EnumerateArray()
+            .ToArray();
+        Assert.NotEmpty(dependencies);
+        Assert.Contains(
+            dependencies,
+            static dependency =>
+                dependency.GetProperty("kind").GetString()
+                    == "Assembly reference"
+                && dependency.GetProperty("coverage").GetString()
+                    == "Incomplete");
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_DuplicateCompileIdentityDisclosesIncompleteRecognition()
+    {
+        string id = $"Pinned.DuplicateIdentity.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreatePackage(
+            id,
+            "duplicate identity ecosystem package",
+            library: library,
+            libraryName: "First.dll",
+            extraEntries:
+            [
+                ("lib/net11.0/nested/Second.dll", library),
+            ],
+            dependencies:
+            [
+                ("Microsoft.Extensions.AI.Abstractions", "10.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Incomplete (1 issue) |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task PackageCommand_MalformedManifestDisclosesIncompleteRecognition()
+    {
+        string id = $"Pinned.MalformedManifest.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "malformed manifest ecosystem package",
+            nuspecContent: $"""
+                <package><metadata>
+                  <id>{id}</id><version>{Version}</version>
+                  <description>unterminated
+                """);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Incomplete (2 issues) |",
+            result.Output);
+
+        var files = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.Files, "--tips", "q"]);
+
+        Assert.Equal(1, files.Exit);
+        Assert.Contains(
+            "Package manifest is not well-formed XML",
+            files.Error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_CompleteEmptyRecognitionOmitsEcosystemFields()
+    {
+        string id = $"Pinned.EmptyEcosystems.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "empty ecosystem package");
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.DoesNotContain(
+            "| Ecosystem Dependency Status |",
+            result.Output);
+    }
+
+    [Fact]
     public async Task PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm()
     {
         string id = $"Pinned.ToolMeasurements.{Guid.NewGuid():N}";
@@ -1394,18 +1919,30 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string libraryName = "Npgsql.dll",
         byte[]? documentation = null,
         string libraryDirectory = "lib/net11.0",
-        IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null)
+        IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null,
+        IReadOnlyList<(string Id, string Version)>? dependencies = null,
+        string? nuspecContent = null)
     {
+        string dependenciesXml = dependencies is { Count: > 0 }
+            ? "<dependencies><group targetFramework=\"net11.0\">"
+                + string.Concat(dependencies.Select(dependency =>
+                    $"<dependency id=\"{dependency.Id}\" version=\"{dependency.Version}\" />"))
+                + "</group></dependencies>"
+            : "";
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
         {
-            WriteEntry(archive, $"{id}.nuspec", $"""
-                <package><metadata>
-                  <id>{id}</id><version>{version}</version>
-                  <authors>Payload tests</authors><description>Exact-pin fixture</description>
-                  <readme>README.md</readme>
-                </metadata></package>
-                """);
+            WriteEntry(
+                archive,
+                $"{id}.nuspec",
+                nuspecContent ?? $"""
+                    <package><metadata>
+                      <id>{id}</id><version>{version}</version>
+                      <authors>Payload tests</authors><description>Exact-pin fixture</description>
+                      <readme>README.md</readme>
+                      {dependenciesXml}
+                    </metadata></package>
+                    """);
             WriteEntry(archive, "README.md", readme);
             if (library is not null)
             {

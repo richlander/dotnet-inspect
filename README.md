@@ -144,7 +144,7 @@ stderr rather than mixed into structured output.
 
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
-| Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
+| Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, recognized ecosystem dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
@@ -1243,6 +1243,11 @@ inspect each side on its own.
 ```bash
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
   -S Dependencies
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Package Info"
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Ecosystem Dependencies" \
+  --columns "Ecosystem,Kind,Dependency,Declared By"
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
   -S "Dependency Hierarchy" --tree
 dotnet-inspect depends Stream --markdown --mermaid

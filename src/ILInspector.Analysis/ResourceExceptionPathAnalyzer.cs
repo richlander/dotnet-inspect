@@ -8,9 +8,40 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
-static class ArrayPoolExceptionPathAnalyzer
+internal static class ResourceExceptionPathAnalyzer
 {
+    internal sealed record ThrowingBoundaryClassification<TBoundary>(
+        ImmutableArray<TBoundary> Unprotected,
+        ImmutableArray<TBoundary> Indeterminate);
+
+    enum CleanupCoverage
+    {
+        None,
+        Guaranteed,
+        Indeterminate,
+    }
+
     internal static LeakExitKind PathExitsWithoutRelease(
+        ImmutableArray<DecodedInstruction> instructions,
+        BlockGraph graph,
+        IReadOnlyDictionary<int, MemberRef> calls,
+        int startOffset,
+        ImmutableArray<int> releases)
+    {
+        LeakExitFacts facts = LeakExitsWithoutRelease(
+            instructions,
+            graph,
+            calls,
+            startOffset,
+            releases);
+        return facts.Normal
+            ? LeakExitKind.Normal
+            : facts.Exception
+                ? LeakExitKind.Exception
+                : LeakExitKind.None;
+    }
+
+    internal static LeakExitFacts LeakExitsWithoutRelease(
         ImmutableArray<DecodedInstruction> instructions,
         BlockGraph graph,
         IReadOnlyDictionary<int, MemberRef> calls,
@@ -19,12 +50,13 @@ static class ArrayPoolExceptionPathAnalyzer
     {
         int startBlock = graph.BlockIndexAt(startOffset);
         if (startBlock < 0)
-            return LeakExitKind.None;
+            return default;
 
         var releaseSet = releases.ToHashSet();
         var visited = new HashSet<(int Block, bool Released)>();
         var stack = new Stack<(int Block, bool Released, int StartOffset)>();
         stack.Push((startBlock, Released: false, StartOffset: startOffset));
+        bool sawNormalExit = false;
         bool sawExceptionExit = false;
 
         while (stack.Count > 0)
@@ -41,13 +73,13 @@ static class ArrayPoolExceptionPathAnalyzer
                 if (BlockExitsByException(instructions, calls, block))
                     sawExceptionExit = true;
                 else
-                    return LeakExitKind.Normal;
+                    sawNormalExit = true;
             }
             foreach (int successor in successors)
                 stack.Push((successor, released, graph.Blocks[successor].Start));
         }
 
-        return sawExceptionExit ? LeakExitKind.Exception : LeakExitKind.None;
+        return new(sawNormalExit, sawExceptionExit);
     }
 
     static bool ProcessBlockForRelease(
@@ -112,7 +144,8 @@ static class ArrayPoolExceptionPathAnalyzer
     {
         var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
         var seenOffsets = new HashSet<int>();
-        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
+        foreach (var boundary in throwingBoundaries.OrderBy(
+            static boundary => boundary.ILOffset))
         {
             if (seenOffsets.Add(boundary.ILOffset)
                 && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
@@ -134,25 +167,80 @@ static class ArrayPoolExceptionPathAnalyzer
         InstructionExceptionFlowFacts exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
-        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries)
+        ImmutableArray<ArrayPoolExceptionBoundary> throwingBoundaries) =>
+        UnprotectedThrowingBoundaries(
+            graph,
+            exceptionFlow,
+            catchAllCleanup,
+            releases,
+            throwingBoundaries,
+            static boundary => boundary.ILOffset);
+
+    internal static ImmutableArray<TBoundary> UnprotectedThrowingBoundaries<TBoundary>(
+        BlockGraph graph,
+        InstructionExceptionFlowFacts exceptionFlow,
+        IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+        ImmutableArray<int> releases,
+        ImmutableArray<TBoundary> throwingBoundaries,
+        Func<TBoundary, int> offset) =>
+        ClassifyThrowingBoundaries(
+            graph,
+            exceptionFlow,
+            catchAllCleanup,
+            releases,
+            throwingBoundaries,
+            offset).Unprotected;
+
+    internal static ThrowingBoundaryClassification<TBoundary>
+        ClassifyThrowingBoundaries<TBoundary>(
+            BlockGraph graph,
+            InstructionExceptionFlowFacts exceptionFlow,
+            IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
+            ImmutableArray<int> releases,
+            ImmutableArray<TBoundary> throwingBoundaries,
+            Func<TBoundary, int> offset,
+            IReadOnlySet<int>? cleanupHazards = null)
     {
-        var result = ImmutableArray.CreateBuilder<ArrayPoolExceptionBoundary>();
+        var unprotected = ImmutableArray.CreateBuilder<TBoundary>();
+        var indeterminate = ImmutableArray.CreateBuilder<TBoundary>();
         var seenOffsets = new HashSet<int>();
-        foreach (var boundary in throwingBoundaries.OrderBy(static boundary => boundary.ILOffset))
+        foreach (var boundary in throwingBoundaries.OrderBy(offset))
         {
-            if (seenOffsets.Add(boundary.ILOffset)
-                && !ReleasedBeforeUseInSameBlock(graph, releases, boundary.ILOffset)
-                && !HasCleanupReleaseForUse(
-                    exceptionFlow,
-                    catchAllCleanup,
+            int boundaryOffset = offset(boundary);
+            if (!seenOffsets.Add(boundaryOffset)
+                || ReleasedBeforeUseInSameBlock(
+                    graph,
                     releases,
-                    boundary.ILOffset))
+                    boundaryOffset))
             {
-                result.Add(boundary);
+                continue;
+            }
+
+            switch (CleanupCoverageForUse(
+                graph,
+                exceptionFlow,
+                catchAllCleanup,
+                releases,
+                boundaryOffset,
+                cleanupHazards))
+            {
+                case CleanupCoverage.None:
+                    unprotected.Add(boundary);
+                    break;
+                case CleanupCoverage.Indeterminate:
+                    indeterminate.Add(boundary);
+                    break;
+                case CleanupCoverage.Guaranteed:
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown cleanup coverage.");
             }
         }
 
-        return result.ToImmutable();
+        return new(
+            unprotected.ToImmutable(),
+            indeterminate.ToImmutable());
     }
 
     static bool HasCleanupReleaseForUse(
@@ -195,11 +283,13 @@ static class ArrayPoolExceptionPathAnalyzer
         return false;
     }
 
-    static bool HasCleanupReleaseForUse(
+    static CleanupCoverage CleanupCoverageForUse(
+        BlockGraph graph,
         InstructionExceptionFlowFacts exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
-        int useOffset)
+        int useOffset,
+        IReadOnlySet<int>? cleanupHazards)
     {
         ImmutableArray<InstructionExceptionRegion> context =
             RequireLocation(exceptionFlow, useOffset);
@@ -208,6 +298,7 @@ static class ArrayPoolExceptionPathAnalyzer
         // resource-policy question: whether every exception that can be
         // intercepted before an outer cleanup still releases the rented array.
         bool interceptingCatchSeen = false;
+        bool indeterminate = false;
         foreach (InstructionExceptionRegion protectedRegion in context
             .Where(static region =>
                 region.Id.Role == InstructionExceptionRegionRole.Protected)
@@ -220,13 +311,18 @@ static class ArrayPoolExceptionPathAnalyzer
             {
                 if (clause.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault)
                 {
-                    if (HandlerContainsRelease(
-                            exceptionFlow,
-                            clause.HandlerRegion,
-                            releases))
+                    CleanupCoverage coverage = HandlerReleaseCoverage(
+                        graph,
+                        exceptionFlow,
+                        clause.HandlerRegion,
+                        releases,
+                        cleanupHazards);
+                    if (coverage == CleanupCoverage.Guaranteed)
                     {
-                        return true;
+                        return CleanupCoverage.Guaranteed;
                     }
+                    indeterminate |=
+                        coverage == CleanupCoverage.Indeterminate;
                     continue;
                 }
 
@@ -234,36 +330,86 @@ static class ArrayPoolExceptionPathAnalyzer
                     continue;
 
                 if (!interceptingCatchSeen
-                    && catchAllCleanup.Contains(clause.Id)
-                    && HandlerContainsRelease(
+                    && catchAllCleanup.Contains(clause.Id))
+                {
+                    CleanupCoverage coverage = HandlerReleaseCoverage(
+                        graph,
                         exceptionFlow,
                         clause.HandlerRegion,
-                        releases))
-                {
-                    return true;
+                        releases,
+                        cleanupHazards);
+                    if (coverage == CleanupCoverage.Guaranteed)
+                        return CleanupCoverage.Guaranteed;
+                    indeterminate |=
+                        coverage == CleanupCoverage.Indeterminate;
                 }
 
                 interceptingCatchSeen = true;
             }
         }
 
-        return false;
+        return indeterminate
+            ? CleanupCoverage.Indeterminate
+            : CleanupCoverage.None;
     }
 
-    static bool HandlerContainsRelease(
+    static CleanupCoverage HandlerReleaseCoverage(
+        BlockGraph graph,
         InstructionExceptionFlowFacts exceptionFlow,
         InstructionExceptionRegionId handler,
-        ImmutableArray<int> releases)
+        ImmutableArray<int> releases,
+        IReadOnlySet<int>? cleanupHazards)
     {
-        foreach (int release in releases)
+        InstructionExceptionRegion region = exceptionFlow.Regions
+            .Single(candidate => candidate.Id == handler);
+        ImmutableArray<int> handlerReleases =
+        [
+            .. releases.Where(region.Extent.Contains),
+        ];
+        if (handlerReleases.IsEmpty)
+            return CleanupCoverage.None;
+
+        int entryBlock = graph.BlockIndexAt(region.Extent.Start);
+        if (entryBlock < 0)
+            return CleanupCoverage.Indeterminate;
+
+        var guaranteed = handlerReleases
+            .Select(graph.BlockIndexAt)
+            .Where(static block => block >= 0)
+            .ToHashSet();
+        bool changed;
+        do
         {
-            if (RequireLocation(exceptionFlow, release)
-                .Any(region => region.Id == handler))
+            changed = false;
+            foreach (InstructionBlock block in graph.Blocks
+                .Where(block => region.Extent.Contains(block.Start))
+                .Reverse())
             {
-                return true;
+                if (guaranteed.Contains(block.Index)
+                    || cleanupHazards?.Any(hazard =>
+                        hazard >= block.Start && hazard < block.End) == true)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<int> successors = block.Edges.Successors;
+                if (successors.Count == 0
+                    || successors.Any(successor =>
+                        !region.Extent.Contains(
+                            graph.Blocks[successor].Start)
+                        || !guaranteed.Contains(successor)))
+                {
+                    continue;
+                }
+
+                changed |= guaranteed.Add(block.Index);
             }
         }
-        return false;
+        while (changed);
+
+        return guaranteed.Contains(entryBlock)
+            ? CleanupCoverage.Guaranteed
+            : CleanupCoverage.Indeterminate;
     }
 
     static ImmutableArray<InstructionExceptionRegion> RequireLocation(
@@ -840,4 +986,8 @@ static class ArrayPoolExceptionPathAnalyzer
         Normal,
         Exception,
     }
+
+    internal readonly record struct LeakExitFacts(
+        bool Normal,
+        bool Exception);
 }

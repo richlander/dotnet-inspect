@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -684,34 +685,51 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void ResourceTriageQuery_RecordsBodyIndexAndDrillMapDuringExecution()
+    public void ResourceTriageAndTopLeverage_ShareFocusedAnalysisWithoutBodyIndex()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
         using var service = SourceLinkService.OpenPrefetched(
-            typeof(SectionPipelineTests).Assembly.Location,
+            path,
             _ => { });
         using var context = new InspectionQueryContext
         {
-            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            AssemblyPath = path,
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
-            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
+            BodyReferenceResolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)),
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest
+                    .CreateResourceLifecycle(
+                        Analysis.ArrayPoolResourceEffectModel.Create()),
             Trace = trace,
         };
 
         InspectionQueryResults results = registry.Run(
-            [ResourceTriageQuery.Definition],
+            [
+                ResourceTriageQuery.Definition,
+                TopLeverageQuery.Definition,
+            ],
             context,
             trace.RecordQueryExecution);
 
         Assert.IsType<ResourceTriageResult.Available>(
             results.Get(ResourceTriageQuery.Definition));
-        var bodyIndex = Assert.Single(
+        Assert.IsType<TopLeverageResult.Available>(
+            results.Get(TopLeverageQuery.Definition));
+        var bodyAnalysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.Contains(
+            "resource lifecycle: True",
+            bodyAnalysis.Detail.ToString());
+        Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "body index");
-        Assert.Contains("LeakTriage", bodyIndex.Detail.ToString());
         Assert.Single(
             trace.Resources,
             resource => resource.Resource == "drill map");

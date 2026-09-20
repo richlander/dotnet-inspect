@@ -14,6 +14,9 @@ internal sealed record LibraryBodyAnalysisResult(
 {
     internal ResourceOccurrenceLibraryAnalysisResult? ResourceOccurrences
     { get; init; }
+
+    internal ResourceLifecycleLibraryAnalysisResult? ResourceLifecycle
+    { get; init; }
 }
 
 internal sealed record MethodBodyAnalysisResult(
@@ -56,3 +59,7 @@ internal sealed record OwnershipFlowAnalysisResult(
 internal sealed record ResourceOccurrenceLibraryAnalysisResult(
     ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
     ImmutableArray<ResourceOccurrenceLimitation> Limitations);
+
+internal sealed record ResourceLifecycleLibraryAnalysisResult(
+    ImmutableArray<ResourceLifecycleMethodResult> Methods,
+    ImmutableArray<ResourceLifecycleLimitation> Limitations);

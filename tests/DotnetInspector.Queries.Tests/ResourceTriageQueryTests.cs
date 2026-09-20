@@ -1,5 +1,5 @@
-using System.Buffers;
-using System.Runtime.CompilerServices;
+using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using Inspector.Findings;
 
@@ -7,24 +7,64 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class ResourceTriageQueryTests
 {
+    const string ReadBeforeReturn = "RentReadBeforeReturn";
+    const string NormalAndExceptionalExit =
+        "RentAcrossNormalAndExceptionalExit";
+
     [Fact]
     public void Execute_ReturnsLifecycleFindingsAndTypedAssessments()
     {
-        LibraryBodyIndex index = LibraryBodyIndex.Open(
-            typeof(ResourceTriageQueryTests).Assembly.Location,
-            LibraryBodyAnalysisFeatures.LeakTriage);
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+            });
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        LibraryResourceLifecycleAnalysisResult lifecycle =
+            execution.ResourceLifecycle;
+        ResourceLifecycleMethodResult lifecycleMethod = Assert.Single(
+            lifecycle.Methods,
+            method => method.Method.Name == ReadBeforeReturn);
+        ResourceLifecycleRootResult lifecycleRoot =
+            Assert.Single(lifecycleMethod.Roots);
+        Assert.True(
+            lifecycleRoot.IsComplete,
+            string.Join(
+                "; ",
+                lifecycleRoot.Limitations.Select(limitation =>
+                    $"{limitation.Kind}: {limitation.Detail} "
+                    + $"call={limitation.OccurrenceLimitation?.Call?.Callee} "
+                    + $"gap={limitation.OccurrenceLimitation?.EffectResolutionGap}")));
+        Assert.Contains(
+            lifecycleRoot.Outcomes,
+            outcome =>
+                outcome.Kind
+                == ResourceLifecycleOutcomeKind
+                    .ExceptionalCleanupMissing);
 
         ResourceTriageResult result = ResourceTriageQuery.Execute(
-            index,
+            lifecycle,
             new FindingSubject("query-tests", "query-tests"));
 
         var available =
             Assert.IsType<ResourceTriageResult.Available>(result);
+        Assert.DoesNotContain(
+            available.Assessments,
+            candidate =>
+                candidate.Source.Payload.Method.Name
+                    == NormalAndExceptionalExit);
         ResourceTriageAssessment assessment = Assert.Single(
             available.Assessments,
             candidate =>
                 candidate.Source.Payload.Method.Name
-                    == nameof(ReadBeforeReturn));
+                    == ReadBeforeReturn);
         Assert.Contains(
             available.Inspection.Findings,
             finding => finding == assessment.Source);
@@ -36,6 +76,60 @@ public sealed class ResourceTriageQueryTests
             boundary =>
                 boundary.Kind
                     == ResourceTriageBoundaryKind.ExternalInput);
+
+        var legacyInspection =
+            Assert.IsType<
+                FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                ResourceLifecycleAnalysis.InspectAssembly(
+                    path,
+                    new FindingSubject(
+                        "query-tests",
+                        "query-tests")).Value);
+        ResourceTriageAssessment legacy = Assert.Single(
+            ResourceTriageAnalysis.Assess(legacyInspection),
+            candidate =>
+                candidate.Source.Payload.Method.Name
+                    == ReadBeforeReturn);
+        Assert.Equal(legacy.Source.Key, assessment.Source.Key);
+        Assert.Equal(legacy.Source.Payload, assessment.Source.Payload);
+        Assert.Equal(
+            legacy.Source.Descriptor,
+            assessment.Source.Descriptor);
+        Assert.Equal(legacy.Source.Detail, assessment.Source.Detail);
+        Assert.Equal(legacy.CandidateId, assessment.CandidateId);
+
+        ResourceTriageAssessment[] genericPopulation =
+        [
+            .. available.Assessments.OrderBy(AssessmentKey),
+        ];
+        ResourceTriageAssessment[] legacyPopulation =
+        [
+            .. ResourceTriageAnalysis.Assess(legacyInspection)
+                .OrderBy(AssessmentKey),
+        ];
+        string[] expectedKeys =
+            [.. legacyPopulation.Select(AssessmentKey)];
+        string[] actualKeys =
+            [.. genericPopulation.Select(AssessmentKey)];
+        Assert.True(
+            expectedKeys.SequenceEqual(actualKeys),
+            $"Expected: {string.Join(", ", legacyPopulation.Select(Summary))}"
+            + Environment.NewLine
+            + $"Actual: {string.Join(", ", genericPopulation.Select(Summary))}");
+        for (int index = 0; index < legacyPopulation.Length; index++)
+        {
+            ResourceTriageAssessment expected =
+                legacyPopulation[index];
+            ResourceTriageAssessment actual =
+                genericPopulation[index];
+            Assert.Equal(expected.Source.Key, actual.Source.Key);
+            Assert.Equal(expected.Source.Payload, actual.Source.Payload);
+            Assert.Equal(
+                expected.Source.Descriptor,
+                actual.Source.Descriptor);
+            Assert.Equal(expected.Source.Detail, actual.Source.Detail);
+            Assert.Equal(expected.CandidateId, actual.CandidateId);
+        }
     }
 
     [Fact]
@@ -44,12 +138,52 @@ public sealed class ResourceTriageQueryTests
             InspectionCost.Unbounded,
             ResourceTriageQuery.Definition.Cost);
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public static int ReadBeforeReturn(Stream stream)
+    [Fact]
+    public void Execute_RejectsPartialMethodScope()
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
-        int read = stream.Read(buffer, 0, 16);
-        ArrayPool<byte>.Shared.Return(buffer);
-        return read;
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+            });
+        LibraryBodyAnalysisExecution full =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        int cleanMethod = Assert.Single(
+            full.ResourceLifecycle.Methods,
+            method => method.Method.Name == "RentAndReturnDirectly")
+            .Method.MetadataToken;
+        LibraryResourceLifecycleAnalysisResult scoped =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create(),
+                    bodyScope: new HashSet<int> { cleanMethod }),
+                resolver)
+            .ResourceLifecycle;
+
+        Assert.False(scoped.Receipt.HasFullMethodEvidenceScope);
+        Assert.IsType<ResourceTriageResult.Failed>(
+            ResourceTriageQuery.Execute(
+                scoped,
+                new FindingSubject("query-tests", "query-tests")));
     }
+
+    static string AssessmentKey(ResourceTriageAssessment assessment) =>
+        $"{assessment.Source.Payload.Method.MetadataToken:X8}:"
+        + $"{assessment.Source.Payload.AcquireOffset:X8}";
+
+    static string Summary(ResourceTriageAssessment assessment) =>
+        $"{AssessmentKey(assessment)}="
+        + $"{assessment.Source.Payload.Method.Name}["
+        + string.Join(
+            ",",
+            assessment.Source.Payload.Boundaries.Select(
+                boundary => boundary.Operation.Name))
+        + "]";
 }

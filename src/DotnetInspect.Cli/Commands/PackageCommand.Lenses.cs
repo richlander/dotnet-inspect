@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -93,7 +94,9 @@ public partial class PackageCommand
             || options.ShowContent
             || options.PackageLibrary is not null
             || options.AllLibraries
-            || !RequestsPackageInfoMeasurements(producerOptions, pipeline))
+            || !RequestsPackageHouseCompileRealization(
+                producerOptions,
+                pipeline))
         {
             return true;
         }
@@ -138,6 +141,51 @@ public partial class PackageCommand
                 .Contains(PackageSections.PackageInfo);
     }
 
+    private static bool RequestsPackageHouseCompileRealization(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline) =>
+        RequestsPackageInfoMeasurements(options, pipeline)
+        || RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.EcosystemDependencies,
+            pipeline);
+
+    private static bool RequestsPackageEcosystemDependencies(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline) =>
+        RequestsPackageInfoMeasurements(options, pipeline)
+        || RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.EcosystemDependencies,
+            pipeline);
+
+    private static NuspecData? FindPackageNuspecForInspection(
+        string extractPath,
+        PackageExtractionResult resolution,
+        bool ecosystemRecognitionRequested)
+    {
+        try
+        {
+            return NuspecParser.FindAndParse(extractPath);
+        }
+        catch (NuspecParseException) when (
+            ecosystemRecognitionRequested
+            && CanAttributePackageEcosystemRecognition(resolution))
+        {
+            return null;
+        }
+    }
+
+    private static bool CanAttributePackageEcosystemRecognition(
+        PackageExtractionResult resolution) =>
+        resolution.HouseSettlement is PackageHouseSettlement.Acquired
+        || PackageEcosystemDependencyRecognitionInspection
+            .TryCreateUnavailableWithoutAcquiredSettlement(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ProducerKey,
+                out _);
+
     private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
@@ -180,6 +228,77 @@ public partial class PackageCommand
 
         result.PackageSize = fallbackPackageSize;
     }
+
+    private static async Task ApplyPackageEcosystemDependenciesAsync(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        bool discloseEmptyDetailDiagnostics,
+        Action<string>? log)
+    {
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection;
+        if (resolution.HouseSettlement
+            is not PackageHouseSettlement.Acquired settlement)
+        {
+            if (!PackageEcosystemDependencyRecognitionInspection
+                    .TryCreateUnavailableWithoutAcquiredSettlement(
+                        result.PackageName,
+                        result.Version,
+                        resolution.ProducerKey,
+                        out InspectionEnvelope<
+                            EcosystemDependencyRecognitionOutcome>?
+                            unavailableInspection)
+                && !PackageEcosystemDependencyRecognitionInspection
+                    .TryCreateUnavailableWithoutAcquiredSettlement(
+                        resolution.PackageName,
+                        resolution.Version,
+                        resolution.ProducerKey,
+                        out unavailableInspection))
+            {
+                throw new InvalidOperationException(
+                    "Package ecosystem recognition cannot attribute the "
+                    + "acquired package to an exact canonical package "
+                    + "coordinate.");
+            }
+
+            inspection = unavailableInspection;
+        }
+        else
+        {
+            inspection =
+                await PackageEcosystemDependencyRecognitionInspection
+                    .ExecuteAsync(settlement)
+                    .ConfigureAwait(false);
+        }
+
+        result.EcosystemDependencyRecognitionInspection = inspection;
+        bool discloseDiagnostics =
+            discloseEmptyDetailDiagnostics
+            && inspection.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized.IsEmpty,
+                EcosystemDependencyRecognitionOutcome.Unavailable => true,
+                _ => false,
+            };
+        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+        {
+            string message = $"{diagnostic.Code}: {diagnostic.Summary}";
+            if (discloseDiagnostics)
+            {
+                CommandError.WriteWarning(message);
+            }
+            else
+            {
+                log?.Invoke(message);
+            }
+        }
+    }
+
+    private static bool RequiresPackageEcosystemDiagnosticDisclosure(
+        InspectionOptions options) =>
+        options.IncludeSections is { } sections
+        && sections.Contains(PackageSections.EcosystemDependencies)
+        && !sections.Contains(PackageSections.PackageInfo);
 
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
