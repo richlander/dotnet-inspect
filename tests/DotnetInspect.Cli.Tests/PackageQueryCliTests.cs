@@ -126,6 +126,30 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public void DependsPrefixTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                ["depends-prefix=Microsoft.Extensions."],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        BoundPackageQueryTerm term = Assert.Single(options!.Plan.BoundTerms);
+        Assert.Equal(PackageQuery.DependsPrefixTermKey, term.Term.Key);
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            term.Predicate.PackagePrefix!.Prefix);
+        Assert.True(options.Plan.RequiresManifest);
+        Assert.False(options.Plan.RequiresPackageContent);
+    }
+
+    [Fact]
     public void TransitiveDependencyTerms_LowerToTheProductPlan()
     {
         Assert.True(
@@ -477,7 +501,7 @@ public class PackageQueryCliTests
     [InlineData("facet!=package.query.dotnet-tool", "support equality")]
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
-    [InlineData("depends-prefix=Microsoft.Extensions", "does not define term")]
+    [InlineData("depends-prefix=Microsoft.*", "term value is invalid")]
     [InlineData("depends=not/a/package", "term value is invalid")]
     [InlineData("dependencies=other", "term value is invalid")]
     [InlineData(
@@ -833,6 +857,26 @@ public class PackageQueryCliTests
         Assert.Contains("Contoso.Third", result.Output);
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.Contains("cross-prefix", result.Output);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task DependsPrefixTerm_UsesManifestEvidenceWithoutPackageContent()
+    {
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends-prefix=Dependency."),
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.Contains("Contoso.Third", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.Contains("Dependency.", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
