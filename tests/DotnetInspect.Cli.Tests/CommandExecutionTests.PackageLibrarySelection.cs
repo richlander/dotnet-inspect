@@ -775,6 +775,67 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageLibraryModes_DiscoverDetailsReportFormats()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalAggregateDiscoveryPackage();
+        try
+        {
+            var exact = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "Plain.dll",
+                "--discover",
+                "--details",
+                "--tips",
+                "q");
+            var aggregate = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "--discover",
+                "--details",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Contains(
+                "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+                exact.Output);
+            Assert.Empty(exact.Error);
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Contains(
+                "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+                aggregate.Output);
+            Assert.DoesNotContain(
+                SectionNames.ReferenceHierarchy,
+                aggregate.Output);
+            Assert.Empty(aggregate.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(new string[] { "--all-libraries", "--details" }, "--details requires -D/--discover")]
+    [InlineData(new string[] { "--details", "--discover" }, "--details requires --library or --all-libraries")]
+    public async Task PackageLibraryModes_DiscoverDetailsRejectInvalidScope(
+        string[] arguments,
+        string expected)
+    {
+        var result = await RunAppAsync(
+            ["package", "Example.Package", .. arguments, "--tips", "q"]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(expected, result.Error);
+    }
+
+    [Fact]
     public async Task PackageAllLibraries_ReferenceHierarchyRequiresExactLibrary()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

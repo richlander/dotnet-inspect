@@ -447,7 +447,10 @@ Library `-D --details` is structural and does not acquire the target. It adds a
 section in detail. A category reports the formats supported by its complete
 expansion plus the formats of each member; it never selects or drops members to
 satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--mermaid`.
+single-result projection such as `--tree` or `--mermaid`. Package-backed
+Library modes expose the same projection through
+`package <package> --library <assembly> -D --details` and
+`package <package> --all-libraries -D --details`.
 
 ## Common examples
 

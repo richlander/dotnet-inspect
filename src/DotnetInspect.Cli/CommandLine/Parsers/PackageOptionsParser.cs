@@ -31,6 +31,7 @@ public static class PackageOptionsParser
         Option<bool> ToolsOption,
         Option<string?> LibraryOption,
         Option<bool> AllLibrariesOption,
+        Option<bool> DetailsOption,
         Option<bool> VersionsOption,
         Option<bool> VersionsWithFeedOption,
         Option<bool> PrereleaseOption,
@@ -358,6 +359,8 @@ public static class PackageOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             Discover = opts.ParseDiscover(parseResult),
+            DiscoverDetails =
+                parseResult.GetValue(args.DetailsOption),
             Tree = parseResult.GetValue(opts.Tree),
             Select = opts.ParseSelect(parseResult),
             SelectDefault = opts.ParseSelectDefault(parseResult),

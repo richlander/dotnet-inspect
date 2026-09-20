@@ -299,6 +299,7 @@ public partial class LibraryCommand
         if (options.Discover != null)
         {
             bool requiresInspection = hasInputSource
+                && !options.DiscoverDetails
                 && !options.Schema
                 && (options.Effective
                     || options.Discover.Length == 0);

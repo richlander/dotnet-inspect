@@ -66,6 +66,11 @@ public static class PackageCommandDefinitions
         {
             Description = "Inspect all compatible libraries from this package"
         };
+        var detailsOption = new Option<bool>("--details")
+        {
+            Description =
+                "With --library/--all-libraries and -D: add structurally supported output formats (offline)"
+        };
         var versionsOption = new Option<bool>("--versions")
         {
             Description = "List available versions; use -n N to select N version rows",
@@ -100,6 +105,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(allLibrariesOption);
+        packageCommand.Options.Add(detailsOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
         packageCommand.Options.Add(prereleaseOption);
@@ -115,7 +121,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, allLibrariesOption, detailsOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
@@ -161,7 +167,7 @@ public static class PackageCommandDefinitions
             opts.Lines, opts.TailLines,
             dependenciesOption, layoutOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, allLibrariesOption,
+            libraryOption, allLibrariesOption, detailsOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, typeFilterOption, versionOption, rootsOption);
         packageCommand.Validators.Add(result =>
@@ -308,6 +314,24 @@ public static class PackageCommandDefinitions
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
+            bool discoverDetails = parseResult.GetValue(detailsOption);
+            string[]? discover = opts.ParseDiscover(parseResult);
+            if (discoverDetails && discover is null)
+            {
+                CommandError.Write(
+                    "--details requires -D/--discover.");
+                return 1;
+            }
+            if (discoverDetails
+                && !parseResult.GetValue(allLibrariesOption)
+                && parseResult.GetResult(libraryOption) is not
+                    { Implicit: false })
+            {
+                CommandError.Write(
+                    "--details requires --library or --all-libraries on the package command.");
+                return 1;
+            }
+
             if (parseResult.GetValue(packageNameArg) is [var first, ..]
                 && first.Equals("search", StringComparison.OrdinalIgnoreCase))
             {
