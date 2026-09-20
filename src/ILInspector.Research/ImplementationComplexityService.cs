@@ -211,12 +211,20 @@ public static class ImplementationComplexityService
         IReadOnlyList<MethodImplementationProfile> newProfiles,
         ImplementationComplexityComparisonRequest request)
     {
+        IReadOnlySet<string> returnTypeCollisions =
+            ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                oldProfiles.Select(profile => profile.Method)
+                    .Concat(newProfiles.Select(profile => profile.Method)));
         var oldEntries = oldProfiles
-            .Select(CreateProfileEntry)
+            .Select(profile => CreateProfileEntry(
+                profile,
+                returnTypeCollisions))
             .Where(entry => MatchesFilters(entry.Subject, request))
             .ToArray();
         var newEntries = newProfiles
-            .Select(CreateProfileEntry)
+            .Select(profile => CreateProfileEntry(
+                profile,
+                returnTypeCollisions))
             .Where(entry => MatchesFilters(entry.Subject, request))
             .ToArray();
         var oldByKey = oldEntries.ToDictionary(
@@ -337,9 +345,17 @@ public static class ImplementationComplexityService
             + profile.FaultCount;
 
     static ComplexityProfileEntry CreateProfileEntry(
-        MethodImplementationProfile profile)
+        MethodImplementationProfile profile,
+        IReadOnlySet<string> returnTypeCollisions)
     {
-        var subject = ResearchMemberIdentity.SubjectFromMethod(profile.Method);
+        ResearchSubjectKey baseSubject =
+            ResearchMemberIdentity.SubjectFromMethod(profile.Method);
+        ResearchSubjectKey subject =
+            returnTypeCollisions.Contains(baseSubject.Id)
+                ? ResearchMemberIdentity.SubjectFromMethod(
+                    profile.Method,
+                    includeReturnType: true)
+                : baseSubject;
         return new(
             $"{subject.Id}|{MethodKey(profile.EvidenceMethod)}",
             profile,

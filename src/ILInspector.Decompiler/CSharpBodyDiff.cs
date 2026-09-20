@@ -111,6 +111,8 @@ public sealed record CSharpDiffRow(
     CSharpDiffOperation? OldOperation = null,
     CSharpDiffOperation? NewOperation = null)
 {
+    public MemberAnchor? BodyAnchor { get; init; }
+
     public CSharpDiffRow(
         string assemblyIdentity,
         string stableMemberKey,
@@ -198,7 +200,10 @@ public sealed record CSharpDiffFailureRow(
     string Message,
     string? Side = null,
     string? Detail = null,
-    int? HunkId = null);
+    int? HunkId = null)
+{
+    public MemberAnchor? BodyAnchor { get; init; }
+}
 
 public sealed record CSharpIdentityResolutionFailure(
     string Side,
@@ -552,6 +557,9 @@ public static partial class CSharpBodyDiff
     {
         var oldMethods = oldIndex.Methods;
         var newMethods = newIndex.Methods;
+        IReadOnlySet<string> bodyAnchorCollisionKeys =
+            BodyAnchorCollisionKeys(
+                oldMethods.Values.Concat(newMethods.Values));
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
         var failureRows = ImmutableArray.CreateBuilder<CSharpDiffFailureRow>();
         var sources = new SourceCache();
@@ -563,10 +571,23 @@ public static partial class CSharpBodyDiff
             {
                 oldMethods.TryGetValue(key, out var oldMethod);
                 newMethods.TryGetValue(key, out var newMethod);
+                if (oldMethod is not null)
+                {
+                    oldMethod = ApplyBodyAnchor(
+                        oldMethod,
+                        bodyAnchorCollisionKeys);
+                }
+                if (newMethod is not null)
+                {
+                    newMethod = ApplyBodyAnchor(
+                        newMethod,
+                        bodyAnchorCollisionKeys);
+                }
                 var representative = newMethod ?? oldMethod!;
                 if (memberTargetIdentities is { Count: > 0 }
-                    && !memberTargetIdentities.Contains(
-                        representative.Anchor.StableSelector))
+                    && !MatchesMemberTarget(
+                        representative,
+                        memberTargetIdentities))
                 {
                     continue;
                 }
@@ -602,6 +623,14 @@ public static partial class CSharpBodyDiff
             failureRows.ToImmutable(),
             [.. oldIndex.Failures, .. newIndex.Failures]);
     }
+
+    internal static bool MatchesMemberTarget(
+        CSharpMethodEntry method,
+        IReadOnlySet<string> memberTargetIdentities)
+        => memberTargetIdentities.Contains(
+            method.BodyAnchor == method.Anchor
+                ? method.Anchor.StableSelector
+                : method.BodyAnchor.StableSelector);
 
     internal static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(
         IReadOnlyList<string> paths,
@@ -715,6 +744,30 @@ public static partial class CSharpBodyDiff
             failures.ToImmutable(),
             declarationOmissionFailures.ToImmutable());
     }
+
+    internal static IReadOnlySet<string> BodyAnchorCollisionKeys(
+        IEnumerable<CSharpMethodEntry> entries)
+        => entries
+            .GroupBy(
+                BodyAnchorGroupKey,
+                StringComparer.Ordinal)
+            .Where(group => group
+                .Select(entry => entry.DuplicateDiscriminator)
+                .Distinct(StringComparer.Ordinal)
+                .Skip(1)
+                .Any())
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+    internal static CSharpMethodEntry ApplyBodyAnchor(
+        CSharpMethodEntry entry,
+        IReadOnlySet<string> collisionKeys)
+        => collisionKeys.Contains(BodyAnchorGroupKey(entry))
+            ? entry
+            : entry with { BodyAnchor = entry.Anchor };
+
+    static string BodyAnchorGroupKey(CSharpMethodEntry entry)
+        => $"{entry.StableAssemblyKey}|{entry.RawKey}";
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
     {
@@ -992,7 +1045,18 @@ public static partial class CSharpBodyDiff
         string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
         string canonicalName = CanonicalMemberName(methodName);
         string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
-        var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
+        bool isExtension = IsExtensionMethod(reader, type, method);
+        var anchor = ApiMemberIdentity.CreateMethodAnchor(
+            reader,
+            typeHandle,
+            method,
+            isExtension);
+        MemberAnchor bodyAnchor = CreateBodyAnchor(
+            anchor,
+            ApiMemberIdentity.GetMemberSelectorName(
+                methodName,
+                isExtension),
+            returnType);
         string displayName = methodName == ".ctor" ? "#ctor" : methodName;
         string display = $"{typeFullName}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
         string duplicateDiscriminator = DuplicateDiscriminator(reader, method);
@@ -1001,6 +1065,7 @@ public static partial class CSharpBodyDiff
             source.AssemblyName,
             stableAssemblyKey,
             anchor,
+            bodyAnchor,
             rawKey,
             $"{stableAssemblyKey}|{rawKey}#{duplicateDiscriminator}",
             duplicateDiscriminator,
@@ -1011,6 +1076,28 @@ public static partial class CSharpBodyDiff
             overloadIndex ?? OverloadIndex(reader, type, methodHandle, methodName),
             method.RelativeVirtualAddress != 0,
             BodyFingerprint: null);
+    }
+
+    static MemberAnchor CreateBodyAnchor(
+        MemberAnchor apiAnchor,
+        string selectorName,
+        string returnType)
+    {
+        string returnSuffix = $"~{returnType}";
+        string canonicalSignature =
+            apiAnchor.CanonicalSignature.EndsWith(
+                returnSuffix,
+                StringComparison.Ordinal)
+                ? apiAnchor.CanonicalSignature
+                : apiAnchor.CanonicalSignature + returnSuffix;
+        string fingerprint =
+            MemberAnchor.ComputeFingerprint(canonicalSignature);
+        return new(
+            $"{selectorName}~{fingerprint}",
+            canonicalSignature,
+            fingerprint,
+            apiAnchor.TypeFullName,
+            apiAnchor.MemberName);
     }
 
     static int OverloadIndex(MetadataReader reader, TypeDefinition type, MethodDefinitionHandle targetMethod, string methodName)
@@ -1937,7 +2024,12 @@ public static partial class CSharpBodyDiff
             message,
             side,
             detail,
-            hunkId);
+            hunkId)
+        {
+            BodyAnchor = entry.BodyAnchor == entry.Anchor
+                ? null
+                : entry.BodyAnchor,
+        };
 
     static CSharpDiffRow CreateRow(
         CSharpMethodEntry entry,
@@ -2000,7 +2092,12 @@ public static partial class CSharpBodyDiff
             oldValue,
             newValue,
             oldOperation,
-            newOperation);
+            newOperation)
+        {
+            BodyAnchor = entry.BodyAnchor == entry.Anchor
+                ? null
+                : entry.BodyAnchor,
+        };
     }
 
     static void AddSemanticRows(
@@ -2711,6 +2808,7 @@ public static partial class CSharpBodyDiff
         string AssemblyName,
         string StableAssemblyKey,
         MemberAnchor Anchor,
+        MemberAnchor BodyAnchor,
         string RawKey,
         string StableMemberKey,
         string DuplicateDiscriminator,

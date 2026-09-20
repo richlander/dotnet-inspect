@@ -27,9 +27,19 @@ public static class ResearchMemberIdentity
             anchor.TypeFullName,
             anchor.MemberName);
 
-    public static ResearchSubjectKey SubjectFromMethod(MethodIdentity method)
+    public static ResearchSubjectKey SubjectFromMethod(
+        MethodIdentity method)
+        => SubjectFromMethod(
+            method,
+            includeReturnType: false);
+
+    internal static ResearchSubjectKey SubjectFromMethod(
+        MethodIdentity method,
+        bool includeReturnType)
     {
-        var identity = BodyIdentityFromMethod(method);
+        var identity = BodyIdentityFromMethod(
+            method,
+            includeReturnType);
         var displayParameters = string.Join(", ", method.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
         return new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -62,21 +72,39 @@ public static class ResearchMemberIdentity
         if (member.Kind is "property" or "field" or "event")
             return false;
 
+        identities.Add(target.Anchor.StableSelector);
         identities.Add(BodyIdentityFromTarget(target).StableSelector);
         return true;
     }
 
-    static BodyMemberIdentity BodyIdentityFromMethod(MethodIdentity method)
+    internal static IReadOnlySet<string> ReturnTypeCollisionSubjectIds(
+        IEnumerable<MethodIdentity> methods)
+        => methods
+            .Select(method => (
+                BaseSubject: SubjectFromMethod(method),
+                ReturnType: BodyTypeName(method.ReturnType)))
+            .GroupBy(
+                item => item.BaseSubject.Id,
+                StringComparer.Ordinal)
+            .Where(group => group
+                .Select(item => item.ReturnType)
+                .Distinct(StringComparer.Ordinal)
+                .Skip(1)
+                .Any())
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+    static BodyMemberIdentity BodyIdentityFromMethod(
+        MethodIdentity method,
+        bool includeReturnType)
         => CreateBodyIdentity(
             ApiMemberIdentity.GetMemberSelectorName(method.Name, method.IsExtension),
             method.DeclaringType.ToQualifiedDisplayString(),
             method.Name == ".ctor" ? "#ctor" : method.Name,
             MethodGenericList(method),
             $"({string.Join(",", method.ParameterTypes.Select(BodyTypeName))})",
-            // Conversion operators overload on return type; append the same disambiguation
-            // suffix as the API-side anchor (ApiMemberIdentity) so body identity and API
-            // identity agree for conversion operators (issue #2440 / regression from #2433).
-            ApiMemberIdentity.IsConversionOperator(method.Name)
+            includeReturnType
+                || ApiMemberIdentity.IsConversionOperator(method.Name)
                 ? $"~{BodyTypeName(method.ReturnType)}"
                 : "");
 
@@ -130,11 +158,20 @@ public static class ResearchMemberIdentity
             memberName,
             generic,
             parameters,
-            // Mirror the conversion-operator return-type disambiguation used by the API
-            // anchor and the method-body path, so all identity producers agree.
-            ApiMemberIdentity.IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature?.ReturnType)
-                ? $"~{BodyParameterTypeName(signature!.ReturnType!)}"
-                : "");
+            BodyReturnSuffix(member, signature));
+    }
+
+    static string BodyReturnSuffix(
+        ApiMember member,
+        ApiSignature? signature)
+    {
+        if (member.Kind == "constructor")
+            return "~void";
+
+        string? returnType = signature?.ReturnType ?? member.ReturnType;
+        return string.IsNullOrWhiteSpace(returnType)
+            ? ""
+            : $"~{BodyParameterTypeName(returnType)}";
     }
 
     static BodyMemberIdentity CreateBodyIdentity(

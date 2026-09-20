@@ -2020,14 +2020,24 @@ replay or locate the row after the member is known:
 | Mechanism | Currency carrier | Native row coordinates |
 | --- | --- | --- |
 | MetadataDiff | row (`ApiChange` → `MemberAnchor` on `ApiChangeSubject`) | `ApiChangeSubjectKind`, old/new member handles, category |
-| C#Diff | row (`CSharpDiffRow` → `MemberAnchor` + `StableMemberKey`) | `ChangeId` / `CSharpDiffKind`, source line / `SourceCoordinate`, related IL offsets as evidence, fidelity |
+| C#Diff | row (`CSharpDiffRow` → API `MemberAnchor` + optional collision-only body anchor + `StableMemberKey`) | `ChangeId` / `CSharpDiffKind`, source line / `SourceCoordinate`, related IL offsets as evidence, fidelity |
 | ILDiff | wrapper (`ResearchSubjectKey` via `SubjectFromMethod`) | `HunkId`, `IlDiffKind` polarity, `CanonicalIlOperation`, IL offset (hint) |
 | Analysis/body-signal | wrapper (`ResearchSubjectKey` via `SubjectFromMethod`) | signal / shape, added/removed/changed kind, IL offset(s) as evidence |
 
+The API-facing `MemberAnchor` keeps the API selector grammar, where return type
+normally does not participate. When one body population contains multiple
+MethodDefs that share that API anchor but have distinct return types, body
+evidence additionally carries a producer-issued body anchor whose canonical
+signature includes return type. Research detects the same collision in IL and
+Analysis populations and issues the matching full-signature
+`ResearchSubjectKey`. Non-colliding members retain their API anchor currency,
+so API and body evidence continue to group without changing API selectors.
+Valid ECMA-335 return-type-only overloads remain distinct.
+
 IL offsets, operation-array ordinals, and source spans are local evidence and
 display hints, never the durable selector. The durable selector is always the
-`MemberAnchor`-derived `StableSelector` / canonical signature / digest carried by
-the anchor-carrying row or supplied by the wrapper.
+body `MemberAnchor`-derived `StableSelector` / canonical signature / digest
+carried by the anchor-carrying row or supplied by the wrapper.
 
 ### ResearchDiff projection
 
@@ -2112,9 +2122,11 @@ The document contains:
   a Research-owned source-kind projection of acquisition provenance. The
   projection is constructed by an explicit case mapping and carries no
   acquisition-layer strings, paths, streams, sessions, or resolver state;
-- changed members keyed by `ResearchSubjectKey`, with detached scalar transition
-  facts and the producer-owned C# and IL rows or typed failures that support
-  them; each per-hunk IL change retains only its own hunk rows, while failure
+- changed members keyed by `ResearchSubjectKey`, with detached scalar
+  transition facts and the producer-owned C# and IL rows or typed failures that
+  support them. When the ordinary API anchor collides, return type participates
+  in the body currency so valid ECMA-335 return-type-only overloads remain
+  distinct. Each per-hunk IL change retains only its own hunk rows, while failure
   changes retain only their directly associated typed failure; added and
   removed methods additionally retain their one-sided typed IL Finding
   comparison, including endpoint topology and canonical operations, because no

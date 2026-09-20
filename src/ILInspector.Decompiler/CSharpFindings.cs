@@ -13,7 +13,10 @@ public sealed record CSharpMemberFindingComparison(
     string Member,
     bool OldMemberPresent,
     bool NewMemberPresent,
-    FindingComparison<CSharpCanonicalLine> Comparison);
+    FindingComparison<CSharpCanonicalLine> Comparison)
+{
+    public MemberAnchor? BodyAnchor { get; init; }
+}
 
 public sealed record CSharpAssemblyFindingComparisonResult(
     ImmutableArray<CSharpMemberFindingComparison> Comparisons,
@@ -146,20 +149,37 @@ public static class CSharpFindings
         var newMethods = newIndex.Methods;
         var comparisons = ImmutableArray.CreateBuilder<CSharpMemberFindingComparison>();
         using var sources = new CSharpBodyDiff.SourceCache();
+        IReadOnlySet<string> bodyAnchorCollisionKeys =
+            CSharpBodyDiff.BodyAnchorCollisionKeys(
+                oldMethods.Values.Concat(newMethods.Values));
 
         foreach (string key in oldMethods.Keys.Union(newMethods.Keys).Order(StringComparer.Ordinal))
         {
             oldMethods.TryGetValue(key, out var oldMethod);
             newMethods.TryGetValue(key, out var newMethod);
+            if (oldMethod is not null)
+            {
+                oldMethod = CSharpBodyDiff.ApplyBodyAnchor(
+                    oldMethod,
+                    bodyAnchorCollisionKeys);
+            }
+            if (newMethod is not null)
+            {
+                newMethod = CSharpBodyDiff.ApplyBodyAnchor(
+                    newMethod,
+                    bodyAnchorCollisionKeys);
+            }
             var representative = newMethod ?? oldMethod!;
             if (memberTargetIdentities is { Count: > 0 }
-                && !memberTargetIdentities.Contains(representative.Anchor.StableSelector))
+                && !CSharpBodyDiff.MatchesMemberTarget(
+                    representative,
+                    memberTargetIdentities))
             {
                 continue;
             }
 
             var subject = new FindingSubject(
-                representative.Anchor.StableSelector,
+                representative.BodyAnchor.StableSelector,
                 representative.Display);
             var oldInspection = oldMethod is null
                 ? MissingInspection(
@@ -185,7 +205,16 @@ public static class CSharpFindings
                 representative.Display,
                 oldMethod is not null,
                 newMethod is not null,
-                CompareInspections(oldInspection, newInspection, acceptanceThreshold)));
+                CompareInspections(
+                    oldInspection,
+                    newInspection,
+                    acceptanceThreshold))
+            {
+                BodyAnchor = representative.BodyAnchor
+                    == representative.Anchor
+                        ? null
+                        : representative.BodyAnchor,
+            });
         }
 
         return new CSharpAssemblyFindingComparisonResult(

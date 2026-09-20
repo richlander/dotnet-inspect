@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
@@ -519,6 +521,254 @@ public sealed class ImplementationComparisonQueryTests
             "exactly one assembly",
             error.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DocumentQuery_DistinguishesPairedReturnTypeOnlyOverloads()
+    {
+        ImplementationDiffDocument document = CompareReturnTypeOverloads(
+            methodName: "Changed",
+            oldIntValue: 1,
+            oldStringValue: "old",
+            newIntValue: 2,
+            newStringValue: "new");
+
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. document.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+        Assert.Equal(2, members.Length);
+        Assert.Equal(
+            2,
+            members.Select(member => member.Subject.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+        Assert.Equal(
+            2,
+            Assert.Single(
+                document.Coverage.Mechanisms,
+                coverage => coverage.Mechanism
+                    == ImplementationDiffDocumentMechanism.CSharp)
+                .ChangedSubjectCount);
+        Assert.Equal(
+            2,
+            Assert.Single(
+                document.Coverage.Mechanisms,
+                coverage => coverage.Mechanism
+                    == ImplementationDiffDocumentMechanism.IlBody)
+                .ChangedSubjectCount);
+    }
+
+    [Fact]
+    public void DocumentQuery_DistinguishesOneSidedReturnTypeOnlyOverloads()
+    {
+        ImplementationDiffDocument document = CompareReturnTypeOverloads(
+            methodName: "Removed",
+            oldIntValue: 1,
+            oldStringValue: "old",
+            newIntValue: 0,
+            newStringValue: "",
+            newIncludesInt: false,
+            newIncludesString: false);
+
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. document.Members.Where(member =>
+                member.Subject.MemberName == "Removed"),
+        ];
+        Assert.Equal(2, members.Length);
+        Assert.Equal(
+            2,
+            members.Select(member => member.Subject.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+        Assert.All(
+            members,
+            member => Assert.NotNull(member.IlFindingComparison));
+        Assert.Equal(
+            2,
+            Assert.Single(
+                document.Coverage.Mechanisms,
+                coverage => coverage.Mechanism
+                    == ImplementationDiffDocumentMechanism.IlBody)
+                .ChangedSubjectCount);
+    }
+
+    [Fact]
+    public void DocumentQuery_UsesCrossEndpointReturnTypeCollisionPopulation()
+    {
+        ImplementationDiffDocument document = CompareReturnTypeOverloads(
+            methodName: "Mixed",
+            oldIntValue: 1,
+            oldStringValue: "removed",
+            newIntValue: 2,
+            newStringValue: "",
+            newIncludesString: false);
+
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. document.Members.Where(member =>
+                member.Subject.MemberName == "Mixed"),
+        ];
+        Assert.Equal(2, members.Length);
+        Assert.Equal(
+            2,
+            members.Select(member => member.Subject.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+        Assert.Single(
+            members,
+            member => member.IlFindingComparison is not null);
+        ImplementationDiffDocumentMember paired = Assert.Single(
+            members,
+            member => member.IlFindingComparison is null);
+        Assert.Contains(
+            paired.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.CSharp);
+        Assert.Contains(
+            paired.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.IlBody);
+    }
+
+    [Fact]
+    public void DocumentQuery_TargetsOneReturnTypeOnlyOverload()
+    {
+        ImplementationDiffDocument unfiltered = CompareReturnTypeOverloads(
+            methodName: "Selected",
+            oldIntValue: 1,
+            oldStringValue: "old",
+            newIntValue: 2,
+            newStringValue: "new");
+        string selectedId = unfiltered.Members
+            .Where(member => member.Subject.MemberName == "Selected")
+            .Select(member => member.Subject.Id)
+            .Order(StringComparer.Ordinal)
+            .First();
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        string apiId = selectedId[..returnSeparator];
+
+        ImplementationDiffDocument filtered = CompareReturnTypeOverloads(
+            methodName: "Selected",
+            oldIntValue: 1,
+            oldStringValue: "old",
+            newIntValue: 2,
+            newStringValue: "new",
+            memberTargetIdentities: new HashSet<string>(
+                [apiId, selectedId],
+                StringComparer.Ordinal));
+
+        ImplementationDiffDocumentMember member = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Selected");
+        Assert.Equal(selectedId, member.Subject.Id);
+    }
+
+    static ImplementationDiffDocument CompareReturnTypeOverloads(
+        string methodName,
+        int oldIntValue,
+        string oldStringValue,
+        int newIntValue,
+        string newStringValue,
+        bool newIncludesInt = true,
+        bool newIncludesString = true,
+        IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-return-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            EmitReturnTypeOverloads(
+                oldPath,
+                methodName,
+                oldIntValue,
+                oldStringValue);
+            EmitReturnTypeOverloads(
+                newPath,
+                methodName,
+                newIntValue,
+                newStringValue,
+                newIncludesInt,
+                newIncludesString);
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "before.dll")],
+                    [StreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "ReturnTypeOverloadSample",
+                    },
+                    MemberTargetIdentities: memberTargetIdentities));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void EmitReturnTypeOverloads(
+        string path,
+        string methodName,
+        int intValue,
+        string stringValue,
+        bool includeInt = true,
+        bool includeString = true)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("ReturnTypeOverloadFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("ReturnTypeOverloadFixture");
+        TypeBuilder type = module.DefineType(
+            "ReturnTypeOverloadSample",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        if (includeInt)
+        {
+            MethodBuilder intMethod = type.DefineMethod(
+                methodName,
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int),
+                Type.EmptyTypes);
+            ILGenerator intIl = intMethod.GetILGenerator();
+            intIl.Emit(OpCodes.Ldc_I4, intValue);
+            intIl.Emit(OpCodes.Ret);
+        }
+        if (includeString)
+        {
+            MethodBuilder stringMethod = type.DefineMethod(
+                methodName,
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(string),
+                Type.EmptyTypes);
+            ILGenerator stringIl = stringMethod.GetILGenerator();
+            stringIl.Emit(OpCodes.Ldstr, stringValue);
+            stringIl.Emit(OpCodes.Ret);
+        }
+        type.CreateType();
+        assembly.Save(path);
     }
 
     static ImplementationAssemblyInput StreamBackedInput(
