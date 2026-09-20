@@ -138,6 +138,72 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_MeasuredBaseInventoriesAreVerbose()
+    {
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.References.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.Switches.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.PInvokeMethods.SizeClass);
+        Assert.Equal(SectionSizeClass.Verbose, LibrarySections.TypeForwarders.SizeClass);
+    }
+
+    [Fact]
+    public void LibraryPipeline_BaseCandidatesFollowMeasuredGrowthClasses()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            new[]
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.InspectionFailures,
+                SectionNames.Signals,
+                SectionNames.Symbols,
+                SectionNames.CustomAttributes,
+                SectionNames.Resources,
+                SectionNames.UnionTypes,
+            }.OrderBy(static name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Normal)
+                .OrderBy(static name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            new[]
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.InspectionFailures,
+                SectionNames.References,
+                SectionNames.Signals,
+                SectionNames.Symbols,
+                SectionNames.AsyncMethods,
+                SectionNames.CustomAttributes,
+                SectionNames.ExtensionMethods,
+                SectionNames.PInvokeMethods,
+                SectionNames.Resources,
+                SectionNames.Switches,
+                SectionNames.TypeForwarders,
+                SectionNames.UnionTypes,
+            }.OrderBy(static name => name, StringComparer.Ordinal),
+            pipeline.GetCandidateSections(Verbosity.Detailed)
+                .OrderBy(static name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.Symbols, SectionNames.Signals],
+            pipeline.BareSelectSectionNames);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.References)]
+    [InlineData(SectionNames.Switches)]
+    [InlineData(SectionNames.PInvokeMethods)]
+    [InlineData(SectionNames.TypeForwarders)]
+    public void LibraryPipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
+        string section)
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+
+        Assert.Equal(Verbosity.Detailed, pipeline.GetRequiredVerbosity(include));
+        Assert.Equal([section], pipeline.GetCandidateSections(Verbosity.Detailed, include));
+    }
+
+    [Fact]
     public void LibraryPipeline_CatalogHiddenSections_AreOutsideBaseScope()
     {
         var pipeline = LibrarySections.CreatePipeline();

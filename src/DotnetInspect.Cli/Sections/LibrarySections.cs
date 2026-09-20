@@ -781,7 +781,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Switches;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.SwitchInspection.CanRenderWithPresence(model.HasSwitches);
     }
@@ -862,13 +862,13 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
-    // ===== Normal sections (offline, cheap) =====
+    // ===== Offline inventory sections =====
 
     public sealed class References : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasReferenceData(model);
     }
@@ -1054,6 +1054,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PInvokeMethods;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
                && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
@@ -1098,6 +1099,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarderInspection.CanRenderWithPresence(model.HasExportedTypeForwarders);
     }
