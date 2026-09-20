@@ -1,0 +1,1043 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+namespace CSharpText.Tests;
+
+public sealed class AuthoredDocumentationTests
+{
+    public static TheoryData<
+        string,
+        Microsoft.CodeAnalysis.CSharp.SyntaxKind,
+        DeclarationKind> SupportedDeclarationCases
+    { get; } = new()
+    {
+        {
+            "/// <summary>Class.</summary>\nclass C { }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.ClassDeclaration,
+            DeclarationKind.Class
+        },
+        {
+            "/// <summary>Struct.</summary>\nstruct S { }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.StructDeclaration,
+            DeclarationKind.Struct
+        },
+        {
+            "/// <summary>Interface.</summary>\ninterface I { }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.InterfaceDeclaration,
+            DeclarationKind.Interface
+        },
+        {
+            "/// <summary>Record.</summary>\nrecord R;",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.RecordDeclaration,
+            DeclarationKind.Record
+        },
+        {
+            "/// <summary>Enum.</summary>\nenum E { Value }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.EnumDeclaration,
+            DeclarationKind.Enum
+        },
+        {
+            "/// <summary>Delegate.</summary>\ndelegate void D();",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.DelegateDeclaration,
+            DeclarationKind.Delegate
+        },
+        {
+            "class C { /// <summary>Destructor.</summary>\n~C() { } }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.DestructorDeclaration,
+            DeclarationKind.Destructor
+        },
+        {
+            "class C { /// <summary>Indexer.</summary>\nint this[int i] => i; }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.IndexerDeclaration,
+            DeclarationKind.Property
+        },
+        {
+            "class C { /// <summary>Event.</summary>\nevent Action E; }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.EventFieldDeclaration,
+            DeclarationKind.Event
+        },
+        {
+            "class C { /// <summary>Field.</summary>\nint F; }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.FieldDeclaration,
+            DeclarationKind.Field
+        },
+        {
+            "enum E { /// <summary>Value.</summary>\nValue }",
+            Microsoft.CodeAnalysis.CSharp.SyntaxKind.EnumMemberDeclaration,
+            DeclarationKind.EnumMember
+        },
+    };
+
+    [Fact]
+    public void ExactDeclaration_ReturnsAttachedParsedDocumentation()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Builds <see cref="T:System.String"/>.</summary>
+                /// <param name="value">The value.</param>
+                /// <returns>A result.</returns>
+                [Obsolete]
+                public string Build(int value) => value.ToString();
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "Build"));
+
+        Assert.Equal(DeclarationKind.Method, result.Declaration.Kind);
+        Assert.Equal("Builds String.", result.Documentation.Summary);
+        Assert.Equal(
+            "The value.",
+            Assert.Single(result.Documentation.Parameters).Value);
+        Assert.Equal("A result.", result.Documentation.Returns);
+        Assert.Equal(
+            source.IndexOf("///", StringComparison.Ordinal),
+            Assert.Single(result.DocumentationSpans).Start);
+        DocumentationCommentTriviaSyntax documentation =
+            Assert.IsType<DocumentationCommentTriviaSyntax>(
+                SyntaxMethods(source)
+                    .Single()
+                    .GetLeadingTrivia()
+                    .Single(static trivia => trivia.HasStructure)
+                    .GetStructure());
+        int documentationEnd = documentation.ParentTrivia.FullSpan.End;
+        while (documentationEnd
+                > documentation.ParentTrivia.FullSpan.Start
+            && source[documentationEnd - 1] is '\r' or '\n')
+        {
+            documentationEnd--;
+        }
+        Assert.Equal(
+            new CSharpSourceSpan(
+                documentation.ParentTrivia.FullSpan.Start,
+                documentationEnd
+                    - documentation.ParentTrivia.FullSpan.Start),
+            result.DocumentationSpans[0]);
+        Assert.Equal(
+            CSharpAuthoredDocumentationLimitations.None,
+            result.Limitations);
+        Assert.True(result.Work.TokensRetained > 0);
+        Assert.True(result.Work.XmlNodesExamined > 0);
+    }
+
+    [Fact]
+    public void ExactSpan_SelectsOneOverloadWithoutNameSearch()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>First.</summary>
+                void M() { }
+
+                /// <summary>Second.</summary>
+                void M(int value) { }
+            }
+            """;
+        MethodDeclarationSyntax method = SyntaxMethods(source)[1];
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                Read(source, method));
+
+        Assert.Equal("Second.", result.Documentation.Summary);
+        Assert.Equal(method.Span.Start, result.Declaration.Span.Start);
+        Assert.Equal(method.Span.Length, result.Declaration.Span.Length);
+    }
+
+    [Fact]
+    public void MissingDocumentationAndNonDeclarationAreDistinct()
+    {
+        const string source = """
+            class C
+            {
+                int P { get; set; }
+            }
+            """;
+        var root = CSharpSyntaxTree.ParseText(
+            source,
+            cancellationToken: TestContext.Current.CancellationToken).GetRoot(
+            TestContext.Current.CancellationToken);
+        PropertyDeclarationSyntax property =
+            root.DescendantNodes().OfType<PropertyDeclarationSyntax>().Single();
+        AccessorDeclarationSyntax accessor =
+            root.DescendantNodes().OfType<AccessorDeclarationSyntax>().First();
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Absent>(
+            Read(source, property));
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.NoDeclaration>(
+            Read(source, accessor));
+    }
+
+    [Fact]
+    public void MultiDeclaratorField_IsAmbiguousAtTheSharedPhysicalDeclaration()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Fields.</summary>
+                int first, second;
+            }
+            """;
+        FieldDeclarationSyntax field = CSharpSyntaxTree.ParseText(
+                source,
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodes()
+            .OfType<FieldDeclarationSyntax>()
+            .Single();
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Ambiguous>(
+                Read(source, field));
+
+        Assert.Equal(2, result.Declarations.Count);
+        Assert.All(
+            result.Declarations,
+            declaration => Assert.Equal(
+                new CSharpSourceSpan(field.Span.Start, field.Span.Length),
+                declaration.Span));
+    }
+
+    [Fact]
+    public void AmbiguityPrecedesBranchDependentAttachment()
+    {
+        const string source = """
+            class C
+            {
+            #if DOCUMENTATION
+                /// <summary>Fields.</summary>
+            #endif
+                int first, second;
+            }
+            """;
+        FieldDeclarationSyntax field = CSharpSyntaxTree.ParseText(
+                source,
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodes()
+            .OfType<FieldDeclarationSyntax>()
+            .Single();
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Ambiguous>(
+            Read(source, field));
+    }
+
+    [Fact]
+    public void ExactRawSpan_IncludesAttributesAndRejectsContainment()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Method.</summary>
+                [Obsolete]
+                void M() { }
+            }
+            """;
+        MethodDeclarationSyntax method = SyntaxMethods(source).Single();
+        CSharpSourceSpan exact = new(method.Span.Start, method.Span.Length);
+        CSharpSourceSpan withoutAttribute = TextSpan(source, "void M() { }");
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Available>(
+            CSharpAuthoredDocumentation.Read(new(source, exact)));
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.NoDeclaration>(
+            CSharpAuthoredDocumentation.Read(
+                new(source, withoutAttribute)));
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.NoDeclaration>(
+            CSharpAuthoredDocumentation.Read(
+                new(
+                    source,
+                    new(exact.Start + 1, exact.Length - 1))));
+    }
+
+    [Fact]
+    public void ExactSpans_SelectNestedAndSupportedDeclarationKinds()
+    {
+        const string source = """
+            /// <summary>Partial.</summary>
+            partial class C
+            {
+                /// <summary>Constructor.</summary>
+                public C() { }
+
+                /// <summary>Property.</summary>
+                public int P { get; set; }
+
+                /// <summary>Operator.</summary>
+                public static C operator +(C left, C right) => left;
+
+                class Nested
+                {
+                    /// <summary>Nested method.</summary>
+                    void M() { }
+                }
+            }
+
+            partial class C
+            {
+                /// <summary>Neighbor method.</summary>
+                void M() { }
+            }
+            """;
+        var root = CSharpSyntaxTree.ParseText(
+                source,
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken);
+
+        AssertDocumentation<ClassDeclarationSyntax>(
+            static declaration =>
+                declaration.Modifiers.Any(static modifier =>
+                    modifier.IsKind(
+                        Microsoft.CodeAnalysis.CSharp.SyntaxKind
+                            .PartialKeyword))
+                && declaration.Members.Count > 1,
+            "Partial.");
+        AssertDocumentation<ConstructorDeclarationSyntax>(
+            static _ => true,
+            "Constructor.");
+        AssertDocumentation<PropertyDeclarationSyntax>(
+            static _ => true,
+            "Property.");
+        AssertDocumentation<OperatorDeclarationSyntax>(
+            static _ => true,
+            "Operator.");
+        AssertDocumentation<MethodDeclarationSyntax>(
+            static declaration =>
+                declaration.Parent is ClassDeclarationSyntax
+                {
+                    Identifier.ValueText: "Nested",
+                },
+            "Nested method.");
+        AssertDocumentation<MethodDeclarationSyntax>(
+            static declaration =>
+                declaration.Parent is ClassDeclarationSyntax
+                {
+                    Identifier.ValueText: "C",
+                },
+            "Neighbor method.");
+
+        void AssertDocumentation<TNode>(
+            Func<TNode, bool> predicate,
+            string expected)
+            where TNode : SyntaxNode
+        {
+            TNode declaration = root.DescendantNodesAndSelf()
+                .OfType<TNode>()
+                .Single(predicate);
+            var result = Assert.IsType<
+                CSharpAuthoredDocumentationOutcome.Available>(
+                    Read(source, declaration));
+            Assert.Equal(expected, result.Documentation.Summary);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(SupportedDeclarationCases))]
+    public void SupportedDeclarationKinds_UseRoslynExactSpans(
+        string source,
+        Microsoft.CodeAnalysis.CSharp.SyntaxKind syntaxKind,
+        DeclarationKind expectedKind)
+    {
+        SyntaxNode declaration = CSharpSyntaxTree.ParseText(
+                source,
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodesAndSelf()
+            .Single(node => node.IsKind(syntaxKind));
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                Read(source, declaration));
+
+        Assert.Equal(expectedKind, result.Declaration.Kind);
+        Assert.NotNull(result.Documentation.Summary);
+    }
+
+    [Fact]
+    public void NamespaceIsOutsideTheSupportedDeclarationProfile()
+    {
+        const string source = """
+            /// <summary>Namespace.</summary>
+            namespace N { }
+            """;
+        NamespaceDeclarationSyntax declaration =
+            CSharpSyntaxTree.ParseText(
+                    source,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)
+                .GetRoot(TestContext.Current.CancellationToken)
+                .DescendantNodes()
+                .OfType<NamespaceDeclarationSyntax>()
+                .Single();
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.NoDeclaration>(
+            Read(source, declaration));
+    }
+
+    [Fact]
+    public void NearestDocumentationRun_ToleratesTriviaBelowButNotBetweenRuns()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Detached.</summary>
+                // separates documentation runs
+                /// <summary>Attached.</summary>
+                // tolerated below the nearest run
+                [Obsolete]
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal("Attached.", result.Documentation.Summary);
+        Assert.Single(result.DocumentationSpans);
+        Assert.Equal(
+            source.IndexOf(
+                "/// <summary>Attached.",
+                StringComparison.Ordinal),
+            result.DocumentationSpans[0].Start);
+    }
+
+    [Fact]
+    public void DocumentationAfterTheFirstAttribute_IsNotAttached()
+    {
+        const string source = """
+            class C
+            {
+                [Obsolete]
+                /// <summary>Too late.</summary>
+                void M() { }
+            }
+            """;
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Absent>(
+            ReadMethod(source, "M"));
+    }
+
+    [Theory]
+    [InlineData("//// <summary>Not documentation.</summary>")]
+    [InlineData("/*** <summary>Not documentation.</summary> */")]
+    [InlineData("/**/")]
+    public void NearMissDelimiters_AreNotDocumentation(string comment)
+    {
+        string source = $$"""
+            class C
+            {
+                {{comment}}
+                void M() { }
+            }
+            """;
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Absent>(
+            ReadMethod(source, "M"));
+    }
+
+    [Fact]
+    public void AdjacentSingleAndDelimitedDocumentation_UsesCSharpExteriors()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>
+                /// First
+                /// </summary>
+                /**
+                 * <remarks>
+                 * Second
+                 * </remarks>
+                 */
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal("First", result.Documentation.Summary);
+        Assert.Equal("Second", result.Documentation.Remarks);
+        Assert.Equal(2, result.DocumentationSpans.Count);
+    }
+
+    [Theory]
+    [InlineData("/// <summary>Broken")]
+    [InlineData("/// <!DOCTYPE summary [<!ENTITY x \"value\">]><summary>&x;</summary>")]
+    public void InvalidXml_IsMalformedWithoutPlainTextFallback(
+        string documentation)
+    {
+        string source = $$"""
+            class C
+            {
+                {{documentation}}
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Malformed>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationMalformedReason.InvalidXml,
+            result.Reason);
+    }
+
+    [Fact]
+    public void UnterminatedDelimitedDocumentation_IsMalformed()
+    {
+        const string source = """
+            class C
+            {
+                /** <summary>Broken.</summary>
+                void M() { }
+            }
+            """;
+        CSharpSourceSpan span = TextSpan(source, "void M() { }");
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Malformed>(
+                CSharpAuthoredDocumentation.Read(new(source, span)));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationMalformedReason
+                .UnterminatedDocumentationComment,
+            result.Reason);
+        Assert.Equal(
+            new CSharpSourceSpan(
+                source.IndexOf("/**", StringComparison.Ordinal),
+                source.Length
+                    - source.IndexOf("/**", StringComparison.Ordinal)),
+            Assert.Single(result.DocumentationSpans));
+    }
+
+    [Fact]
+    public void UnterminatedDocumentationLimit_CoversTheFullLexicalComment()
+    {
+        string source = """
+            class C
+            {
+                /** <summary>Broken.</summary>
+                void M() { }
+            }
+            """
+            + new string(' ', 100);
+        CSharpSourceSpan span = TextSpan(source, "void M() { }");
+        int commentLength =
+            source.Length - source.IndexOf("/**", StringComparison.Ordinal);
+
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Malformed>(
+            CSharpAuthoredDocumentation.Read(
+                new(
+                    source,
+                    span,
+                    limits: CSharpAuthoredDocumentationLimits.Default with
+                    {
+                        MaxDocumentationCharacters = commentLength,
+                    })));
+        var incomplete = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        span,
+                        limits:
+                            CSharpAuthoredDocumentationLimits.Default with
+                            {
+                                MaxDocumentationCharacters =
+                                    commentLength - 1,
+                            })));
+        Assert.Equal(
+            CSharpAuthoredDocumentationIncompleteBoundary
+                .DocumentationCharacters,
+            incomplete.Boundary);
+    }
+
+    [Fact]
+    public void EmptyFieldsAndUnexpandedElements_AreAvailableWithLimitations()
+    {
+        const string source = """
+            class C
+            {
+                /// <include file="docs.xml" path="/doc/member"/>
+                /// <inheritdoc/>
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "M"));
+
+        Assert.Null(result.Documentation.Summary);
+        Assert.Equal(
+            CSharpAuthoredDocumentationLimitations.Include
+                | CSharpAuthoredDocumentationLimitations.InheritDoc,
+            result.Limitations);
+    }
+
+    [Fact]
+    public void ExactSpanSelectsConditionalBranch_AndConflictingEvidenceIsUncertain()
+    {
+        const string source = """
+            class C
+            {
+            #if FIRST
+                /// <summary>First.</summary>
+                void First() { }
+            #else
+                /// <summary>Second.</summary>
+                void Second() { }
+            #endif
+            }
+            """;
+        CSharpSourceSpan first = TextSpan(source, "void First() { }");
+
+        var selected = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                CSharpAuthoredDocumentation.Read(new(source, first)));
+        Assert.Equal("First.", selected.Documentation.Summary);
+
+        var uncertain = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(
+                    new(source, first, activePhysicalLines: [8])));
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty
+                .ConditionalBranchUnresolved,
+            uncertain.Reason);
+    }
+
+    [Fact]
+    public void BranchDependentAttachment_RequiresBranchEvidence()
+    {
+        const string source = """
+            class C
+            {
+            #if DOCUMENTATION
+                /// <summary>Conditional.</summary>
+            #endif
+                void M() { }
+            }
+            """;
+        CSharpSourceSpan method = MethodSpan(source, "M");
+
+        var unresolved = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(new(source, method)));
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty
+                .DocumentationAttachmentUnvouched,
+            unresolved.Reason);
+
+        var selected = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                CSharpAuthoredDocumentation.Read(
+                    new(source, method, activePhysicalLines: [4])));
+        Assert.Equal("Conditional.", selected.Documentation.Summary);
+    }
+
+    [Fact]
+    public void ConditionalGroupCrossingDeclarationBoundary_IsUncertain()
+    {
+        const string source = """
+            class C
+            {
+                int P =>
+            #if FIRST
+                    1;
+            #else
+                    2;
+            #endif
+            }
+            """;
+        var options = new CSharpParseOptions(
+            preprocessorSymbols: ["FIRST"]);
+        PropertyDeclarationSyntax property = CSharpSyntaxTree.ParseText(
+                source,
+                options,
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodes()
+            .OfType<PropertyDeclarationSyntax>()
+            .Single();
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        new(property.Span.Start, property.Span.Length),
+                        activePhysicalLines: [5])));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty
+                .ConditionalBranchUnresolved,
+            result.Reason);
+    }
+
+    [Fact]
+    public void LineDirective_DoesNotInvalidateExactPhysicalCoordinates()
+    {
+        const string source = """
+            class C
+            {
+            #line 200 "Generated.cs"
+                /// <summary>Physical.</summary>
+                void M() { }
+            #line default
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                ReadMethod(source, "M"));
+
+        Assert.Equal("Physical.", result.Documentation.Summary);
+    }
+
+    [Fact]
+    public void EveryScalarWorkLimit_AcceptsThresholdAndRefusesOneBeyond()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>Bounded.</summary>
+                void M() { }
+            }
+            """;
+        CSharpSourceSpan span = MethodSpan(source, "M");
+        var baseline = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                CSharpAuthoredDocumentation.Read(new(source, span)));
+
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.SourceCharactersExamined,
+            (limits, value) => limits with
+            {
+                MaxSourceCharacters = value,
+            },
+            CSharpAuthoredDocumentationIncompleteBoundary.SourceCharacters);
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.LinesExamined!.Value,
+            (limits, value) => limits with { MaxLines = value },
+            CSharpAuthoredDocumentationIncompleteBoundary.Lines);
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.TokensRetained!.Value,
+            (limits, value) => limits with { MaxTokens = value },
+            CSharpAuthoredDocumentationIncompleteBoundary.Tokens);
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.DeclarationsCompared!.Value,
+            (limits, value) => limits with { MaxDeclarations = value },
+            CSharpAuthoredDocumentationIncompleteBoundary.Declarations);
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.DocumentationCharactersExamined,
+            (limits, value) => limits with
+            {
+                MaxDocumentationCharacters = value,
+            },
+            CSharpAuthoredDocumentationIncompleteBoundary
+                .DocumentationCharacters);
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.XmlNodesExamined,
+            (limits, value) => limits with { MaxXmlNodes = value },
+            CSharpAuthoredDocumentationIncompleteBoundary.XmlNodes);
+        AssertThreshold(
+            source,
+            span,
+            baseline.Work.RetainedTextCharacters,
+            (limits, value) => limits with
+            {
+                MaxRetainedTextCharacters = value,
+            },
+            CSharpAuthoredDocumentationIncompleteBoundary.RetainedText);
+    }
+
+    [Fact]
+    public void RepeatedFieldAndDepthLimits_AreTypedIncompleteOutcomes()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary><b>Nested.</b></summary>
+                /// <param name="first">First.</param>
+                /// <param name="second">Second.</param>
+                /// <exception cref="T:System.Exception">First.</exception>
+                /// <exception cref="T:System.InvalidOperationException">Second.</exception>
+                /// <example><code source="one.cs"/></example>
+                /// <example><code source="two.cs"/></example>
+                void M(int first, int second) { }
+            }
+            """;
+        CSharpSourceSpan span = MethodSpan(source, "M");
+
+        AssertAvailable(source, span, limits => limits with
+        {
+            MaxXmlDepth = 3,
+            MaxParameters = 2,
+            MaxExceptions = 2,
+            MaxSamples = 2,
+        });
+        AssertIncomplete(
+            source,
+            span,
+            limits => limits with { MaxXmlDepth = 2 },
+            CSharpAuthoredDocumentationIncompleteBoundary.XmlDepth);
+        AssertIncomplete(
+            source,
+            span,
+            limits => limits with { MaxParameters = 1 },
+            CSharpAuthoredDocumentationIncompleteBoundary.Parameters);
+        AssertIncomplete(
+            source,
+            span,
+            limits => limits with { MaxExceptions = 1 },
+            CSharpAuthoredDocumentationIncompleteBoundary.Exceptions);
+        AssertIncomplete(
+            source,
+            span,
+            limits => limits with { MaxSamples = 1 },
+            CSharpAuthoredDocumentationIncompleteBoundary.Samples);
+    }
+
+    [Fact]
+    public void IncompleteResults_ReportCompletedBoundedWork()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>One</summary>
+                /// <remarks>Two</remarks>
+                void M() { }
+            }
+            """;
+        CSharpSourceSpan span = MethodSpan(source, "M");
+        var baseline = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                CSharpAuthoredDocumentation.Read(new(source, span)));
+
+        var tokens = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        span,
+                        limits:
+                            CSharpAuthoredDocumentationLimits.Default with
+                            {
+                                MaxTokens =
+                                    baseline.Work.TokensRetained!.Value - 1,
+                            })));
+        Assert.Equal(tokens.Limit, tokens.Work.TokensRetained);
+
+        var declarations = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        span,
+                        limits:
+                            CSharpAuthoredDocumentationLimits.Default with
+                            {
+                                MaxDeclarations = 1,
+                            })));
+        Assert.Equal(
+            declarations.Limit,
+            declarations.Work.DeclarationsCompared);
+
+        var retained = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        span,
+                        limits:
+                            CSharpAuthoredDocumentationLimits.Default with
+                            {
+                                MaxRetainedTextCharacters = 3,
+                            })));
+        Assert.Equal(3, retained.Work.RetainedTextCharacters);
+        Assert.True(retained.Observed > retained.Limit);
+    }
+
+    [Fact]
+    public void RealMemberTextSlicerDeclaration_ProducesDetachedDocumentation()
+    {
+        string root = RepositoryRoot();
+        string source = File.ReadAllText(
+            Path.Combine(
+                root,
+                "src",
+                "CSharpText.MemberSlicing",
+                "MemberTextSlicer.cs"));
+        MethodDeclarationSyntax method = SyntaxMethods(source)
+            .Single(candidate =>
+                candidate.Identifier.ValueText == "ExtractMemberText");
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Available>(
+                Read(source, method));
+
+        Assert.Contains(
+            "Locates the declaration",
+            result.Documentation.Summary,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TerminalTypes_DoNotRetainInputOrReopeningState()
+    {
+        Type[] prohibited =
+        [
+            typeof(CSharpAuthoredDocumentationRequest),
+            typeof(DeclarationIndex),
+            typeof(Stream),
+            typeof(TextReader),
+            typeof(System.Xml.XmlReader),
+        ];
+
+        foreach (Type type in
+            typeof(CSharpAuthoredDocumentationOutcome).GetNestedTypes())
+        {
+            Type[] retainedTypes = type.GetFields(
+                    System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.Public
+                        | System.Reflection.BindingFlags.NonPublic)
+                .Select(static field => field.FieldType)
+                .ToArray();
+            Assert.DoesNotContain(
+                retainedTypes,
+                retained => prohibited.Any(
+                    prohibitedType =>
+                        prohibitedType.IsAssignableFrom(retained)));
+        }
+    }
+
+    private static CSharpAuthoredDocumentationOutcome ReadMethod(
+        string source,
+        string name) =>
+        CSharpAuthoredDocumentation.Read(
+            new(source, MethodSpan(source, name)));
+
+    private static CSharpAuthoredDocumentationOutcome Read(
+        string source,
+        SyntaxNode declaration) =>
+        CSharpAuthoredDocumentation.Read(
+            new(
+                source,
+                new(
+                    declaration.Span.Start,
+                    declaration.Span.Length)));
+
+    private static CSharpSourceSpan MethodSpan(
+        string source,
+        string name)
+    {
+        MethodDeclarationSyntax method = SyntaxMethods(source)
+            .Single(candidate => candidate.Identifier.ValueText == name);
+        return new(method.Span.Start, method.Span.Length);
+    }
+
+    private static MethodDeclarationSyntax[] SyntaxMethods(string source) =>
+        [.. CSharpSyntaxTree.ParseText(
+                source,
+                cancellationToken: TestContext.Current.CancellationToken)
+            .GetRoot(TestContext.Current.CancellationToken)
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()];
+
+    private static CSharpSourceSpan TextSpan(
+        string source,
+        string text)
+    {
+        int start = source.IndexOf(text, StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        return new(start, text.Length);
+    }
+
+    private static void AssertThreshold(
+        string source,
+        CSharpSourceSpan span,
+        int threshold,
+        Func<
+            CSharpAuthoredDocumentationLimits,
+            int,
+            CSharpAuthoredDocumentationLimits> configure,
+        CSharpAuthoredDocumentationIncompleteBoundary boundary)
+    {
+        Assert.True(threshold > 1);
+        AssertAvailable(
+            source,
+            span,
+            limits => configure(limits, threshold));
+        AssertIncomplete(
+            source,
+            span,
+            limits => configure(limits, threshold - 1),
+            boundary);
+    }
+
+    private static void AssertAvailable(
+        string source,
+        CSharpSourceSpan span,
+        Func<
+            CSharpAuthoredDocumentationLimits,
+            CSharpAuthoredDocumentationLimits> configure) =>
+        Assert.IsType<CSharpAuthoredDocumentationOutcome.Available>(
+            CSharpAuthoredDocumentation.Read(
+                new(
+                    source,
+                    span,
+                    limits: configure(
+                        CSharpAuthoredDocumentationLimits.Default))));
+
+    private static void AssertIncomplete(
+        string source,
+        CSharpSourceSpan span,
+        Func<
+            CSharpAuthoredDocumentationLimits,
+            CSharpAuthoredDocumentationLimits> configure,
+        CSharpAuthoredDocumentationIncompleteBoundary boundary)
+    {
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(
+                    new(
+                        source,
+                        span,
+                        limits: configure(
+                            CSharpAuthoredDocumentationLimits.Default))));
+        Assert.Equal(boundary, result.Boundary);
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(
+                Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return directory.FullName;
+    }
+}

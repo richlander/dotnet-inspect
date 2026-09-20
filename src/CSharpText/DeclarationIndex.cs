@@ -415,7 +415,7 @@ public sealed record DeclarationSpan(
 /// </summary>
 public sealed class DeclarationIndex
 {
-    private const int MaxLineCount = 500_000;
+    internal const int MaxLineCount = 500_000;
     private readonly ImmutableArray<string> sourceLines;
     private readonly ImmutableArray<int> sourceLineStarts;
 
@@ -425,7 +425,8 @@ public sealed class DeclarationIndex
         ImmutableArray<DeclarationSpan> declarations,
         ImmutableArray<TransparentScopeSpan> transparentScopes,
         ImmutableArray<ConditionalGroupSpan> conditionalGroups,
-        bool hasLineDirectives)
+        bool hasLineDirectives,
+        SourceTextRange? unterminatedDocumentation)
     {
         this.sourceLines = sourceLines;
         this.sourceLineStarts = sourceLineStarts;
@@ -433,6 +434,19 @@ public sealed class DeclarationIndex
         TransparentScopes = transparentScopes;
         ConditionalGroups = conditionalGroups;
         HasLineDirectives = hasLineDirectives;
+        UnterminatedDocumentation =
+            unterminatedDocumentation is { } range
+                && !sourceLineStarts.IsDefaultOrEmpty
+                ? Convert(range)
+                : null;
+
+        MemberTextPart Convert(SourceTextRange range)
+        {
+            int start =
+                sourceLineStarts[range.Start.Line] + range.Start.Column;
+            int end = sourceLineStarts[range.End.Line] + range.End.Column;
+            return new MemberTextPart(start, end - start, range.Lines);
+        }
     }
 
     /// <summary>
@@ -466,6 +480,8 @@ public sealed class DeclarationIndex
     /// <summary>The number of physical source lines indexed.</summary>
     public int LineCount => sourceLines.Length;
 
+    internal MemberTextPart? UnterminatedDocumentation { get; }
+
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
         BuildCore(
@@ -475,6 +491,31 @@ public sealed class DeclarationIndex
     /// <summary>Builds the index for a file already split into lines.</summary>
     public static DeclarationIndex Build(IReadOnlyList<string> lines) =>
         BuildCore(lines, []);
+
+    internal static DeclarationIndexBuildResult BuildBounded(
+        string sourceText,
+        int maxLineCount,
+        int maxTokenCount,
+        int maxDeclarationCount)
+    {
+        int lineCount = CSharpSourceText.CountLines(sourceText);
+        if (lineCount > maxLineCount)
+        {
+            return DeclarationIndexBuildResult.Incomplete(
+                "lines",
+                maxLineCount,
+                checked(maxLineCount + 1),
+                lineCount: null,
+                tokenCount: null,
+                declarationCount: null);
+        }
+
+        return BuildBoundedCore(
+            CSharpSourceText.SliceLines(sourceText, 0, lineCount),
+            [.. CSharpSourceText.GetLineStarts(sourceText)],
+            maxTokenCount,
+            maxDeclarationCount);
+    }
 
     private static DeclarationIndex BuildCore(
         IReadOnlyList<string> lines,
@@ -487,16 +528,75 @@ public sealed class DeclarationIndex
         ImmutableArray<DeclarationSpan> declarations =
             DeclarationIndexBuilder.Build(
                 sourceLines,
+                CSharpLexer.MaxTokenCount,
+                int.MaxValue,
                 out ImmutableArray<TransparentScopeSpan> transparentScopes,
                 out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
-                out bool hasLineDirectives);
+                out bool hasLineDirectives,
+                out _,
+                out _,
+                out SourceTextRange? unterminatedDocumentation);
         return new DeclarationIndex(
             sourceLines,
             sourceLineStarts,
             declarations,
             transparentScopes,
             conditionalGroups,
-            hasLineDirectives);
+            hasLineDirectives,
+            unterminatedDocumentation);
+    }
+
+    private static DeclarationIndexBuildResult BuildBoundedCore(
+        IReadOnlyList<string> lines,
+        ImmutableArray<int> sourceLineStarts,
+        int maxTokenCount,
+        int maxDeclarationCount)
+    {
+        int tokenCount = 0;
+        int declarationCount = 0;
+        try
+        {
+            ImmutableArray<string> sourceLines = [.. lines];
+            ImmutableArray<DeclarationSpan> declarations =
+                DeclarationIndexBuilder.Build(
+                    sourceLines,
+                    maxTokenCount,
+                    maxDeclarationCount,
+                    out ImmutableArray<TransparentScopeSpan> transparentScopes,
+                    out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+                    out bool hasLineDirectives,
+                    out tokenCount,
+                    out declarationCount,
+                    out SourceTextRange? unterminatedDocumentation);
+            return DeclarationIndexBuildResult.Completed(
+                new DeclarationIndex(
+                    sourceLines,
+                    sourceLineStarts,
+                    declarations,
+                    transparentScopes,
+                    conditionalGroups,
+                    hasLineDirectives,
+                    unterminatedDocumentation),
+                lines.Count,
+                tokenCount,
+                declarationCount);
+        }
+        catch (CSharpTextComplexityException exception)
+        {
+            int? completedTokens = exception.Unit == "tokens"
+                ? exception.Limit
+                : tokenCount == 0 ? null : tokenCount;
+            int? completedDeclarations = exception.Unit == "declarations"
+                ? exception.Limit
+                : declarationCount == 0 ? null : declarationCount;
+            return DeclarationIndexBuildResult.Incomplete(
+                exception.Unit,
+                exception.Limit,
+                checked(exception.Limit + 1),
+                lines.Count,
+                completedTokens,
+                completedDeclarations);
+        }
     }
 
     /// <summary>
@@ -511,9 +611,66 @@ public sealed class DeclarationIndex
     public DeclarationIndex WithSelectedConditionalBranches(
         IReadOnlyCollection<ConditionalBranchSpan> selectedBranches)
     {
+        ConditionalProjection projection = ProjectConditionalBranches(
+            selectedBranches);
+        return BuildCore(projection.Lines, sourceLineStarts);
+    }
+
+    internal DeclarationIndexBuildResult WithSelectedConditionalBranchesBounded(
+        IReadOnlyCollection<ConditionalBranchSpan> selectedBranches,
+        int maxTokenCount,
+        int maxDeclarationCount)
+    {
+        ConditionalProjection projection = ProjectConditionalBranches(
+            selectedBranches);
+        return BuildBoundedCore(
+            projection.Lines,
+            sourceLineStarts,
+            maxTokenCount,
+            maxDeclarationCount);
+    }
+
+    internal DeclarationIndexBuildResult
+        WithoutUnterminatedDocumentationBounded(
+            int endPosition,
+            int maxTokenCount,
+            int maxDeclarationCount)
+    {
+        if (UnterminatedDocumentation is not { } documentation
+            || endPosition <= documentation.Start
+            || endPosition > documentation.End)
+        {
+            throw new ArgumentOutOfRangeException(nameof(endPosition));
+        }
+
+        string[] lines = [.. sourceLines];
+        for (int line = 0; line < lines.Length; line++)
+        {
+            int lineStart = sourceLineStarts[line];
+            int from = Math.Max(documentation.Start, lineStart) - lineStart;
+            int to = Math.Min(endPosition, lineStart + lines[line].Length)
+                - lineStart;
+            if (from >= to)
+                continue;
+
+            char[] characters = lines[line].ToCharArray();
+            Array.Fill(characters, ' ', from, to - from);
+            lines[line] = new string(characters);
+        }
+
+        return BuildBoundedCore(
+            lines,
+            sourceLineStarts,
+            maxTokenCount,
+            maxDeclarationCount);
+    }
+
+    private ConditionalProjection ProjectConditionalBranches(
+        IReadOnlyCollection<ConditionalBranchSpan> selectedBranches)
+    {
         ArgumentNullException.ThrowIfNull(selectedBranches);
         if (selectedBranches.Count == 0)
-            return this;
+            return new ConditionalProjection(sourceLines);
         if (selectedBranches.Count > ConditionalGroups.Length)
             throw new ArgumentException("At most one branch may be selected per group.", nameof(selectedBranches));
 
@@ -565,7 +722,7 @@ public sealed class DeclarationIndex
                 projected[i] = string.Empty;
         }
 
-        return BuildCore(projected, sourceLineStarts);
+        return new ConditionalProjection(projected);
 
         void MarkLine(int line) => MarkRange(line, line + 1);
 
@@ -696,4 +853,135 @@ public sealed class DeclarationIndex
     /// <summary>The declaration enclosing <paramref name="span"/>, or null at file scope.</summary>
     public DeclarationSpan? ParentOf(DeclarationSpan span) =>
         span.ParentIndex >= 0 ? Declarations[span.ParentIndex] : null;
+
+    internal DeclarationTextParts? GetDeclarationTextParts(
+        DeclarationSpan declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        if (!Declarations.Any(candidate => ReferenceEquals(candidate, declaration)))
+        {
+            throw new ArgumentException(
+                "The declaration must belong to this declaration index.",
+                nameof(declaration));
+        }
+
+        if (sourceLineStarts.IsDefaultOrEmpty
+            || declaration.TextCoordinates is not { } coordinates)
+        {
+            return null;
+        }
+
+        MemberTextPart Convert(SourceTextRange range)
+        {
+            int start = sourceLineStarts[range.Start.Line] + range.Start.Column;
+            int end = sourceLineStarts[range.End.Line] + range.End.Column;
+            return new MemberTextPart(start, end - start, range.Lines);
+        }
+
+        var signature = Convert(coordinates.Signature);
+        var attributes = coordinates.Attributes.Select(Convert).ToImmutableArray();
+        int declarationStart = attributes
+            .Select(static attribute => attribute.Start)
+            .DefaultIfEmpty(signature.Start)
+            .Min();
+        int declarationStartLine = attributes
+            .Where(attribute => attribute.Start == declarationStart)
+            .Select(static attribute => attribute.Lines.StartLine)
+            .DefaultIfEmpty(signature.Lines.StartLine)
+            .Min();
+        int declarationEnd =
+            sourceLineStarts[coordinates.TerminalEnd.Line]
+                + coordinates.TerminalEnd.Column;
+
+        return new DeclarationTextParts(
+            new MemberTextPart(
+                declarationStart,
+                declarationEnd - declarationStart,
+                new LineRange(
+                    declarationStartLine,
+                    coordinates.TerminalEnd.Line + 1)),
+            coordinates.XmlDocumentation.Select(Convert).ToImmutableArray(),
+            attributes,
+            coordinates.DeclarationKnown,
+            coordinates.DocumentationKnown,
+            coordinates.IsKnown);
+    }
+
+    internal int GetPhysicalLine(int position)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(position);
+        int sourceLength =
+            sourceLineStarts[^1] + sourceLines[^1].Length;
+        if (position > sourceLength)
+            throw new ArgumentOutOfRangeException(nameof(position));
+
+        int low = 0;
+        int high = sourceLineStarts.Length - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            int start = sourceLineStarts[middle];
+            if (start == position)
+                return middle + 1;
+            if (start < position)
+                low = middle + 1;
+            else
+                high = middle - 1;
+        }
+
+        return high + 1;
+    }
+
+    private readonly record struct ConditionalProjection(
+        IReadOnlyList<string> Lines);
+}
+
+internal sealed record DeclarationTextParts(
+    MemberTextPart Declaration,
+    ImmutableArray<MemberTextPart> XmlDocumentation,
+    ImmutableArray<MemberTextPart> Attributes,
+    bool DeclarationKnown,
+    bool DocumentationKnown,
+    bool IsKnown);
+
+internal sealed record DeclarationIndexBuildResult(
+    DeclarationIndex? Index,
+    string? ExhaustedUnit,
+    int Limit,
+    int Observed,
+    int? LineCount,
+    int? TokenCount,
+    int? DeclarationCount)
+{
+    public bool IsCompleted => Index is not null;
+
+    public static DeclarationIndexBuildResult Completed(
+        DeclarationIndex index,
+        int lineCount,
+        int tokenCount,
+        int declarationCount) =>
+        new(
+            index,
+            null,
+            0,
+            0,
+            lineCount,
+            tokenCount,
+            declarationCount);
+
+    public static DeclarationIndexBuildResult Incomplete(
+        string unit,
+        int limit,
+        int observed,
+        int? lineCount,
+        int? tokenCount,
+        int? declarationCount) =>
+        new(
+            null,
+            unit,
+            limit,
+            observed,
+            lineCount,
+            tokenCount,
+            declarationCount);
 }

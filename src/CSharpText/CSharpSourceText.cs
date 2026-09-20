@@ -67,7 +67,7 @@ public static class CSharpSourceText
         return [.. starts];
     }
 
-    private static int CountLines(string sourceText)
+    internal static int CountLines(string sourceText)
     {
         int count = 1;
         for (int i = 0; i < sourceText.Length; i++)

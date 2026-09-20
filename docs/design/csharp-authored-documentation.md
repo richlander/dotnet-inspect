@@ -7,8 +7,8 @@ tracked by
 [#6583](https://github.com/richlander/dotnet-inspect/issues/6583). It is
 DocumentationHouse production-adoption slice 15 under
 [#6579](https://github.com/richlander/dotnet-inspect/issues/6579).
-Implementation is slice 16; SourceHouse and DocumentationHouse integration
-remain later slices.
+The CSharpText operation is implemented in slice 16. SourceHouse and
+DocumentationHouse integration remain later slices.
 
 The one claim is:
 
@@ -348,7 +348,7 @@ contract rather than test an interaction.
 This slice locks only the CSharpText contract. The remaining
 DocumentationHouse plan is:
 
-1. implement this owner-issued operation in slice 16;
+1. use the implemented owner-issued CSharpText operation from slice 16;
 2. add the SourceHouse-to-DocumentationHouse deferred provider in slice 17;
 3. add the authored channel and field settlement in slice 18;
 4. publish authored evidence through Queries in slice 19;

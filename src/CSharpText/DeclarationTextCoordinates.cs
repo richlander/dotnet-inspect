@@ -17,4 +17,6 @@ internal sealed record DeclarationTextCoordinates(
     SourceTextPoint TerminalEnd,
     ImmutableArray<SourceTextRange> XmlDocumentation,
     ImmutableArray<SourceTextRange> Attributes,
+    bool DeclarationKnown,
+    bool DocumentationKnown,
     bool IsKnown);

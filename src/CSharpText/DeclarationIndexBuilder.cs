@@ -49,18 +49,68 @@ internal static class DeclarationIndexBuilder
         public ImmutableArray<SourceTextRange> XmlDocumentation = [];
         public ImmutableArray<SourceTextRange> AttributeSpans = [];
         public bool TextPartsKnown = true;
+        public bool DeclarationTextKnown = true;
+        public bool DocumentationKnown = true;
     }
 
     public static ImmutableArray<DeclarationSpan> Build(
         IReadOnlyList<string> lines,
         out ImmutableArray<TransparentScopeSpan> transparentScopes,
         out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
-        out bool hasLineDirectives)
+        out bool hasLineDirectives) =>
+        Build(
+            lines,
+            CSharpLexer.MaxTokenCount,
+            int.MaxValue,
+            out transparentScopes,
+            out conditionalGroups,
+            out hasLineDirectives,
+            out _,
+            out _,
+            out _);
+
+    internal static ImmutableArray<DeclarationSpan> Build(
+        IReadOnlyList<string> lines,
+        int maxTokenCount,
+        int maxDeclarationCount,
+        out ImmutableArray<TransparentScopeSpan> transparentScopes,
+        out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        out bool hasLineDirectives,
+        out int tokenCount,
+        out int declarationCount) =>
+        Build(
+            lines,
+            maxTokenCount,
+            maxDeclarationCount,
+            out transparentScopes,
+            out conditionalGroups,
+            out hasLineDirectives,
+            out tokenCount,
+            out declarationCount,
+            out _);
+
+    internal static ImmutableArray<DeclarationSpan> Build(
+        IReadOnlyList<string> lines,
+        int maxTokenCount,
+        int maxDeclarationCount,
+        out ImmutableArray<TransparentScopeSpan> transparentScopes,
+        out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        out bool hasLineDirectives,
+        out int tokenCount,
+        out int declarationCount,
+        out SourceTextRange? unterminatedDocumentation)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTokenCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDeclarationCount);
+
         var tokens = CSharpLexer.ScanTokens(
             lines,
             out conditionalGroups,
-            out hasLineDirectives);
+            out hasLineDirectives,
+            maxTokenCount);
+        tokenCount = tokens.Count;
+        declarationCount = 0;
+        int currentDeclarationCount = 0;
         var rows = new List<Row>();
         int rootLastChildIndex = -1;
         int rootLastRefusedChildIndex = -1;
@@ -197,6 +247,13 @@ internal static class DeclarationIndexBuilder
 
         void AddRow(Row row)
         {
+            if (rows.Count >= maxDeclarationCount)
+            {
+                throw new CSharpTextComplexityException(
+                    maxDeclarationCount,
+                    "declarations");
+            }
+
             int index = rows.Count;
             if (row.ParentIndex >= 0)
             {
@@ -210,6 +267,7 @@ internal static class DeclarationIndexBuilder
             }
 
             rows.Add(row);
+            currentDeclarationCount = rows.Count;
         }
 
         // A type at file scope and a statement inside a method body both report no enclosing row.
@@ -413,6 +471,13 @@ internal static class DeclarationIndexBuilder
                 && attachedAttributesKnown && headerDelimitersKnown
                 && unknownTransparentScopes == 0
                 && pending.All(t => t.DepthKnown);
+            bool declarationTextKnown =
+                terminator.DepthKnown
+                && headerKnown
+                && attachedAttributesKnown
+                && headerDelimitersKnown
+                && unknownTransparentScopes == 0
+                && pending.All(t => t.DepthKnown);
             var row = new Row
             {
                 Kind = kind,
@@ -441,6 +506,10 @@ internal static class DeclarationIndexBuilder
                 XmlDocumentation = [.. xmlDocumentation],
                 AttributeSpans = [.. attributeSpans],
                 TextPartsKnown = spanKnown
+                    && textPartsHeaderKnown
+                    && attachedDocumentationKnown,
+                DeclarationTextKnown = declarationTextKnown,
+                DocumentationKnown = declarationTextKnown
                     && textPartsHeaderKnown
                     && attachedDocumentationKnown,
             };
@@ -480,6 +549,9 @@ internal static class DeclarationIndexBuilder
                 XmlDocumentation = sharedDeclaration.XmlDocumentation,
                 AttributeSpans = sharedDeclaration.AttributeSpans,
                 TextPartsKnown = sharedDeclaration.TextPartsKnown,
+                DeclarationTextKnown =
+                    sharedDeclaration.DeclarationTextKnown,
+                DocumentationKnown = sharedDeclaration.DocumentationKnown,
             });
         }
 
@@ -990,6 +1062,13 @@ internal static class DeclarationIndexBuilder
                         && attachedAttributesKnown && headerDelimitersKnown
                         && unknownTransparentScopes == 0
                         && pending.All(t => t.DepthKnown);
+                    bool declarationTextKnown =
+                        tok.DepthKnown
+                        && headerKnown
+                        && attachedAttributesKnown
+                        && headerDelimitersKnown
+                        && unknownTransparentScopes == 0
+                        && pending.All(t => t.DepthKnown);
                     var row = new Row
                     {
                         Kind = k,
@@ -1014,6 +1093,10 @@ internal static class DeclarationIndexBuilder
                         XmlDocumentation = [.. xmlDocumentation],
                         AttributeSpans = [.. attributeSpans],
                         TextPartsKnown = spanKnown
+                            && textPartsHeaderKnown
+                            && attachedDocumentationKnown,
+                        DeclarationTextKnown = declarationTextKnown,
+                        DocumentationKnown = declarationTextKnown
                             && textPartsHeaderKnown
                             && attachedDocumentationKnown,
                     };
@@ -1116,7 +1199,12 @@ internal static class DeclarationIndexBuilder
                         rows[idx].EndLine = tok.Line + 1;
                         rows[idx].TerminalEnd = new SourceTextPoint(tok.Line, tok.End);
                         if (!tok.DepthKnown) rows[idx].SpanKnown = false;
-                        if (!tok.DepthKnown) rows[idx].TextPartsKnown = false;
+                        if (!tok.DepthKnown)
+                        {
+                            rows[idx].TextPartsKnown = false;
+                            rows[idx].DeclarationTextKnown = false;
+                            rows[idx].DocumentationKnown = false;
+                        }
                         lastClosed = idx;
                         lastClosedSection = tok.Section;
                     }
@@ -1489,6 +1577,15 @@ internal static class DeclarationIndexBuilder
         transparentScopes = [.. transparentScopeRows
             .OrderBy(scope => scope.StartLine)
             .ThenBy(scope => scope.EndLine)];
+        declarationCount = currentDeclarationCount;
+        unterminatedDocumentation = openDocumentationBlock >= 0
+            ? xmlDocumentation[openDocumentationBlock] with
+            {
+                End = new SourceTextPoint(
+                    lines.Count - 1,
+                    lines[^1].Length),
+            }
+            : null;
 
         return [.. rows.Select((r, i) => new DeclarationSpan(
             r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureStartColumn,
@@ -1506,6 +1603,8 @@ internal static class DeclarationIndexBuilder
                 r.TerminalEnd,
                 r.XmlDocumentation,
                 r.AttributeSpans,
+                r.DeclarationTextKnown,
+                r.DocumentationKnown,
                 r.SpanKnown && r.TextPartsKnown),
         })];
 
