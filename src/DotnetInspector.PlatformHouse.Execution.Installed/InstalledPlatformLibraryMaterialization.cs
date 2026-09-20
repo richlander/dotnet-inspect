@@ -501,10 +501,53 @@ public static class InstalledPlatformLibraryMaterializer
         out IReadOnlyList<
             PlatformPopulationLibraryArtifactMaterializationItem> items)
     {
+        if (request.Target is not PlatformTargetDemand.Exact exact)
+        {
+            items = [];
+            return false;
+        }
+        return TryPrepareReferencePopulation(
+            request,
+            exact.Target,
+            expectedView,
+            reference,
+            items: out items);
+    }
+
+    internal static bool TryPrepareSelectedReferencePopulation(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded reference,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items)
+    {
+        if (request.Target is not PlatformTargetDemand.FamilyDefault demand
+            || demand.Family != target.Family)
+        {
+            items = [];
+            return false;
+        }
+        return TryPrepareReferencePopulation(
+            request,
+            target,
+            PlatformViewDemand.Reference,
+            reference,
+            items: out items);
+    }
+
+    static bool TryPrepareReferencePopulation(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PlatformViewDemand expectedView,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded reference,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items)
+    {
         items = [];
         if (expectedView is not PlatformViewDemand.Reference
                 and not PlatformViewDemand.ReferenceAndImplementation
-            || request.Target is not PlatformTargetDemand.Exact exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
                 View: var view,
@@ -514,14 +557,16 @@ public static class InstalledPlatformLibraryMaterializer
             || view != expectedView
             || !ValidContribution(
                 request,
-                exact.Target,
+                target,
                 reference.Contribution,
                 PlatformSourceFacet.Reference,
                 reference.Value.Generation.Name)
-            || !ReferenceTargetMatches(reference.Value, exact.Target)
+            || !ReferenceTargetMatches(reference.Value, target)
             || reference.Value.Population
                 is not InstalledReferencePopulationDemand.CompletePopulation
-            || reference.Value.Libraries.Count == 0)
+            || reference.Value.Libraries.Count == 0
+            || reference.Value.Libraries.Any(
+                static library => library.Documentation is not null))
         {
             return false;
         }
@@ -543,7 +588,7 @@ public static class InstalledPlatformLibraryMaterializer
                         reference,
                         library),
                     new PlatformPopulationMemberAttribution(
-                        exact.Target,
+                        target,
                         PlatformPopulationMemberRole.Focus)));
         }
 
