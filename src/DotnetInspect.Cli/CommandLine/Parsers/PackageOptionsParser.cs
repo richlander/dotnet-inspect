@@ -392,6 +392,7 @@ public static class PackageOptionsParser
                 || selectsPackageFiles
                 || selectsPackageLayout
                 || selectsPackageTfms
+                || selectsEcosystemDependencies
                 || selectsCloneCandidateRows
                 ? null
                 : opts.ParseRows(parseResult),

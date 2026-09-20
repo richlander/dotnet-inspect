@@ -991,6 +991,20 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             3,
             selected.Output.Split('\n').Count(
                 static line => line.StartsWith("| ", StringComparison.Ordinal)));
+
+        var windowed = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--rows", "2..3",
+                "--tips", "q"]);
+
+        Assert.True(
+            windowed.Exit == 0,
+            $"Exit {windowed.Exit}: {windowed.Error}");
+        Assert.Equal(
+            4,
+            windowed.Output.Split('\n').Count(
+                static line => line.StartsWith("| ", StringComparison.Ordinal)));
     }
 
     [Fact]
