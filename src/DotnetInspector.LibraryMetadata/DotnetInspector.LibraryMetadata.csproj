@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Host-neutral correspondence between exact realized Libraries and Metadata API surfaces</Description>
+    <Description>Host-neutral correspondence between exact realized Libraries and detached Metadata evidence</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

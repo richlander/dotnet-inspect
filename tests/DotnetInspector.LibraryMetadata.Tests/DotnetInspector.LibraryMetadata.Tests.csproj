@@ -16,6 +16,8 @@
     <PackageReference Include="xunit.v3" />
     <PackageDownload Include="System.Text.Json"
                      Version="[10.0.0]" />
+    <PackageDownload Include="Microsoft.NETCore.App.Ref"
+                     Version="[10.0.10]" />
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
@@ -24,6 +26,9 @@
   <ItemGroup>
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
           Link="RealAssets/LibraryMetadata/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/ref/net10.0/netstandard.dll"
+          Link="RealAssets/LibraryMetadata/netstandard.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
