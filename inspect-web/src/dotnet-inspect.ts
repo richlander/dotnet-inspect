@@ -1391,6 +1391,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageMetadataLoading = snapshotState.packageMetadataLoading;
+  const libraryQueryLoading = snapshotState.libraryQueryLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -1406,6 +1407,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packageOpportunitiesLoading = false;
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageMetadataLoading = false;
+  snapshotState.libraryQueryLoading = false;
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
   snapshotState.platformDrillLoading = false;
@@ -1435,6 +1437,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
   snapshotState.typeMetadataGeneration++;
+  snapshotState.libraryQuerySequence++;
   snapshotState.memberCallGraphSeq++;
   snapshotState.graphMemberNavigationSeq++;
 
@@ -1446,6 +1449,11 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
+  if (libraryQueryLoading) {
+    snapshotState.libraryQueryInspection = null;
+    snapshotState.libraryQueryError =
+      "Library Query was interrupted. Run it again.";
+  }
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -1473,6 +1481,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
   const typeMetadataGeneration = state.typeMetadataGeneration;
+  const libraryQuerySequence = state.libraryQuerySequence;
   const memberCallGraphSeq = state.memberCallGraphSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
   const platformIndex = state.platformIndex ?? snapshot.state.platformIndex;
@@ -1481,6 +1490,8 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   Object.assign(state, snapshot.state);
   state.typeMetadataGeneration =
     Math.max(typeMetadataGeneration, snapshot.state.typeMetadataGeneration) + 1;
+  state.libraryQuerySequence =
+    Math.max(libraryQuerySequence, snapshot.state.libraryQuerySequence) + 1;
   state.memberCallGraphSeq =
     Math.max(memberCallGraphSeq, snapshot.state.memberCallGraphSeq) + 1;
   state.graphMemberNavigationSeq =
@@ -3419,6 +3430,10 @@ function currentLibraryQueryInspection() {
 }
 
 function packageLibraries() {
+  return packageLibraryInventory();
+}
+
+function packageOverviewLibraries() {
   const libraries = packageLibraryInventory();
   const inspection = currentLibraryQueryInspection();
   if (!inspection) return libraries;
@@ -7168,7 +7183,7 @@ function libraryQueryStatusHtml() {
 function renderPackageOverview() {
   const pkg = currentPackage();
   const allLibraries = packageLibraryInventory();
-  const libraries = packageLibraries();
+  const libraries = packageOverviewLibraries();
   const libraryRows = libraries.map(library => `
     <button class="library-row as-button" data-lib-scope="${escapeHtml(library.id)}" title="Inspect ${escapeHtml(library.name)}">
       <span class="library-row-head">

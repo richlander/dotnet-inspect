@@ -1080,7 +1080,11 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderOverview,
     /platformLibrarySelectHtml\(\)/);
   assert.match(renderOverview,
-    /const libraries = packageLibraries\(\)/);
+    /const libraries = packageOverviewLibraries\(\)/);
+  assert.match(appSource,
+    /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);
+  assert.match(appSource,
+    /function packageOverviewLibraries\(\)[\s\S]*currentLibraryQueryInspection\(\)[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)/);
   assert.match(renderOverview,
     /data-library-query-form[\s\S]*data-library-query-reference[\s\S]*data-library-query-clear/);
   assert.match(renderOverview,
