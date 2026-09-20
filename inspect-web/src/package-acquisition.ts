@@ -162,6 +162,55 @@ export function resolvePackageLibrary(
   return matches.length === 1 ? matches[0]! : null;
 }
 
+export interface PackageLibrarySelectionIdentity {
+  id: string | null;
+  name: string | null;
+  asset: string | null;
+}
+
+function compileAssetCorrespondenceKey(asset: string): string | null {
+  const parts = asset.split(/[\\/]/).filter(part => part.length > 0);
+  const root = parts[0]?.toLowerCase();
+  const compileRoot =
+    root === "lib" || root === "ref"
+      ? 0
+      : root === "runtimes"
+        && parts[2]?.toLowerCase() === "lib"
+        ? 2
+        : -1;
+  return compileRoot >= 0 && compileRoot + 2 < parts.length
+    ? parts.slice(compileRoot + 2).join("/").toLowerCase()
+    : null;
+}
+
+export function resolveReplacementPackageLibrary(
+  assemblies: readonly InspectedAssemblySurface[],
+  selection: PackageLibrarySelectionIdentity,
+): InspectedAssemblySurface | null {
+  const exactId = selection.id
+    ? assemblies.find(assembly => assembly.id === selection.id) ?? null
+    : null;
+  if (exactId) return exactId;
+
+  const exactAssets = selection.asset
+    ? assemblies.filter(assembly => assembly.asset === selection.asset)
+    : [];
+  if (exactAssets.length === 1) return exactAssets[0]!;
+
+  const correspondenceKey = selection.asset
+    ? compileAssetCorrespondenceKey(selection.asset)
+    : null;
+  if (correspondenceKey) {
+    const matches = assemblies.filter(assembly =>
+      compileAssetCorrespondenceKey(assembly.asset) === correspondenceKey);
+    if (matches.length === 1) return matches[0]!;
+  }
+
+  return selection.name
+    ? resolvePackageLibrary(assemblies, selection.name)
+    : null;
+}
+
 export function runtimeAssemblyIsResident(
   packageModel: Pick<AppPackage, "assemblies"> | null | undefined,
   assemblyName: string,
