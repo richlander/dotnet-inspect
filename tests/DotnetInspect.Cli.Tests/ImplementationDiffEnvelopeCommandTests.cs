@@ -459,31 +459,16 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     }
 
     [Theory]
-    [InlineData(
-        "--envelope",
-        "--package",
-        "Missing.Package@1.0.0..2.0.0")]
-    [InlineData(
-        "--envelope",
-        "--platform",
-        "System.Runtime@9.0.0..10.0.0")]
-    [InlineData(
-        "--json",
-        "--package",
-        "Missing.Package@1.0.0..2.0.0")]
-    [InlineData(
-        "--json",
-        "--platform",
-        "System.Runtime@9.0.0..10.0.0")]
+    [InlineData("--package", "Missing.Package@1.0.0..2.0.0")]
+    [InlineData("--platform", "System.Runtime@9.0.0..10.0.0")]
     public async Task CompleteTransport_RejectsNonLocalSourcesBeforeAcquisition(
-        string output,
         string source,
         string range)
     {
         var result = await Invoke(
             source,
             range,
-            output,
+            "--envelope",
             "-S",
             "Implementation Diff");
 

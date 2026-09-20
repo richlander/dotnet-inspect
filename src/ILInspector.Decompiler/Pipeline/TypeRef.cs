@@ -414,8 +414,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
             out string convention);
         convention = AddSuppressGcTransition(
             convention,
-            conventionModifiersAreExact
-                && HasRecognizedSuppressGcTransitionModifier(returnType));
+            (conventionModifiersAreExact
+                && HasRecognizedSuppressGcTransitionModifier(returnType))
+                || CanDeriveSuppressGcTransitionFromManagedSignature(
+                    callingConvention,
+                    returnType));
         bool signatureIsExact = callingConventionIsExact
             && conventionModifiersAreExact
             && FunctionPointerRefKindsAreExact(returnType, parameters);
@@ -677,6 +680,13 @@ public sealed class TypeRef : IEquatable<TypeRef>
             && modifier.Modifier.Name
                 == "CallConvSuppressGCTransition");
 
+    static bool CanDeriveSuppressGcTransitionFromManagedSignature(
+        string callingConvention,
+        TypeRef returnType)
+        => callingConvention.Length == 0
+            && returnType.CustomModifiers.Length == 1
+            && HasRecognizedSuppressGcTransitionModifier(returnType);
+
     static bool IsExactFunctionPointerParameterModifier(TypeRefCustomModifier modifier)
         => modifier.IsRequired
             && modifier.Modifier.Assembly == CoreLibrary
@@ -823,9 +833,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
                                 parameters),
                         callingConvention: AddSuppressGcTransition(
                             CallingConvention,
-                            FunctionPointerConventionModifiersAreExact
+                            (FunctionPointerConventionModifiersAreExact
                                 && HasRecognizedSuppressGcTransitionModifier(
-                                    returnType)))
+                                    returnType))))
                     : this;
                 break;
             }

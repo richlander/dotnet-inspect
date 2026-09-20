@@ -1198,7 +1198,9 @@ public class DiffCommand
         if (!selectsOnlyImplementationDiff)
             return false;
 
-        return true;
+        // Exact non-Library JSON remains the existing rendered projection.
+        return options.EnvelopeOutput
+            || !string.IsNullOrEmpty(options.LibraryVersionRange);
     }
 
     private static bool HasIncompatibleImplementationTransportProjection(
