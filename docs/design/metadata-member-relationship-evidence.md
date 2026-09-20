@@ -23,7 +23,7 @@ This is physical metadata evidence. It is not C# declaration
 representability, source reconstruction, runtime dispatch equivalence, or
 ReturnToSender admission.
 
-The production host is DecompilerHarness through the sixteen-step tools-first
+The production host is DecompilerHarness through the seventeen-step tools-first
 migration in [#6199][issue-6199]. The approved focused path includes the
 owner-backed Metadata session substrate in [#7929][issue-7929], this MethodImpl
 evidence, CSharp representability in [#4852][issue-4852], RTS target selection
@@ -114,9 +114,11 @@ The owner-backed session uses the opaque image identity defined by
 [Member inspection planning and metadata projection][metadata-image-generation]
 to isolate operation-local caches and accounting across reader wrappers. That
 identity is supporting session infrastructure: this contract neither exposes
-it nor depends on its concrete representation. Its admission, cache-isolation,
-lifetime, and accounting obligations are inherited from that design's
-`MDP009` Release gate rather than redefined or re-gated here.
+it nor depends on its concrete representation. Issue #7929 supplies its
+admission, cache-isolation, lifetime, accounting, concurrency, disposal, and
+platform evidence through `MetadataDeclarationSessionSubstrateTests`. That
+focused gate contributes to, but does not claim completion of, the broader
+composite `MDP009` gate owned by the supporting design.
 
 The operation rejects a foreign module, an invalid handle, or a body not owned
 by the supplied type before scanning the `MethodImpl` table.
