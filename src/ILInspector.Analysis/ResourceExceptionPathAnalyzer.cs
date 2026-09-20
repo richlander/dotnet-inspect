@@ -177,7 +177,8 @@ internal static class ResourceExceptionPathAnalyzer
             IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
             ImmutableArray<int> releases,
             ImmutableArray<TBoundary> throwingBoundaries,
-            Func<TBoundary, int> offset)
+            Func<TBoundary, int> offset,
+            IReadOnlySet<int>? cleanupHazards = null)
     {
         var unprotected = ImmutableArray.CreateBuilder<TBoundary>();
         var indeterminate = ImmutableArray.CreateBuilder<TBoundary>();
@@ -199,7 +200,8 @@ internal static class ResourceExceptionPathAnalyzer
                 exceptionFlow,
                 catchAllCleanup,
                 releases,
-                boundaryOffset))
+                boundaryOffset,
+                cleanupHazards))
             {
                 case CleanupCoverage.None:
                     unprotected.Add(boundary);
@@ -265,7 +267,8 @@ internal static class ResourceExceptionPathAnalyzer
         InstructionExceptionFlowFacts exceptionFlow,
         IReadOnlySet<MethodExceptionClauseId> catchAllCleanup,
         ImmutableArray<int> releases,
-        int useOffset)
+        int useOffset,
+        IReadOnlySet<int>? cleanupHazards)
     {
         ImmutableArray<InstructionExceptionRegion> context =
             RequireLocation(exceptionFlow, useOffset);
@@ -291,7 +294,8 @@ internal static class ResourceExceptionPathAnalyzer
                         graph,
                         exceptionFlow,
                         clause.HandlerRegion,
-                        releases);
+                        releases,
+                        cleanupHazards);
                     if (coverage == CleanupCoverage.Guaranteed)
                     {
                         return CleanupCoverage.Guaranteed;
@@ -311,7 +315,8 @@ internal static class ResourceExceptionPathAnalyzer
                         graph,
                         exceptionFlow,
                         clause.HandlerRegion,
-                        releases);
+                        releases,
+                        cleanupHazards);
                     if (coverage == CleanupCoverage.Guaranteed)
                         return CleanupCoverage.Guaranteed;
                     indeterminate |=
@@ -331,7 +336,8 @@ internal static class ResourceExceptionPathAnalyzer
         BlockGraph graph,
         InstructionExceptionFlowFacts exceptionFlow,
         InstructionExceptionRegionId handler,
-        ImmutableArray<int> releases)
+        ImmutableArray<int> releases,
+        IReadOnlySet<int>? cleanupHazards)
     {
         InstructionExceptionRegion region = exceptionFlow.Regions
             .Single(candidate => candidate.Id == handler);
@@ -343,11 +349,46 @@ internal static class ResourceExceptionPathAnalyzer
             return CleanupCoverage.None;
 
         int entryBlock = graph.BlockIndexAt(region.Extent.Start);
-        return entryBlock >= 0
-            && handlerReleases.Any(release =>
-                graph.BlockIndexAt(release) == entryBlock)
-                ? CleanupCoverage.Guaranteed
-                : CleanupCoverage.Indeterminate;
+        if (entryBlock < 0)
+            return CleanupCoverage.Indeterminate;
+
+        var guaranteed = handlerReleases
+            .Select(graph.BlockIndexAt)
+            .Where(static block => block >= 0)
+            .ToHashSet();
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (InstructionBlock block in graph.Blocks
+                .Where(block => region.Extent.Contains(block.Start))
+                .Reverse())
+            {
+                if (guaranteed.Contains(block.Index)
+                    || cleanupHazards?.Any(hazard =>
+                        hazard >= block.Start && hazard < block.End) == true)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<int> successors = block.Edges.Successors;
+                if (successors.Count == 0
+                    || successors.Any(successor =>
+                        !region.Extent.Contains(
+                            graph.Blocks[successor].Start)
+                        || !guaranteed.Contains(successor)))
+                {
+                    continue;
+                }
+
+                changed |= guaranteed.Add(block.Index);
+            }
+        }
+        while (changed);
+
+        return guaranteed.Contains(entryBlock)
+            ? CleanupCoverage.Guaranteed
+            : CleanupCoverage.Indeterminate;
     }
 
     static ImmutableArray<InstructionExceptionRegion> RequireLocation(

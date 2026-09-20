@@ -155,6 +155,22 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup()
+    {
+        Action callback = OwnershipBarrier;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+            GC.KeepAlive(callback);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static unsafe void RentWithFunctionPointer(
         delegate*<byte[], void> callback)
     {
@@ -389,6 +405,20 @@ public static class Entry
         {
             if (release)
                 ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossThrowingCleanupSetup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            OwnershipBarrier();
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 

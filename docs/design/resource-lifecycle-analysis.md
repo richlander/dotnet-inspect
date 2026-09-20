@@ -134,19 +134,22 @@ root only when Resource Occurrence Analysis associated that exact root with the
 call.
 
 Cleanup in an enclosing `finally` or credited catch-all handler is guaranteed
-only when a release occurs in the handler-entry basic block, which every
-handler path traverses. A release elsewhere in the handler is indeterminate:
-the root gains an exception-flow limitation and the boundary produces no
-speculative exceptional-cleanup outcome.
+only when every control-flow path from the handler entry reaches a release
+before leaving the handler and no modeled throwing instruction precedes that
+release. A handler with a path that bypasses release is indeterminate: the root
+gains an exception-flow limitation and the boundary produces no speculative
+exceptional-cleanup outcome.
 
 Resource Triage preserves its legacy ArrayPool boundary contract through a
 narrow compatibility walk over the root local's reaching-definition uses. The
 walk reuses the established ArrayPool use classifier and downstream
 setup-boundary traversal so transparent framework wrappers retain their
 reported boundary sequence, while nonthrowing setup calls, address-taken
-flows, and indirect dispatch remain suppressed or incomplete exactly as the
-legacy oracle requires. Other resource kinds continue to use occurrence-derived
-direct-call boundaries.
+flows, and indirect dispatch that participates in the tracked root remain
+suppressed or incomplete exactly as the legacy oracle requires. Unrelated
+method-group or indirect-dispatch instructions do not suppress another root's
+sound boundary evidence. Other resource kinds continue to use
+occurrence-derived direct-call boundaries.
 
 The result preserves positive outcomes even when another root or another part
 of the method is incomplete. A root is complete only when:
@@ -226,8 +229,9 @@ The Release `ILInspector.Analysis.Tests` gate establishes:
 - direct acquisition and release with no violation;
 - supported missing normal and exceptional release;
 - same-block use after release and double release;
-- exceptional cleanup protected, unprotected, and conditionally protected by
-  `finally`;
+- exceptional cleanup protected, unprotected, conditionally protected, or
+  preceded by modeled throwing setup in `finally`;
+- an unprotected root remains reportable beside an unrelated method group;
 - exact boundary suppression for `throws=never`;
 - legacy suppression for address-taken and indirect-dispatch shapes;
 - invalid storage and caller-return transfer;

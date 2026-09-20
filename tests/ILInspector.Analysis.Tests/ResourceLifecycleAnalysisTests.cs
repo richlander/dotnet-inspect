@@ -138,12 +138,37 @@ public sealed class ResourceLifecycleAnalysisTests
         ResourceLifecycleRootResult root =
             Root(execution, "RentAcrossProtectedThrowingBoundary");
 
+        Assert.True(
+            root.IsComplete,
+            string.Join(
+                "; ",
+                root.Limitations.Select(static limitation =>
+                    limitation.Detail)));
         Assert.DoesNotContain(
             root.Outcomes,
             outcome =>
                 outcome.Kind
                 == ResourceLifecycleOutcomeKind
                     .ExceptionalCleanupMissing);
+    }
+
+    [Fact]
+    public void LifecycleRequest_PreservesRootWithUnrelatedMethodGroup()
+    {
+        ResourceLifecycleRootResult root = Root(
+            Analyze(),
+            "RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup");
+
+        ResourceLifecycleOutcome outcome = Assert.Single(
+            root.Outcomes,
+            candidate =>
+                candidate.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+        Assert.Contains(
+            outcome.Boundaries,
+            boundary =>
+                boundary.Call.Callee.Name == "ObserveResource");
     }
 
     [Fact]
@@ -180,6 +205,26 @@ public sealed class ResourceLifecycleAnalysisTests
         Assert.IsType<
             FindingInspection<ResourceLifecycleOccurrence>.Failed>(
                 inspection.Value);
+    }
+
+    [Fact]
+    public void LifecycleRequest_DoesNotCreditThrowingCleanupSetup()
+    {
+        ResourceLifecycleRootResult root =
+            Root(Analyze(), "RentAcrossThrowingCleanupSetup");
+
+        Assert.False(root.IsComplete);
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+        Assert.Contains(
+            root.Limitations,
+            limitation =>
+                limitation.Kind
+                    == ResourceLifecycleLimitationKind.ExceptionFlow);
     }
 
     [Fact]
