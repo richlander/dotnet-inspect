@@ -186,7 +186,7 @@ each one executes.
 
 A reusable **facet definition** declares:
 
-- one stable identity and canonical query key;
+- one stable identity and one canonical query key;
 - one typed value domain;
 - the admitted operator identities;
 - cardinality and repeated-term composition;
@@ -194,7 +194,13 @@ A reusable **facet definition** declares:
 - compatibility identity for portable replay.
 
 A facet definition does not make the facet executable. It becomes available
-only through one of two bindings.
+only through one of two bindings. Within one effective query space, the
+canonical query-key namespace is unique across all executable bindings: one key
+resolves to exactly one binding, semantic stage, and optional row-set identity.
+Handwritten and generated registration fail before capability discovery or
+host construction when two active bindings claim the same canonical key.
+Portable intent therefore remains a `(key, operator, value)` term and does not
+acquire a stage or row-space discriminator.
 
 An **operation facet binding** declares:
 
@@ -211,16 +217,17 @@ A **row facet binding** declares:
 - optional sequence or ranking order capabilities; and
 - no authority to initiate source or acquisition work.
 
-The same facet definition may support more than one binding when its value
-domain and operator meanings remain equivalent. The bindings may still differ
-in quantification, evidence, completion, and failure behavior. For example,
-`references prefix System.` may mean that a Package candidate has at least one
-matching reference across its admitted Libraries, while the Library operation
-evaluates one Library candidate and the References row space evaluates each
+The same facet definition may support different bindings in different
+effective query spaces when its value domain and operator meanings remain
+equivalent. The bindings may still differ in quantification, evidence,
+completion, and failure behavior. For example, `references prefix System.` may
+mean that a Package candidate has at least one matching reference across its
+admitted Libraries, while another route's References row space evaluates each
 declared reference row.
 
-The same key spelling does not imply the same facet or binding. A displayed
-field or section name never creates a facet.
+Display labels may coincide across operation and row facets, but bindings
+exposed together use distinct canonical query keys. A displayed field or
+section name never creates a facet or supplies a portable lookup key.
 
 The current Query Operation implementation's `ResultPredicate` term role is
 transitional. Result predicates belong to explicit row-space bindings composed
@@ -527,8 +534,9 @@ The eventual implementation and adopter gates must preserve these cases:
 - NuGet Search reports `totalHits` for its broader ranked query. Exact-prefix
   filtering and package-ID deduplication prevent that field from satisfying
   final Count.
-- An operation facet and a row facet use the same displayed word. The route
-  resolves each through its declared stage rather than guessing from spelling.
+- An operation facet and a row facet use the same displayed word. They expose
+  distinct canonical query keys, and portable round-trip resolution preserves
+  each binding's declared stage without guessing from display spelling.
 - A generated consumer omits a control. The runtime descriptor remains
   complete and another host can expose the capability.
 - A source advertises prefix filtering but cannot preserve the required
@@ -545,8 +553,9 @@ Implementation proceeds as focused owner adoptions:
 1. Lock this composition contract and its owner map.
 2. Extend Portable Query Intent with the explicit Prefix, NotPrefix, Contains,
    and NotContains identities.
-3. Have Query Operation Infrastructure compose explicit row spaces and retire
-   its transitional `ResultPredicate` role.
+3. Have Query Operation Infrastructure compose explicit row spaces, reject
+   duplicate canonical keys across the effective operation and row bindings,
+   and retire its transitional `ResultPredicate` role.
 4. Preserve structural predicate and order nodes through row-query resolution
    beside local executable bindings.
 5. Extend Source Delegation through a separate focused continuation-receipt
@@ -573,6 +582,7 @@ slices:
 | Gate | Required property |
 | --- | --- |
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
+| `EffectiveQuerySpaceKeysResolveUniquely` | Handwritten and generated registration reject duplicate canonical keys across active operation and row bindings; a portable term round-trip resolves to exactly one semantic stage and optional row set. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
