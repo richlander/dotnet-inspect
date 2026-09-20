@@ -102,59 +102,6 @@ public abstract class InstalledPlatformLibraryMaterializationResult
 }
 
 /// <summary>
-/// Result of materializing one authoritative installed single-view population.
-/// </summary>
-public abstract class InstalledPlatformPopulationMaterializationResult
-{
-    private protected InstalledPlatformPopulationMaterializationResult(
-        PlatformPopulationRealizationResult realization) =>
-        Realization = realization;
-
-    public PlatformPopulationRealizationResult Realization { get; }
-
-    /// <summary>
-    /// Transfers every Library owner and the adjacent Artifact authority only
-    /// through complete population settlement.
-    /// </summary>
-    public sealed class Completed :
-        InstalledPlatformPopulationMaterializationResult
-    {
-        internal Completed(
-            PlatformPopulationRealizationResult.Completed population,
-            ArtifactSetSession artifacts)
-            : base(population)
-        {
-            ArgumentNullException.ThrowIfNull(artifacts);
-            Population = population;
-            Artifacts = artifacts;
-        }
-
-        public PlatformPopulationRealizationResult.Completed Population
-        {
-            get;
-        }
-
-        public ArtifactSetSession Artifacts { get; }
-    }
-
-    /// <summary>
-    /// Retains only resource-free terminal evidence after population cleanup.
-    /// </summary>
-    public sealed class Terminal :
-        InstalledPlatformPopulationMaterializationResult
-    {
-        internal Terminal(
-            PlatformPopulationRealizationResult.Terminal realization)
-            : base(realization) =>
-            TerminalRealization = realization;
-
-        public PlatformPopulationRealizationResult.Terminal
-            TerminalRealization
-        { get; }
-    }
-}
-
-/// <summary>
 /// Selects successful installed source snapshots for the shared Artifact and
 /// exact one-Library ownership handoff.
 /// </summary>
@@ -218,7 +165,7 @@ public static class InstalledPlatformLibraryMaterializer
     /// Materializes one authoritative installed reference population.
     /// </summary>
     public static async ValueTask<
-        InstalledPlatformPopulationMaterializationResult>
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeReferencePopulationAsync(
             PlatformHouseRequest request,
             InstalledPlatformHouseResult<
@@ -245,7 +192,7 @@ public static class InstalledPlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return ToInstalledPopulationResult(outcome);
+        return outcome;
     }
 
     /// <summary>
@@ -253,7 +200,7 @@ public static class InstalledPlatformLibraryMaterializer
     /// populations through PlatformHouse-issued view correspondence.
     /// </summary>
     public static async ValueTask<
-        InstalledPlatformPopulationMaterializationResult>
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeReferenceAndImplementationPopulationAsync(
             PlatformHouseRequest request,
             InstalledPlatformHouseResult<
@@ -291,14 +238,14 @@ public static class InstalledPlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return ToInstalledPopulationResult(outcome);
+        return outcome;
     }
 
     /// <summary>
     /// Materializes one authoritative installed implementation population.
     /// </summary>
     public static async ValueTask<
-        InstalledPlatformPopulationMaterializationResult>
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeImplementationPopulationAsync(
             PlatformHouseRequest request,
             InstalledPlatformHouseResult<
@@ -325,7 +272,7 @@ public static class InstalledPlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return ToInstalledPopulationResult(outcome);
+        return outcome;
     }
 
     static async ValueTask<InstalledPlatformLibraryMaterializationResult>
@@ -835,25 +782,6 @@ public static class InstalledPlatformLibraryMaterializer
             $"{prefix}{version.Major}.{version.Minor}");
         return PlatformTargetFramework.TryParse(value, out targetFramework);
     }
-
-    static InstalledPlatformPopulationMaterializationResult
-        ToInstalledPopulationResult(
-            PlatformPopulationArtifactMaterializationOutcome outcome) =>
-        outcome switch
-        {
-            PlatformPopulationArtifactMaterializationOutcome.Completed
-                completed =>
-                new InstalledPlatformPopulationMaterializationResult
-                    .Completed(
-                        completed.Population,
-                        completed.Artifacts),
-            PlatformPopulationArtifactMaterializationOutcome.Terminal
-                terminal =>
-                new InstalledPlatformPopulationMaterializationResult
-                    .Terminal(terminal.TerminalRealization),
-            _ => throw new InvalidOperationException(
-                "Unknown Platform population Artifact materialization outcome."),
-        };
 
     static bool ValidContribution(
         PlatformHouseRequest request,
