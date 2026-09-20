@@ -183,6 +183,49 @@ The registration is explicit and statically enumerable. Reflection,
 assembly scanning, parser-help scraping, rendered-document parsing, and
 display-name normalization are not registration mechanisms.
 
+### Adopted-domain totality
+
+Each owner adapter declares one explicit adopted descriptor domain. The
+declaration names:
+
+- the owner and descriptor contract;
+- the complete resource kinds adopted from that descriptor;
+- the descriptor's authoritative resource and relationship enumerations;
+- the typed direct facts selected for each resource-detail variant; and
+- the canonical path registration source for every adopted resource.
+
+The adopted boundary is a whole catalog or other owner-issued descriptor
+domain, not an adapter-selected list of individual identities. The source owner
+must expose complete resource and relationship enumeration for that domain; a
+descriptor without such enumeration is not adoptable. Closed kind dispatch is
+exhaustive, so a newly issued resource or relationship kind either receives a
+projector or prevents construction.
+
+Adapter construction is bidirectionally total within that boundary:
+
+- every authoritative resource of an adopted kind has exactly one canonical
+  registration and exactly one typed resource projection;
+- every canonical registration resolves to exactly one authoritative resource
+  in the declared domain;
+- every authoritative relationship of an adopted kind produces exactly one
+  typed graph edge, including an opaque external edge when the target owner has
+  no registered path; and
+- no projected resource or relationship exists without its owner-issued
+  source.
+
+Construction rejects missing resources, missing relationships, duplicate
+projections, extra projections, and path registrations outside the declared
+domain. This check runs against the completed owner descriptor, not a
+hand-maintained expected-count snapshot.
+
+Partial product adoption is expressed only by a different whole domain. The
+first slice adopts the complete Library structural domain from its
+`DiscoveryDocument`; it does not adopt Query Space or Product Vocabulary.
+Within that structural domain, an adapter cannot silently omit a newly added
+category, section, field, column, membership, or structural ownership edge.
+Later owner adoptions add their complete declared domains rather than
+cherry-picking resources by name.
+
 ### Canonical path grammar
 
 A canonical path is one unquoted shell argument:
@@ -261,7 +304,8 @@ Resolution has three outcomes:
 2. **Unknown** — no registration matches; the operation fails with bounded
    canonical suggestions and produces no partial Document.
 3. **Invalid registry** — duplicate, dangling, or owner-inconsistent
-   registration prevents publication of the catalog.
+   registration, or incomplete adopted-domain coverage, prevents publication
+   of the catalog.
 
 A path-shaped value that resolves to several resources is an invalid registry,
 not a runtime ambiguity to rank.
@@ -625,8 +669,10 @@ The pathological graph includes:
 - a later owner-issued complete, constrained-subset, or open value domain;
 - a section with no item vocabulary;
 - a category whose complete capability set differs from one member;
+- an authoritative resource added without a path registration;
+- an authoritative relationship omitted by its adapter;
 - a cycle of cross-owner navigational relationships; and
-- a valid expansion truncated at the requested depth.
+- valid expansions truncated by depth, resource, and relationship limits.
 
 ## Invariants and evidence
 
@@ -635,6 +681,7 @@ Implementation slices must name Release gates for the following properties:
 | Property | Required gate |
 | --- | --- |
 | Canonical paths are shell-safe, unique case-insensitively, and registered rather than derived from labels. | Registry-construction tests over every shipped registration. |
+| Each adopted descriptor domain has bidirectionally total resource registration and relationship projection. | Adapter-construction tests comparing the complete real owner enumerations with projected identities and edges, plus omission, duplicate, and extra-projection contract fixtures. |
 | Exact resolution returns one root or a visible failure with no partial Document. | Resolver contract tests including unknown paths and bounded suggestions. |
 | Structural, query, and value details preserve owner-issued typed identities and native values. | Adapter contract tests against real owner descriptors. |
 | Equal labels do not create resource identity or relationships. | Collision fixture spanning structural and query owners. |
@@ -657,8 +704,9 @@ implementation property is **unverified**.
 ## Production adoption
 
 1. Lock this owner, path contract, explanation Document, and host boundaries.
-2. Add the host-neutral registry, exact resolver, structural detail variant,
-   and envelope-returning Resource Explanation service.
+2. Add the host-neutral adopted-domain manifest, total registry, exact
+   resolver, structural detail variant, and envelope-returning Resource
+   Explanation service.
 3. Add the CLI `explain` facade and Library structural adoption, including
    structured Content JSON.
 4. Add one Browser/Wasm consumer of the same structural explanation envelope.
