@@ -611,6 +611,65 @@ test("overlapping unknown cancellations retain every receipt until retry", async
   assert.deepEqual(fixture.controller.state.definitions, []);
 });
 
+test("cancelling current activation also retries older uncertain receipt", async () => {
+  const fixture = createFixture();
+  const firstCancellation =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.cancellationResponses.push(firstCancellation.promise);
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const firstAcceptance = deferred<boolean>();
+  const secondAcceptance = deferred<boolean>();
+
+  const selectFirst = fixture.controller.activate(
+    first.id,
+    () => firstAcceptance.promise,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const selectSecond = fixture.controller.activate(
+    second.id,
+    () => secondAcceptance.promise,
+  );
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  firstAcceptance.resolve(true);
+  await new Promise(resolve => setImmediate(resolve));
+  firstCancellation.reject(new Error("First cancellation response was lost."));
+  await assert.rejects(selectFirst, /First cancellation response was lost/);
+
+  assert.equal(fixture.controller.cancelPending(), true);
+  secondAcceptance.resolve(true);
+  const secondResult = await selectSecond;
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(secondResult.status, "superseded");
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
+  assert.deepEqual(
+    fixture.client.cancelledReceipts,
+    ["receipt-1", "receipt-1", "receipt-2"],
+  );
+});
+
 test("cancellation before preparation prevents cutover", async () => {
   const fixture = createFixture();
   const definition = fixture.controller.retain({
@@ -1520,6 +1579,64 @@ test("active deletion activates the next definition before removal", async () =>
   );
 });
 
+test("waiting activation cannot revoke committed deletion", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const third = fixture.controller.retain({
+    label: "C",
+    canonicalLocation: "/c",
+    canonicalPacket: "packet-c",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const successorCompletion = deferred<void>();
+  const deletion = fixture.controller.delete(first.id, {
+    completeSuccessor: () => successorCompletion.promise,
+  });
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  const barrier = fixture.controller.waitForPendingCommit();
+  assert.notEqual(barrier, null);
+  const selectThird = barrier!.then(
+    () => fixture.controller.activate(third.id),
+  );
+  successorCompletion.resolve();
+  await deletion;
+
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id, third.id],
+  );
+  fixture.client.activations[2]!.resolve({
+    status: "activated",
+    posting: posting(third.id, "realization-3"),
+    failure: null,
+  });
+  await selectThird;
+  assert.equal(fixture.controller.state.activeDefinitionId, third.id);
+});
+
 test("active deletion removes retired definition after cutover failure", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
@@ -1930,6 +2047,8 @@ test("unknown deactivation outcome keeps the transition barrier", async () => {
     fixture.controller.state.deactivatingDefinitionId,
     first.id,
   );
+  assert.equal(fixture.controller.state.activeDefinitionId, null);
+  assert.equal(fixture.clears(), 1);
   assert.notEqual(fixture.controller.waitForPendingCommit(), null);
   await assert.rejects(
     fixture.controller.activate(first.id),

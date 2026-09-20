@@ -71,7 +71,7 @@ export interface RetainedWorkspaceActivationClient {
     revision: string,
     intent: string,
     epoch: string,
-  ): boolean;
+  ): boolean | Promise<boolean>;
   recordRetainedWorkspaceNavigationPosting(
     realizationId: string,
     publicationOrdinal: number,
@@ -290,7 +290,7 @@ export function createRetainedWorkspaceActivationController(
     ) => void | Promise<void>,
   ): Promise<boolean> {
     const authority = authorityArguments(posting);
-    if (!client.validateRetainedWorkspaceNavigationAuthority(
+    if (!await client.validateRetainedWorkspaceNavigationAuthority(
       ...authority,
     )) {
       await abandonPosting(posting);
@@ -740,6 +740,13 @@ export function createRetainedWorkspaceActivationController(
   function cancelPending(): boolean {
     if (committingDefinitionId !== null
       || soleDeactivationIntent !== null) return false;
+    const cancelledGeneration = selectionGeneration;
+    selectionGeneration++;
+    pendingDefinitionId = null;
+    const receipt = currentActivationReceipt;
+    currentActivationReceipt = null;
+    const receiptHasUncertainCancellation =
+      receipt !== null && uncertainCancellations.has(receipt);
     if (uncertainCancellations.size > 0) {
       for (const intent of uncertainCancellations.values()) {
         if (intent.retry !== null) continue;
@@ -772,14 +779,8 @@ export function createRetainedWorkspaceActivationController(
           },
         );
       }
-      return true;
     }
-    const cancelledGeneration = selectionGeneration;
-    selectionGeneration++;
-    pendingDefinitionId = null;
-    const receipt = currentActivationReceipt;
-    if (receipt === null) return true;
-    currentActivationReceipt = null;
+    if (receipt === null || receiptHasUncertainCancellation) return true;
     void requestCancellation(receipt).then(
       result => {
         if (selectionGeneration === cancelledGeneration + 1
@@ -859,10 +860,8 @@ export function createRetainedWorkspaceActivationController(
         options.acceptSuccessor,
         options.completeSuccessor,
       );
-      const successorGeneration = selectionGeneration;
       const completeCommittedDeletion = (): void => {
-        if (selectionGeneration !== successorGeneration
-          || activeDefinitionId !== successor.id
+        if (activeDefinitionId !== successor.id
           || committingDefinitionId !== null
           || hasUnsettledActivation(retainedDefinitionId)
           || !definitions.some(
@@ -909,6 +908,21 @@ export function createRetainedWorkspaceActivationController(
         lastFailure = error instanceof Error
           ? error.message
           : "Retained Workspace deactivation outcome is unknown.";
+        activeDefinitionId = null;
+        try {
+          hooks.clear();
+        } catch (clearError) {
+          const clearMessage = clearError instanceof Error
+            ? clearError.message
+            : "Retained Workspace presentation reconciliation failed.";
+          lastFailure += ` Presentation reconciliation failed: ${clearMessage}`;
+          throw new AggregateError(
+            [error, clearError],
+            "Retained Workspace deactivation response and presentation "
+              + "reconciliation failed.",
+            { cause: clearError },
+          );
+        }
         throw error;
       }
       if (soleDeactivationIntent?.generation !== intent.generation) {

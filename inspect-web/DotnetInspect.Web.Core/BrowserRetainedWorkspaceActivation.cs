@@ -951,8 +951,6 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             }
             _activationCommitPending = false;
             _latestIntent = null;
-            if (!succeeded && active.Predecessor is { } predecessor)
-                _settlements.Remove(predecessor.SettlementId);
         }
 
         intent.Dispose();

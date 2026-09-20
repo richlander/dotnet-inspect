@@ -498,6 +498,11 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 incumbent.RealizationId,
                 incumbent.PublicationOrdinal,
                 incumbentAuthority));
+        Assert.NotNull(activated.Posting.Predecessor);
+        Assert.IsType<BrowserRetainedWorkspaceSettlementResult.Settled>(
+            await owner.ObserveSettlementAsync(
+                activated.Posting.Predecessor.SettlementId,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -97,6 +97,8 @@ type CallGraphOperationName =
 type CatalogOperationName =
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
+  | "abandonRetainedWorkspaceNavigation"
+  | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "cancelRetainedWorkspaceActivation"
   | "canonicalizeWorkspaceSharePacket"
@@ -108,8 +110,10 @@ type CatalogOperationName =
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
   | "prepareRetainedWorkspaceDefinition"
+  | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
-  | "runHomeDemo";
+  | "runHomeDemo"
+  | "validateRetainedWorkspaceNavigationAuthority";
 
 type AsyncMethod<TMethod> =
   TMethod extends (...args: infer TArgs) => infer TResult
@@ -1169,6 +1173,26 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
+    abandonRetainedWorkspaceNavigation: valueOperation(
+      "ordinary-catalog-abandon-retained-workspace-navigation",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["abandonRetainedWorkspaceNavigation"]
+        >
+      ) => facades.catalog.abandonRetainedWorkspaceNavigation(...args),
+    ),
+    acknowledgeRetainedWorkspaceNavigation: valueOperation(
+      "ordinary-catalog-acknowledge-retained-workspace-navigation",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["acknowledgeRetainedWorkspaceNavigation"]
+        >
+      ) => facades.catalog.acknowledgeRetainedWorkspaceNavigation(...args),
+    ),
     admitRetainedWorkspacePackage: valueOperation(
       "ordinary-catalog-admit-retained-workspace-package",
       4,
@@ -1316,6 +1340,16 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
+    recordRetainedWorkspaceNavigationPosting: valueOperation(
+      "ordinary-catalog-record-retained-workspace-navigation-posting",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["recordRetainedWorkspaceNavigationPosting"]
+        >
+      ) => facades.catalog.recordRetainedWorkspaceNavigationPosting(...args),
+    ),
     runHomeDemo: valueOperation(
       "ordinary-catalog-run-home-demo",
       1,
@@ -1323,6 +1357,18 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<CatalogFacade["runHomeDemo"]>
       ) => facades.catalog.runHomeDemo(...args),
+    ),
+    validateRetainedWorkspaceNavigationAuthority: valueOperation(
+      "ordinary-catalog-validate-retained-workspace-navigation-authority",
+      6,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["validateRetainedWorkspaceNavigationAuthority"]
+        >
+      ) => facades.catalog.validateRetainedWorkspaceNavigationAuthority(
+        ...args,
+      ),
     ),
   },
 } as const;
@@ -1556,6 +1602,14 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
+      abandonRetainedWorkspaceNavigation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .abandonRetainedWorkspaceNavigation,
+      ),
+      acknowledgeRetainedWorkspaceNavigation: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .acknowledgeRetainedWorkspaceNavigation,
+      ),
       admitRetainedWorkspacePackage: bind(
         engineWorkerOrdinaryOperations.catalog
           .admitRetainedWorkspacePackage,
@@ -1611,8 +1665,16 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .prepareRetainedWorkspaceDefinition,
       ),
+      recordRetainedWorkspaceNavigationPosting: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .recordRetainedWorkspaceNavigationPosting,
+      ),
       runHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.runHomeDemo,
+      ),
+      validateRetainedWorkspaceNavigationAuthority: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .validateRetainedWorkspaceNavigationAuthority,
       ),
     },
   };

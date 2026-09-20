@@ -87,6 +87,8 @@ type CallGraphOperations =
 type CatalogOperations =
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
+  | "abandonRetainedWorkspaceNavigation"
+  | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "cancelRetainedWorkspaceActivation"
   | "canonicalizeWorkspaceSharePacket"
@@ -100,8 +102,10 @@ type CatalogOperations =
   | "listVocabulary"
   | "observeRetainedWorkspaceSettlement"
   | "prepareRetainedWorkspaceDefinition"
+  | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
-  | "runHomeDemo";
+  | "runHomeDemo"
+  | "validateRetainedWorkspaceNavigationAuthority";
 
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
