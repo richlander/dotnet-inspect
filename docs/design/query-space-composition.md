@@ -229,6 +229,31 @@ Display labels may coincide across operation and row facets, but bindings
 exposed together use distinct canonical query keys. A displayed field or
 section name never creates a facet or supplies a portable lookup key.
 
+### Effective vocabulary identity
+
+Query Space constructs one effective portable vocabulary without treating
+owner-local identity strings as one accidental global namespace.
+
+Caller-addressed identities are unique within each typed lookup namespace.
+Canonical query keys, bound dimensions, and named orders each resolve to
+exactly one effective declaration of their kind. The same text may occur in
+different typed namespaces because portable intent distinguishes their shape,
+but duplicate declarations within one namespace fail composition before
+discovery or host construction.
+
+Resolver-internal identities are qualified by their binding scope. In
+particular, an operation family named `population` and a row family named
+`population` become distinct effective family identities; the same rule applies
+to bound predicate identities used for duplicate detection. Required-family
+checks use the qualified effective identity. A combining, exclusive, or
+required family never spans operation and row bindings implicitly.
+
+The qualification is structural, such as `(binding identity, owner-local
+identity)`; it is not user syntax and need not be serialized into a portable
+term. A future cross-binding family would require an explicit
+composition-owned identity and semantics. The initial algebra contains no such
+family.
+
 The current Query Operation implementation's `ResultPredicate` term role is
 transitional. Result predicates belong to explicit row-space bindings composed
 beside the operation route. Removing that role is a focused Query Operation
@@ -537,6 +562,9 @@ The eventual implementation and adopter gates must preserve these cases:
 - An operation facet and a row facet use the same displayed word. They expose
   distinct canonical query keys, and portable round-trip resolution preserves
   each binding's declared stage without guessing from display spelling.
+- An operation binding and a row binding both declare an owner-local family
+  named `population`. Their qualified effective family identities neither
+  combine, conflict, nor satisfy one another's required-family rule.
 - A generated consumer omits a control. The runtime descriptor remains
   complete and another host can expose the capability.
 - A source advertises prefix filtering but cannot preserve the required
@@ -553,9 +581,9 @@ Implementation proceeds as focused owner adoptions:
 1. Lock this composition contract and its owner map.
 2. Extend Portable Query Intent with the explicit Prefix, NotPrefix, Contains,
    and NotContains identities.
-3. Have Query Operation Infrastructure compose explicit row spaces, reject
-   duplicate canonical keys across the effective operation and row bindings,
-   and retire its transitional `ResultPredicate` role.
+3. Have Query Operation Infrastructure compose explicit row spaces, construct
+   the effective vocabulary's caller-addressed and scope-qualified internal
+   identities, and retire its transitional `ResultPredicate` role.
 4. Preserve structural predicate and order nodes through row-query resolution
    beside local executable bindings.
 5. Extend Source Delegation through a separate focused continuation-receipt
@@ -582,7 +610,7 @@ slices:
 | Gate | Required property |
 | --- | --- |
 | `QuerySpaceDescriptorMatchesExecutableBindings` | Discovery, host construction, and executable resolution derive from the same effective operation and row bindings. |
-| `EffectiveQuerySpaceKeysResolveUniquely` | Handwritten and generated registration reject duplicate canonical keys across active operation and row bindings; a portable term round-trip resolves to exactly one semantic stage and optional row set. |
+| `EffectiveQuerySpaceIdentitiesRemainScoped` | Handwritten and generated registration reject duplicate caller-addressed identities within each typed namespace; portable term round-trip resolves to one stage and optional row set; same-named owner-local families and predicates in different binding scopes cannot combine, conflict, satisfy, or collapse one another. |
 | `OperationAndRowFacetStagesRemainDistinct` | An operation facet may authorize work; a row facet cannot, and identical display spelling never changes the bound stage. |
 | `ResolvedRowPlanRetainsStructuralMeaning` | Every executable predicate and order remains associated with its facet, operator, normalized operand, row set, and semantic stage. |
 | `ClosedOperatorAlgebraRejectsExecutableContent` | Portable resolution rejects unknown operators and carries no delegate, expression tree, regex program, or host callback. |
