@@ -230,6 +230,63 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task DependencyHierarchySelfCycleReusesAdmittedRoot()
+    {
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            await PackageAsync(
+                SelectedPackage,
+                typeof(ApiType).Assembly.Location,
+                SelectedPackage));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        var requests = new DependencyRequestLog();
+        using var client = new HttpClient(
+            new DependencyHandler(
+                SelectedPackage,
+                SelectedPackage,
+                requests));
+        var context = new CommandContext(
+            verbose: false,
+            client,
+            createPackageSourceComposition: () =>
+                new DesktopPackageSourceComposition(
+                    TimeSpan.FromSeconds(5),
+                    new NoCredentials(),
+                    (_, _) => new DependencyHandler(
+                        SelectedPackage,
+                        SelectedPackage,
+                        requests)));
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            IncludeSections = [PackageSections.DependencyHierarchy],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                context,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(requests.Requests);
+        Assert.Contains(
+            SelectedPackage,
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CompatibleAssetKeepsRequestedContextForDependencies()
     {
         const string requestedDependency = "child.requested";
@@ -796,6 +853,44 @@ public sealed class ExactPackageWorkspaceRouteTests
             result.Error,
             StringComparison.Ordinal);
         Assert.False(File.Exists(evidencePath));
+    }
+
+    [Fact]
+    public async Task
+        EvidenceSidecarRejectsWindowsExtendedPrimaryAliasBeforeRestoration()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var directory =
+            new TemporaryTestDirectory("package-workspace-output-alias-");
+        string outputPath =
+            Path.Combine(directory.FullName, "output.json");
+        string evidencePath = @"\\?\" + outputPath;
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = "not-restored",
+            OutputPath = outputPath,
+            EvidenceEnvelopePath = evidencePath,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(
+                    new HttpClient(new FailingHandler()),
+                    new InMemoryPackageStore())));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--out and --evidence-envelope must name distinct files.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(outputPath));
     }
 
     [Fact]

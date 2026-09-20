@@ -55,10 +55,9 @@ public partial class PackageCommand
                 return 1;
             }
 
-            if (string.Equals(
+            if (EvidenceEnvelopeOutput.PathsMayIdentifySameFile(
                     evidencePath,
-                    outputPath,
-                    StringComparison.OrdinalIgnoreCase))
+                    outputPath))
             {
                 CommandError.Write(
                     "--out and --evidence-envelope must name distinct files.");

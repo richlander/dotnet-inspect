@@ -929,7 +929,12 @@ public partial class DependsCommand
                                         ? PackageDependencyTraversalExpansionAuthority
                                             .DirectDeclarationsOnly
                                         : PackageDependencyTraversalExpansionAuthority
-                                            .RecursiveSources)),
+                                            .RecursiveSources,
+                                    suppliedAcquisition is null
+                                        ? PackageDependencyTraversalRootRecurrenceAuthority
+                                            .None
+                                        : PackageDependencyTraversalRootRecurrenceAuthority
+                                            .ExactCoordinate)),
                         ],
                         frameworkMode,
                         new PackageDependencyTraversalCandidateAdapter(
