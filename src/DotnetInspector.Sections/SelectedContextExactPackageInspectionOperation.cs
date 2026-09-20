@@ -104,11 +104,13 @@ public sealed class SelectedContextExactPackageLiveTarget
     internal SelectedContextExactPackageLiveTarget(
         PackageRootBinding root,
         PackageRootOccurrenceBinding occurrence,
-        WorkspaceMemberCoordinate.PackageMember declaredMember)
+        WorkspaceMemberCoordinate.PackageMember declaredMember,
+        string? contextTargetFramework)
     {
         Root = root;
         Occurrence = occurrence;
         DeclaredMember = declaredMember;
+        ContextTargetFramework = contextTargetFramework;
     }
 
     public PackageRootBinding Root { get; }
@@ -116,6 +118,8 @@ public sealed class SelectedContextExactPackageLiveTarget
     public PackageRootOccurrenceBinding Occurrence { get; }
 
     public WorkspaceMemberCoordinate.PackageMember DeclaredMember { get; }
+
+    public string? ContextTargetFramework { get; }
 
     public TResult UseContent<TResult>(
         Func<IPackageContent, TResult> operation) =>
@@ -331,8 +335,9 @@ public static class SelectedContextExactPackageInspectionOperation
                         root.Root.PackageVersion,
                         context.Receipt.Order,
                         memberOrder,
-                        root.Root.AssetSelection.TargetFramework
-                            ?? root.Root.RequestedTargetFramework,
+                        declaration.Input.Framework
+                            ?? root.Root.RequestedTargetFramework
+                            ?? root.Root.AssetSelection.TargetFramework,
                         root.Root.RequestedRuntimeIdentifier,
                         root.Root.AssetSelection.Status)));
         }
@@ -409,7 +414,8 @@ public static class SelectedContextExactPackageInspectionOperation
         var target = new SelectedContextExactPackageLiveTarget(
             selected.Root,
             activatedOccurrence.Occurrence,
-            selected.Member);
+            selected.Member,
+            declaration.Input.Framework);
         TContent content = await inspect(target).ConfigureAwait(false);
 
         InspectionShare share =

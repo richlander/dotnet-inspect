@@ -190,8 +190,9 @@ public partial class PackageCommand
                 WorkspacePacket = null,
                 ShareFormat = null,
                 Tfm =
-                    target.Root.Root.AssetSelection.TargetFramework
-                    ?? target.Root.Root.RequestedTargetFramework,
+                    target.ContextTargetFramework
+                    ?? target.Root.Root.RequestedTargetFramework
+                    ?? target.Root.Root.AssetSelection.TargetFramework,
 #if DEBUG
                 EvidenceEnvelopePath = null,
 #endif
@@ -220,12 +221,14 @@ public partial class PackageCommand
     {
         string[] entries = [.. content.EnumerateEntries()];
         byte[]? manifestBytes = null;
-        string? manifestEntry = entries.FirstOrDefault(entry =>
-            !entry.Contains('/')
-            && entry.EndsWith(".nuspec", StringComparison.Ordinal));
+        string? manifestEntry =
+            PackageManifestContent.FindRootManifest(content);
         if (manifestEntry is not null)
         {
-            if (!content.TryOpenEntry(manifestEntry, out Stream? manifest))
+            if (!content.TryOpenEntry(
+                    manifestEntry,
+                    PackageManifestFactsQuery.MaxManifestBytes,
+                    out Stream? manifest))
             {
                 throw new IOException(
                     $"The admitted Package entry '{manifestEntry}' could not be opened.");
@@ -409,6 +412,19 @@ public partial class PackageCommand
     {
         if (options.ShareFormat is null)
             return null;
+        if (options.ListVersions
+            || options.ListLayout
+            || options.ListTfms
+            || options.ShowContent
+            || options.Discover is not null
+            || options.PackageLibrary is not null
+            || options.AllLibraries)
+        {
+            return new(
+                "package/lens",
+                "The requested Package lens has no portable Workspace "
+                    + "Package facet.");
+        }
         if (options.IncludeSections is { Count: > 0 }
             && (options.IncludeSections.Count != 1
                 || !options.IncludeSections.Contains(
@@ -418,14 +434,6 @@ public partial class PackageCommand
                 "package/sections",
                 "The requested Package section selection has no portable "
                     + "Workspace Package facet.");
-        }
-        if (options.Select is { Length: > 0 }
-            || options.SelectDefault)
-        {
-            return new(
-                "package/query",
-                "The requested Package query selection has no portable "
-                    + "Workspace query representation.");
         }
 
         return null;

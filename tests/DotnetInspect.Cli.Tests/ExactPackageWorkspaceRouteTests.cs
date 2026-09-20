@@ -22,6 +22,7 @@ public sealed class ExactPackageWorkspaceRouteTests
     const string FocusedPackage = "focused.package";
     const string Version = "1.0.0";
     const string Framework = "net11.0";
+    const string CompatibleAssetFramework = "net10.0";
     const string SourceUrl = "https://example.test/v3/index.json";
 
     static readonly PackageSource Source = new("test", SourceUrl);
@@ -226,6 +227,204 @@ public sealed class ExactPackageWorkspaceRouteTests
             requests.DependencyRequests > 0,
             "The child dependency must be traversed through the configured source.");
         Assert.Equal(0, requests.SelectedPackageRequests);
+    }
+
+    [Fact]
+    public async Task CompatibleAssetKeepsRequestedContextForDependencies()
+    {
+        const string requestedDependency = "child.requested";
+        const string assetDependency = "child.asset";
+        var store = new InMemoryPackageStore();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            Archive(
+                ($"lib/{CompatibleAssetFramework}/{SelectedPackage}.dll",
+                    assembly),
+                ($"{SelectedPackage}.nuspec",
+                    NuspecWithDependencyGroups(
+                        SelectedPackage,
+                        (Framework, requestedDependency),
+                        (CompatibleAssetFramework, assetDependency)))));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        var requests = new DependencyRequestLog();
+        using var client = new HttpClient(
+            new DependencyHandler(
+                SelectedPackage,
+                requestedDependency,
+                requests));
+        var context = new CommandContext(
+            verbose: false,
+            client,
+            createPackageSourceComposition: () =>
+                new DesktopPackageSourceComposition(
+                    TimeSpan.FromSeconds(5),
+                    new NoCredentials(),
+                    (_, _) => new DependencyHandler(
+                        SelectedPackage,
+                        requestedDependency,
+                        requests)));
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            IncludeSections = [PackageSections.DependencyHierarchy],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                context,
+                LoadOptions(client, store)));
+
+        Assert.True(
+            result.ExitCode == 0,
+            result.Error
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, requests.Requests));
+        Assert.Contains(
+            requestedDependency,
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            assetDependency,
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, requests.SelectedPackageRequests);
+    }
+
+    [Fact]
+    public async Task DependencyHierarchyUsesCaseInsensitiveRootManifest()
+    {
+        var store = new InMemoryPackageStore();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            Archive(
+                ($"lib/{Framework}/{SelectedPackage}.dll", assembly),
+                ("ROOT.NUSPEC", Nuspec(SelectedPackage))));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            IncludeSections = [PackageSections.DependencyHierarchy],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "## Dependency Hierarchy",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PackageInfoShareUsesOverviewFacet()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            ShareFormat = WorkspaceShareFormat.Packet,
+            Select = [PackageSections.PackageInfo],
+            SelectExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Package Info", result.Output);
+        string derivedPacket = Assert.Single(
+            result.Error.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries));
+        WorkspaceSharePacket derived =
+            WorkspaceSharePacketCodec.Decode(
+                derivedPacket,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "package.overview",
+            derived.ViewStates[1].Facet);
+    }
+
+    [Fact]
+    public async Task LayoutShareRefusalPreservesLayoutOutput()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            ShareFormat = WorkspaceShareFormat.Packet,
+            ListLayout = true,
+            ListLayoutExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            $"{SelectedPackage}.dll",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--share is not projectable at package/lens",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -766,6 +965,35 @@ public sealed class ExactPackageWorkspaceRouteTests
                       </dependencies>
                       """,
                 StringComparison.Ordinal));
+
+    static byte[] NuspecWithDependencyGroups(
+        string packageId,
+        params (string Framework, string Dependency)[] groups)
+    {
+        string dependencies = string.Join(
+            Environment.NewLine,
+            groups.Select(group =>
+                $"""
+                <group targetFramework="{group.Framework}">
+                  <dependency id="{group.Dependency}" version="[{Version}]" />
+                </group>
+                """));
+        return System.Text.Encoding.UTF8.GetBytes(
+            $"""
+            <?xml version="1.0"?>
+            <package>
+              <metadata>
+                <id>{packageId}</id>
+                <version>{Version}</version>
+                <authors>dotnet-inspect tests</authors>
+                <description>Workspace Package route fixture.</description>
+                <dependencies>
+                  {dependencies}
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+    }
 
     static byte[] Archive(
         params (string EntryPath, byte[] Content)[] entries)
