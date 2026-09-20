@@ -54,6 +54,7 @@ const NUSPEC_FACET: QueryPreset = {
   value: "true",
   label: "embedded README",
   tier: "nuspec",
+  executionClass: "nuspec",
 };
 const DOWNLOAD_FACET: QueryPreset = {
   id: "downloads:eq:1m",
@@ -62,6 +63,7 @@ const DOWNLOAD_FACET: QueryPreset = {
   value: "1m",
   label: "1M+ downloads",
   tier: "search-metadata",
+  executionClass: "search-metadata",
 };
 const TOOL_FACETS: readonly QueryPreset[] = [
   {
@@ -71,6 +73,7 @@ const TOOL_FACETS: readonly QueryPreset[] = [
     value: "true",
     label: ".NET Tool",
     tier: "nuspec",
+    executionClass: "nuspec",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",
   },
@@ -81,6 +84,7 @@ const TOOL_FACETS: readonly QueryPreset[] = [
     value: "v1",
     label: "v1",
     tier: "package-content",
+    executionClass: "package-content",
     selectionGroupId: "tool-format",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",
@@ -92,6 +96,7 @@ const TOOL_FACETS: readonly QueryPreset[] = [
     value: "v2",
     label: "v2",
     tier: "package-content",
+    executionClass: "package-content",
     selectionGroupId: "tool-format",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",
@@ -104,6 +109,7 @@ const SKILL_FACET: QueryPreset = {
   value: "true",
   label: "embedded SKILL.md",
   tier: "package-content",
+  executionClass: "package-content",
 };
 const FACETS: readonly QueryPreset[] = [
   NUSPEC_FACET,
@@ -117,6 +123,7 @@ const TERMS: readonly QueryTermDescriptor[] = [{
   summary: "Matches a direct dependency in any group.",
   weight: 10,
   tier: "nuspec",
+  executionClass: "nuspec",
   operators: ["eq"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
