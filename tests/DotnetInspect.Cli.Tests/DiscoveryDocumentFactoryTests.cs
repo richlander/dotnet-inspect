@@ -9,15 +9,21 @@ namespace DotnetInspect.Cli.Tests;
 public class DiscoveryDocumentFactoryTests
 {
     [Fact]
-    public void LibraryCatalog_ExposesCategoryAndSectionResources()
+    public void Catalog_ExposesCategoryAndSectionResourcesInStableOrder()
     {
-        StructuralSchemaProjection projection = LibraryProjection();
-
-        DiscoveryDocument document = Create(
-            projection,
+        var schema = new DocumentSchema()
+            .Add("Rows", "column", "Name")
+            .AddSection("Empty");
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>
+            {
+                ["@Group"] = ["Rows", "Empty"],
+            },
+            MarkdownCapabilities("Rows", "Empty"),
             discover: null);
 
-        Assert.Equal("library", document.Catalog);
+        Assert.Equal("synthetic", document.Catalog);
         Assert.NotEmpty(document.CatalogEntries);
         Assert.Equal(
             DiscoveryResourceKind.Category,
@@ -25,13 +31,12 @@ public class DiscoveryDocumentFactoryTests
         Assert.Contains(
             document.Resources,
             resource =>
-                resource.Identity
-                    == Section(SectionNames.ReferenceHierarchy)
+                resource.Identity == Section("Rows")
                 && resource.Members.Length > 0);
         Assert.Contains(
             document.Resources,
             resource =>
-                resource.Identity.Kind == DiscoveryResourceKind.Section
+                resource.Identity == Section("Empty")
                 && resource.Members.IsEmpty);
     }
 
@@ -171,9 +176,12 @@ public class DiscoveryDocumentFactoryTests
     [Fact]
     public void QueryItems_RetainKindBesideSameNamedColumns()
     {
-        StructuralSchemaProjection projection = LibraryProjection();
-        DiscoveryDocument document = Create(
-            projection,
+        var schema = new DocumentSchema()
+            .Add(SectionNames.PerformanceBoxing, "column", "Confidence");
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>(),
+            MarkdownCapabilities(SectionNames.PerformanceBoxing),
             [SectionNames.PerformanceBoxing]);
 
         Assert.Contains(

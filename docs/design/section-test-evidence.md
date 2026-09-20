@@ -96,7 +96,8 @@ the three.
 The CLI test harness is the first production consumer of this pattern.
 `DiscoveryDocumentFactoryTests` demonstrates the split: synthetic schemas own
 category projection and identity mechanics, while the Library catalog retains
-only focused discovery smoke coverage.
+focused conformance coverage. Existing `CommandExecutionTests` for Library
+discovery and ecosystem dependencies provide production-route smoke evidence.
 
 ## Non-claims
 
