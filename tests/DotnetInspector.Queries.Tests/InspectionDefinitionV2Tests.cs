@@ -1358,7 +1358,7 @@ public sealed class InspectionDefinitionV2Tests
     {
         DefinitionMemberCoordinate.PackageCoordinate[] packages =
         [
-            .. Enumerable.Range(0, WorkspaceSharePacketCodec.MaxTabs)
+            .. Enumerable.Range(0, WorkspaceSharePacketCodec.MaxFormat2Tabs)
                 .Select(index =>
                     new DefinitionMemberCoordinate.PackageCoordinate(
                         $"Package.{index}",

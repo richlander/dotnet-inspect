@@ -46,8 +46,31 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
 
 internal sealed record BrowserRetainedWorkspacePackagePresentation(
     string NavigationId,
+    int ContextIndex,
     string ConsumerPackageSubjectId,
     BrowserPackageSurfaceInfo Surface);
+
+internal sealed record BrowserRetainedWorkspacePlatformPresentation(
+    string NavigationId,
+    int ContextIndex,
+    string Family,
+    string? RuntimeIdentifier,
+    BrowserPackageSurfaceInfo Surface);
+
+internal abstract record BrowserRetainedWorkspaceAdmissionResult<T>
+    where T : class
+{
+    private protected BrowserRetainedWorkspaceAdmissionResult() { }
+
+    internal sealed record Admitted(T Presentation)
+        : BrowserRetainedWorkspaceAdmissionResult<T>;
+
+    internal sealed record Superseded
+        : BrowserRetainedWorkspaceAdmissionResult<T>;
+
+    internal sealed record Unavailable(string Message)
+        : BrowserRetainedWorkspaceAdmissionResult<T>;
+}
 
 internal sealed record BrowserRetainedWorkspaceCleanupEvidence(string Message);
 
@@ -64,8 +87,10 @@ internal sealed record BrowserRetainedWorkspacePosting(
     InspectionWorkspaceIdentity Realization,
     string RealizationId,
     long PublicationOrdinal,
+    CommittedScenarioDefinitionSet Definition,
     NavigationConsumerResult Navigation,
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
+    ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
     BrowserRetainedWorkspacePredecessor? Predecessor,
     BrowserRetainedWorkspaceCleanupEvidence? Cleanup,
     BrowserNavigationStateSlot NavigationState)
@@ -148,8 +173,10 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
     string CanonicalLocation,
     CompleteRestorationRequestBasis RestorationRequest,
     CompleteRestorationProjection Projection,
+    CommittedScenarioDefinitionSet Definition,
     NavigationOperationInitialization Navigation,
-    ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages)
+    ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
+    ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms)
 {
     internal static BrowserRetainedWorkspacePostingDraft Create(
         BrowserRetainedWorkspaceActivationRequest request,
@@ -187,29 +214,57 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                     + "effect authority.");
         }
 
+        CommittedScenarioDefinitionSet definition =
+            workspace.Snapshot.Resolved switch
+            {
+                CompleteRestorationResolvedState.Version2 version2 =>
+                    version2.Definitions,
+                CompleteRestorationResolvedState.Version3 version3 =>
+                    version3.Definitions,
+                CompleteRestorationResolvedState.Version4 version4 =>
+                    version4.Definitions,
+                _ => throw new InvalidOperationException(
+                    "Unknown complete restoration resolved state."),
+            };
+        CompleteRestorationInventory inventory =
+            workspace.Snapshot.Inventory
+            ?? throw new InvalidOperationException(
+                "Browser restoration requires the completed candidate inventory.");
+        Dictionary<string, CompleteRestorationReadyPackage> readyPackages =
+            ready.Packages.ToDictionary(
+            static package => package.NavigationId,
+            StringComparer.Ordinal);
+
         return new(
             request.RetainedDefinitionId,
             request.Label,
             request.CanonicalLocation,
             request.RestorationRequest,
             workspace.Projection,
+            definition,
             workspace.Snapshot.Navigation,
             [
-                .. ready.Packages.Select(
-                    static package =>
-                    {
-                        BrowserPackageCoordinate coordinate =
-                            BrowserPackageWorkspace.CoordinateFor(
-                                package.Binding);
-                        BrowserPackageProjectionInfo projected =
-                            BrowserPackageSurfaceProjection.Project(
-                                package.Evaluation,
-                                coordinate);
-                        return new BrowserRetainedWorkspacePackagePresentation(
+                .. inventory.Packages.Select(
+                    package =>
+                        new BrowserRetainedWorkspacePackagePresentation(
                             package.NavigationId,
-                            package.ConsumerPackageSubjectId,
-                            projected.Surface);
-                    }),
+                            package.ContextIndex,
+                            readyPackages[package.NavigationId].ConsumerPackageSubjectId,
+                            BrowserPackageSurfaceProjection.Project(
+                                package,
+                                BrowserPackage.ProjectIcon(
+                                    PackageIconQuery.Execute(
+                                        readyPackages[package.NavigationId].Binding.Root))))),
+            ],
+            [
+                .. inventory.Platforms.Select(
+                    static platform =>
+                        new BrowserRetainedWorkspacePlatformPresentation(
+                            platform.NavigationId,
+                            platform.ContextIndex,
+                            platform.Family,
+                            platform.RuntimeIdentifier,
+                            BrowserPlatformSurfaceProjection.Project(platform))),
             ]);
     }
 
@@ -232,8 +287,10 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
             realization,
             realizationId,
             publicationOrdinal,
+            Definition,
             navigationState.Initialization,
             Packages,
+            Platforms,
             predecessor,
             cleanup,
             navigationState);
@@ -639,6 +696,71 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             WorkspaceRealizationOperationUnavailableReason.NoActiveRealization);
     }
 
+    internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePackagePresentation>>
+        AdmitPackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default) =>
+        AdmitRowAsync(
+            retainedDefinitionId, realizationId, navigationId, "Package",
+            static (active, id) => active.Packages.FirstOrDefault(
+                candidate => candidate.NavigationId == id),
+            cancellationToken);
+
+    internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePlatformPresentation>>
+        AdmitPlatformAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default) =>
+        AdmitRowAsync(
+            retainedDefinitionId, realizationId, navigationId, "Platform",
+            static (active, id) => active.Platforms.FirstOrDefault(
+                candidate => candidate.NavigationId == id),
+            cancellationToken);
+
+    async Task<BrowserRetainedWorkspaceAdmissionResult<T>> AdmitRowAsync<T>(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string rowKind,
+        Func<BrowserRetainedWorkspacePosting, string, T?> select,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        WorkspaceRealizationOperationAdmission admission =
+            await EnterOperationAsync(
+                retainedDefinitionId,
+                cancellationToken).ConfigureAwait(false);
+        if (admission
+            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+        {
+            return new BrowserRetainedWorkspaceAdmissionResult<T>.Superseded();
+        }
+
+        using WorkspaceRealizationOperationLease operation = admitted.Lease;
+        lock (_gate)
+        {
+            if (_active is not { } active
+                || active.RetainedDefinitionId != retainedDefinitionId
+                || active.RealizationId != realizationId
+                || !ReferenceEquals(active.Realization, operation.Realization))
+            {
+                return new BrowserRetainedWorkspaceAdmissionResult<T>.Superseded();
+            }
+
+            T? presentation = select(active, navigationId);
+            return presentation is null
+                ? new BrowserRetainedWorkspaceAdmissionResult<T>.Unavailable(
+                    $"Navigation row '{navigationId}' is not a {rowKind} in the active Workspace.")
+                : new BrowserRetainedWorkspaceAdmissionResult<T>.Admitted(presentation);
+        }
+    }
+
     internal async Task<BrowserRetainedWorkspaceDeactivationResult>
         DeactivateAsync(
             string retainedDefinitionId,
@@ -1002,7 +1124,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                     preparation,
                     intent,
                     host,
-                    _optionsFactory(),
+                    _optionsFactory() with { CaptureInventory = true },
                     projection.CaptureAsync,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -1491,6 +1613,7 @@ internal static class BrowserCompleteRestorationOptions
                 BrowserPackageWorkspace.PackageChangesOperationTimeout),
             Facets = registry,
             FacetAvailability = (_, _) => executableEntries,
+            PlatformSurfaceLimits = BrowserApiSurfacePolicy.Limits,
         };
     }
 }

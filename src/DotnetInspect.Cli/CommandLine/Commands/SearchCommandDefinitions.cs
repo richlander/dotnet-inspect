@@ -661,6 +661,9 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(opts.Effective);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
+        dependsCommand.Options.Add(opts.RowWhere);
+        dependsCommand.Options.Add(opts.RowOrderBy);
+        dependsCommand.Options.Add(opts.PerformanceTriageTop);
         opts.AddNuGetOptionsTo(dependsCommand);
         opts.AddEnvelopeOptionTo(
             dependsCommand,
@@ -819,12 +822,22 @@ public static class SearchCommandDefinitions
             var projects = parseResult.GetValue(projectOption) ?? [];
             OutputFormat outputFormat = opts.ResolveFormat(parseResult);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
-            RowQueryIntent typeDependencyRowQuery =
-                string.IsNullOrEmpty(targetType)
-                    ? RowQueryIntent.Empty
-                    : ParseTypeDependencyRows(
+            if (!CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
                         parseResult,
-                        opts);
+                        "Dependency",
+                        out RowSelectionIntent<string>? rowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+            RowSelectionIntent<string>? dependencyRowSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    rowSelection,
+                    out int? legacyHierarchyWindowStageIndex);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
 #if DEBUG
@@ -939,6 +952,18 @@ public static class SearchCommandDefinitions
                         "depends --package-prefix Microsoft.Extensions",
                         "depends --help");
                 }
+                if (!DependencyQueryOptions.TryResolve(
+                        DependencyQueryRouteKind.AssetHierarchy,
+                        parseResult.GetValue(opts.RowWhere) ?? [],
+                        parseResult.GetValue(opts.RowOrderBy),
+                        dependencyRowSelection,
+                        parseResult.GetValue(depthOption),
+                        out DependencyQueryPlan queryPlan,
+                        out OptionError queryError))
+                {
+                    CommandError.Write(queryError);
+                    return 1;
+                }
                 var commonOptions = new DependsOptions
                 {
                     AssetRoots = assetRoots,
@@ -948,7 +973,10 @@ public static class SearchCommandDefinitions
                         parseResult.GetValue(previewOption),
                     MaxPackages =
                         parseResult.GetValue(maxPackagesOption),
-                    Depth = parseResult.GetValue(depthOption),
+                    Depth = queryPlan.MaximumDepth,
+                    QueryPlan = queryPlan,
+                    LegacyHierarchyWindowStageIndex =
+                        legacyHierarchyWindowStageIndex,
                     Tfm = parseResult.GetValue(tfmOption),
                     PruningPlatformFamily =
                         parseResult.GetValue(pruningPlatformFamilyOption),
@@ -1017,6 +1045,18 @@ public static class SearchCommandDefinitions
             {
                 return 1;
             }
+            if (!DependencyQueryOptions.TryResolve(
+                    DependencyQueryRouteKind.TypeRelationships,
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    parseResult.GetValue(opts.RowOrderBy),
+                    dependencyRowSelection,
+                    parseResult.GetValue(depthOption),
+                    out DependencyQueryPlan typeQueryPlan,
+                    out OptionError typeQueryError))
+            {
+                CommandError.Write(typeQueryError);
+                return 1;
+            }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var intent = SearchSourceAdapter.Declare(
@@ -1035,7 +1075,8 @@ public static class SearchCommandDefinitions
                 PlatformFrameworks = [.. sources.PlatformFrameworks],
                 Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
-                Depth = parseResult.GetValue(depthOption),
+                Depth = typeQueryPlan.MaximumDepth,
+                QueryPlan = typeQueryPlan,
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
@@ -1045,7 +1086,8 @@ public static class SearchCommandDefinitions
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Rows = rows,
-                TypeDependencyRowQuery = typeDependencyRowQuery,
+                TypeDependencyRowQuery =
+                    typeQueryPlan.RelationshipRows,
                 Count = parseResult.GetValue(opts.Count),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
@@ -1082,13 +1124,23 @@ public static class SearchCommandDefinitions
             {
                 Hidden = true,
             };
+        var legacyDependsHead =
+            new Option<bool>("--unavailable-depends-semantic-head")
+            {
+                Hidden = true,
+            };
+        var legacyDependsTail =
+            new Option<bool>("--unavailable-depends-semantic-tail")
+            {
+                Hidden = true,
+            };
         CliRowSelectionCommandRegistry.Register(
             dependsCommand,
             new(
                 opts.Limit,
                 legacyDependsRows,
-                top: null,
-                orderBy: null,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
                 opts.Head,
                 opts.Tail,
                 opts.Lines,
@@ -1096,7 +1148,84 @@ public static class SearchCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            isActive: static _ => true,
+            isActive: result =>
+                string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                legacyDependsHead,
+                legacyDependsTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.All,
+            isActive: result =>
+                !string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                legacyDependsHead,
+                legacyDependsTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.All,
+            isActive: result =>
+                !string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -1168,73 +1297,6 @@ public static class SearchCommandDefinitions
         return parseResult.GetValue(opts.Tail)
             ? RowWindow.Tail(count)
             : RowWindow.Head(count);
-    }
-
-    private static RowQueryIntent
-        ParseTypeDependencyRows(
-        ParseResult parseResult,
-        SharedOptions opts)
-    {
-        string? rows = parseResult.GetValue(opts.Rows);
-        if (rows is not null)
-        {
-            if (!RowSpec.TryParse(
-                    rows,
-                    out RowSpec spec,
-                    out string? error))
-            {
-                throw new RowWindowValidationException(
-                    $"--rows {error}");
-            }
-
-            RowSelectionIntentOperation<RowQueryOrderIntent>
-                operation =
-                    spec.Kind switch
-                    {
-                        RowSpecKind.Count
-                            when parseResult.GetValue(opts.Tail) =>
-                            RowSelectionIntentOperation<
-                                RowQueryOrderIntent>.Tail(
-                                    spec.Count),
-                        RowSpecKind.Count =>
-                            RowSelectionIntentOperation<
-                                RowQueryOrderIntent>.Head(
-                                    spec.Count),
-                        RowSpecKind.Range =>
-                            RowSelectionIntentOperation<
-                                RowQueryOrderIntent>.Window(
-                                    spec.Start,
-                                    spec.End),
-                        _ => throw new InvalidOperationException(
-                            "Unsupported type-dependency row selection."),
-                    };
-            return RowQueryIntent.Create(
-                [],
-                baselineOrder: null,
-                RowSelectionIntent<RowQueryOrderIntent>.Create(
-                    [operation]));
-        }
-
-        if (UsesRenderedLineSelection(parseResult, opts))
-            return RowQueryIntent.Empty;
-
-        if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
-            || parseResult.GetValue(opts.Limit) is not int count)
-        {
-            return RowQueryIntent.Empty;
-        }
-
-        return RowQueryIntent.Create(
-            [],
-            baselineOrder: null,
-            RowSelectionIntent<RowQueryOrderIntent>.Create(
-                [
-                    parseResult.GetValue(opts.Tail)
-                        ? RowSelectionIntentOperation<
-                            RowQueryOrderIntent>.Tail(count)
-                        : RowSelectionIntentOperation<
-                            RowQueryOrderIntent>.Head(count),
-                ]));
     }
 
     private static bool UsesRenderedLineSelection(

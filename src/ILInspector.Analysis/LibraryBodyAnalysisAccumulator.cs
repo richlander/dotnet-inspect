@@ -52,6 +52,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
         var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
+        var stringMaterializations =
+            ImmutableArray.CreateBuilder<
+                StringMaterializationOccurrence>();
         var bodySignals = new Dictionary<int, BodySignals>();
         var implementationProfiles =
             ImmutableArray.CreateBuilder<MethodBodyImplementationMetrics>();
@@ -224,6 +227,25 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 unsafetyOccurrences[r.Token] = r.Unsafety;
             if (!r.Opportunities.IsDefaultOrEmpty)
                 optimizationOpportunities.AddRange(r.Opportunities);
+            if (!r.StringMaterializations.IsDefaultOrEmpty)
+            {
+                stringMaterializations.AddRange(
+                    r.StringMaterializations.Select(
+                        occurrence =>
+                        {
+                            MethodIdentity declared =
+                                ResolveDeclaredMethod(
+                                    occurrence.Method,
+                                    declaredMethodsByBody);
+                            return declared
+                                    == occurrence.Method
+                                ? occurrence
+                                : occurrence with
+                                {
+                                    Method = declared,
+                                };
+                        }));
+            }
             if (r.Suppressed)
                 suppressedOpportunityTokens.Add(r.Token);
             if (r.ScopeExcluded)
@@ -318,6 +340,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
             Allocations: new(allocationOccurrences),
             Optimizations: new(
                 Opportunities: optimizationOpportunities.ToImmutable(),
+                StringMaterializations:
+                    stringMaterializations.ToImmutable(),
                 SuppressedMethodTokens: suppressedOpportunityTokens,
                 ScopeExcludedMethodTokens:
                     scopeExcludedOpportunityTokens,

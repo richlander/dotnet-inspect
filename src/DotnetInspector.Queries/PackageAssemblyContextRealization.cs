@@ -1233,8 +1233,8 @@ public sealed class PackageAssemblyRoleParticipant
 }
 
 /// <summary>
-/// Reports that selected package surface and implementation assets cannot form
-/// an exact assembly-role correspondence.
+/// Reports that selected package assembly assets cannot form an exact,
+/// unambiguous assembly-role correspondence.
 /// </summary>
 public sealed class PackageAssemblyRoleCorrespondenceException :
     InvalidOperationException

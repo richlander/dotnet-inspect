@@ -1191,6 +1191,49 @@ public partial class CommandExecutionTests
                 "(revisit) test.dependency.shared",
                 tree.Output);
             Assert.DoesNotContain("## Dependencies", tree.Output);
+
+            var boundedPackage = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Dependency Hierarchy",
+                "--depth", "1",
+                "--tfm", "net9.0",
+                "--source", tempDir,
+                "--json",
+                "--tips", "q");
+            var boundedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "-S", "Dependency Hierarchy",
+                "--depth", "1",
+                "--tfm", "net9.0",
+                "--source", tempDir,
+                "--json");
+            Assert.Equal(0, boundedPackage.Exit);
+            Assert.Empty(boundedPackage.Error);
+            Assert.Equal(0, boundedDepends.Exit);
+            Assert.Empty(boundedDepends.Error);
+            using JsonDocument boundedPackageJson =
+                JsonDocument.Parse(boundedPackage.Output);
+            using JsonDocument boundedDependsJson =
+                JsonDocument.Parse(boundedDepends.Output);
+            JsonElement boundedPackageOccurrences =
+                boundedPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement boundedDependsOccurrences =
+                boundedDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.True(JsonElement.DeepEquals(
+                boundedPackageOccurrences,
+                boundedDependsOccurrences));
+            Assert.DoesNotContain(
+                boundedPackageOccurrences.EnumerateArray(),
+                occurrence =>
+                    occurrence.GetProperty("target_identity")
+                        .GetProperty("package")
+                        .GetProperty("id")
+                        .GetString()
+                    == "test.dependency.shared");
         }
         finally
         {
@@ -1254,9 +1297,46 @@ public partial class CommandExecutionTests
                 "--tfm", "net9.0", "--source", tempDir,
                 "-S", "Dependency Hierarchy",
                 "--plaintext", "--rows", "2..3");
+            var composedPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2..4", "-n", "2", "--tips", "q");
+            var composedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--json", "--rows", "2..4", "-n", "2");
+            var composedMultiSection = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info,Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--plaintext", "--rows", "2..4", "-n", "2",
+                "--tips", "q");
+            var clampedPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--rows", "2..6", "--tips", "q");
+            var clampedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--count", "--rows", "2..6");
+            var tailPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2", "--tail", "--tips", "q");
+            var tailDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--json", "--rows", "2", "--tail");
+            var directDependencyTail = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--rows", "1", "--tail", "--tips", "q");
 
-            Assert.Equal(0, table.Exit);
             Assert.Empty(table.Error);
+            Assert.Equal(0, table.Exit);
             Assert.Contains("Parent Occurrence", table.Output);
             Assert.Equal(0, json.Exit);
             Assert.Empty(json.Error);
@@ -1271,6 +1351,23 @@ public partial class CommandExecutionTests
             Assert.Empty(plaintext.Error);
             Assert.Equal(0, dependsPlaintext.Exit);
             Assert.Empty(dependsPlaintext.Error);
+            Assert.Empty(composedPackage.Error);
+            Assert.Equal(0, composedPackage.Exit);
+            Assert.Equal(0, composedDepends.Exit);
+            Assert.Empty(composedDepends.Error);
+            Assert.Equal(0, composedMultiSection.Exit);
+            Assert.Empty(composedMultiSection.Error);
+            Assert.Equal(0, clampedPackage.Exit);
+            Assert.Empty(clampedPackage.Error);
+            Assert.Equal("3", clampedPackage.Output.Trim());
+            Assert.Equal(clampedPackage, clampedDepends);
+            Assert.Empty(tailPackage.Error);
+            Assert.Equal(0, tailPackage.Exit);
+            Assert.Empty(tailDepends.Error);
+            Assert.Equal(0, tailDepends.Exit);
+            Assert.Equal(0, directDependencyTail.Exit);
+            Assert.Empty(directDependencyTail.Error);
+            Assert.Equal("1", directDependencyTail.Output.Trim());
             Assert.Equal(
                 2,
                 plaintext.Output.Split(
@@ -1283,6 +1380,110 @@ public partial class CommandExecutionTests
                 plaintext.Output.Split(
                     "package-dependency",
                     StringSplitOptions.None).Length);
+            using JsonDocument composedPackageJson =
+                JsonDocument.Parse(composedPackage.Output);
+            using JsonDocument composedDependsJson =
+                JsonDocument.Parse(composedDepends.Output);
+            JsonElement packageOccurrences =
+                composedPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement dependsOccurrences =
+                composedDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.Equal(2, packageOccurrences.GetArrayLength());
+            Assert.True(JsonElement.DeepEquals(
+                packageOccurrences,
+                dependsOccurrences));
+            using JsonDocument tailPackageJson =
+                JsonDocument.Parse(tailPackage.Output);
+            using JsonDocument tailDependsJson =
+                JsonDocument.Parse(tailDepends.Output);
+            JsonElement tailPackageOccurrences =
+                tailPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement tailDependsOccurrences =
+                tailDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.Equal(2, tailPackageOccurrences.GetArrayLength());
+            Assert.True(JsonElement.DeepEquals(
+                tailPackageOccurrences,
+                tailDependsOccurrences));
+            Assert.Equal(
+                2,
+                composedMultiSection.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyHierarchy_RowPositionUsesOptionIdentity()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        string rowsDirectory = Path.Combine(tempDir, "rows");
+        Directory.CreateDirectory(rowsDirectory);
+        foreach (string source in Directory.GetFiles(tempDir, "*.nupkg"))
+        {
+            File.Copy(
+                source,
+                Path.Combine(rowsDirectory, Path.GetFileName(source)));
+        }
+
+        string relativePackage =
+            Path.Combine("rows", Path.GetFileName(packagePath));
+        string absolutePackage =
+            Path.Combine(rowsDirectory, Path.GetFileName(packagePath));
+        try
+        {
+            var relative = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", relativePackage,
+                "--source", "rows",
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count", "--tips", "q");
+            var absolute = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", absolutePackage,
+                "--source", rowsDirectory,
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count", "--tips", "q");
+            var relativeDepends = await RunAppInDirectoryAsync(
+                tempDir,
+                "depends", "--package", relativePackage,
+                "--source", "rows",
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count");
+            var absoluteDepends = await RunAppInDirectoryAsync(
+                tempDir,
+                "depends", "--package", absolutePackage,
+                "--source", rowsDirectory,
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count");
+
+            Assert.Equal(absolute, relative);
+            Assert.Equal(0, relative.Exit);
+            Assert.Empty(relative.Error);
+            Assert.Equal("0", relative.Output.Trim());
+            Assert.Equal(absoluteDepends, relativeDepends);
+            Assert.Equal(0, relativeDepends.Exit);
+            Assert.Empty(relativeDepends.Error);
+            Assert.Equal("0", relativeDepends.Output.Trim());
         }
         finally
         {

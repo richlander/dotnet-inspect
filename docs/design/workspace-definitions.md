@@ -2851,11 +2851,13 @@ Package, prefix, family, Library, or Ecosystem identity are invalid packet
 shape.
 
 Format 3 retains format 2's 32 KiB encoded text, 24 KiB decoded UTF-8 JSON,
-nesting-depth 24, 2048 JSON-value, 12-coordinate, 24-context, view-state, and
-query-state limits. It adds at most 24 top-level registration entries. Nested
-Ecosystem content remains bounded by the outer byte, depth, and JSON-value
-limits and by its owner's declaration validation. A valid definition outside
-those packet limits is `NonProjectable`.
+nesting-depth 24, 2048 JSON-value, 24-context, view-state, and query-state
+limits. It raises only the coordinate-table and per-context coordinate limits
+to 64, matching the Workspace logical Package profile; format 1 and format 2
+remain capped at 12 coordinates. Format 3 adds at most 24 top-level
+registration entries. Nested Ecosystem content remains bounded by the outer
+byte, depth, and JSON-value limits and by its owner's declaration validation.
+A valid definition outside those packet limits is `NonProjectable`.
 
 Packet-to-record transposition creates one complete schema-version-3
 workspace, navigation, view, scenario, and needed query and catalog records.
@@ -3799,7 +3801,14 @@ Definition records and product demos (this slice):
   `CompleteWorkspaceCapture_RejectsFloatingCoordinates`,
   `CompleteWorkspaceCapture_RejectsFloatingGroup`,
   `CompleteWorkspaceCapture_RejectsNonRootView`, and
-  `CompleteWorkspaceCapture_RejectsNonPackageFocus` gate this claim; and
+  `CompleteWorkspaceCapture_RejectsNonPackageFocus` gate this claim, while
+  `CompleteWorkspaceCapture_AdmitsLogicalCoordinateLimit` gates the full
+  64-coordinate transposition.
+  `Decode_EnforcesFormatCoordinateLimit` keeps formats 1 and 2 at 12
+  coordinates while admitting 64 in formats 3 and 4, and
+  `CurrentFormatMicrosoftExtensionsPacket_RoundTrips` exercises the production
+  CLI codec with the complete shipped 44-coordinate Microsoft.Extensions set;
+  and
 - `PackageAssemblyContextSelection` and
   `InspectionWorkspace.RealizePackageAssemblyContextRoles` select exact,
   already-acquired package content and realize it as coordinated surface and

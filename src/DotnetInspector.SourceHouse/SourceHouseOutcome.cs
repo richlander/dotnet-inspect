@@ -375,6 +375,7 @@ public enum SourceHouseFailureStage
     SourceCapability,
     SourceVerification,
     SourceSlicing,
+    Decompilation,
     ResourceDisposal,
 }
 
@@ -471,6 +472,7 @@ public sealed record SourceHouseRequestEvidence
 public enum SourceHouseSourcePolicy
 {
     AuthoredOnly,
+    DecompiledOnly,
 }
 
 public enum SourceHousePdbAcquisitionPolicy

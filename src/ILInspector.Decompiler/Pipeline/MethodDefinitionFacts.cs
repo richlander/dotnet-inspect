@@ -17,6 +17,10 @@ internal readonly record struct RequiresUnsafeContractResult(
     bool RulesUnavailable,
     bool ContractUnavailable);
 
+internal readonly record struct TypeArgumentElisionOverloadResult(
+    MetadataFactState State,
+    ImmutableArray<ImmutableArray<TypeRef>> SameReceiverSiblingParameters);
+
 internal static class MethodDefinitionFacts
 {
     internal static RequiresUnsafeContractResult RequiresUnsafeContract(
@@ -372,6 +376,106 @@ internal static class MethodDefinitionFacts
                 return AccessorKind.EventRemove;
         }
         return AccessorKind.None;
+    }
+
+    internal static TypeArgumentElisionOverloadResult TypeArgumentElisionOverloads(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        MethodDefinitionHandle targetHandle)
+    {
+        try
+        {
+            var target = reader.GetMethodDefinition(targetHandle);
+            string targetName = reader.GetString(target.Name);
+            var targetScope = new GenericScope(
+                GenericParameterNames(reader, declaringType.GetGenericParameters()),
+                GenericParameterNames(reader, target.GetGenericParameters()));
+            var targetSignature = GuardedDecode.MethodSignature(reader, target, targetScope);
+            if (HasUnsupportedType(targetSignature))
+                return new(MetadataFactState.Unknown, []);
+
+            int targetArity = targetSignature.ParameterTypes.Length;
+            int targetGenericArity = target.GetGenericParameters().Count;
+            var sameReceiverSiblings =
+                ImmutableArray.CreateBuilder<ImmutableArray<TypeRef>>();
+
+            foreach (var candidateHandle in declaringType.GetMethods())
+            {
+                if (candidateHandle == targetHandle)
+                    continue;
+
+                var candidate = reader.GetMethodDefinition(candidateHandle);
+                if (reader.GetString(candidate.Name) != targetName)
+                    continue;
+
+                var candidateScope = new GenericScope(
+                    GenericParameterNames(reader, declaringType.GetGenericParameters()),
+                    GenericParameterNames(reader, candidate.GetGenericParameters()));
+                var candidateSignature = GuardedDecode.MethodSignature(reader, candidate, candidateScope);
+                if (HasUnsupportedType(candidateSignature))
+                    return new(MetadataFactState.Unknown, []);
+
+                int candidateArity = candidateSignature.ParameterTypes.Length;
+                // Equal-generic-arity siblings with the same receiver template
+                // participate in both forms. Preserve their signatures so the
+                // call-site proof can reject a sibling that infers a different
+                // instantiation from the remaining arguments.
+                bool sameInferenceCandidateSet =
+                    candidate.GetGenericParameters().Count == targetGenericArity
+                    && targetArity > 0
+                    && candidateArity > 0
+                    && candidateSignature.ParameterTypes[0].Equals(targetSignature.ParameterTypes[0]);
+                if (sameInferenceCandidateSet)
+                {
+                    if (HasFlexibleArityParameter(reader, candidate))
+                        return new(MetadataFactState.No, []);
+                    if (candidateArity == targetArity)
+                        sameReceiverSiblings.Add(candidateSignature.ParameterTypes);
+                    continue;
+                }
+
+                if (candidateArity == targetArity || HasFlexibleArityParameter(reader, candidate))
+                    return new(MetadataFactState.No, []);
+            }
+
+            return new(MetadataFactState.Yes, sameReceiverSiblings.ToImmutable());
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException
+            or IndexOutOfRangeException
+            or OverflowException)
+        {
+            return new(MetadataFactState.Unknown, []);
+        }
+    }
+
+    static bool HasUnsupportedType(MethodSignature<TypeRef> signature)
+        => signature.ReturnType.ContainsUnsupported
+            || signature.ParameterTypes.Any(static type => type.ContainsUnsupported);
+
+    static bool HasFlexibleArityParameter(MetadataReader reader, MethodDefinition method)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber == 0)
+                continue;
+
+            if ((parameter.Attributes & (System.Reflection.ParameterAttributes.Optional
+                | System.Reflection.ParameterAttributes.HasDefault)) != 0
+                || HasAttribute(reader, parameter.GetCustomAttributes(), "System", "ParamArrayAttribute")
+                || HasAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    "System.Runtime.CompilerServices",
+                    "ParamCollectionAttribute"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
