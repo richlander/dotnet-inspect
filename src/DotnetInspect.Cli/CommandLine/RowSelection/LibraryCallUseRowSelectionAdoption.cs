@@ -25,8 +25,11 @@ internal static class LibraryCallUseRowSelectionAdoption
         }
 
         return options.ParseSelect(parseResult) is [var section]
-            && section.Equals(
-                LibraryCallUseSections.CallSites,
-                StringComparison.OrdinalIgnoreCase);
+            && (section.Equals(
+                    LibraryCallUseSections.CallSites,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    LibraryCallUseSections.DirectUseClusters,
+                    StringComparison.OrdinalIgnoreCase));
     }
 }
