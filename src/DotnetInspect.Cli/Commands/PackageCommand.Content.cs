@@ -400,6 +400,8 @@ public partial class PackageCommand
                 await ApplyPackageEcosystemDependenciesAsync(
                     result,
                     resolution,
+                    SelectsOnlyPackageEcosystemDependencies(
+                        producerOptions),
                     logger.Log);
             }
 

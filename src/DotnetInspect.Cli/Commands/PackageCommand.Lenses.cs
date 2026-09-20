@@ -219,8 +219,10 @@ public partial class PackageCommand
     private static async Task ApplyPackageEcosystemDependenciesAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
+        bool discloseUnavailableDiagnostics,
         Action<string>? log)
     {
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection;
         if (resolution.HouseSettlement
             is not PackageHouseSettlement.Acquired settlement)
         {
@@ -245,19 +247,37 @@ public partial class PackageCommand
                     + "coordinate.");
             }
 
-            result.EcosystemDependencyRecognitionInspection =
-                unavailableInspection;
-            return;
+            inspection = unavailableInspection;
+        }
+        else
+        {
+            inspection =
+                await PackageEcosystemDependencyRecognitionInspection
+                    .ExecuteAsync(settlement)
+                    .ConfigureAwait(false);
         }
 
-        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection =
-            await PackageEcosystemDependencyRecognitionInspection.ExecuteAsync(
-                    settlement)
-                .ConfigureAwait(false);
         result.EcosystemDependencyRecognitionInspection = inspection;
         foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
-            log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
+        {
+            string message = $"{diagnostic.Code}: {diagnostic.Summary}";
+            if (discloseUnavailableDiagnostics
+                && inspection.Content
+                    is EcosystemDependencyRecognitionOutcome.Unavailable)
+            {
+                CommandError.WriteWarning(message);
+            }
+            else
+            {
+                log?.Invoke(message);
+            }
+        }
     }
+
+    private static bool SelectsOnlyPackageEcosystemDependencies(
+        InspectionOptions options) =>
+        options.IncludeSections is { Count: 1 } sections
+        && sections.Contains(PackageSections.EcosystemDependencies);
 
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {

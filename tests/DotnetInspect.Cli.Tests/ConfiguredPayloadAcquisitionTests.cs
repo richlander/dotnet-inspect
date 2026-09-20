@@ -1096,6 +1096,24 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.Contains(
             "| Ecosystem Dependency Status | Unavailable (3 issues) |",
             result.Output);
+
+        var details = await RunCommandAsync(
+            ["package", packagePath,
+                "-S", PackageSections.EcosystemDependencies,
+                "--tips", "q"]);
+
+        Assert.True(
+            details.Exit == 0,
+            $"Exit {details.Exit}: {details.Error}");
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-manifest-unavailable",
+            details.Error);
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-dependencies-not-attempted",
+            details.Error);
+        Assert.Contains(
+            "ecosystem-dependency-recognition.package-compile-selection-unavailable",
+            details.Error);
     }
 
     [Fact]
