@@ -10,7 +10,7 @@ if [[ "$rid" == win-* ]]; then
   executable="$executable.exe"
 fi
 
-for mode in coreclr single-file nativeaot; do
+for mode in coreclr single-file rid-build nativeaot nativeaot-no-build nativeaot-net10; do
   publish_args=(-p:PublishAot=false -p:PublishSingleFile=false --self-contained false)
   expected="CoreCLR"
   case "$mode" in
@@ -21,12 +21,43 @@ for mode in coreclr single-file nativeaot; do
       publish_args=(-p:PublishAot=true -p:PublishSingleFile=false --self-contained true)
       expected="NativeAOT"
       ;;
+    rid-build)
+      publish_args=(-p:PublishAot=true -p:PublishSingleFile=false --self-contained true)
+      ;;
+    nativeaot-no-build)
+      publish_args=(-p:PublishAot=true -p:PublishSingleFile=false --self-contained true)
+      expected="NativeAOT"
+      ;;
+    nativeaot-net10)
+      publish_args=(
+        -p:DefaultTargetFramework=net10.0
+        -p:PublishAot=true
+        -p:PublishSingleFile=false
+        --self-contained true)
+      expected="NativeAOT"
+      ;;
   esac
 
   output="$artifacts/$mode/publish"
+  no_build_args=()
+  if [[ "$mode" == rid-build ]]; then
+    dotnet build "$project" -c Release -r "$rid" \
+      --artifacts-path "$artifacts/$mode" \
+      --nologo -v:quiet "${publish_args[@]}"
+    dotnet \
+      "$artifacts/$mode/bin/RuntimeFlavorProbe/release_$rid/RuntimeFlavorProbe.dll" \
+      CoreCLR
+    continue
+  fi
+  if [[ "$mode" == nativeaot-no-build ]]; then
+    dotnet build "$project" -c Release -r "$rid" \
+      --artifacts-path "$artifacts/$mode" \
+      --nologo -v:quiet "${publish_args[@]}"
+    no_build_args=(--no-build)
+  fi
   dotnet publish "$project" -c Release -r "$rid" \
     --artifacts-path "$artifacts/$mode" -o "$output" \
-    --nologo -v:quiet "${publish_args[@]}"
+    --nologo -v:quiet "${publish_args[@]}" "${no_build_args[@]}"
   "$output/$executable" "$expected"
   if [[ "$expected" == CoreCLR ]]; then
     "$output/$executable" "$expected" --disable-dynamic-code
