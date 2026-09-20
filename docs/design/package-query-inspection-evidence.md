@@ -33,6 +33,7 @@ preview is display text, never a package coordinate or archive-entry handle.
 | --- | --- | --- |
 | Has dependencies / no dependencies | Distinct declared dependency IDs in the selected dependency scope, using ordinal case-insensitive identity | Up to three IDs, ordered ordinal case-insensitively, preserving the first declared spelling of each ID |
 | Depends on package | Distinct selected declaration tuples of manifest group, declared package ID, and version range | Up to three `group: ID range` values, ordered ordinally |
+| Transitively depends on package | Matching admitted declaration edges at depth 2 through the requested maximum | Up to three deterministic shortest root paths preserving each declared range and resolved exact coordinate |
 | References assembly | Matching managed-library `AssemblyRef` occurrences across admitted `ref/` and `lib/` groups | Up to three `TFM: path -> reference` values, ordered ordinally |
 | Embedded SKILL.md | Distinct matching archive-entry paths, using ordinal path identity and the existing case-insensitive skill-document predicate | Up to three actual paths, ordered ordinally |
 
@@ -44,6 +45,16 @@ selection and retains requested-target and selected-group evidence separately.
 Zero dependencies is a known empty item set only for all groups, one selected
 empty group, or a manifest with no dependency groups; no matching requested
 target is not empty evidence.
+
+Transitive dependency summaries are the exception: they consume the existing
+Package Dependency Traversal Query and describe its source-authorized
+declared-range graph, not a NuGet restore graph. A matching endpoint is counted
+once per admitted declaration edge. When cycles or shared nodes provide more
+than one route to that edge, the preview selects one deterministic shortest
+root path rather than enumerating every possible path. Every path segment
+retains the declared range and the exact resolved package coordinate.
+Incomplete traversal is a visible candidate failure and never a partial count
+or semantic non-match.
 
 A root `skills/SKILL.md` preview remains that path. The inventory does not
 establish a skill's declared name, valid frontmatter, or valid document body.

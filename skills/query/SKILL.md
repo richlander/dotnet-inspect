@@ -224,6 +224,10 @@ dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
   --take 20 -n 5
 dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "dependency-target=net10.0" \
+  --where "dependency-depth=2" --take 1
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -245,6 +249,11 @@ dot-delimited package-ID segment differs from the package's own segment.
 `depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
 registered exact packages and package prefixes for one canonical ecosystem;
 repeat it to require every named ecosystem.
+`depends-transitive=<package-id>` requires an exact
+`dependency-target=<TFM>` and `dependency-depth=2|3|4`. It matches only
+source-authorized declaration reachability at depth 2 or greater, not direct
+dependencies or a NuGet restore graph. The query admits at most five package
+candidates; incomplete traversal remains a visible failure.
 `references=<simple-assembly-name>` scans the managed `ref/` and `lib/`
 assemblies from every target-framework group, matches `AssemblyRef` simple
 names case-insensitively, and reports framework/path evidence without resolving

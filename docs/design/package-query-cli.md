@@ -51,9 +51,10 @@ Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
 canary.
 
-CLI and Browser now consume the same first production vocabulary:
+CLI and Browser now consume the same production vocabulary:
 `dependencies=none|cross-prefix`, `dependency-target=all|<tfm>`,
-`depends=<package-id>`, `downloads=10k|100k|1m`,
+`depends=<package-id>`, `depends-transitive=<package-id>`,
+`dependency-depth=2|3|4`, `downloads=10k|100k|1m`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
 `references=<simple-assembly-name>` and `skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
@@ -140,6 +141,8 @@ The production inspection vocabulary is:
 | `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
 | `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
 | `depends` | NuGet package ID | nuspec | nuspec | Direct dependency declared in the selected dependency scope |
+| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Source-authorized declared dependency reached at depth 2 through the selected maximum depth |
+| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for transitive dependency terms |
 | `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | search metadata | Lifetime downloads meet the closed threshold |
 | `license` | `any`, `MIT`, or `OSMF` | nuspec | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
@@ -155,12 +158,12 @@ performed after that evidence is available. They intentionally differ for
 `references`: the term downloads a package archive but performs managed
 metadata inspection. The complete class vocabulary is `search-metadata`,
 `nuspec`, `nuspec-expensive`, `package-content`, `metadata`, and
-`metadata-expensive`. No current term uses either expensive class; transitive
-nuspec search and call-graph or decompiler-driven metadata search remain future
-explicit work rather than behavior implied by this vocabulary.
-Execution class is descriptor metadata, not a Query Operation effect: it does
-not authorize acquisition, change planning, or substitute for a concrete work
-bound.
+`metadata-expensive`. Transitive dependency search uses `nuspec-expensive`;
+call-graph or decompiler-driven metadata search remains future explicit work
+rather than behavior implied by this vocabulary.
+Execution class is descriptor metadata, not acquisition authority or predicate
+meaning. Hosts may use it to lower their default candidate controls, while the
+product still validates each term's concrete work bound.
 
 All terms admit equality only. Independent terms AND. Repeated
 `tool-format` values OR within their combining family; `tool=true` is
@@ -181,6 +184,11 @@ dotnet-inspect package query 'Polly.*' \
 
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
+
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "dependency-target=net10.0" \
+  --where "dependency-depth=2" --take 1
 
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
@@ -235,6 +243,35 @@ empty group and a manifest with no dependency groups satisfy
 requires at least one `depends`, `depends-ecosystem`, or `dependencies` term,
 applies to all such terms in the query, and does not traverse, resolve version
 ranges, or select package assets.
+
+`depends-transitive=<package-id>` is distinct from `depends`: it matches only
+resolved declaration edges at depth 2 through the explicit
+`dependency-depth=2|3|4` boundary, so a direct-only dependency does not match.
+The term requires one explicit `dependency-target=<tfm>`; `all` is rejected
+because traversal needs one framework-selection policy for every manifest.
+The root and every traversed manifest use the dependency-group owner's
+compatible selection for that requested target. Candidate resolution uses the
+existing source-authorized declared-range query and therefore does not claim
+NuGet restore, lock-file, or asset-selection equivalence.
+
+One transitive query admits at most five package candidates. Within each
+candidate it admits at most 32 acquired manifest projections and 128
+declaration resolutions. Repeated transitive terms AND and share one traversal
+of that candidate. A candidate-resolution, manifest-acquisition, projection,
+or work-budget failure anywhere inside the requested depth makes that
+candidate a visible dependency-traversal failure; partial evidence never
+becomes a semantic match or non-match. Reaching the explicit depth boundary is
+successful because every edge through that boundary is known without
+acquiring endpoint manifests.
+
+Transitive evidence counts matching admitted declaration edges. Each preview
+is one deterministic shortest root path for that edge and retains every
+declared version range and resolved exact package coordinate along the path.
+This avoids unbounded enumeration when shared nodes or cycles provide multiple
+paths. `Microsoft.Extensions.Http@10.0.0` on `net10.0` is the motivating real
+package: it reaches `Microsoft.Extensions.Primitives@10.0.0` at depth 2
+through `Microsoft.Extensions.Configuration.Abstractions@10.0.0`, while that
+intermediate direct dependency does not itself satisfy `depends-transitive`.
 
 `dependencies=cross-prefix` derives each package's comparison segment from the
 text before its first dot, or from the complete ID when no dot is present. It
