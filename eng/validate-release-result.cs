@@ -8,7 +8,17 @@ try
         return;
     }
 
-    Dictionary<string, string> options = ParseOptions(args);
+    Run(args);
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"Release result validation failed: {ex.Message}");
+    Environment.ExitCode = 1;
+}
+
+static void Run(string[] arguments)
+{
+    Dictionary<string, string> options = ParseOptions(arguments);
     string expectedTag = Required(options, "--expected-tag");
     string expectedSha = Required(options, "--expected-sha");
     string releaseTag = ReadRequiredString(Required(options, "--release"), "tag_name");
@@ -16,11 +26,6 @@ try
 
     Validate(releaseTag, tagCommitSha, expectedTag, expectedSha);
     Console.WriteLine($"GitHub release {expectedTag} targets commit {expectedSha}.");
-}
-catch (Exception ex)
-{
-    Console.Error.WriteLine($"Release result validation failed: {ex.Message}");
-    Environment.ExitCode = 1;
 }
 
 static void Validate(
@@ -125,11 +130,17 @@ static void RunSelfTest()
             {"sha":"1111111111111111111111111111111111111111"}
             """);
 
-        Validate(
-            ReadRequiredString(releasePath, "tag_name"),
-            ReadRequiredString(tagCommitPath, "sha"),
+        Run(
+        [
+            "--release",
+            releasePath,
+            "--tag-commit",
+            tagCommitPath,
+            "--expected-tag",
             expectedTag,
-            expectedSha);
+            "--expected-sha",
+            expectedSha,
+        ]);
     }
     finally
     {

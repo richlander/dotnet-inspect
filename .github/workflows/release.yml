@@ -266,8 +266,21 @@ jobs:
         run: |
           release_json="$RUNNER_TEMP/github-release.json"
           tag_commit_json="$RUNNER_TEMP/github-release-tag-commit.json"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$release_json"
-          gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" > "$tag_commit_json"
+          fetched=false
+          for delay in 0 2 4 8 16; do
+            if [ "$delay" -gt 0 ]; then
+              sleep "$delay"
+            fi
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$release_json" &&
+               gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" > "$tag_commit_json"; then
+              fetched=true
+              break
+            fi
+          done
+          if [ "$fetched" != true ]; then
+            echo "::error::The created GitHub release or tag was not observable after bounded retries." >&2
+            exit 1
+          fi
           dotnet run eng/validate-release-result.cs -- \
             --release "$release_json" \
             --tag-commit "$tag_commit_json" \
