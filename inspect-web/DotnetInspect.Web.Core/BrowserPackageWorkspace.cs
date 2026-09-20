@@ -3935,10 +3935,19 @@ internal sealed class BrowserPackage
     /// <see cref="ReadDocument"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
-    public IReadOnlyList<BrowserPackageDocumentEntry> Documents()
+    public IReadOnlyList<BrowserPackageDocumentEntry> Documents() =>
+        ProjectDocuments(
+            Content.EnumerateEntriesWithLengths(),
+            PackageId,
+            Version);
+
+    internal static IReadOnlyList<BrowserPackageDocumentEntry> ProjectDocuments(
+        IEnumerable<PackageContentEntry> entries,
+        string packageId,
+        string version)
     {
         var documents = new List<BrowserPackageDocumentEntry>();
-        foreach (PackageContentEntry entry in Content.EnumerateEntriesWithLengths())
+        foreach (PackageContentEntry entry in entries)
         {
             string[] segments = entry.Path.Split('/');
             string fileName = segments[^1];
@@ -3954,7 +3963,7 @@ internal sealed class BrowserPackage
             if (entry.Length > MaxTextEntryBytes || entry.Length > int.MaxValue)
             {
                 throw new InvalidOperationException(
-                    $"A browsable document in {PackageId} {Version} exceeds the browser byte "
+                    $"A browsable document in {packageId} {version} exceeds the browser byte "
                     + "limit.");
             }
 
@@ -4038,10 +4047,11 @@ internal sealed class BrowserPackage
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
 
-    BrowserPackageIconPayload? ProjectIcon()
+    BrowserPackageIconPayload? ProjectIcon() =>
+        ProjectIcon(PackageIconQuery.Execute(Content, PackageId, Version));
+
+    internal static BrowserPackageIconPayload? ProjectIcon(PackageIconResult result)
     {
-        PackageIconResult result =
-            PackageIconQuery.Execute(Content, PackageId, Version);
         if (result is not PackageIconResult.Available available)
             return null;
 
