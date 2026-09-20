@@ -31,6 +31,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Contains("public int Count { get; }", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
+        SourceHouseMemberDecompilationOutcome.Completed house =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Equal(
+            getter.MetadataToken,
+            house.Request.Target.MetadataToken);
+        Assert.Same(source.Decompilation, house.Attempt);
         Assert.Empty(envelope.Diagnostics);
     }
 
@@ -55,6 +63,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Contains($"public int Count => {expression};", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
+        SourceHouseMemberDecompilationOutcome.Completed house =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Equal(
+            getter.MetadataToken,
+            house.Request.Target.MetadataToken);
+        Assert.Same(source.Decompilation, house.Attempt);
         Assert.Empty(envelope.Diagnostics);
     }
 
@@ -122,6 +138,16 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(PdbMemberSourceOutcome.ChecksumMismatch, source.PdbAttempt.Outcome);
         Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
         Assert.IsType<SourceHouseOutcome.Failed>(available.HouseOutcome);
+        SourceHouseMemberDecompilationOutcome.Completed decompiled =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Same(source.Decompilation, decompiled.Attempt);
+        Assert.Equal(
+            embedded
+                ? SourceHousePdbContributionKind.Embedded
+                : SourceHousePdbContributionKind.SuppliedCompanion,
+            decompiled.PdbContribution.Kind);
         if (embedded)
             Assert.Empty(host.SymbolRequests);
         else
@@ -161,6 +187,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             AssemblySourceFailureKind.AuthoredMemberUnavailable,
             unavailable.Failure.Kind);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Equal(
             PdbMemberSourceOutcome.ChecksumMismatch,
             unavailable.PdbAttempt!.Outcome);
@@ -204,8 +231,11 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
         if (boundary == "assembly")
         {
-            Assert.IsType<AssemblyContextLibraryAdapterResult.Incomplete>(available.LibraryFailure);
-            Assert.Null(available.HouseOutcome);
+            Assert.Null(available.LibraryFailure);
+            Assert.Equal(
+                SourceHouseIncompleteBoundary.AssemblyBytes,
+                Assert.IsType<SourceHouseOutcome.Incomplete>(
+                    available.HouseOutcome).Boundary);
         }
         else
         {
@@ -214,6 +244,13 @@ public sealed partial class AssemblyContextSourceQueryTests
                 : SourceHouseIncompleteBoundary.SourceBytes,
                 Assert.IsType<SourceHouseOutcome.Incomplete>(available.HouseOutcome).Boundary);
         }
+        SourceHouseMemberDecompilationOutcome.Completed decompiled =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
+        Assert.Same(
+            source.Decompilation,
+            decompiled.Attempt);
     }
 
     [Theory]
@@ -269,6 +306,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         var available = Assert.IsType<AssemblyMemberSourceComparisonEntry.Available>(inspection.Content);
         var decompiled = Assert.IsType<AssemblyMemberDecompiledSourceAttempt.Available>(available.Decompiled);
         Assert.True(decompiled.Result.PdbSupplied);
+        SourceHouseMemberDecompilationOutcome.Completed decompiledHouse =
+            Assert.IsType<
+                SourceHouseMemberDecompilationOutcome.Completed>(
+                decompiled.HouseOutcome);
+        Assert.Same(decompiled.Result, decompiledHouse.Attempt);
+        Assert.Equal(
+            SourceHousePdbContributionKind.SuppliedCompanion,
+            decompiledHouse.PdbContribution.Kind);
         if (failSource)
         {
             var pdb = Assert.IsType<AssemblyMemberPdbSourceAttempt.Unavailable>(available.Pdb);
