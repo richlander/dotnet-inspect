@@ -117,7 +117,8 @@ public sealed record StructuralSchemaProjection(
     IReadOnlySet<string>? ListedCategoryDoors,
     IReadOnlySet<string> CatalogHiddenSections,
     IReadOnlySet<string> ExactOnlySections,
-    ImmutableDictionary<string, StructuralSectionInput> SectionInputs);
+    ImmutableDictionary<string, StructuralSectionInput> SectionInputs,
+    OutputCapabilityCatalog? OutputCapabilities);
 
 public sealed record StructuralDiscoveryRequest(
     string[]? Discover,
@@ -130,6 +131,7 @@ public sealed record StructuralDiscoveryRequest(
     Verbosity Verbosity,
     IReadOnlySet<string>? IncludeSections,
     bool Schema,
+    bool Details,
     IProjectionOptions Projection)
 {
     public InspectionSectionIntent SectionIntent =>
@@ -158,6 +160,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
+            false,
             options);
 
     public static StructuralDiscoveryRequest From(ApiOptions options)
@@ -178,6 +181,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             null,
             options.Schema,
+            false,
             options);
 
     public static StructuralDiscoveryRequest From(
@@ -199,6 +203,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
+            options.DiscoverDetails,
             options);
 
     public static StructuralDiscoveryRequest From(
@@ -219,6 +224,7 @@ public sealed record StructuralDiscoveryRequest(
             options.ParseVerbosity(parseResult),
             null,
             options.ParseSchema(parseResult),
+            false,
             ProjectionAudit.Requested(parseResult, options));
     }
 }
@@ -848,6 +854,7 @@ public static class StructuralViewRegistry
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlySet<string> exactOnlySections =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        OutputCapabilityCatalog? outputCapabilities = null;
         switch (route.Catalog)
         {
             case InspectionCatalogIdentity.Package:
@@ -879,6 +886,8 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                outputCapabilities =
+                    LibraryOutputCapabilities.Catalog;
                 break;
             }
             case InspectionCatalogIdentity.LibraryAggregate:
@@ -1014,7 +1023,8 @@ public static class StructuralViewRegistry
             listedCategoryDoors,
             catalogHiddenSections,
             exactOnlySections,
-            inputs);
+            inputs,
+            outputCapabilities);
     }
 
     public static int Execute(
@@ -1032,6 +1042,42 @@ public static class StructuralViewRegistry
         request = normalizedRequest;
         StructuralSchemaProjection projection = Project(route, outputShape);
         DocumentSchema schema = projection.Schema;
+        if (request.Details)
+        {
+            if (request.Select is not null
+                || request.SelectDefault
+                || request.IncludeSections is { Count: > 0 })
+            {
+                CommandError.Write(
+                    "--details cannot be combined with -S/--select; name the "
+                    + "category or section after -D/--discover.");
+                return 1;
+            }
+
+            if (projection.OutputCapabilities is null)
+            {
+                CommandError.Write(
+                    "Detailed discovery is not available for this command.");
+                return 1;
+            }
+
+            return DetailedDiscoverOutput.Execute(
+                request.Discover,
+                schema,
+                projection.SelectableSectionNames,
+                projection.SectionCategories,
+                projection.CatalogHiddenSections,
+                projection.ListedCategoryDoors,
+                projection.OutputCapabilities,
+                DiscoveryOutputRequest.Create(
+                    request.Format,
+                    request.Tree,
+                    request.TableExplicitlySet,
+                    request.NoHeader,
+                    (int)request.Verbosity,
+                    request.Projection));
+        }
+
         var selectedSections =
             request.IncludeSections is { Count: > 0 }
                 ? new HashSet<string>(
