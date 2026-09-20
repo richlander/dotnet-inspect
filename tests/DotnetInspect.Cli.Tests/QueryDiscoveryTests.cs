@@ -447,6 +447,15 @@ public class QueryDiscoveryTests
             toolFormat.GetProperty("values").EnumerateArray()
                 .Select(value => value.GetString()));
         Assert.Equal(
+            "package-content",
+            toolFormat.GetProperty("execution_class").GetString());
+        Assert.Equal(
+            "metadata",
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.ReferencesTermKey)
+                .GetProperty("execution_class").GetString());
+        Assert.Equal(
             "NuGet package ID",
             facets.Single(facet =>
                 facet.GetProperty("name").GetString()

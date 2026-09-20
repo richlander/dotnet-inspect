@@ -16,7 +16,6 @@ namespace DotnetInspect.Cli.Output;
 internal static class QueryDiscoverOutput
 {
     private static readonly string[] CatalogColumns = ["Section", "Operators", "Facets"];
-    private static readonly string[] FacetColumns = ["Facet", "Operators", "Comparisons", "Values", "Example"];
     internal const string NoOperators = "This section has no CLI query facets or ranking operators.";
 
     internal static int Execute(
@@ -39,6 +38,11 @@ internal static class QueryDiscoverOutput
                 .Where(name => selection.Sections!.Contains(name))
                 .Select(name => catalog.Queries.FirstOrDefault(item => item.Section == name)
                     ?? new SectionQueryDescriptor(name, NoOperators, []))];
+        bool includeExecutionClass =
+            !bare
+            && selected.SelectMany(section => section.Keys)
+                .Any(key => key.ExecutionClass is not null);
+        string[] facetColumns = FacetColumns(includeExecutionClass);
         RowSelectionIntent<string>? semanticRowSelection = null;
         string? semanticSelectionName = commandName switch
         {
@@ -67,7 +71,7 @@ internal static class QueryDiscoverOutput
             }
             var companionSchema = new DocumentSchema();
             foreach (SectionQueryDescriptor section in selected)
-                companionSchema.Add(section.QuerySection, "column", FacetColumns);
+                companionSchema.Add(section.QuerySection, "column", facetColumns);
             return DiscoverOutput.Execute(
                 [.. selected.Select(section => section.QuerySection)],
                 companionSchema,
@@ -83,7 +87,7 @@ internal static class QueryDiscoverOutput
                     semanticSelectionName ?? "Discovery");
         }
 
-        string[] headers = bare ? CatalogColumns : FacetColumns;
+        string[] headers = bare ? CatalogColumns : facetColumns;
         if (!LensProjection.TryResolveColumns(
                 projection, "-Q/--query-help", headers, out string[] resolvedColumns))
             return 1;
@@ -166,7 +170,13 @@ internal static class QueryDiscoverOutput
                 OutputFormatter.WriteProjectedJson(
                     Console.Out, projectedColumns, null,
                     (output, formatter, writerOptions) =>
-                        Write(new MarkoutWriter(output, formatter, writerOptions), selected, bare, true, message));
+                        Write(
+                            new MarkoutWriter(output, formatter, writerOptions),
+                            selected,
+                            bare,
+                            includeExecutionClass,
+                            true,
+                            message));
             }
             else
             {
@@ -197,7 +207,13 @@ internal static class QueryDiscoverOutput
                 format == OutputFormat.Tsv, format == OutputFormat.Jsonl,
                 DisplayColumns(), null,
                 (output, formatter, writerOptions) =>
-                    Write(new MarkoutWriter(output, formatter, writerOptions), selected, bare, false, null));
+                    Write(
+                        new MarkoutWriter(output, formatter, writerOptions),
+                        selected,
+                        bare,
+                        includeExecutionClass,
+                        false,
+                        null));
             return 0;
         }
 
@@ -205,13 +221,21 @@ internal static class QueryDiscoverOutput
             Console.Out,
             format == OutputFormat.PlainText ? new PlainTextFormatter() : new MarkdownFormatter(),
             OutputFormatter.CreateProjectedWriterOptions(DisplayColumns(), null));
-        Write(writer, selected, bare, true, message);
+        Write(
+            writer,
+            selected,
+            bare,
+            includeExecutionClass,
+            true,
+            message);
         return 0;
 
         string[]? DisplayColumns() => projectedColumns
             ?? (!bare
                 && options.ParseVerbosity(result) < Verbosity.Detailed
-                    ? ["Facet", "Operators", "Comparisons", "Values"]
+                    ? includeExecutionClass
+                        ? ["Facet", "Execution Class", "Operators", "Comparisons", "Values"]
+                        : ["Facet", "Operators", "Comparisons", "Values"]
                     : null);
     }
 
@@ -241,6 +265,7 @@ internal static class QueryDiscoverOutput
         MarkoutWriter writer,
         IReadOnlyList<SectionQueryDescriptor> sections,
         bool bare,
+        bool includeExecutionClass,
         bool headings,
         string? message)
     {
@@ -260,6 +285,8 @@ internal static class QueryDiscoverOutput
         }
         else
         {
+            string[] columns = FacetColumns(includeExecutionClass);
+            string[] fields = FacetFields(includeExecutionClass);
             foreach (SectionQueryDescriptor section in sections)
             {
                 if (headings)
@@ -267,26 +294,48 @@ internal static class QueryDiscoverOutput
                     writer.WriteHeading(2, section.QuerySection);
                     writer.WriteParagraph(section.Summary);
                 }
-                writer.WriteTable(FacetColumns, ["facet", "operators", "comparisons", "values", "example"],
-                    [.. section.Keys.Select(key => new[]
-                    {
-                        key.Name,
-                        MarkoutInline.Code(string.Join(", ", key.Operators)),
-                        key.Comparisons.IsEmpty
-                            ? ""
-                            : MarkoutInline.Code(string.Join(", ", key.Comparisons)),
-                        key.Values.IsEmpty
-                            ? key.ValueKind
-                            : key.ValueKind.StartsWith(
-                                "C# body kind",
-                                StringComparison.OrdinalIgnoreCase)
-                                ? "C# Body Kinds: " + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
-                                : string.Join(", ", key.Values),
-                        MarkoutInline.Code(key.Example),
-                    })]);
+                writer.WriteTable(
+                    columns,
+                    fields,
+                    [.. section.Keys.Select(key =>
+                        FacetRow(key, includeExecutionClass))]);
             }
         }
         writer.Flush();
+    }
+
+    private static string[] FacetColumns(bool includeExecutionClass) =>
+        includeExecutionClass
+            ? ["Facet", "Execution Class", "Operators", "Comparisons", "Values", "Example"]
+            : ["Facet", "Operators", "Comparisons", "Values", "Example"];
+
+    private static string[] FacetFields(bool includeExecutionClass) =>
+        includeExecutionClass
+            ? ["facet", "execution_class", "operators", "comparisons", "values", "example"]
+            : ["facet", "operators", "comparisons", "values", "example"];
+
+    private static string[] FacetRow(
+        SectionQueryKey key,
+        bool includeExecutionClass)
+    {
+        string values = key.Values.IsEmpty
+            ? key.ValueKind
+            : key.Name == "Kind"
+                ? "C# Body Kinds: "
+                    + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
+                : string.Join(", ", key.Values);
+        string[] remainder =
+        [
+            MarkoutInline.Code(string.Join(", ", key.Operators)),
+            key.Comparisons.IsEmpty
+                ? ""
+                : MarkoutInline.Code(string.Join(", ", key.Comparisons)),
+            values,
+            MarkoutInline.Code(key.Example),
+        ];
+        return includeExecutionClass
+            ? [key.Name, key.ExecutionClass ?? "", .. remainder]
+            : [key.Name, .. remainder];
     }
 }
 

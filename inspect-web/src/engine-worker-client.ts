@@ -263,6 +263,7 @@ function packageQueryRequest(
           summary: "",
           weight: 0,
           tier: "nuspec",
+          executionClass: "nuspec",
           operators: [term.operator],
           valueKind: "",
           example: "",

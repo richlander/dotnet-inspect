@@ -67,6 +67,11 @@ public class PackageQueryCliTests
                             ? "="
                             : throw new InvalidOperationException()),
                 PackageQueryOptions.QueryKeys[index].Comparisons);
+            Assert.Equal(
+                PackageQuery.ExecutionClassIdentity(
+                    registeredInspectionTerms[index]
+                        .Descriptor.ExecutionClass),
+                PackageQueryOptions.QueryKeys[index].ExecutionClass);
         }
         Assert.Equal(
             ["v1", "v2"],
@@ -80,6 +85,10 @@ public class PackageQueryCliTests
             ["any", "MIT", "OSMF"],
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.LicenseTermKey).Values);
+        Assert.Equal(
+            "metadata",
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.ReferencesTermKey).ExecutionClass);
     }
 
     [Fact]

@@ -947,6 +947,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       value: "true",
       label: "Verified",
       tier: "nuspec",
+      executionClass: "nuspec",
     }],
     terms: [{
       descriptor: {
@@ -955,6 +956,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
         summary: "Matches a direct dependency in any group.",
         weight: 10,
         tier: "nuspec",
+        executionClass: "nuspec",
         operators: ["eq"],
         valueKind: "package-id",
         example: "Microsoft.Extensions.Hosting",
