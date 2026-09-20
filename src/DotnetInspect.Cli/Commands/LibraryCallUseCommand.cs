@@ -318,17 +318,46 @@ public static class LibraryCallUseCommand
 
         AssemblyPairCallUseProjection projection =
             AssemblyPairCallUseProjection.Create(selectedResult!);
-        if (!CliSemanticRowSelection.TrySelect(
-                options.RowSelection,
-                selectedResult!.Occurrences,
-                "Library call sites",
-                failure =>
-                    $"Library call-site row selection stage "
-                    + $"{failure.Failure.StageNumber} requires call site "
-                    + $"{failure.Failure.RequiredPosition}, but only "
-                    + $"{failure.Failure.AvailableCount} call sites are available.",
-                out IReadOnlyList<AssemblyPairCallUseOccurrence>
-                    selectedOccurrences))
+        IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
+            selectedResult!.Occurrences;
+        bool selectsDirectUseClusterRows =
+            options.RowSelection is not null
+            && selectedNames.Length == 1
+            && selectedNames[0].Equals(
+                DirectUseClustersSection,
+                StringComparison.OrdinalIgnoreCase);
+        if (selectsDirectUseClusterRows)
+        {
+            if (!CliSemanticRowSelection.TrySelect(
+                    options.RowSelection,
+                    selectedClusters!.Clusters,
+                    "Library direct-use clusters",
+                    failure =>
+                        $"Library direct-use cluster row selection stage "
+                        + $"{failure.Failure.StageNumber} requires cluster "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} direct-use clusters are available.",
+                    out IReadOnlyList<AssemblyPairDirectUseCluster>
+                        selectedClusterRows))
+            {
+                return 1;
+            }
+
+            selectedClusters = selectedClusters with
+            {
+                Clusters = [.. selectedClusterRows],
+            };
+        }
+        else if (!CliSemanticRowSelection.TrySelect(
+                     options.RowSelection,
+                     selectedResult.Occurrences,
+                     "Library call sites",
+                     failure =>
+                         $"Library call-site row selection stage "
+                         + $"{failure.Failure.StageNumber} requires call site "
+                         + $"{failure.Failure.RequiredPosition}, but only "
+                         + $"{failure.Failure.AvailableCount} call sites are available.",
+                     out selectedOccurrences))
         {
             return 1;
         }
