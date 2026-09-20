@@ -144,7 +144,10 @@ Resource Triage preserves its legacy ArrayPool boundary contract through a
 narrow compatibility walk over the root local's reaching-definition uses. The
 walk reuses the established ArrayPool use classifier and downstream
 setup-boundary traversal so transparent framework wrappers retain their
-reported boundary sequence, while nonthrowing setup calls, address-taken
+reported boundary sequence. Legacy setup classification controls traversal,
+not no-throw proof: only an exact `throws=never` effect or a narrow intrinsic
+rule suppresses a throwing boundary, and an otherwise fallible setup makes the
+root incomplete. Intrinsically nonthrowing setup calls, address-taken
 flows, and method-group or indirect-dispatch shapes encountered after the
 tracked load remain suppressed or incomplete exactly as the legacy oracle
 requires. Dispatch outside that root-use interval does not suppress sound

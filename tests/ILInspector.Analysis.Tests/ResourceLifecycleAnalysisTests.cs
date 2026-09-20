@@ -256,6 +256,29 @@ public sealed class ResourceLifecycleAnalysisTests
     }
 
     [Fact]
+    public void LifecycleRequest_DoesNotCreditFallibleLegacySetup()
+    {
+        ResourceLifecycleRootResult root =
+            Root(Analyze(), "RentAcrossArrayClearCleanupSetup");
+
+        Assert.False(root.IsComplete);
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+        Assert.Contains(
+            root.Limitations,
+            limitation =>
+                limitation.Kind
+                    == ResourceLifecycleLimitationKind.ExceptionFlow
+                && limitation.Detail.Contains(
+                    "not proven nonthrowing",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void LifecycleRequest_CreditsExactThrowsNeverBoundary()
     {
         ResourceEffectAdmissionOutcome outcome =

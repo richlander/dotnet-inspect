@@ -38,14 +38,20 @@ internal static class ResourceLifecycleAnalysisService
             directCallsByOffset.ToDictionary(
                 static pair => pair.Key,
                 static pair => pair.Value.Callee);
+        IReadOnlySet<int> throwsNeverOffsets = occurrences.Occurrences
+            .Where(occurrence =>
+                occurrence.Call is not null
+                && !CanThrow(occurrence))
+            .Select(static occurrence => occurrence.ILOffset)
+            .ToHashSet();
         IReadOnlySet<int> cleanupHazards = methodCalls
             .Where(call =>
                 call.Kind is CallKind.CallIndirect
                 || (call.Kind is CallKind.Call
                         or CallKind.CallVirtual
                         or CallKind.NewObject
-                    && !ArrayPoolUseClassifier
-                        .IsNonThrowingSetupBoundary(call.Callee)
+                    && !throwsNeverOffsets.Contains(call.ILOffset)
+                    && !IsIntrinsicallyNonThrowing(call.Callee)
                     && !IsArrayPoolSharedGetter(call.Callee)))
             .Select(static call => call.ILOffset)
             .Concat(
@@ -333,6 +339,14 @@ internal static class ResourceLifecycleAnalysisService
                 context.Method,
                 root));
         }
+        if (arrayPoolBoundaries?.HasUnprovenSetup == true)
+        {
+            limitations.Add(new(
+                ResourceLifecycleLimitationKind.ExceptionFlow,
+                "A legacy setup operation is not proven nonthrowing.",
+                context.Method,
+                root));
+        }
         ImmutableArray<ResourceLifecycleBoundaryEvidence> boundaries =
             arrayPoolBoundaries is { HasIndirectDispatch: false }
                 ? arrayPoolBoundaries.All
@@ -461,7 +475,8 @@ internal static class ResourceLifecycleAnalysisService
 
     sealed record ArrayPoolBoundarySet(
         ImmutableArray<ResourceLifecycleBoundaryEvidence> All,
-        bool HasIndirectDispatch);
+        bool HasIndirectDispatch,
+        bool HasUnprovenSetup);
 
     static ArrayPoolBoundarySet
         ArrayPoolThrowingBoundaries(
@@ -478,6 +493,7 @@ internal static class ResourceLifecycleAnalysisService
                 ResourceLifecycleBoundaryEvidence>();
         string? firstAmbiguousShape = null;
         bool hasIndirectDispatch = false;
+        bool hasUnprovenSetup = false;
         Dictionary<int, ResourceOccurrence> occurrencesByOffset =
             occurrences
                 .Where(occurrence => occurrence.Call is not null)
@@ -517,13 +533,18 @@ internal static class ResourceLifecycleAnalysisService
                 && call.Kind is CallKind.LoadFunction
                     or CallKind.LoadVirtualFunction
                     or CallKind.CallIndirect);
-            bool nonThrowing =
-                classification.NonThrowingSetupBoundary
+            bool provenNonThrowing =
+                IsIntrinsicallyNonThrowing(boundary.Operation)
                 || occurrencesByOffset.TryGetValue(
                     boundary.ILOffset,
                     out ResourceOccurrence? occurrence)
                     && !CanThrow(occurrence);
-            if (!nonThrowing)
+            if (!provenNonThrowing
+                && classification.NonThrowingSetupBoundary)
+            {
+                hasUnprovenSetup = true;
+            }
+            else if (!provenNonThrowing)
             {
                 AddBoundary(boundary);
             }
@@ -546,7 +567,10 @@ internal static class ResourceLifecycleAnalysisService
                 "cross-method-suppressed",
                 StringComparison.Ordinal))
         {
-            return new([], HasIndirectDispatch: false);
+            return new(
+                [],
+                HasIndirectDispatch: false,
+                HasUnprovenSetup: hasUnprovenSetup);
         }
 
         return new(
@@ -555,7 +579,8 @@ internal static class ResourceLifecycleAnalysisService
                     .Distinct()
                     .OrderBy(static boundary => boundary.ILOffset),
             ],
-            hasIndirectDispatch);
+            hasIndirectDispatch,
+            hasUnprovenSetup);
 
         void AddBoundary(ArrayPoolExceptionBoundary boundary)
         {
@@ -582,6 +607,13 @@ internal static class ResourceLifecycleAnalysisService
                 member.DeclaringType,
                 "System.Buffers",
                 "ArrayPool`1"));
+
+    static bool IsIntrinsicallyNonThrowing(MemberRef member) =>
+        member.Name == "KeepAlive"
+        && FrameworkIdentity.IsCoreLibraryType(
+            member.DeclaringType,
+            "System",
+            "GC");
 
     static bool IsArrayPoolRoot(
         ResourceOccurrenceRoot.Acquisition root) =>
