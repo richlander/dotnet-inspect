@@ -24,8 +24,10 @@ The production host is DecompilerHarness through the tools-first migration in
 [#6199][issue-6199]. The approved focused path is Metadata evidence, CSharp
 representability in [#4852][issue-4852], RTS target selection in
 [#7888][issue-7888], and raised standalone adoption in
-[#7890][issue-7890]. CLI and browser/Wasm adoption are non-claims of this
-tools-scoped migration.
+[#7890][issue-7890]. Exact `InterfaceImpl` association is the separate
+Metadata-owned prerequisite [#7897][issue-7897]; CSharp composes that result
+with this one rather than reopening either relationship. CLI and browser/Wasm
+adoption are non-claims of this tools-scoped migration.
 
 ## Demo and motivating evidence
 
@@ -397,6 +399,8 @@ This contract does not:
 
 - expose all ordinary `MethodDef` declaration facts; [#7886][issue-7886] owns
   that work;
+- authenticate whether the declaration owner occurs in the containing type's
+  `InterfaceImpl` rows; [#7897][issue-7897] owns that independent association;
 - define property, event, accessor, or complete `MethodSemantics` evidence;
   [#5164][issue-5164] owns that work;
 - resolve declarations by loading inspected or referenced assemblies;
@@ -418,4 +422,5 @@ This contract does not:
 [issue-7887]: https://github.com/richlander/dotnet-inspect/issues/7887
 [issue-7888]: https://github.com/richlander/dotnet-inspect/issues/7888
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
+[issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
 [runtime-int32]: https://github.com/dotnet/runtime/blob/81be0823c7162a79bcc8bde49763293c92567e9e/src/libraries/System.Private.CoreLib/src/System/Int32.cs#L270-L277
