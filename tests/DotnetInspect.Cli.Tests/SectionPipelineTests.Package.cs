@@ -126,6 +126,26 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void PackagePipeline_BaseInventoriesFollowMeasuredGrowthClasses()
+    {
+        Assert.Equal(
+            SectionSizeClass.Informative,
+            PackageSectionDescriptors.TargetFrameworks.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.Dependencies.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.EcosystemDependencies.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.RuntimeDependencies.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.SkillFiles.SizeClass);
+    }
+
+    [Fact]
     public void PackagePipeline_PackageContentAuditRendersOnlyWithFindings()
     {
         var model = new InspectionResult
@@ -186,12 +206,8 @@ public partial class SectionPipelineTests
                 PackageSections.FilesReadme,
                 PackageSections.TargetFrameworks,
                 PackageSections.FilesNuspec,
-                PackageSections.FilesSkills,
                 PackageSections.Signature,
-                PackageSections.Dependencies,
-                PackageSections.EcosystemDependencies,
                 PackageSections.Manifest,
-                PackageSections.RuntimeDependencies
             }.OrderBy(name => name, StringComparer.Ordinal),
             pipeline.GetCandidateSections(Verbosity.Normal)
                 .OrderBy(name => name, StringComparer.Ordinal));
@@ -224,6 +240,21 @@ public partial class SectionPipelineTests
                 PackageSections.Manifest
             ],
             pipeline.BareSelectSectionNames);
+    }
+
+    [Theory]
+    [InlineData(PackageSections.Dependencies)]
+    [InlineData(PackageSections.EcosystemDependencies)]
+    [InlineData(PackageSections.RuntimeDependencies)]
+    [InlineData(PackageSections.FilesSkills)]
+    public void PackagePipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
+        string section)
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+
+        Assert.Equal(Verbosity.Detailed, pipeline.GetRequiredVerbosity(include));
+        Assert.Equal([section], pipeline.GetCandidateSections(Verbosity.Detailed, include));
     }
 
     [Fact]
@@ -372,7 +403,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsRuntimeDepsWhenPresent()
+    public void PackagePipeline_Detailed_ShowsRuntimeDepsWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -382,7 +413,7 @@ public partial class SectionPipelineTests
             RuntimeDependencies = [new PackageDependency { Id = "Dep", Version = "1.0.0" }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Runtime Dependencies", effective);
     }
@@ -420,7 +451,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsPackageDepsWhenPresent()
+    public void PackagePipeline_Detailed_ShowsPackageDepsWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -430,7 +461,7 @@ public partial class SectionPipelineTests
             DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Dependencies", effective);
     }

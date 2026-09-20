@@ -2113,7 +2113,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string id,
         Func<HttpContent> payload,
         ConcurrentQueue<string> requests,
-        Func<CancellationToken, Task>? beforeResponse = null) : HttpMessageHandler
+        Func<CancellationToken, Task>? beforeResponse = null,
+        string version = Version) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -2123,7 +2124,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             if (beforeResponse is not null)
                 await beforeResponse(cancellationToken);
             string flat = new Uri(new Uri(source), "flat2/").AbsoluteUri;
-            string packageUrl = $"{flat}{id.ToLowerInvariant()}/{Version}/{id.ToLowerInvariant()}.{Version}.nupkg";
+            string packageUrl = $"{flat}{id.ToLowerInvariant()}/{version}/{id.ToLowerInvariant()}.{version}.nupkg";
             HttpContent content;
             if (url == source)
             {

@@ -309,8 +309,32 @@ their product contracts:
 
 `DotWasm.Models` 0.1.0 is pinned as a test asset. Its four native C# union rows
 exercise the production package-acquisition and metadata-inspection path
-without turning the broader package survey into a PR-CI corpus sweep. Domain,
-package, API, and other command families remain separate #3284 audit work.
+without turning the broader package survey into a PR-CI corpus sweep.
+
+#### Package base-section evidence
+
+The package base-category audit covers `@Package` and `@Files`. It combines the
+producer contract with published-package measurements:
+
+| Section | Evidence | Classification |
+| --- | --- | --- |
+| Target Frameworks | 13 rows in `System.ValueTuple` 4.5.0 | `Informative` |
+| Dependencies | 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Ecosystem Dependencies | 139 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Runtime Dependencies | 44 rows in `dotnet-outdated-tool` 4.8.1; 120 in `Microsoft.DotNet.Interactive` | `Verbose` |
+| Package skill files | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
+
+Dependencies grow with package dependency declarations. Ecosystem Dependencies
+can project one or more recognized ecosystem associations for each declaration.
+Runtime Dependencies grow with package entries in tool `.deps.json` files, and
+Package skill files grows with matching `skills/**/SKILL.md` entries. None has
+a product row cap. Target Frameworks exceeded the terse range but remained
+within the informative range across the measured corpus.
+
+The four compact witness packages are pinned as test assets and their exact
+row counts run through production package acquisition and projection in PR CI.
+The broader survey remains reproducible design evidence rather than a corpus
+gate. Domain, API, and other command families remain separate #3284 audit work.
 
 ### Cost
 
@@ -638,9 +662,9 @@ The package command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
+| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
 | `@Files` | `Package nuspec file`, `Package README file`, `Package license files`, `Package skill files` |
-| `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
+| `@Dependencies` | `Dependency Hierarchy`, `Dependencies`, `Ecosystem Dependencies`, `Runtime Dependencies` |
 | `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
 

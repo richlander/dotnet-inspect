@@ -246,7 +246,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.TargetFrameworks;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool CanRender(InspectionResult model)
             => model.TargetFrameworks is { Count: > 0 };
     }
@@ -255,7 +255,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.FilesSkills;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesSkills);
     }
@@ -366,7 +366,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.Dependencies;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.DependencyGroups is { Count: > 0 };
     }
@@ -378,7 +378,7 @@ public static class PackageSectionDescriptors
             PackageSections.EcosystemDependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+            SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model) =>
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
@@ -408,7 +408,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.RuntimeDependencies;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.RuntimeDependencies is { Count: > 0 };
     }
