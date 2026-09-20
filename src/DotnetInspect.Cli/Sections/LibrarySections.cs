@@ -149,6 +149,9 @@ public static class LibrarySections
             .Add<PerformanceEnumerators>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
+            .Add<PerformanceStrings>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
             .Add<PerformanceLoops>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
@@ -1021,6 +1024,14 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators);
+    }
+
+    public sealed class PerformanceStrings : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceStrings;
+        public static bool IsExpensive => false;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceStrings);
     }
 
     public sealed class PerformanceLoops : ISectionDescriptor<LibraryInspection>

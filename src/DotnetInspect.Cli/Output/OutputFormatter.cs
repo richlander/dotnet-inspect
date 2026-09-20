@@ -439,7 +439,10 @@ public static class OutputFormatter
         if (options.JsonOutput && !options.Count)
         {
             return JsonSerializer.Serialize(
-                PackageInspectionJson.Create(result, options.Rows),
+                PackageInspectionJson.Create(
+                    result,
+                    options.Rows,
+                    options.DependencyHierarchyRowsSelected),
                 PackageInspectionJsonContext.Default.PackageInspectionJson);
         }
 
@@ -459,7 +462,8 @@ public static class OutputFormatter
                 projection, ordered, options.Format, options.NoHeader);
         }
 
-        if (options.Format == OutputFormat.Markdown
+        if (options.Format is OutputFormat.Markdown
+                or OutputFormat.PlainText
             && options.Columns is not { Length: > 0 }
             && options.Fields is not { Length: > 0 }
             && result.DependencyHierarchyProjection is { } hierarchy
@@ -476,11 +480,20 @@ public static class OutputFormatter
                 view,
                 InspectionContext.Default,
                 writerOptions).TrimEnd();
+            IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
+                !options.DependencyHierarchyRowsSelected
+                && options.Rows is { IsUnlimited: false } window
+                    ? window.Apply(hierarchy.HierarchyRows)
+                    : hierarchy.HierarchyRows;
             string hierarchySection =
-                DependsCommand.RenderHierarchySection(
-                    hierarchy,
-                    options.Rows,
-                    embeddedMermaid: false);
+                options.Format == OutputFormat.Markdown
+                    ? DependsCommand.RenderHierarchySection(
+                        hierarchy,
+                        hierarchyRows,
+                        embeddedMermaid: false)
+                    : DependsCommand.RenderHierarchyPlainTextSection(
+                        hierarchy,
+                        hierarchyRows);
             return string.Join(
                 Environment.NewLine + Environment.NewLine,
                 new[] { package, hierarchySection }
@@ -509,7 +522,8 @@ public static class OutputFormatter
             && writerOptions.IncludeSections?.Contains(
                 PackageSections.DependencyHierarchy) == true)
         {
-            int count = options.Rows is { IsUnlimited: false } window
+            int count = !options.DependencyHierarchyRowsSelected
+                && options.Rows is { IsUnlimited: false } window
                 ? window.Apply(hierarchy.HierarchyRows).Count
                 : hierarchy.HierarchyRows.Length;
             projection.SetRows(
@@ -531,7 +545,12 @@ public static class OutputFormatter
             writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
         else if (selectInfo)
             writerOptions.SectionOrder = pipeline.InfoSectionNames;
-        writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+        writerOptions.RowWindow = RowWindow.ToMarkout(
+            options.DependencyHierarchyRowsSelected
+            && writerOptions.IncludeSections is { Count: 1 } sections
+            && sections.Contains(PackageSections.DependencyHierarchy)
+                ? null
+                : options.Rows);
         return writerOptions;
     }
 

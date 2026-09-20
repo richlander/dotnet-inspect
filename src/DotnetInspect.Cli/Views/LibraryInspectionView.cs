@@ -1010,6 +1010,10 @@ public class LibraryInspectionView
     [MarkoutSection(Name = SectionNames.PerformanceEnumerators, ShowWhenProperty = nameof(HasPerformanceEnumerators))]
     public List<PerformanceRow>? PerformanceEnumeratorsSection => PerformanceRowsFor(SectionNames.PerformanceEnumerators);
 
+    [MarkoutIgnore] public bool HasPerformanceStrings => PerformanceStringsSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceStrings, ShowWhenProperty = nameof(HasPerformanceStrings))]
+    public List<PerformanceRow>? PerformanceStringsSection => PerformanceRowsFor(SectionNames.PerformanceStrings);
+
     [MarkoutIgnore] public bool HasPerformanceLoops => PerformanceLoopsSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceLoops, ShowWhenProperty = nameof(HasPerformanceLoops))]
     public List<PerformanceRow>? PerformanceLoopsSection => PerformanceRowsFor(SectionNames.PerformanceLoops);

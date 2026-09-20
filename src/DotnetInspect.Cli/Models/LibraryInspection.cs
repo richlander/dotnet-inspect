@@ -1567,6 +1567,10 @@ public sealed class PerformanceProjection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? Enumerators { get; set; }
 
+    [JsonPropertyName("strings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Strings { get; set; }
+
     [JsonPropertyName("loop_hot_paths")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? LoopHotPaths { get; set; }
@@ -1604,6 +1608,7 @@ public sealed class PerformanceProjection
                 SectionNames.PerformanceArrays => projection.Arrays ??= [],
                 SectionNames.PerformanceClosures => projection.ClosuresAndDelegates ??= [],
                 SectionNames.PerformanceEnumerators => projection.Enumerators ??= [],
+                SectionNames.PerformanceStrings => projection.Strings ??= [],
                 SectionNames.PerformanceLoops => projection.LoopHotPaths ??= [],
                 SectionNames.PerformanceHotspots => projection.AllocationHotspots ??= [],
                 SectionNames.PerformanceAsync => projection.Async ??= [],

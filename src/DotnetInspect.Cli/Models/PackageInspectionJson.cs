@@ -18,18 +18,25 @@ internal sealed class PackageInspectionJson
     private readonly InspectionResult _data;
     private readonly PackageInspectionText _text;
     private readonly RowWindow? _rows;
+    private readonly bool _dependencyHierarchyRowsSelected;
 
-    private PackageInspectionJson(InspectionResult data, RowWindow? rows)
+    private PackageInspectionJson(
+        InspectionResult data,
+        RowWindow? rows,
+        bool dependencyHierarchyRowsSelected)
     {
         _data = data;
         _text = new PackageInspectionText(data);
         _rows = rows;
+        _dependencyHierarchyRowsSelected =
+            dependencyHierarchyRowsSelected;
     }
 
     public static PackageInspectionJson Create(
         InspectionResult data,
-        RowWindow? rows = null) =>
-        new(data, rows);
+        RowWindow? rows = null,
+        bool dependencyHierarchyRowsSelected = false) =>
+        new(data, rows, dependencyHierarchyRowsSelected);
 
     public string PackageName => _text.PackageName.ToString();
     public string? ManifestVersion => Render(_text.ManifestVersion);
@@ -88,7 +95,9 @@ internal sealed class PackageInspectionJson
         .ToList();
     public PackageDependencyHierarchyJson? DependencyHierarchy =>
         _data.DependencyHierarchyProjection is { } projection
-            ? PackageDependencyHierarchyJson.Create(projection, _rows)
+            ? PackageDependencyHierarchyJson.Create(
+                projection,
+                _dependencyHierarchyRowsSelected ? null : _rows)
             : null;
     public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
         EcosystemDependencyRecognitionJson.Create(

@@ -299,6 +299,27 @@ public sealed record MethodRef(
     public MetadataFactState IsExtension { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// True only when metadata proves that C# can infer every method type
+    /// argument from the extension receiver argument without changing overload
+    /// selection.
+    /// </summary>
+    internal bool CanOmitTypeArguments { get; init; }
+
+    /// <summary>
+    /// Whether the exact declaring type has no competing same-name overload
+    /// that could accept this call's fixed argument count after type-argument
+    /// inference.
+    /// </summary>
+    internal MetadataFactState TypeArgumentElisionOverloadSafety { get; init; }
+
+    /// <summary>
+    /// Same-name overload signatures that explicit type arguments and receiver
+    /// inference both admit. Their non-receiver arguments must independently
+    /// preserve the recorded method instantiation before elision is safe.
+    /// </summary>
+    internal ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters { get; init; } = [];
+
+    /// <summary>
     /// Metadata PInvokeImpl / <c>[DllImport]</c> evidence on this method. Taking
     /// such a target as <c>&amp;Method</c> is not a source-equivalent
     /// UnmanagedCallersOnly callback address, so method-address raising declines

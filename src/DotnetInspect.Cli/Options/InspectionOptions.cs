@@ -32,6 +32,12 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string? Tfm { get; init; }
 
+    public DependencyQueryPlan? DependencyQueryPlan { get; init; }
+
+    internal int? DependencyHierarchyLegacyWindowStageIndex { get; init; }
+
+    internal bool DependencyHierarchyRowsSelected { get; init; }
+
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
     /// </summary>

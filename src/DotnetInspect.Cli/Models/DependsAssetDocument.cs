@@ -37,15 +37,18 @@ internal sealed record DependsAssetDocument
     internal static DependsAssetDocument Create(
         DependsAssetProjection projection,
         IReadOnlySet<string> sections,
-        RowWindow? rows)
+        RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow>?
+            hierarchyRows = null)
     {
         DependencyEvidenceSourceTokens tokens =
             CreateTokens(projection);
         IReadOnlyList<DependencyHierarchyOccurrenceRow>
             selectedHierarchyRows =
-                rows is { IsUnlimited: false } hierarchyWindow
+                hierarchyRows
+                ?? (rows is { IsUnlimited: false } hierarchyWindow
                     ? hierarchyWindow.Apply(projection.HierarchyRows)
-                    : projection.HierarchyRows;
+                    : projection.HierarchyRows);
         IReadOnlyList<DependsRootRow> selectedRoots =
             rows is { IsUnlimited: false } rootWindow
                 ? rootWindow.Apply(projection.Roots)
