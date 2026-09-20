@@ -175,6 +175,107 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     }
 
     [Fact]
+    public async Task
+        FunctionPointerConventionReturnOverloads_SelectByExactBodyIdentity()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-function-pointer-convention-cli-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            File.WriteAllBytes(
+                oldPath,
+                FunctionPointerConventionReturnOverloadFixture.Build(
+                    returnOne: false));
+            File.WriteAllBytes(
+                newPath,
+                FunctionPointerConventionReturnOverloadFixture.Build(
+                    returnOne: true));
+
+            var unfiltered = await RunFunctionPointerConventionPair(
+                oldPath,
+                newPath);
+            var first = await RunFunctionPointerConventionPair(
+                oldPath,
+                newPath,
+                "Changed:1");
+            var second = await RunFunctionPointerConventionPair(
+                oldPath,
+                newPath,
+                "Changed:2");
+
+            Assert.True(unfiltered.Exit == 0, unfiltered.Error);
+            Assert.True(first.Exit == 0, first.Error);
+            Assert.True(second.Exit == 0, second.Error);
+            using JsonDocument unfilteredJson =
+                JsonDocument.Parse(unfiltered.Output);
+            using JsonDocument firstJson = JsonDocument.Parse(first.Output);
+            using JsonDocument secondJson = JsonDocument.Parse(second.Output);
+            string[] allIds =
+            [
+                .. unfilteredJson.RootElement.GetProperty("members")
+                    .EnumerateArray()
+                    .Where(member => member.GetProperty("subject")
+                        .GetProperty("memberName")
+                        .GetString() == "Changed")
+                    .Select(member => member.GetProperty("subject")
+                        .GetProperty("id")
+                        .GetString()!),
+            ];
+            string firstId = Assert.Single(
+                firstJson.RootElement.GetProperty("members")
+                    .EnumerateArray(),
+                member => member.GetProperty("subject")
+                    .GetProperty("memberName")
+                    .GetString() == "Changed")
+                .GetProperty("subject")
+                .GetProperty("id")
+                .GetString()!;
+            string secondId = Assert.Single(
+                secondJson.RootElement.GetProperty("members")
+                    .EnumerateArray(),
+                member => member.GetProperty("subject")
+                    .GetProperty("memberName")
+                    .GetString() == "Changed")
+                .GetProperty("subject")
+                .GetProperty("id")
+                .GetString()!;
+
+            Assert.Equal(2, allIds.Length);
+            Assert.NotEqual(firstId, secondId);
+            Assert.Equal(
+                allIds.Order(StringComparer.Ordinal),
+                new[] { firstId, secondId }.Order(StringComparer.Ordinal));
+            string[] firstTargets =
+            [
+                .. firstJson.RootElement.GetProperty("request")
+                    .GetProperty("memberTargetIdentities")
+                    .EnumerateArray()
+                    .Select(identity => identity.GetString()!),
+            ];
+            string[] secondTargets =
+            [
+                .. secondJson.RootElement.GetProperty("request")
+                    .GetProperty("memberTargetIdentities")
+                    .EnumerateArray()
+                    .Select(identity => identity.GetString()!),
+            ];
+            Assert.Contains(firstId, firstTargets);
+            Assert.DoesNotContain(secondId, firstTargets);
+            Assert.Contains(secondId, secondTargets);
+            Assert.DoesNotContain(firstId, secondTargets);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SameLibrary_PreservesExactEmptyCoverage()
     {
         string path = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -352,6 +453,24 @@ public sealed class ImplementationDiffEnvelopeCommandTests
             $"{FixtureCatalog.DiffPair.OldAssemblyPath()}.."
                 + FixtureCatalog.DiffPair.NewAssemblyPath(),
             .. options]);
+
+    static Task<(int Exit, string Output, string Error)>
+        RunFunctionPointerConventionPair(
+            string oldPath,
+            string newPath,
+            string? member = null)
+        => Invoke([
+            "--library",
+            $"{oldPath}..{newPath}",
+            "--json",
+            "-S",
+            "Implementation Diff",
+            "--type",
+            FunctionPointerConventionReturnOverloadFixture.TypeName,
+            .. member is null
+                ? Array.Empty<string>()
+                : ["--member", member],
+        ]);
 
     static void AssertPopulationContext(JsonElement document)
     {

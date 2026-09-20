@@ -1655,26 +1655,66 @@ public class DiffCommand
             ApiSurface? fromSurface = null,
             ApiSurface? toSurface = null)
     {
-        var memberTargetIdentities = options.MemberFilter.Count == 0
-            ? null
-            : ResolveMemberTargetIdentities(
+        ImplementationAssemblyInput[] oldAssemblies =
+        [
+            .. fromPaths.Select(CreateImplementationAssemblyInput),
+        ];
+        ImplementationAssemblyInput[] newAssemblies =
+        [
+            .. toPaths.Select(CreateImplementationAssemblyInput),
+        ];
+        bool useExactBodyReturnIdentities =
+            oldAssemblies.Length == 1
+            && newAssemblies.Length == 1;
+        ResolvedDiffMemberTargets? targets =
+            options.MemberFilter.Count == 0
+                ? null
+                : ResolveMemberTargetIdentities(
                 fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 options.MemberFilter,
                 options.TypeFilter,
                 requireBodyTargets: true,
-                includeReturnTypeBodyIdentities: true,
+                includeReturnTypeBodyIdentities:
+                    !useExactBodyReturnIdentities,
                 bodySectionName: SelectsComplexityContext(options)
                     ? "Complexity Context"
                     : SelectsStructuralContext(options)
                         ? "Structural Context"
-                        : "Implementation Diff").MemberIdentities;
+                        : "Implementation Diff");
+        if (targets is not null && useExactBodyReturnIdentities)
+        {
+            AddReturnTypeTargetIdentities(
+                oldAssemblies[0],
+                targets.OldBodyMetadataTokens,
+                targets.MemberIdentities);
+            AddReturnTypeTargetIdentities(
+                newAssemblies[0],
+                targets.NewBodyMetadataTokens,
+                targets.MemberIdentities);
+        }
 
         return new ImplementationComparisonInput(
-            fromPaths.Select(CreateImplementationAssemblyInput).ToArray(),
-            toPaths.Select(CreateImplementationAssemblyInput).ToArray(),
+            oldAssemblies,
+            newAssemblies,
             options.TypeFilter,
-            memberTargetIdentities);
+            targets?.MemberIdentities);
+    }
+
+    static void AddReturnTypeTargetIdentities(
+        ImplementationAssemblyInput assembly,
+        IReadOnlySet<int> metadataTokens,
+        ISet<string> identities)
+    {
+        foreach (MethodIdentity method in assembly.BodyIndex.DeclaredMethods)
+        {
+            if (metadataTokens.Contains(method.MetadataToken))
+            {
+                ResearchMemberIdentity.AddReturnTypeTargetIdentity(
+                    method,
+                    identities);
+            }
+        }
     }
 
     static ImplementationAssemblyInput CreateImplementationAssemblyInput(
@@ -3332,7 +3372,9 @@ public class DiffCommand
 
     sealed record ResolvedDiffMemberTargets(
         HashSet<string> MemberIdentities,
-        HashSet<string> TypeNames);
+        HashSet<string> TypeNames,
+        HashSet<int> OldBodyMetadataTokens,
+        HashSet<int> NewBodyMetadataTokens);
 
     static bool MatchesMemberTarget(string typeFullName, ApiChange change, ResolvedDiffMemberTargets targets)
         => IsMemberChange(change.Kind)
@@ -3357,6 +3399,8 @@ public class DiffCommand
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
         HashSet<string> typeNames = new(StringComparer.Ordinal);
+        HashSet<int> oldBodyMetadataTokens = [];
+        HashSet<int> newBodyMetadataTokens = [];
         foreach (var rawTarget in memberTargets)
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
@@ -3395,6 +3439,8 @@ public class DiffCommand
                     includeReturnTypeBodyIdentities);
                 found |= oldResult.Found;
                 bodyFound |= oldResult.BodyFound;
+                if (oldResult.BodyMetadataToken is { } oldToken)
+                    oldBodyMetadataTokens.Add(oldToken);
                 if (oldResult.Diagnostic is { } oldDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(oldDiagnostic.Kind))
@@ -3414,6 +3460,8 @@ public class DiffCommand
                     includeReturnTypeBodyIdentities);
                 found |= newResult.Found;
                 bodyFound |= newResult.BodyFound;
+                if (newResult.BodyMetadataToken is { } newToken)
+                    newBodyMetadataTokens.Add(newToken);
                 if (newResult.Diagnostic is { } newDiagnostic)
                 {
                     if (IsFatalTargetDiagnostic(newDiagnostic.Kind))
@@ -3433,10 +3481,18 @@ public class DiffCommand
                 throw new InvalidOperationException($"{bodySectionName} --member requires a method-like target; '{rawTarget}' resolved to a member with no method body.");
         }
 
-        return new ResolvedDiffMemberTargets(identities, typeNames);
+        return new ResolvedDiffMemberTargets(
+            identities,
+            typeNames,
+            oldBodyMetadataTokens,
+            newBodyMetadataTokens);
     }
 
-    static (bool Found, bool BodyFound, MemberTargetDiagnostic? Diagnostic)
+    static (
+        bool Found,
+        bool BodyFound,
+        int? BodyMetadataToken,
+        MemberTargetDiagnostic? Diagnostic)
         AddResolvedIdentities(
             ApiType type,
             MemberTargetSelector selector,
@@ -3445,7 +3501,7 @@ public class DiffCommand
     {
         var resolution = MemberTargetResolver.Resolve(type, selector);
         if (!resolution.Found)
-            return (false, false, resolution.Diagnostic);
+            return (false, false, null, resolution.Diagnostic);
 
         identities.Add(resolution.Target!.Anchor.StableSelector);
         identities.Add(resolution.Target.Anchor.CanonicalSignature);
@@ -3456,7 +3512,11 @@ public class DiffCommand
                 resolution.Target,
                 identities);
         }
-        return (true, bodyFound, null);
+        return (
+            true,
+            bodyFound,
+            resolution.Target.Body?.MetadataToken,
+            null);
     }
 
     internal static bool AddResearchBodyIdentity(ResolvedMemberTarget target, HashSet<string> identities)

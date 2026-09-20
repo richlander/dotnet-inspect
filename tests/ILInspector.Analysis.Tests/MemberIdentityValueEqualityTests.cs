@@ -486,6 +486,86 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void
+        FunctionPointerSignatureIdentity_PreservesConventionModifiers()
+    {
+        TypeRef integer =
+            TypeRef.CoreLib("System", "Int32");
+        TypeRef suppressGcTransition = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef modifiedReturn = TypeRef.UnsupportedModified(
+            suppressGcTransition,
+            integer,
+            isRequired: false);
+        TypeRef pointer = TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.CDecl,
+                    SignatureAttributes.None),
+                modifiedReturn,
+                requiredParameterCount: 0,
+                genericParameterCount: 0,
+                []));
+
+        Assert.True(
+            pointer.TryGetFunctionPointerSignatureIdentity(
+                out string identity));
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl, SuppressGCTransition]"
+                + "<int>",
+            identity);
+    }
+
+    [Fact]
+    public void
+        FunctionPointerSignatureIdentity_PreservesUnsupportedModifiers()
+    {
+        TypeRef integer =
+            TypeRef.CoreLib("System", "Int32");
+        TypeRef modifier = TypeRef.Definition(
+            "Sample",
+            "Sample",
+            "CustomModifier");
+        TypeRef modifiedReturn = TypeRef.UnsupportedModified(
+            modifier,
+            integer,
+            isRequired: true);
+        TypeRef pointer = TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.CDecl,
+                    SignatureAttributes.None),
+                modifiedReturn,
+                requiredParameterCount: 0,
+                genericParameterCount: 0,
+                []));
+
+        Assert.True(
+            pointer.TryGetFunctionPointerSignatureIdentity(
+                out string identity));
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl]"
+                + "<modreq(Sample.CustomModifier)int>",
+            identity);
+
+        TypeRef modifiedPointer = TypeRef.UnsupportedModified(
+            modifier,
+            pointer,
+            isRequired: false);
+        Assert.True(
+            modifiedPointer.TryGetFunctionPointerSignatureIdentity(
+                out string modifiedIdentity));
+        Assert.Equal(
+            "modopt(Sample.CustomModifier)"
+                + "delegate* unmanaged[Cdecl]"
+                + "<modreq(Sample.CustomModifier)int>",
+            modifiedIdentity);
+    }
+
+    [Fact]
     public void MethodDefinitionMap_VarArgFallbackMatchesRequiredPrefix()
     {
         TypeRef owner =

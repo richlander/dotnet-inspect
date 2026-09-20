@@ -92,6 +92,14 @@ public static class ResearchMemberIdentity
         return true;
     }
 
+    public static void AddReturnTypeTargetIdentity(
+        MethodIdentity method,
+        ISet<string> identities)
+        => identities.Add(
+            SubjectFromMethod(
+                method,
+                includeReturnType: true).Id);
+
     internal static IReadOnlySet<string> ReturnTypeCollisionSubjectIds(
         IEnumerable<MethodIdentity> methods)
         => methods

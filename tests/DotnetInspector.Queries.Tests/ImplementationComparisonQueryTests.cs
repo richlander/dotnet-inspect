@@ -896,6 +896,72 @@ public sealed class ImplementationComparisonQueryTests
         Assert.Equal(selectedId, selected.Subject.Id);
     }
 
+    [Fact]
+    public void
+        DocumentQuery_CorrelatesFunctionPointerConventionModifierCollision()
+    {
+        ImplementationDiffDocument unfiltered =
+            CompareFunctionPointerConventionReturnTypeOverloads();
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. unfiltered.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+
+        Assert.Equal(2, members.Length);
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+        Assert.False(unfiltered.Complexity.IsAvailable);
+        Assert.Empty(unfiltered.Complexity.Changes);
+        Assert.False(string.IsNullOrWhiteSpace(
+            unfiltered.Complexity.UnavailableReason));
+        Assert.Contains(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .EndsWith(
+                        "~delegate* unmanaged[Cdecl]<System.Int32>",
+                        StringComparison.Ordinal)
+                    == true));
+        Assert.Contains(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .EndsWith(
+                        "~delegate* unmanaged[SuppressGCTransition, Cdecl]"
+                            + "<System.Int32>",
+                        StringComparison.Ordinal)
+                    == true));
+
+        string selectedId = members
+            .Select(member => member.Subject.Id)
+            .Order(StringComparer.Ordinal)
+            .First();
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        ImplementationDiffDocument filtered =
+            CompareFunctionPointerConventionReturnTypeOverloads(
+                new HashSet<string>(
+                    [selectedId[..returnSeparator], selectedId],
+                    StringComparer.Ordinal));
+
+        ImplementationDiffDocumentMember selected = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Changed");
+        Assert.Equal(selectedId, selected.Subject.Id);
+    }
+
     static ImplementationDiffDocument
         CompareConstructedGenericReturnTypeOverloads(
             IReadOnlySet<string>? memberTargetIdentities = null)
@@ -1096,6 +1162,45 @@ public sealed class ImplementationComparisonQueryTests
         ILGenerator il = method.GetILGenerator();
         il.Emit(OpCodes.Ldftn, target);
         il.Emit(OpCodes.Ret);
+    }
+
+    static ImplementationDiffDocument
+        CompareFunctionPointerConventionReturnTypeOverloads(
+            IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-function-pointer-convention-overloads-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            File.WriteAllBytes(
+                oldPath,
+                FunctionPointerConventionReturnOverloadFixture.Build(
+                    returnOne: false));
+            File.WriteAllBytes(
+                newPath,
+                FunctionPointerConventionReturnOverloadFixture.Build(
+                    returnOne: true));
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "before.dll")],
+                    [StreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        FunctionPointerConventionReturnOverloadFixture
+                            .TypeName,
+                    },
+                    MemberTargetIdentities: memberTargetIdentities));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     static ImplementationDiffDocument CompareNestedReturnTypeOverloads(

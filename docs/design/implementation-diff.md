@@ -2037,8 +2037,14 @@ nested metadata segments rather than display-oriented dotted nesting.
 Structured API return shapes are already canonical and are not reparsed as
 display text. Function pointers retain their parameter, return, and calling-
 convention structure rather than collapsing to an unsupported display label.
+Recognized optional `System.Runtime.CompilerServices.CallConv*` modifiers are
+normalized into the ordered `unmanaged[...]` convention list; unsupported or
+required custom modifiers remain explicit structural signature components
+rather than being erased.
 Implementation Diff target resolution adds the same return-qualified alias
-while preserving the ordinary body identity used by other operations.
+from the resolved MethodDef identity while preserving the ordinary body
+identity used by other operations; API display text is not treated as a
+function-pointer identity source.
 Non-colliding members retain their API anchor currency, so API and body
 evidence continue to group without changing API selectors. Valid ECMA-335
 return-type-only overloads remain distinct.

@@ -2170,6 +2170,100 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void
+        ImplementationComplexityService_FunctionPointerConventionOverloadsRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef cdecl = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvCdecl");
+        TypeRef suppressGcTransition = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef FunctionPointer(TypeRef returnType) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        SignatureAttributes.None),
+                    returnType,
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+        TypeRef ordinaryReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                cdecl,
+                integer,
+                isRequired: false));
+        TypeRef suppressingReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                cdecl,
+                TypeRef.UnsupportedModified(
+                    suppressGcTransition,
+                    integer,
+                    isRequired: false),
+                isRequired: false));
+        TypeRef declaringType = TypeRef.Definition(
+            "Fake",
+            "",
+            "FunctionPointerConventionReturnSample");
+        var first = new MethodIdentity(
+            "Fake",
+            Guid.Empty,
+            declaringType,
+            "Changed",
+            [TypeRef.CoreLib("System", "Boolean")],
+            ordinaryReturn,
+            MetadataToken: 0x06000001,
+            IsStatic: true);
+        var second = first with
+        {
+            ReturnType = suppressingReturn,
+            MetadataToken = 0x06000002,
+        };
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity(
+                    "Fake",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        ImmutableArray<MethodImplementationProfile> profiles =
+        [
+            FakeProfile(first, first),
+            FakeProfile(second, second),
+        ];
+        var endpoint =
+            new LibraryImplementationProfileAnalysisResult(
+                receipt,
+                profiles,
+                ImmutableArray<OverloadCallRelationship>.Empty,
+                ImmutableHashSet<TypeRef>.Empty);
+
+        ImplementationComplexityDiff result =
+            ImplementationComplexityService.Execute(
+                new ImplementationComplexityComparisonRequest(
+                    [endpoint],
+                    [endpoint]));
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(2, result.Changes.Count);
+        Assert.Equal(
+            2,
+            result.Changes
+                .Select(change => change.Subject.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
     public void ImplementationComplexityService_AssemblyAddedOrRemoved_ReportsAddedAndRemovedRows()
     {
         // Regression coverage: comparing assembly-name sets used to Intersect
