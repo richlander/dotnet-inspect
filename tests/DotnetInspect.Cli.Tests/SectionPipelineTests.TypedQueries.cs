@@ -128,6 +128,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -164,6 +165,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -200,6 +202,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -236,6 +239,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
