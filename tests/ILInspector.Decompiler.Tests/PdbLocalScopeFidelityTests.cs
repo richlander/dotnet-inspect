@@ -37,6 +37,7 @@ public sealed class PdbLocalScopeFidelityTests
         [
             nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels),
             nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryAndInternalLabels),
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithTrailingTransfer),
         ];
         var results = FidelityCheck.Evaluate(
             typeof(PdbScopeFixtures).Assembly.Location,
