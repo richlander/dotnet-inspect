@@ -320,7 +320,8 @@ internal static class QueryDiscoverOutput
     {
         string values = key.Values.IsEmpty
             ? key.ValueKind
-            : key.Name == "Kind"
+            : key.Name == BodyKindQueryOptions.QueryKey.Name
+                && key.ValueKind == BodyKindQueryOptions.QueryKey.ValueKind
                 ? "C# Body Kinds: "
                     + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
                 : string.Join(", ", key.Values);

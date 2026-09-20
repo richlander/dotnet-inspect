@@ -372,7 +372,9 @@ public static class WorkspaceSharePacketTransposer
             ToPacket(
                 resolvedDefinitions,
                 cancellationToken,
-                canonicalizeFormat1: false);
+                canonicalizeFormat1: false,
+                WorkspaceSharePacketCodec.MaxFormat3Tabs,
+                "Complete Workspace packet");
         if (!effectiveTopology.Succeeded)
             return effectiveTopology;
         WorkspaceSharePacket effectivePacket =
@@ -583,12 +585,16 @@ public static class WorkspaceSharePacketTransposer
         ToPacket(
             definitions,
             cancellationToken,
-            canonicalizeFormat1: true);
+            canonicalizeFormat1: true,
+            WorkspaceSharePacketCodec.MaxFormat1Tabs,
+            "Packet v1");
 
     private static WorkspaceSharePacketProjectionResult ToPacket(
         WorkspaceSharePacketDefinitionSet definitions,
         CancellationToken cancellationToken,
-        bool canonicalizeFormat1)
+        bool canonicalizeFormat1,
+        int maxTabs,
+        string packetName)
     {
         ArgumentNullException.ThrowIfNull(definitions);
         cancellationToken.ThrowIfCancellationRequested();
@@ -613,7 +619,8 @@ public static class WorkspaceSharePacketTransposer
         {
             return NonProjectable(
                 "workspace.contexts",
-                $"Packet v1 supports at most {WorkspaceSharePacketCodec.MaxContexts} contexts.");
+                $"{packetName} supports at most "
+                    + $"{WorkspaceSharePacketCodec.MaxContexts} contexts.");
         }
 
         var contextSources = new List<IReadOnlyList<SourceTuple>>(workspace.Contexts.Count);
@@ -753,17 +760,17 @@ public static class WorkspaceSharePacketTransposer
                     allSources.Add(source);
             }
         }
-        if (allSources.Count > WorkspaceSharePacketCodec.MaxTabs)
+        if (allSources.Count > maxTabs)
         {
             return NonProjectable(
                 "workspace.contexts",
-                $"Packet v1 supports at most {WorkspaceSharePacketCodec.MaxTabs} source tuples.");
+                $"{packetName} supports at most {maxTabs} source tuples.");
         }
-        if (navigation.Tabs.Count > WorkspaceSharePacketCodec.MaxTabs)
+        if (navigation.Tabs.Count > maxTabs)
         {
             return NonProjectable(
                 "navigation.tabs",
-                $"Packet v1 supports at most {WorkspaceSharePacketCodec.MaxTabs} navigation tabs.");
+                $"{packetName} supports at most {maxTabs} navigation tabs.");
         }
 
         var packetTabs = new WorkspaceShareTab[navigation.Tabs.Count];
@@ -1388,7 +1395,16 @@ public static class WorkspaceSharePacketTransposer
                 legacyView,
                 legacyScenario),
             cancellationToken,
-            canonicalizeFormat1: false);
+            canonicalizeFormat1: false,
+            workspace.SchemaVersion switch
+            {
+                InspectionDefinitionSchema.Version3 =>
+                    WorkspaceSharePacketCodec.MaxFormat3Tabs,
+                InspectionDefinitionSchema.Version4 =>
+                    WorkspaceSharePacketCodec.MaxFormat4Tabs,
+                _ => WorkspaceSharePacketCodec.MaxFormat2Tabs,
+            },
+            $"Packet format {workspace.SchemaVersion}");
     }
 
     public static WorkspaceSharePacketProjectionResult ToPacket(

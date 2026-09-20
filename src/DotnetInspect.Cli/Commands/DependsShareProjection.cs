@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.RowSelection;
 using NuGet.Frameworks;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -266,6 +267,19 @@ internal static class DependsShareProjection
         {
             return NonProjectableShare(
                 "the published Browser cannot preserve --depth for type dependencies.");
+        }
+        RowQueryIntent? relationshipRows =
+            options.QueryPlan?.RelationshipRows
+            ?? options.TypeDependencyRowQuery;
+        if (relationshipRows is not null
+            && (relationshipRows.Predicates.Count > 0
+                || relationshipRows.BaselineOrder is not null
+                || relationshipRows.Selection.Operations.Any(operation =>
+                    operation.Kind is RowSelectionStageKind.Top)))
+        {
+            return NonProjectableShare(
+                "the published Browser cannot preserve type dependency query "
+                + "predicates, ordering, or --top.");
         }
 
         string packageReference = options.Packages[0];

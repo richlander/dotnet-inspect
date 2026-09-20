@@ -501,6 +501,7 @@ test("candidate and local match bounds are independently disclosed before and du
     assert.ok(html.includes(`Maximum matches N: ${request?.requestedMatchLimit ?? 100}`));
     assert.match(html, /The match limit does not change prefix capacity/);
     assert.match(html, /Content facts download up to 20 candidate package archives/);
+    assert.match(html, /Transitive dependency facts inspect up to 5 package candidates/);
     assert.match(html, /Match counts and lifetime downloads describe a bounded response, not global top-N/);
   }
 });

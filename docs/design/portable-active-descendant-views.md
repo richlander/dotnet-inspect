@@ -158,10 +158,11 @@ inventory. This extension introduces no Ecosystem, Platform, registered-Library
 or other non-Package active structural grammar.
 
 Packet property order, retained-selector spelling, canonical scalars, limits,
-base64url encoding and all-or-nothing validation are inherited from format 3.
-The only new wire values are format/schema version 4 and the three subject
-tags. In particular, packet view rows remain ordered as `t`, optional `r`,
-optional `u`, optional `f`, optional `q`, then optional `l`.
+base64url encoding and all-or-nothing validation are inherited from format 3,
+including its 64-coordinate table and per-context limit. The only new wire
+values are format/schema version 4 and the three subject tags. In particular,
+packet view rows remain ordered as `t`, optional `r`, optional `u`, optional
+`f`, optional `q`, then optional `l`.
 
 Packet 4 transposes only to version-4 peer records, and version-4 records
 project only to packet 4. Round-tripping a format-4 Workspace-only state does

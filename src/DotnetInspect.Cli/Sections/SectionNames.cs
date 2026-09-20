@@ -233,6 +233,9 @@ public static class SectionNames
     /// <summary>Enumerator-allocation performance findings.</summary>
     public const string PerformanceEnumerators = "Performance: Enumerators";
 
+    /// <summary>Exact string-producing operation findings.</summary>
+    public const string PerformanceStrings = "Performance: Strings";
+
     /// <summary>Loop hot-path performance findings (scan/materialize/build inside loops).</summary>
     public const string PerformanceLoops = "Performance: Loop Hot Paths";
 

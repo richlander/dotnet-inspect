@@ -15,9 +15,8 @@ public static class CallerScopeResolver
     /// <summary>
     /// Expands the requested directories, projects, and packages into assembly paths, excluding
     /// <paramref name="ownAssemblyPath"/> (already scanned as the member's own assembly) and
-    /// de-duplicating by physical file identity when the host exposes it, with ordinal normalized
-    /// paths as the conservative fallback. Gated by
-    /// <c>ResolveAsync_HardLinkedAssembliesAreScannedOnce</c> and
+    /// de-duplicating by ordinal normalized path. Gated by
+    /// <c>ResolveAsync_HardLinkedAssembliesRemainDistinctPaths</c> and
     /// <c>ResolveAsync_CaseDistinctWindowsAssembliesRemainDistinct</c>.
     /// </summary>
     public static async Task<CallerScopeAssemblySet> ResolveAsync(
@@ -31,7 +30,6 @@ public static class CallerScopeResolver
     {
         var result = new List<string>();
         var seenPaths = new HashSet<string>(StringComparer.Ordinal);
-        var seenFiles = new HashSet<PhysicalFileIdentity>();
 
         if (ownAssemblyPath != null)
             Remember(Path.GetFullPath(ownAssemblyPath));
@@ -46,23 +44,7 @@ public static class CallerScopeResolver
         }
 
         bool Remember(string full)
-        {
-            if (!seenPaths.Add(full))
-                return false;
-
-            if (!PhysicalFileIdentityProvider.TryGet(
-                full,
-                out PhysicalFileIdentity identity,
-                out string? failure))
-            {
-                logger.Log(
-                    $"Physical file identity unavailable for '{full}': {failure}. " +
-                    "Using ordinal full-path identity.");
-                return true;
-            }
-
-            return seenFiles.Add(identity);
-        }
+            => seenPaths.Add(full);
 
         var assemblySet = await AssemblySetResolver.CollectAsync(
             httpClient,
