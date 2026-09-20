@@ -161,11 +161,11 @@ export function createRetainedWorkspaceActivationController(
   let nextDeactivationGeneration = 0;
   let postedPublicationOrdinal = 0;
   let currentActivationReceipt: string | null = null;
-  let uncertainCancellation: {
+  const uncertainCancellations = new Map<string, {
     readonly retainedDefinitionId: string;
     readonly receipt: string;
     retry: Promise<void> | null;
-  } | null = null;
+  }>();
   let committingDefinitionId: string | null = null;
   let commitBarrier: Promise<void> | null = null;
   let settleCommit: (() => void) | null = null;
@@ -447,7 +447,7 @@ export function createRetainedWorkspaceActivationController(
         "A retained Workspace cannot be activated while the active Workspace is being deactivated.",
       );
     }
-    if (uncertainCancellation !== null) {
+    if (uncertainCancellations.size > 0) {
       throw new Error(
         "A retained Workspace activation cannot begin while cancellation settlement is unknown.",
       );
@@ -717,11 +717,11 @@ export function createRetainedWorkspaceActivationController(
       if (!releaseTransaction
         && !commitStarted
         && receipt !== null) {
-        uncertainCancellation = {
+        uncertainCancellations.set(receipt, {
           retainedDefinitionId: definition.id,
           receipt,
           retry: null,
-        };
+        });
       }
       if (commitStarted && releaseTransaction) {
         committingDefinitionId = null;
@@ -740,35 +740,38 @@ export function createRetainedWorkspaceActivationController(
   function cancelPending(): boolean {
     if (committingDefinitionId !== null
       || soleDeactivationIntent !== null) return false;
-    if (uncertainCancellation !== null) {
-      const intent = uncertainCancellation;
-      if (intent.retry !== null) return true;
-      intent.retry = requestCancellation(intent.receipt).then(
-        result => {
-          cancellationRequests.delete(intent.receipt);
-          if (uncertainCancellation !== intent) return undefined;
-          uncertainCancellation = null;
-          if (currentActivationReceipt === intent.receipt) {
-            currentActivationReceipt = null;
-          }
-          endActivation(intent.retainedDefinitionId);
-          if (result.status === "failed") {
-            lastFailure = result.failure?.message
-              ?? "Retained Workspace cancellation failed.";
-          }
-          return undefined;
-        },
-        (error: unknown) => {
-          cancellationRequests.delete(intent.receipt);
-          if (uncertainCancellation === intent) {
-            intent.retry = null;
-            lastFailure = error instanceof Error
-              ? error.message
-              : "Retained Workspace cancellation failed.";
-          }
-          return undefined;
-        },
-      );
+    if (uncertainCancellations.size > 0) {
+      for (const intent of uncertainCancellations.values()) {
+        if (intent.retry !== null) continue;
+        intent.retry = requestCancellation(intent.receipt).then(
+          result => {
+            cancellationRequests.delete(intent.receipt);
+            if (uncertainCancellations.get(intent.receipt) !== intent) {
+              return undefined;
+            }
+            uncertainCancellations.delete(intent.receipt);
+            if (currentActivationReceipt === intent.receipt) {
+              currentActivationReceipt = null;
+            }
+            endActivation(intent.retainedDefinitionId);
+            if (result.status === "failed") {
+              lastFailure = result.failure?.message
+                ?? "Retained Workspace cancellation failed.";
+            }
+            return undefined;
+          },
+          (error: unknown) => {
+            cancellationRequests.delete(intent.receipt);
+            if (uncertainCancellations.get(intent.receipt) === intent) {
+              intent.retry = null;
+              lastFailure = error instanceof Error
+                ? error.message
+                : "Retained Workspace cancellation failed.";
+            }
+            return undefined;
+          },
+        );
+      }
       return true;
     }
     const cancelledGeneration = selectionGeneration;

@@ -411,10 +411,11 @@ Cancellation is not reported as success. A retry creates a new intent and a
 fresh candidate.
 
 Consumer rejection or failure before acceptance cancels and settles the
-candidate without cutover. An unknown cancellation transport outcome leaves
-that candidate unsettled and keeps activation and deletion blocked until the
-same receipt is retried to a confirmed terminal result or the owning Worker is
-closed. Failure after commit begins has a different boundary. If cutover,
+candidate without cutover. Each unknown cancellation transport outcome leaves
+its candidate unsettled and keeps its own receipt; activation and deletion
+remain blocked until every such receipt is retried to a confirmed terminal
+result or the owning Worker is closed. Failure after commit begins has a
+different boundary. If cutover,
 Browser presentation posting, recording that posting, or later required
 consumer completion fails, the transition remains owned through the matching
 completion report. After successful cutover, the new managed realization
