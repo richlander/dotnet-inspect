@@ -87,6 +87,81 @@ public class RenderAbSensorTests
     }
 
     [Fact]
+    public void RenderAbSemanticLane_BindsSiblingAssemblyTypesDuringInference()
+    {
+        const string key = "fixture.dll!T::M()";
+        TypeRef valueType = TypeRef.Definition(
+            typeof(ILInspector.Metadata.TypeDiff).Assembly.GetName().Name!,
+            typeof(ILInspector.Metadata.TypeDiff).Namespace!,
+            nameof(ILInspector.Metadata.TypeDiff),
+            ValueTypeHint.ReferenceType);
+        TypeRef valuesType = TypeRef.GenericInstance(
+            TypeRef.CoreLib(
+                "System.Collections.Generic",
+                "IReadOnlyList`1"),
+            [valueType]);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [new Parameter("values", valuesType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            new BlockContainer());
+        var shellContext = ValidityCheck.MethodShellContext.Create(
+            function,
+            requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                """
+                foreach (string name in values.Select<ILInspector.Metadata.TypeDiff, string>(value => value.TypeFullName).OrderBy<string, string>(name => name))
+                {
+                }
+                """,
+                shellContext),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(
+            StringComparer.Ordinal)
+        {
+            [key] = new(
+                "T",
+                "M",
+                "(System.Collections.Generic.IReadOnlyList<ILInspector.Metadata.TypeDiff> values)",
+                typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll",
+                """
+                foreach (string name in values.Select(value => value.TypeFullName).OrderBy(name => name))
+                {
+                }
+                """,
+                shellContext,
+                new RenderAbSensor.SemanticContext(
+                    "T",
+                    "M",
+                    function,
+                    new Dictionary<string, Dictionary<string, string>>(
+                        StringComparer.Ordinal),
+                    ProductParameterList: null)),
+        };
+
+        string output = CaptureConsole(
+            () => RenderAbSensor.Compare(
+                baseline,
+                current,
+                maxExamples: 5),
+            expectedExitCode: 2);
+
+        Assert.Contains("Changed: 1", output);
+        Assert.Contains(
+            "Semantic: valid->valid: 1, invalid->valid: 0, valid->invalid: 0, invalid->invalid: 0",
+            output);
+    }
+
+    [Fact]
     public void RenderAbSemanticLane_ReportsUnavailableWithoutCompilation()
     {
         const string key = "unsupported.dll!T::M()";
