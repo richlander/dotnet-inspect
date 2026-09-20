@@ -1022,6 +1022,88 @@ public sealed class PdbLocalDeclarationScopeTests
     }
 
     [Fact]
+    public void CoDeclaredOutLocals_ComposeLongerLifetimeFirst()
+    {
+        var callee = new MethodRef(
+            Owner,
+            "GrowRegion",
+            Boolean,
+            [TypeRef.ByRef(Int32), TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out, ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        AddScope(entry, callee, region: 0, exits: 1);
+        AddScope(entry, callee, region: 2, exits: 3);
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32, Int32, Int32],
+            body)
+        {
+            LocalNames = ["region", "exits", "region", "exits"],
+            LocalDeclaredInNestedScope = [true, true, true, true],
+            LocalDeclarationBindings =
+            [
+                PdbDeclaration(1, 1, 0, "region", 10, 30),
+                PdbDeclaration(2, 1, 1, "exits", 10, 30),
+                PdbDeclaration(3, 2, 2, "region", 30, 50),
+                PdbDeclaration(4, 2, 3, "exits", 30, 50),
+            ],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.True(
+            result.Fidelity == DecompilationFidelity.Full,
+            result.Output + Environment.NewLine + IrPrinter.Dump(function));
+        Assert.Equal(2, result.Output!.Split(
+            "out int region", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, result.Output.Split(
+            "out int exits", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("V_", result.Output);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+
+        static void AddScope(Block block, MethodRef callee, int region, int exits)
+        {
+            block.Add(new ExpressionStatement(new Call(
+                callee,
+                isVirtual: false,
+                [
+                    new LoadLocalAddress(region, Int32),
+                    new LoadLocalAddress(exits, Int32),
+                ])));
+            block.Add(Observe(exits));
+            block.Add(Observe(region));
+        }
+
+        static PdbLocalDeclaration PdbDeclaration(
+            int variableRow,
+            int scopeRow,
+            int slot,
+            string name,
+            int start,
+            int end)
+            => new(
+                variableRow,
+                scopeRow,
+                slot,
+                name,
+                new LocalSlotScope(start, end),
+                System.Reflection.Metadata.LocalVariableAttributes.None);
+    }
+
+    [Fact]
     public void NestedCompilerScopesWithEntryLabels_PreserveEveryExactName()
     {
         using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);

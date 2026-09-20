@@ -24,13 +24,23 @@ public sealed class PdbLocalScopePass : IIrPass
             .Select((node, position) => (node, position))
             .ToDictionary(pair => pair.node, pair => pair.position);
         var candidates = duplicates
-            .SelectMany(group => group.Select(index => (
-                SameName: group,
-                Index: index,
-                Order: IrFunction.LocalSlotReferencesInScope(function, index)
-                    .Select(reference => nodeOrder[reference])
-                    .DefaultIfEmpty(-1)
-                    .Min())))
+            .SelectMany(group => group.Select(index =>
+            {
+                var references =
+                    IrFunction.LocalSlotReferencesInScope(function, index).ToArray();
+                IrNode? declaration = DeclarationAnchor(references, index);
+                return (
+                    SameName: group,
+                    Index: index,
+                    DeclarationOrder: declaration is not null
+                        ? nodeOrder[declaration]
+                        : references.Select(reference => nodeOrder[reference])
+                            .DefaultIfEmpty(-1)
+                            .Min(),
+                    LastReferenceOrder: references.Select(reference => nodeOrder[reference])
+                        .DefaultIfEmpty(-1)
+                        .Max());
+            }))
             .ToArray();
         foreach (var scopeGroup in candidates
             .Select((candidate, position) => (candidate, position))
@@ -41,7 +51,8 @@ public sealed class PdbLocalScopePass : IIrPass
             int[] positions = [.. scopeGroup.Select(item => item.position)];
             var insideOut = scopeGroup
                 .Select(item => item.candidate)
-                .OrderByDescending(candidate => candidate.Order)
+                .OrderByDescending(candidate => candidate.DeclarationOrder)
+                .ThenByDescending(candidate => candidate.LastReferenceOrder)
                 .ToArray();
             for (int position = 0; position < positions.Length; position++)
                 candidates[positions[position]] = insideOut[position];
@@ -78,18 +89,7 @@ public sealed class PdbLocalScopePass : IIrPass
         var references = IrFunction.LocalSlotReferencesInScope(function.Body, index).ToArray();
         if (references.Length == 0)
             return;
-        IrNode? declaration = references[0] switch
-        {
-            StoreLocal store when !store.Value.DescendantsAndSelfOutsideNestedFunctions.Any(node =>
-                node is LoadLocal load && load.Index == index
-                || node is LoadLocalAddress address && address.Index == index) => store,
-            LoadLocalAddress address when address.Parent is InitObject init
-                && ReferenceEquals(init.Address, address) => init,
-            LoadLocalAddress address => OutArgumentStatement(address, index),
-            IsPattern pattern => PatternStatement(pattern, references),
-            RecursivePropertyDeclarationPattern pattern => PatternStatement(pattern, references),
-            _ => null,
-        };
+        IrNode? declaration = DeclarationAnchor(references, index);
         if (declaration?.Parent is not Block block)
         {
             return;
@@ -523,6 +523,20 @@ public sealed class PdbLocalScopePass : IIrPass
             node = node.Parent;
         return ReferenceEquals(node.Parent, block) ? node : null;
     }
+
+    static IrNode? DeclarationAnchor(IrNode[] references, int index)
+        => references[0] switch
+        {
+            StoreLocal store when !store.Value.DescendantsAndSelfOutsideNestedFunctions.Any(node =>
+                node is LoadLocal load && load.Index == index
+                || node is LoadLocalAddress address && address.Index == index) => store,
+            LoadLocalAddress address when address.Parent is InitObject init
+                && ReferenceEquals(init.Address, address) => init,
+            LoadLocalAddress address => OutArgumentStatement(address, index),
+            IsPattern pattern => PatternStatement(pattern, references),
+            RecursivePropertyDeclarationPattern pattern => PatternStatement(pattern, references),
+            _ => null,
+        };
 
     static IrNode? OutArgumentStatement(LoadLocalAddress address, int index)
     {
