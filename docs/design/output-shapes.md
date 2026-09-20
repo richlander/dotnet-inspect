@@ -683,6 +683,10 @@ shape, plus any mode that requires the section to be the complete selection.
 The command also declares any section family that forms one homogeneous Table
 when multiple members are selected.
 
+The shared `DiscoveryOutputMode` enum carries semantic mode identity in the
+host-neutral Discovery Document. Exact spellings such as `--tree` and
+`--mermaid` are CLI lowering owned by the host.
+
 Detailed structural discovery evaluates each listed section, or the complete
 expansion of a listed category, against that metadata. A category supports a
 mode only when every expanded member supports it and the complete selection
@@ -694,7 +698,9 @@ The resulting capability list describes the complete requested selection. It
 must not choose the first compatible section, remove incompatible members, or
 otherwise let a presentation modifier change semantic section selection.
 [`schema-query.md`](schema-query.md) owns the structural discovery surface that
-reports these owner-issued capabilities through `-D --details`.
+retains these capabilities in `DiscoveryDocument`. Library currently reports
+them through the temporary `-D --details` bridge; #7814 replaces that bridge
+with structural `explain`.
 
 ### Coordinate carriers sit before the ladder
 

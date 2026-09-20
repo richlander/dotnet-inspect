@@ -2550,6 +2550,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, treeExit);
         Assert.Empty(treeError);
         Assert.Contains("└─ @Performance", treeOutput);
+        Assert.DoesNotContain("(column)", treeOutput);
+        Assert.DoesNotContain("(filterable)", treeOutput);
+        Assert.DoesNotContain("(sortable)", treeOutput);
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);

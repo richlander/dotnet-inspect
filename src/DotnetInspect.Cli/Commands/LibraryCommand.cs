@@ -509,7 +509,7 @@ public partial class LibraryCommand
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
             && !LibraryOutputCapabilities.Catalog.Supports(
-                OutputMode.Json,
+                DiscoveryOutputMode.Json,
                 options.IncludeSections))
         {
             if (options.IncludeSections.Contains(
@@ -550,7 +550,7 @@ public partial class LibraryCommand
         if (options.Tree && options.Discover == null)
         {
             if (!LibraryOutputCapabilities.Catalog.Supports(
-                    OutputMode.Tree,
+                    DiscoveryOutputMode.Tree,
                     options.IncludeSections))
             {
                 CommandError.Write(
@@ -567,7 +567,7 @@ public partial class LibraryCommand
             && options.Discover == null
             && !options.Count
             && !LibraryOutputCapabilities.Catalog.Supports(
-                OutputMode.Mermaid,
+                DiscoveryOutputMode.Mermaid,
                 options.IncludeSections))
         {
             CommandError.Write(
@@ -777,7 +777,7 @@ public partial class LibraryCommand
                 options.IncludeSections,
                 sections =>
                     LibraryOutputCapabilities.Catalog.Supports(
-                        OutputMode.Table,
+                        DiscoveryOutputMode.Table,
                         sections)))
             return 1;
 

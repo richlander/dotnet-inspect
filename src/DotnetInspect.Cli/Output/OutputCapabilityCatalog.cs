@@ -1,49 +1,39 @@
 using System.Collections.Immutable;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Output;
 
-public enum OutputMode
-{
-    Markdown,
-    PlainText,
-    Json,
-    Table,
-    Tsv,
-    Jsonl,
-    Tree,
-    Mermaid,
-}
-
 public sealed record SectionOutputCapabilities(
-    ImmutableArray<OutputMode> Formats,
-    ImmutableHashSet<OutputMode> ExclusiveFormats)
+    ImmutableArray<DiscoveryOutputMode> Formats,
+    ImmutableHashSet<DiscoveryOutputMode> ExclusiveFormats)
 {
     public static SectionOutputCapabilities Create(
-        IEnumerable<OutputMode> formats,
-        IEnumerable<OutputMode>? exclusiveFormats = null) =>
+        IEnumerable<DiscoveryOutputMode> formats,
+        IEnumerable<DiscoveryOutputMode>? exclusiveFormats = null) =>
         new(
             [.. formats.Distinct()],
             exclusiveFormats?.ToImmutableHashSet()
-                ?? ImmutableHashSet<OutputMode>.Empty);
+                ?? ImmutableHashSet<DiscoveryOutputMode>.Empty);
 }
 
 public sealed class OutputCapabilityCatalog
 {
-    internal static ImmutableArray<OutputMode> StandardSectionFormats { get; } =
+    internal static ImmutableArray<DiscoveryOutputMode>
+        StandardSectionFormats { get; } =
     [
-        OutputMode.Markdown,
-        OutputMode.PlainText,
-        OutputMode.Json,
-        OutputMode.Table,
-        OutputMode.Tsv,
-        OutputMode.Jsonl,
+        DiscoveryOutputMode.Markdown,
+        DiscoveryOutputMode.PlainText,
+        DiscoveryOutputMode.Json,
+        DiscoveryOutputMode.Table,
+        DiscoveryOutputMode.Tsv,
+        DiscoveryOutputMode.Jsonl,
     ];
 
-    internal static ImmutableArray<OutputMode> FormatOrder { get; } =
+    internal static ImmutableArray<DiscoveryOutputMode> FormatOrder { get; } =
     [
         .. StandardSectionFormats,
-        OutputMode.Tree,
-        OutputMode.Mermaid,
+        DiscoveryOutputMode.Tree,
+        DiscoveryOutputMode.Mermaid,
     ];
 
     private readonly ImmutableDictionary<string, SectionOutputCapabilities>
@@ -66,17 +56,18 @@ public sealed class OutputCapabilityCatalog
         ];
     }
 
-    public ImmutableArray<OutputMode> FormatsForSection(string section) =>
+    public ImmutableArray<DiscoveryOutputMode> FormatsForSection(
+        string section) =>
         _sections.TryGetValue(section, out SectionOutputCapabilities? capability)
             ? [.. FormatOrder.Where(capability.Formats.Contains)]
             : [];
 
-    public ImmutableArray<OutputMode> FormatsForSelection(
+    public ImmutableArray<DiscoveryOutputMode> FormatsForSelection(
         IReadOnlyCollection<string> sections) =>
         [.. FormatOrder.Where(format => Supports(format, sections))];
 
     public bool Supports(
-        OutputMode format,
+        DiscoveryOutputMode format,
         IReadOnlyCollection<string>? sections)
     {
         if (sections is not { Count: > 0 })
@@ -104,25 +95,27 @@ public sealed class OutputCapabilityCatalog
 
         return format switch
         {
-            OutputMode.Tree or OutputMode.Mermaid => false,
-            OutputMode.Table or OutputMode.Tsv or OutputMode.Jsonl =>
+            DiscoveryOutputMode.Tree or DiscoveryOutputMode.Mermaid => false,
+            DiscoveryOutputMode.Table
+                or DiscoveryOutputMode.Tsv
+                or DiscoveryOutputMode.Jsonl =>
                 _homogeneousRowFamilies.Any(family =>
                     sections.All(family.Contains)),
             _ => true,
         };
     }
 
-    public static string CliOption(OutputMode format) =>
+    public static string CliOption(DiscoveryOutputMode format) =>
         format switch
         {
-            OutputMode.Markdown => "--markdown",
-            OutputMode.PlainText => "--plaintext",
-            OutputMode.Json => "--json",
-            OutputMode.Table => "--table",
-            OutputMode.Tsv => "--tsv",
-            OutputMode.Jsonl => "--jsonl",
-            OutputMode.Tree => "--tree",
-            OutputMode.Mermaid => "--mermaid",
+            DiscoveryOutputMode.Markdown => "--markdown",
+            DiscoveryOutputMode.PlainText => "--plaintext",
+            DiscoveryOutputMode.Json => "--json",
+            DiscoveryOutputMode.Table => "--table",
+            DiscoveryOutputMode.Tsv => "--tsv",
+            DiscoveryOutputMode.Jsonl => "--jsonl",
+            DiscoveryOutputMode.Tree => "--tree",
+            DiscoveryOutputMode.Mermaid => "--mermaid",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(format),
                 format,
