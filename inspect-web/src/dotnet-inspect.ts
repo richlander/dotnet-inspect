@@ -4874,6 +4874,9 @@ function renderCompareSurface(): string {
       .map(typeIdentifierOf));
   } else if (subject.kind === "type") {
     diffSubject = { kind: "type", typeIdentifier: typeIdentifierOf(subject.type) };
+    // A moved Member's counterpart Type is activatable from the Type inventory.
+    activatableTypes = new Set(compareLibraryTypes(subject)
+      .map(typeIdentifierOf));
     activatableMembers = new Set(subject.type.api
       .filter(overload => !overload.graphOnly && overload.anchorDigest)
       .map(overload => overload.anchorDigest));

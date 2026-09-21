@@ -133,7 +133,17 @@ public sealed record BrowserLibraryApiDiffMember(
     BrowserLibraryApiDiffMemberRelationRole Role,
     BrowserLibraryApiDiffMemberIdentity? Before,
     BrowserLibraryApiDiffMemberIdentity? After,
-    BrowserLibraryApiDiffChange[] Changes);
+    BrowserLibraryApiDiffChange[] Changes,
+    BrowserLibraryApiDiffMatch? Match);
+
+/// <summary>
+/// The Findings-issued correspondence provenance behind a changed relation: the
+/// match tier and its confidence. Absent when the relation was committed
+/// exactly or has one side only.
+/// </summary>
+public sealed record BrowserLibraryApiDiffMatch(
+    string Tier,
+    int Confidence);
 
 /// <summary>
 /// One Metadata-issued compatibility change placed on the Type or Member it
