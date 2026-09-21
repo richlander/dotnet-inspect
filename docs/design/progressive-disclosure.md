@@ -41,6 +41,20 @@ requested inventory. Inspection Failures remains `Terse` and visible at
 inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
 Symbols, and Signals.
 
+For package inspection, Target Frameworks, Package nuspec file, Dependencies,
+Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
+Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+`-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
+or `@Audit` doors remain available. The explicit-only whole-package and
+license-file listings remain outside every automatic verbosity preset.
+
+For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
+Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
+the command's authored primary result and diagnostic context at `-v:m`, are
+omitted from the generic bounded `-v:n` preset, and return at `-v:d`. Exact
+section selection and explicit `@Surface` selection retain the complete
+inventories.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are

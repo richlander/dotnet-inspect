@@ -94,7 +94,7 @@ public static class ApiCoordinateMatchQuery
             .ConfigureAwait(false);
         if (read is not WorkspaceScopeReadResult.Available initial)
             throw new InvalidOperationException("A new Workspace could not expose its initial Scope.");
-        WorkspaceScopeOperationResult scope = await workspace.ReplaceScopeAsync(
+        WorkspaceScopeOperationResult scope = await workspace.AddPackagesAsync(
             initial.Snapshot.Revision,
             ReferenceEquals(beforeBinding, afterBinding) ? [beforeBinding] : [beforeBinding, afterBinding],
             DateTimeOffset.UtcNow.AddMinutes(5), cancellationToken).ConfigureAwait(false);

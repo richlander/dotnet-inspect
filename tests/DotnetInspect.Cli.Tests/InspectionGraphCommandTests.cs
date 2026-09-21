@@ -156,6 +156,20 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public void LibrariesCommand_RejectsUnsupportedStartsWithPredicate()
+    {
+        Assert.False(
+            LibraryCallUseQueryOptions.TryParse(
+                ["Cluster starts-with 3"],
+                out _,
+                out OptionError error));
+        Assert.Contains(
+            "supports only = predicates",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibrariesCommand_RequiresExactlyTwoLibraries()
     {
         var captured = await ConsoleCapture.RunAsync(

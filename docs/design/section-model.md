@@ -309,8 +309,68 @@ their product contracts:
 
 `DotWasm.Models` 0.1.0 is pinned as a test asset. Its four native C# union rows
 exercise the production package-acquisition and metadata-inspection path
-without turning the broader package survey into a PR-CI corpus sweep. Domain,
-package, API, and other command families remain separate #3284 audit work.
+without turning the broader package survey into a PR-CI corpus sweep.
+
+#### Package base-section evidence
+
+The package base-category audit covers `@Package` and `@Files`. It combines the
+producer contract with published-package measurements:
+
+| Section | Evidence | Classification |
+| --- | --- | --- |
+| Target Frameworks | 13 rows in `System.ValueTuple` 4.5.0; one row per uncapped `lib/<tfm>` directory | `Verbose` |
+| Package nuspec file | 31 matching paths in a boundary package | `Verbose` |
+| Dependencies | 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Ecosystem Dependencies | 139 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Vulnerabilities | 31 matching advisories in a configured-feed boundary | `Verbose` |
+| Manifest | 36 rows in a tool boundary package with 31 RID-package declarations | `Verbose` |
+| Runtime Dependencies | 44 rows in `dotnet-outdated-tool` 4.8.1; 120 in `Microsoft.DotNet.Interactive` | `Verbose` |
+| Package skill files | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
+
+Target Frameworks grows with distinct package-authored `lib/<tfm>` directories.
+Package nuspec file grows with every package path ending in `.nuspec`.
+Dependencies grow with package dependency declarations. Ecosystem Dependencies
+can project one or more recognized ecosystem associations for each declaration.
+Vulnerabilities adds every matching advisory from the configured feed.
+Manifest adds one row per package-authored RID-package declaration. Runtime
+Dependencies grow with package entries in tool `.deps.json` files, and Package
+skill files grows with matching `skills/**/SKILL.md` entries. None has a product
+row cap. Boundary fixtures gate the Target Frameworks, nuspec-path, RID-package,
+and vulnerability-feed cases that the published-package sample did not reach.
+
+The four compact witness packages are pinned as test assets and their exact
+row counts run through production package acquisition and projection in PR CI.
+Generated package and configured-feed boundary cases run through the same
+product command. The broader survey remains reproducible design evidence rather
+than a corpus gate. Domain, API, and other command families remain separate
+work under issue #3284.
+
+#### API type-list evidence
+
+The `type` command's assembly-list `@Surface` catalog groups public types by
+kind. Each kind table grows with matching type definitions and has no product
+row cap:
+
+| Section | `System.Runtime` rows | Classification |
+| --- | ---: | --- |
+| Classes | 500 | `Verbose` |
+| Structs | 123 | `Verbose` |
+| Interfaces | 97 | `Verbose` |
+| Enums | 98 | `Verbose` |
+| Delegates | 51 | `Verbose` |
+| Type Forwarders | 2 target-assembly groups; one per uncapped target assembly | `Verbose` |
+| Inspection Failures | 31 rows in a projection boundary | `Verbose` |
+
+The type-kind tables emit one row per matching type definition. Type Forwarders
+groups forwarded types by target assembly, whose distinct count is also
+package-authored, while Inspection Failures emits one row per rejected metadata
+subject. Neither producer has a row cap.
+
+All seven inventories remain the command's authored primary result and
+diagnostic context at `-v:m`. Their growth declarations remove them from the
+generic bounded `-v:n` preset; `-v:d`, exact section selection, and explicit
+`@Surface` selection retain the complete inventories. Exact-type/member
+sections and domain catalogs remain separate #3284 audit work.
 
 ### Cost
 
@@ -638,9 +698,9 @@ The package command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
+| `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Ecosystem Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
 | `@Files` | `Package nuspec file`, `Package README file`, `Package license files`, `Package skill files` |
-| `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
+| `@Dependencies` | `Dependency Hierarchy`, `Dependencies`, `Ecosystem Dependencies`, `Runtime Dependencies` |
 | `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
 

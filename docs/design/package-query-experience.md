@@ -116,7 +116,9 @@ rather than silently broadening a cheaper class.
 
 The Browser and CLI share the first production vocabulary:
 `dependencies=none|cross-prefix`, `dependency-target=all|<tfm>`,
-`depends=<package-id>`, `depends-ecosystem=<ecosystem-id>`,
+`depends=<package-id>`,
+`depends starts-with <literal-package-id-prefix>`,
+`depends-ecosystem=<ecosystem-id>`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
 `references=<simple-assembly-name>` and `skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`

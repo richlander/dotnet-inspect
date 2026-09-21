@@ -1036,6 +1036,43 @@ public sealed record BrowserPackageDependencies(
     string? DependencyGroupError,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+public sealed record BrowserLibraryQueryInspection(
+    BrowserLibraryQueryDocument Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserLibraryQueryDocument(
+    BrowserLibraryQueryRow[] Results,
+    BrowserLibraryQueryFailure[] Failures,
+    BrowserLibraryQuerySummary Summary);
+
+public sealed record BrowserLibraryQueryRow(
+    string AssetId,
+    string Library,
+    string Path,
+    string Source,
+    string? Version,
+    string SourceKind,
+    string? TargetFramework,
+    string[] MatchedReferences);
+
+public sealed record BrowserLibraryQueryFailure(
+    string? AssetId,
+    string? Library,
+    string? Path,
+    string? Source,
+    string Kind,
+    string Message);
+
+public sealed record BrowserLibraryQuerySummary(
+    int PopulationCandidates,
+    int CandidateLimit,
+    int Candidates,
+    int Matches,
+    int Failures,
+    string IncompleteReasons,
+    bool IsComplete);
+
 public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
 
 public sealed record BrowserAssemblyReferenceList(
@@ -1195,6 +1232,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserLibraryQueryInspection))]
 [JsonSerializable(typeof(BrowserPackagePruningRequest))]
 [JsonSerializable(typeof(BrowserPackagePruningResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

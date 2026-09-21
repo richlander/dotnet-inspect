@@ -417,6 +417,8 @@ internal static class DependencyQueryOptions
             RowPredicateOperator.Equals => PortableQueryOperator.Equal,
             RowPredicateOperator.NotEquals =>
                 PortableQueryOperator.NotEqual,
+            RowPredicateOperator.StartsWith =>
+                PortableQueryOperator.StartsWith,
             RowPredicateOperator.GreaterOrEqual =>
                 PortableQueryOperator.AtLeast,
             RowPredicateOperator.LessOrEqual =>
@@ -430,6 +432,7 @@ internal static class DependencyQueryOptions
         {
             PortableQueryOperator.Equal => "=",
             PortableQueryOperator.NotEqual => "!=",
+            PortableQueryOperator.StartsWith => "starts-with",
             PortableQueryOperator.AtLeast => ">=",
             PortableQueryOperator.AtMost => "<=",
             _ => throw new InvalidOperationException(

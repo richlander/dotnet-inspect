@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
 
@@ -191,9 +192,8 @@ static class TypeBindCheck
     }
 
     /// <summary>
-    /// The platform reference set for binding a composed type: the running
-    /// runtime's trusted platform assemblies plus, if the target is not already
-    /// among them, the target and its sibling assemblies. Unlike
+    /// The reference set for binding a composed type: the target, its ordinary
+    /// dependency closure, and the running platform as fallback. Unlike
     /// <c>FidelityCheck</c> (which reconstructs a body and so excludes the
     /// target), this binds the type shell and therefore keeps the target so its
     /// own types — and the competing same-named types in sibling assemblies —
@@ -216,15 +216,23 @@ static class TypeBindCheck
             catch { }
         }
 
-        foreach (var path in (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-            Add(path);
+        string targetPath = Path.GetFullPath(assemblyPath);
+        Add(targetPath);
 
-        Add(Path.GetFullPath(assemblyPath));
-        var dir = Path.GetDirectoryName(Path.GetFullPath(assemblyPath));
-        if (dir is not null && Directory.Exists(dir))
-            foreach (var path in Directory.EnumerateFiles(dir, "*.dll"))
-                Add(path);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        AssemblyResolutionResult resolution = resolver.ResolveAll();
+        if (!resolution.Diagnostics.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                "Compiler reference discovery failed in "
+                + $"{resolution.Diagnostics.Length} enabled tier(s).");
+        }
+        foreach (ResolvedAssemblyDependency dependency in resolution.Items)
+            Add(dependency.Path);
 
         return builder.ToImmutable();
     }

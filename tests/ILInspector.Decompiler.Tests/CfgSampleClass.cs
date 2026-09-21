@@ -3728,9 +3728,13 @@ public class CfgSampleClass
         IEnumerable<string> values)
         => values.Where(value => value.Length > 0);
 
-    public static IEnumerable<int> ResultInferredExtensionArgumentsRemainExplicit(
+    public static IEnumerable<int> ResultInferredExtensionArgumentsAreOmitted(
         IEnumerable<string> values)
         => values.Select(value => value.Length);
+
+    public static IOrderedEnumerable<string> FluentResultInferredExtensionArgumentsAreOmitted(
+        IEnumerable<string> values)
+        => values.OrderBy(value => value.Length).ThenBy(value => value);
 
     public static int AmbiguousReceiverArgumentsRemainExplicit(AmbiguousGenericReceiver receiver)
         => receiver.Value<int>();
@@ -3761,6 +3765,22 @@ public class CfgSampleClass
     public static Type LambdaOutputInferenceRemainsExplicit(
         IEnumerable<byte> values)
         => values.TakeFactory<byte>(() => 1);
+
+    public static IEnumerable<byte> OutputInferenceNaturalTypeMismatchRemainsExplicit(
+        IEnumerable<string> values)
+        => values.Select<string, byte>(_ => 1);
+
+    public static IEnumerable<string> OutputInferenceTypelessResultRemainsExplicit(
+        IEnumerable<string> values)
+        => values.Select<string, string>(_ => null!);
+
+    public static IQueryable<int> ExpressionTreeOutputInferenceRemainsExplicit(
+        IQueryable<string> values)
+        => values.Select(value => value.Length);
+
+    public static int CompetingOutputInferenceSiblingRemainsExplicit(
+        IEnumerable<string> values)
+        => values.OutputCandidate<string, int>(value => value.Length);
 
     public static int ParamsCollectionInferenceRemainsExplicit(
         IEnumerable<string> values)
