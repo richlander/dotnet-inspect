@@ -143,7 +143,7 @@ public static class PackageVersionCellMetadataInspector
                     };
                 WorkspaceScopeOperationResult admission =
                     await workspace
-                        .ReplaceScopeWithRealizationOptionsAsync(
+                        .AddPackagesWithRealizationOptionsAsync(
                             current.Snapshot.Revision,
                             [contribution.Binding],
                             realizationOptions,
