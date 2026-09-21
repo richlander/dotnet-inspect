@@ -63,9 +63,13 @@ public class PackageQueryCliTests
             Assert.Equal(
                 registeredInspectionTerms[index].Operators.Select(
                     @operator =>
-                        @operator == PortableQueryOperator.Equal
-                            ? "="
-                            : throw new InvalidOperationException()),
+                        @operator switch
+                        {
+                            PortableQueryOperator.Equal => "=",
+                            PortableQueryOperator.StartsWith =>
+                                "starts-with",
+                            _ => throw new InvalidOperationException(),
+                        }),
                 PackageQueryOptions.QueryKeys[index].Comparisons);
             Assert.Equal(
                 PackageQuery.ExecutionClassIdentity(
@@ -126,12 +130,12 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public void DependsPrefixTerm_LowersToTheProductPlan()
+    public void DependsStartsWithTerm_LowersToTheProductPlan()
     {
         Assert.True(
             PackageQueryOptions.TryCreate(
                 "Microsoft.Extensions.*",
-                ["depends-prefix=Microsoft.Extensions."],
+                ["depends starts-with Microsoft.Extensions."],
                 nuspecOnly: true,
                 take: null,
                 rowSelection: null,
@@ -141,7 +145,10 @@ public class PackageQueryCliTests
             error.ToString());
 
         BoundPackageQueryTerm term = Assert.Single(options!.Plan.BoundTerms);
-        Assert.Equal(PackageQuery.DependsPrefixTermKey, term.Term.Key);
+        Assert.Equal(PackageQuery.DependsTermKey, term.Term.Key);
+        Assert.Equal(
+            PortableQueryOperator.StartsWith,
+            term.Term.Operator);
         Assert.Equal(
             "Microsoft.Extensions.",
             term.Predicate.PackagePrefix!.Prefix);
@@ -530,7 +537,9 @@ public class PackageQueryCliTests
     [InlineData("facet!=package.query.dotnet-tool", "support equality")]
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
-    [InlineData("depends-prefix=Microsoft.*", "term value is invalid")]
+    [InlineData(
+        "depends starts-with Microsoft.*",
+        "term value is invalid")]
     [InlineData("depends=not/a/package", "term value is invalid")]
     [InlineData("dependencies=other", "term value is invalid")]
     [InlineData(
@@ -893,12 +902,12 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task DependsPrefixTerm_UsesManifestEvidenceWithoutPackageContent()
+    public async Task DependsStartsWithTerm_UsesManifestEvidenceWithoutPackageContent()
     {
         using var source = Source(out var fixture);
         var result = await ConsoleCapture.RunAsync(() =>
             PackageQueryCommand.ExecuteAsync(
-                Options("depends-prefix=Dependency."),
+                Options("depends starts-with Dependency."),
                 source,
                 null));
 
@@ -2153,6 +2162,18 @@ public class PackageQueryCliTests
         [
             .. expressions.Select(expression =>
             {
+                const string StartsWith = " starts-with ";
+                int startsWith = expression.IndexOf(
+                    StartsWith,
+                    StringComparison.Ordinal);
+                if (startsWith > 0)
+                {
+                    return new PortableQueryTerm(
+                        expression[..startsWith],
+                        PortableQueryOperator.StartsWith,
+                        expression[(startsWith + StartsWith.Length)..]);
+                }
+
                 string[] parts = expression.Split('=', 2);
                 return new PortableQueryTerm(
                     parts[0],

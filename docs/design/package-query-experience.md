@@ -116,7 +116,8 @@ rather than silently broadening a cheaper class.
 
 The Browser and CLI share the first production vocabulary:
 `dependencies=none|cross-prefix`, `dependency-target=all|<tfm>`,
-`depends=<package-id>`, `depends-prefix=<literal-package-id-prefix>`,
+`depends=<package-id>`,
+`depends starts-with <literal-package-id-prefix>`,
 `depends-ecosystem=<ecosystem-id>`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
 `references=<simple-assembly-name>`, `skill=true`, and

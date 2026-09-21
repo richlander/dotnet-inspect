@@ -485,16 +485,16 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Catalog_ProjectsDependsPrefixAsNuspecFreeTerm()
+    public void Catalog_ProjectsDependsStartsWithAsNuspecFreeOperator()
     {
         BrowserPackageQueryTermDescriptor term =
             Assert.Single(
                 BrowserPackageQueryOperations.Catalog().Terms,
                 candidate =>
-                    candidate.Key == PackageQuery.DependsPrefixTermKey);
+                    candidate.Key == PackageQuery.DependsTermKey);
 
-        Assert.Equal("eq", Assert.Single(term.Operators));
-        Assert.Equal("NuGet package ID prefix", term.ValueKind);
+        Assert.Equal(["eq", "starts-with"], term.Operators);
+        Assert.Equal("NuGet package ID or prefix", term.ValueKind);
         Assert.Equal(
             BrowserPackageQueryAcquisitionTier.Nuspec,
             term.Tier);

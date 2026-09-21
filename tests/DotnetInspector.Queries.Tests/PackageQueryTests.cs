@@ -245,7 +245,6 @@ public sealed class PackageQueryTests
                 ("dependencies", 100),
                 ("dependency-target", 150),
                 ("depends", 200),
-                ("depends-prefix", 205),
                 ("depends-ecosystem", 210),
                 ("depends-transitive", 220),
                 ("dependency-depth", 225),
@@ -266,7 +265,6 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
-                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -321,7 +319,6 @@ public sealed class PackageQueryTests
                 ("dependencies", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
                 ("dependency-target", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
                 ("depends", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
-                ("depends-prefix", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
                 ("depends-ecosystem", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
                 ("depends-transitive", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.NuspecExpensive),
                 ("dependency-depth", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.NuspecExpensive),
@@ -362,20 +359,17 @@ public sealed class PackageQueryTests
         PackageQueryTermDescriptor depends = PackageQuery.Terms.Single(
             term => term.Key == PackageQuery.DependsTermKey);
         Assert.Equal(
-            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            [
+                PortableQueryModel.TextOf(PortableQueryOperator.Equal),
+                PortableQueryModel.TextOf(
+                    PortableQueryOperator.StartsWith),
+            ],
             depends.Operators);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, depends.Tier);
         Assert.Equal(PackageQueryTermControlKind.Input, depends.ControlKind);
-        PackageQueryTermDescriptor dependsPrefix =
-            PackageQuery.Terms.Single(
-                term => term.Key == PackageQuery.DependsPrefixTermKey);
-        Assert.Equal("NuGet package ID prefix", dependsPrefix.ValueKind);
         Assert.Equal(
-            PackageQueryAcquisitionTier.Nuspec,
-            dependsPrefix.Tier);
-        Assert.Equal(
-            PackageQueryTermControlKind.Input,
-            dependsPrefix.ControlKind);
+            "NuGet package ID or prefix",
+            depends.ValueKind);
         PackageQueryTermDescriptor dependsTransitive =
             PackageQuery.Terms.Single(
                 term => term.Key == PackageQuery.DependsTransitiveTermKey);
@@ -491,11 +485,13 @@ public sealed class PackageQueryTests
             PackageQuery.Terms.Select(term => term.Key),
             route.Capabilities.Terms.Select(term =>
                 term.Binding.Key));
-        Assert.All(
-            route.Capabilities.Terms,
-            term => Assert.Equal(
-                [PortableQueryOperator.Equal],
-                term.Operators));
+        for (int index = 0; index < PackageQuery.Terms.Length; index++)
+        {
+            Assert.Equal(
+                PackageQuery.Terms[index].Operators,
+                route.Capabilities.Terms[index].Operators.Select(
+                    PortableQueryModel.TextOf));
+        }
         Assert.Equal(
             ["candidates", "matches"],
             route.Capabilities.Dimensions);
@@ -531,11 +527,14 @@ public sealed class PackageQueryTests
                 capability => capability.Binding.Key),
             PackageQuery.RegisteredTerms.Select(term =>
                 term.Descriptor.Key));
-        Assert.Equal(
-            PackageQuery.OperationRoute.Capabilities.Terms.Select(
-                capability => capability.Operators.Single()),
-            PackageQuery.RegisteredTerms.Select(term =>
-                term.Operators.Single()));
+        for (int index = 0;
+             index < PackageQuery.RegisteredTerms.Length;
+             index++)
+        {
+            Assert.Equal(
+                PackageQuery.OperationRoute.Capabilities.Terms[index].Operators,
+                PackageQuery.RegisteredTerms[index].Operators);
+        }
         Assert.Equal(
             PackageQuery.RegisteredTerms.Select(term =>
                 term.Descriptor),
@@ -559,13 +558,13 @@ public sealed class PackageQueryTests
         "not/a/package",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
-        "depends-prefix",
-        PortableQueryOperator.Equal,
+        "depends",
+        PortableQueryOperator.StartsWith,
         "not/a/prefix",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
-        "depends-prefix",
-        PortableQueryOperator.Equal,
+        "depends",
+        PortableQueryOperator.StartsWith,
         "Microsoft.*",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
@@ -715,7 +714,7 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
-    public void PlanInput_BindsDependencyPrefixAndCollapsesCaseVariants()
+    public void PlanInput_BindsDependencyStartsWithAndCollapsesCaseVariants()
     {
         PackageQueryPlan plan = Accepted(
             PackageQuery.PlanInput(
@@ -723,11 +722,13 @@ public sealed class PackageQueryTests
                 terms:
                 [
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "Microsoft.Extensions."),
+                        PackageQuery.DependsTermKey,
+                        "Microsoft.Extensions.",
+                        PortableQueryOperator.StartsWith),
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "microsoft.extensions."),
+                        PackageQuery.DependsTermKey,
+                        "microsoft.extensions.",
+                        PortableQueryOperator.StartsWith),
                     Term(
                         PackageQuery.DependencyTargetTermKey,
                         "NET10.0"),
@@ -744,6 +745,35 @@ public sealed class PackageQueryTests
         Assert.Equal(
             "net10.0",
             plan.DependencyTarget.RequestedTargetFramework);
+    }
+
+    [Fact]
+    public void PlanInput_DistinguishesDependencyOperators()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Contoso.Dependency"),
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Contoso.Dependency",
+                        PortableQueryOperator.StartsWith),
+                ]));
+
+        Assert.Equal(2, plan.BoundTerms.Length);
+        Assert.Contains(
+            plan.BoundTerms,
+            term => term.Term.Operator == PortableQueryOperator.Equal
+                && term.Predicate.Kind == PackageQueryPredicateKind.Depends);
+        Assert.Contains(
+            plan.BoundTerms,
+            term => term.Term.Operator == PortableQueryOperator.StartsWith
+                && term.Predicate.Kind
+                    == PackageQueryPredicateKind.DependsPrefix);
     }
 
     [Fact]
@@ -1151,11 +1181,13 @@ public sealed class PackageQueryTests
                 terms:
                 [
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "microsoft.extensions."),
+                        PackageQuery.DependsTermKey,
+                        "microsoft.extensions.",
+                        PortableQueryOperator.StartsWith),
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "System."),
+                        PackageQuery.DependsTermKey,
+                        "System.",
+                        PortableQueryOperator.StartsWith),
                     Term(
                         PackageQuery.DependencyTargetTermKey,
                         "net10.0"),
@@ -1179,7 +1211,9 @@ public sealed class PackageQueryTests
         PackageQueryEvidence[] prefixEvidence =
         [
             .. match.Evidence.Where(evidence =>
-                evidence.Id == PackageQuery.DependsPrefixTermKey),
+                evidence.Id == PackageQuery.DependsTermKey
+                && evidence.Term!.Operator
+                    == PortableQueryOperator.StartsWith),
         ];
         Assert.Equal(2, prefixEvidence.Length);
         PackageQueryEvidence extensions = prefixEvidence.Single(evidence =>
@@ -1220,8 +1254,9 @@ public sealed class PackageQueryTests
                 terms:
                 [
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "Microsoft.Extensions"),
+                        PackageQuery.DependsTermKey,
+                        "Microsoft.Extensions",
+                        PortableQueryOperator.StartsWith),
                 ],
                 maximumCandidates: 1,
                 maximumMatches: 1));
@@ -1240,7 +1275,9 @@ public sealed class PackageQueryTests
             "net10.0: Microsoft.ExtensionsX 1.0.0",
             Assert.Single(
                 Assert.Single(match.Evidence.Where(evidence =>
-                    evidence.Id == PackageQuery.DependsPrefixTermKey))
+                    evidence.Id == PackageQuery.DependsTermKey
+                    && evidence.Term!.Operator
+                        == PortableQueryOperator.StartsWith))
                 .Summary!.Preview).ToString());
     }
 
@@ -4200,8 +4237,11 @@ public sealed class PackageQueryTests
         PackageQueryPlanResult result) =>
         Assert.IsType<PackageQueryPlanResult.Rejected>(result).Failure;
 
-    private static PortableQueryTerm Term(string key, string value) =>
-        new(key, PortableQueryOperator.Equal, value);
+    private static PortableQueryTerm Term(
+        string key,
+        string value,
+        PortableQueryOperator @operator = PortableQueryOperator.Equal) =>
+        new(key, @operator, value);
 
     private static PackageQueryEcosystemMembershipCatalog EcosystemCatalog(
         params PackageQueryEcosystemMembershipDeclaration[] declarations) =>

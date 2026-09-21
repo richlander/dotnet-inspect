@@ -11,6 +11,8 @@ export interface LibraryControlBindingActions {
   onLibraryApiRetry: () => void;
   onLibraryChipSelect: (library: string) => void;
   onLibraryJump: (library: string) => void;
+  onLibraryQueryClear: () => void;
+  onLibraryQuerySubmit: (reference: string) => void;
   onPlatformLibrarySelect: (name: string, pack: string) => void;
   onPlatformLensLibrarySelect: (
     lens: PlatformLibraryLens,
@@ -42,6 +44,18 @@ export function bindLibraryControls(
   root.querySelectorAll<HTMLElement>("[data-library-api-retry]")
     .forEach(button =>
       button.addEventListener("click", actions.onLibraryApiRetry));
+  root.querySelectorAll<HTMLElement>("[data-library-query-clear]")
+    .forEach(button =>
+      button.addEventListener("click", actions.onLibraryQueryClear));
+
+  const libraryQueryForm =
+    root.querySelector<HTMLFormElement>("[data-library-query-form]");
+  const libraryQueryReference =
+    root.querySelector<HTMLInputElement>("[data-library-query-reference]");
+  libraryQueryForm?.addEventListener("submit", event => {
+    event.preventDefault();
+    actions.onLibraryQuerySubmit(libraryQueryReference?.value ?? "");
+  });
 
   const libraryJump =
     root.querySelector<HTMLSelectElement>("#library-jump");

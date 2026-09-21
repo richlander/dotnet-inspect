@@ -35,7 +35,13 @@ public static partial class XmlDocText
     /// </summary>
     public static string GetElementTextWithRefs(
         XmlReader reader,
-        int maxElementDepth = MaxElementDepth)
+        int maxElementDepth = MaxElementDepth) =>
+        GetElementTextWithRefs(reader, maxElementDepth, observe: null);
+
+    internal static string GetElementTextWithRefs(
+        XmlReader reader,
+        int maxElementDepth,
+        Action<XmlReader>? observe)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentOutOfRangeException.ThrowIfNegative(maxElementDepth);
@@ -48,7 +54,7 @@ public static partial class XmlDocText
         int rootDepth = reader.Depth;
         int? literalDepth = null;
         int? suppressedDepth = null;
-        while (reader.Read())
+        while (Read(reader, observe))
         {
             if (reader.NodeType == XmlNodeType.Element
                 && reader.Depth - rootDepth > maxElementDepth)
@@ -132,6 +138,16 @@ public static partial class XmlDocText
         }
 
         return builder.ToString();
+    }
+
+    private static bool Read(
+        XmlReader reader,
+        Action<XmlReader>? observe)
+    {
+        bool read = reader.Read();
+        if (read)
+            observe?.Invoke(reader);
+        return read;
     }
 
     /// <summary>
