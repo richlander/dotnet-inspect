@@ -522,7 +522,27 @@ public static partial class ApiSurfaceExtractor
 
         try
         {
+            using var operationContext = new MetadataOperationContext(
+                new MetadataOperationPolicy(bounds.MaxMetadataRows));
             var budget = new ExtractionBudget(bounds);
+            MetadataImageAdmissionResult admission =
+                operationContext.AdmitImage(
+                    MetadataFormatAdmission.GetMetadataReader(peReader));
+            switch (admission)
+            {
+                case MetadataImageAdmissionResult.Admitted:
+                    break;
+                case MetadataImageAdmissionResult.Rejected
+                    {
+                        Failure.Kind:
+                            MetadataOperationFailureKind.MetadataRowsExceeded,
+                    }:
+                    throw new ExtractionBoundExceededException(
+                        ApiSurfaceExtractionBound.MetadataRows);
+                default:
+                    throw new InvalidOperationException(
+                        "The metadata image admission returned an unsupported outcome.");
+            }
             TypeParameterConstraintResolution? constraintResolution =
                 source is null ? null : new(
                     MetadataFormatAdmission.GetMetadataReader(peReader),
@@ -543,7 +563,7 @@ public static partial class ApiSurfaceExtractor
             }
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
-                budget.MetadataRows,
+                (int)operationContext.Counters.MetadataRows,
                 budget.RetainedTextCharacters);
         }
         catch (ExtractionBoundExceededException exceeded)
@@ -569,7 +589,6 @@ public static partial class ApiSurfaceExtractor
             reader.GetModuleDefinition().Mvid);
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
-        budget?.AdmitMetadataRows(reader);
         MemorySafetyMetadataIndex? memorySafetyIndex = null;
         MemorySafetyMetadataIndex GetMemorySafetyIndex() =>
             memorySafetyIndex ??= MemorySafetyMetadataIndex.Create(reader);
