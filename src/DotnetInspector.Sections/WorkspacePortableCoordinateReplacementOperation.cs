@@ -55,7 +55,16 @@ public static class WorkspacePortableCoordinateReplacementOperation
         NavigationConsumerResult? navigation = result.NavigationResult?.Consumer;
         NavigationConsumerSnapshot? snapshot = navigation?.Snapshot;
         NavigationCoordinateRetentionResult? retention =
-            result.NavigationResult?.CoordinateRetention;
+            result.CoordinateRetention;
+        NavigationConsumerCoordinateOutcome? retained =
+            retention is null
+                ? null
+                : new(
+                    retention.Disposition,
+                    retention.Detail,
+                    retention.LibraryPairing?.Status,
+                    retention.TypeCorrespondence?.Status,
+                    retention.MemberCorrespondence?.Status);
         NavigationConsumerLensOutcome? lens = snapshot?.LensOutcome;
         var content = new WorkspacePortableCoordinateReplacementOutcome(
             result.Succeeded,
@@ -66,7 +75,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
             result.ScopeResult is { } scope
                 ? NavigationConsumerScopeOutcome.FromSettlement(scope)
                 : null,
-            navigation?.Outcome.CoordinateRetention,
+            retained,
             navigation?.Outcome.Kind,
             snapshot is null ? null : Subject(snapshot.ActiveSubject),
             snapshot is null
@@ -91,8 +100,9 @@ public static class WorkspacePortableCoordinateReplacementOperation
                 InspectionDiagnosticSeverity.Error,
                 failure.Detail));
         }
-        if (navigation?.Outcome.CoordinateRetention is { } retained
-            && retained.Disposition != NavigationCoordinateRetentionDisposition.ExactPath)
+        if (retained is not null
+            && retained.Disposition
+                != NavigationCoordinateRetentionDisposition.ExactPath)
         {
             diagnostics.Add(new(
                 "workspace.coordinate-replacement.fallback",
