@@ -31,15 +31,23 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
-For library inspection, References, Switches, Type Forwarders, P/Invoke
-Methods, and Union Types are measured or structurally `Verbose` inventories.
-They therefore enter automatic output at `-v:d`, not `-v:n`. Exact `-S`
-selection and the explicit `@Library` or `@Surface` category remain available;
-explicit selection promotes the effective verbosity needed to render the
-requested inventory. Inspection Failures remains `Terse` and visible at
-`-v:n`; hiding failed producers from the normal view would allow partial
-inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
-Symbols, and Signals.
+For library inspection, References, Ecosystem Dependencies, Switches, Type
+Forwarders, P/Invoke Methods, and Union Types are measured or structurally
+`Verbose` inventories. They therefore enter automatic output at `-v:d`, not
+`-v:n`. Exact `-S` selection and the explicit `@Library` or `@Surface`
+category remain available; explicit selection promotes the effective verbosity
+needed to render the requested inventory. Inspection Failures remains `Terse`
+and visible at `-v:n`; hiding failed producers from the normal view would allow
+partial inspection to look clean. Bare `-S` remains the fixed overview:
+Library Info, Symbols, and Signals.
+
+Library domain categories remain explicit. Their target-growing audit,
+dependency, integration, SourceLink file, performance, resource-lifecycle,
+clone, and exception-context inventories are `Verbose`. SourceLink
+Availability and Integrity remain fixed aggregate tables, while the exact
+coordinate field views are fixed except for the enclosing exception-region
+inventory. `SourceLink: Missing Files` retains every missing document rather
+than truncating the explicitly requested evidence.
 
 For package inspection, Target Frameworks, Package nuspec file, Dependencies,
 Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
