@@ -244,6 +244,49 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("json")]
+    [InlineData("jsonl")]
+    public async Task Layout_OutputPathPreservesStdoutBytes(string? format)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        string outputPath = Path.Combine(
+            tempDir,
+            $"layout-{format ?? "tree"}.txt");
+        try
+        {
+            List<string> arguments =
+            [
+                "package",
+                packagePath,
+                "--layout",
+                "--tips",
+                "q",
+            ];
+            if (format is not null)
+                arguments.AddRange(["--format", format]);
+
+            var baseline = await RunAppAsync([.. arguments]);
+            var redirected = await RunAppAsync(
+                [.. arguments, "--output", outputPath]);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Empty(baseline.Error);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Empty(redirected.Output);
+            Assert.Empty(redirected.Error);
+            Assert.Equal(
+                Encoding.UTF8.GetBytes(
+                    baseline.Output.ReplaceLineEndings("\n")),
+                File.ReadAllBytes(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Layout_TfmScopePreservesLibThenToolsBehavior()
     {

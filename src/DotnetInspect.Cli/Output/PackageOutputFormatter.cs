@@ -10,7 +10,9 @@ namespace DotnetInspect.Cli.Output;
 /// </summary>
 public static class PackageOutputFormatter
 {
-    public static void WriteFileTree(List<string> paths)
+    public static void WriteFileTree(
+        List<string> paths,
+        TextWriter output)
     {
         // Build tree structure from file paths
         var root = new Dictionary<string, object>();
@@ -40,7 +42,7 @@ public static class PackageOutputFormatter
         }
 
         var view = new FileTreeView { Files = BuildTreeNodes(root) };
-        MarkoutSerializer.Serialize(view, Console.Out, FileTreeContext.Default);
+        MarkoutSerializer.Serialize(view, output, FileTreeContext.Default);
     }
 
     private static List<TreeNode> BuildTreeNodes(Dictionary<string, object> dict)

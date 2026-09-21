@@ -389,31 +389,45 @@ public partial class PackageCommand
         if (LensProjection.TryProject(options, "--layout", visibleResults.Count, out var projectionExitCode))
             return projectionExitCode;
 
-        if (options.JsonOutput)
-        {
-            Console.Out.WriteLine(
-                JsonSerializer.Serialize(
-                    visibleResults
-                        .Select(path => new PackageLayoutFileJson(path))
-                        .ToList(),
-                    JsonContext.Default.ListPackageLayoutFileJson));
-            return 0;
-        }
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                if (options.JsonOutput)
+                {
+                    output.WriteLine(
+                        JsonSerializer.Serialize(
+                            visibleResults
+                                .Select(path => new PackageLayoutFileJson(path))
+                                .ToList(),
+                            JsonContext.Default.ListPackageLayoutFileJson));
+                    return;
+                }
 
-        if (options.Jsonl)
-        {
-            OutputFormatter.WriteStringList(
-                visibleResults,
-                "Path",
-                "path",
-                tsv: false,
-                jsonl: true,
-                output: Console.Out);
-            return 0;
-        }
+                if (options.Jsonl)
+                {
+                    OutputFormatter.WriteStringList(
+                        visibleResults,
+                        "Path",
+                        "path",
+                        tsv: false,
+                        jsonl: true,
+                        output: output);
+                    return;
+                }
 
-        PackageOutputFormatter.WriteFileTree([.. visibleResults]);
-        WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
+                PackageOutputFormatter.WriteFileTree(
+                    [.. visibleResults],
+                    output);
+            });
+
+        WriteFileLayoutTips(
+            extractPath,
+            options,
+            packageName,
+            tipLevel,
+            isLayout: true);
         return 0;
     }
 
