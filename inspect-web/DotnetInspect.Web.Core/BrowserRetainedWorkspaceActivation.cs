@@ -2194,6 +2194,18 @@ internal static class BrowserCompleteRestorationOptions
             return options;
         }
 
+        WorkspacePackageSourceDefinition? credentialProviderSource =
+            definitions.FirstOrDefault(static source =>
+                source.Authentication
+                    == WorkspacePackageSourceAuthentication.CredentialProvider);
+        if (credentialProviderSource is not null)
+        {
+            return Deny(
+                options,
+                $"Workspace source '{credentialProviderSource.Id}' requires a "
+                    + "NuGet credential provider, which is unavailable in Browser/Wasm.");
+        }
+
         var required = definitions
             .Where(static source =>
                 source.Authentication

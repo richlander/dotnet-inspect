@@ -63,6 +63,33 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public void CredentialProviderSource_IsDeniedBeforeBrowserNetworkWork()
+    {
+        CompleteRestorationExecutionOptions options =
+            BrowserCompleteRestorationOptions.Create();
+        CompleteRestorationExecutionOptions denied =
+            BrowserCompleteRestorationOptions.BindPackageSources(
+                options,
+                [
+                    new(
+                        "ado",
+                        "https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
+                        WorkspacePackageSourceAuthentication.CredentialProvider),
+                ],
+                new Dictionary<string, string>(StringComparer.Ordinal));
+
+        PackageSourceAuthorization authorization =
+            denied.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
+                "Private.Package");
+
+        Assert.Empty(authorization.Sources);
+        Assert.Contains(
+            "unavailable in Browser/Wasm",
+            authorization.DenialReason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ActivationRequest_ToStringRedactsPackageSourcePats()
     {
         const string secret = "session-only-secret";

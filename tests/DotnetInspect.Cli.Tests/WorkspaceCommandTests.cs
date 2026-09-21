@@ -1369,7 +1369,7 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task CommandLineShare_DeclaresPatSourceWithoutCredential()
+    public async Task CommandLineShare_DeclaresTypedSourcesWithoutCredentials()
     {
         string[] args =
         [
@@ -1378,10 +1378,12 @@ public sealed partial class WorkspaceCommandTests
             "Private.Package@1.2.3",
             "--tfm",
             "net10.0",
-            "--source",
+            "--nuget-source-anonymous",
+            "https://api.nuget.org/v3/index.json",
+            "--nuget-source-pat-required",
             "github=https://nuget.pkg.github.com/example/index.json",
-            "--requires-pat",
-            "github=example",
+            "--nuget-source-credential-required",
+            "ado=https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
             "--share",
             "packet",
         ];
@@ -1396,14 +1398,31 @@ public sealed partial class WorkspaceCommandTests
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
             captured.Output.TrimEnd(),
             TestContext.Current.CancellationToken);
-        WorkspacePackageSourceDefinition source =
-            Assert.Single(packet.PackageSources);
         Assert.Equal(WorkspaceSharePacketCodec.Format5Version, packet.FormatVersion);
-        Assert.Equal("github", source.Id);
-        Assert.Equal(
-            WorkspacePackageSourceAuthentication.BasicPat,
-            source.Authentication);
-        Assert.Equal("example", source.Username);
+        Assert.Collection(
+            packet.PackageSources,
+            source =>
+            {
+                Assert.Equal("source1", source.Id);
+                Assert.Equal(
+                    WorkspacePackageSourceAuthentication.Anonymous,
+                    source.Authentication);
+            },
+            source =>
+            {
+                Assert.Equal("github", source.Id);
+                Assert.Equal(
+                    WorkspacePackageSourceAuthentication.BasicPat,
+                    source.Authentication);
+                Assert.Equal("github", source.Username);
+            },
+            source =>
+            {
+                Assert.Equal("ado", source.Id);
+                Assert.Equal(
+                    WorkspacePackageSourceAuthentication.CredentialProvider,
+                    source.Authentication);
+            });
     }
 
     [Fact]
@@ -1417,10 +1436,8 @@ public sealed partial class WorkspaceCommandTests
             "Private.Package@1.2.3",
             "--tfm",
             "net10.0",
-            "--source",
+            "--nuget-source-pat-required",
             "github=https://nuget.pkg.github.com/example/index.json",
-            "--requires-pat",
-            "github=example",
             "--pat",
             $"github={secret}",
         ];

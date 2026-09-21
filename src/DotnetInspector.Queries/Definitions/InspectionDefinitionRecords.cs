@@ -166,16 +166,7 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
             }
         }
 
-        var sourceIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (WorkspacePackageSourceDefinition source in frozenPackageSources)
-        {
-            if (!sourceIds.Add(source.Id))
-            {
-                throw new ArgumentException(
-                    $"Duplicate workspace package source id '{source.Id}'.",
-                    nameof(packageSources));
-            }
-        }
+        WorkspacePackageSourceDefinition.ValidateSet(frozenPackageSources);
 
         ImmutableArray<WorkspaceRegistration> registrationArray =
             [.. frozenRegistrations];
@@ -226,8 +217,9 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
 /// </summary>
 public enum WorkspacePackageSourceAuthentication
 {
-    None = 0,
+    Anonymous = 0,
     BasicPat = 1,
+    CredentialProvider = 2,
 }
 
 /// <summary>
@@ -239,7 +231,7 @@ public sealed record WorkspacePackageSourceDefinition
         string id,
         string endpoint,
         WorkspacePackageSourceAuthentication authentication =
-            WorkspacePackageSourceAuthentication.None,
+            WorkspacePackageSourceAuthentication.Anonymous,
         string? username = null)
     {
         if (!IsValidId(id))
@@ -262,8 +254,9 @@ public sealed record WorkspacePackageSourceDefinition
                 nameof(endpoint));
         }
         if (authentication is not (
-                WorkspacePackageSourceAuthentication.None
-                or WorkspacePackageSourceAuthentication.BasicPat))
+                WorkspacePackageSourceAuthentication.Anonymous
+                or WorkspacePackageSourceAuthentication.BasicPat
+                or WorkspacePackageSourceAuthentication.CredentialProvider))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(authentication),
@@ -294,6 +287,47 @@ public sealed record WorkspacePackageSourceDefinition
     public WorkspacePackageSourceAuthentication Authentication { get; }
 
     public string? Username { get; }
+
+    public static void ValidateSet(
+        IReadOnlyList<WorkspacePackageSourceDefinition> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var endpoints = new HashSet<string>(StringComparer.Ordinal);
+        var originModes = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (WorkspacePackageSourceDefinition source in sources)
+        {
+            if (!ids.Add(source.Id))
+            {
+                throw new ArgumentException(
+                    $"Workspace package source id '{source.Id}' is duplicated.",
+                    nameof(sources));
+            }
+            if (!endpoints.Add(source.Endpoint))
+            {
+                throw new ArgumentException(
+                    $"Workspace package source endpoint '{source.Endpoint}' is duplicated.",
+                    nameof(sources));
+            }
+
+            string origin = new Uri(source.Endpoint)
+                .GetLeftPart(UriPartial.Authority);
+            bool usesCredentialProvider =
+                source.Authentication
+                    == WorkspacePackageSourceAuthentication.CredentialProvider;
+            if (originModes.TryGetValue(
+                    origin,
+                    out bool existingUsesCredentialProvider)
+                && existingUsesCredentialProvider != usesCredentialProvider)
+            {
+                throw new ArgumentException(
+                    $"Workspace package source origin '{origin}' mixes "
+                        + "credential-provider and non-provider authentication.",
+                    nameof(sources));
+            }
+            originModes[origin] = usesCredentialProvider;
+        }
+    }
 
     private static bool IsValidId(string value)
     {

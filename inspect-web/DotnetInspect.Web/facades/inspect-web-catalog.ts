@@ -2,6 +2,8 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "Pat" | "CredentialProvider" | number;
+
 export type JsonValueKind = number;
 
 export interface BrowserAccessibilityDescriptor {
@@ -653,7 +655,7 @@ export interface BrowserVocabularySection {
 export interface BrowserWorkspacePackageSourceRequirement {
   readonly id: string;
   readonly endpoint: string;
-  readonly requiresPat: boolean;
+  readonly authentication: BrowserWorkspacePackageSourceAuthentication;
   readonly username: string | null;
 }
 

@@ -47,17 +47,36 @@ sees Basic. See
 
 ## The credential sources
 
-Ordinary package commands use two sources described below: a `nuget.config`
-entry and a credential provider. A portable schema-version-5 Workspace has a
-third, narrower route: an explicit ephemeral PAT binding for a source
-declaration in that Workspace.
+Ordinary package commands use two credential sources described below: a
+`nuget.config` entry and a credential provider. A portable schema-version-5
+Workspace instead registers each HTTPS source with one construction-time
+authentication policy: anonymous, ephemeral PAT, or host credential provider.
 
-### Portable Workspace PAT binding
+### Portable Workspace source authentication
 
-A Workspace packet can declare an HTTPS NuGet source, a stable source ID, and
-the Basic-auth username while marking the source as requiring a PAT. The PAT is
-not part of the definition or packet. On each realization the CLI caller binds
-the source ID to exactly one noninteractive provider:
+A Workspace packet carries only the stable source ID, HTTPS endpoint,
+authentication policy, and Basic username for a PAT source. It contains no
+credential. The CLI authoring options are typed constructors:
+
+```bash
+--nuget-source-anonymous [source-id=]HTTPS-URL
+--nuget-source-pat-required [source-id=]HTTPS-URL
+--nuget-source-credential-required [source-id=]HTTPS-URL
+```
+
+When omitted, the ID is generated as `source1`, `source2`, and so on in
+declaration order. For a PAT source, the ID is also the Basic username. A
+GitHub Packages source should therefore use its GitHub username as the ID:
+
+```bash
+--nuget-source-pat-required \
+  OWNER=https://nuget.pkg.github.com/OWNER/index.json
+```
+
+An anonymous source uses a credential-free client and cannot invoke the
+ambient plugin flow. A credential-required source uses the CLI's
+noninteractive NuGet credential provider. A PAT source binds its ID to exactly
+one noninteractive input on each realization:
 
 ```bash
 dotnet-inspect workspace --packet "$packet" --pat github=env:GITHUB_TOKEN
@@ -75,10 +94,12 @@ access. The credential may remain in process memory for that realization but
 is never written to a Workspace packet, generated file, log, diagnostic, or
 telemetry event.
 
-This route is separate from NuGet's
+The PAT route is separate from NuGet's
 `NuGetPackageSourceCredentials_<name>` convention, which remains unsupported.
 Inspect Web uses the same source-ID binding contract with page-session memory
-instead of CLI providers and never writes PATs to browser storage.
+instead of CLI providers and never writes PATs to browser storage. Browser/Wasm
+does not run NuGet credential-provider plugins, so it rejects a
+credential-required Workspace source before network work.
 
 ### `nuget.config`
 

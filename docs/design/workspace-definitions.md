@@ -57,9 +57,10 @@ retained production consumer is Inspect Web activation
 of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
 Schema-version-5 Workspace package-source declarations and packet format 5
-carry exact credential-free HTTPS NuGet source configuration. CLI and Browser
-hosts bind any required PAT only while realizing that definition; no credential
-is a definition or packet field.
+carry exact credential-free HTTPS NuGet source registrations. Construction
+selects one closed authentication policy: anonymous, ephemeral PAT, or host
+credential provider. CLI and Browser hosts lower only supported policies while
+realizing that definition; no credential is a definition or packet field.
 The definition-first role of the `workspace` command, portable
 Workspace-to-Workspace transformations, and noun-command packet consumption are
 specified by
@@ -203,10 +204,11 @@ Navigation effect authority remain separate owner-issued currencies.
 8. **Portable package-source declarations begin at definition schema version 5
    and packet format 5.** Versions 1 through 4 remain immutable source
    contracts. Each source carries a stable ID, an HTTPS service-index endpoint,
-   an authentication requirement, and, for Basic PAT authentication, a
-   username. Credentials are never part of the definition, packet, canonical
-   URL, projection, or diagnostic. A host binds required source IDs to
-   ephemeral credentials before acquisition and refuses missing, duplicate, or
+   one authentication policy, and, for Basic PAT authentication, a username.
+   Credentials are never part of the definition, packet, canonical URL,
+   projection, or diagnostic. A host binds required source IDs to ephemeral
+   credentials or an explicitly declared credential-provider flow before
+   acquisition and refuses unsupported policies, missing, duplicate, or
    unexpected bindings rather than widening to ambient source configuration.
 9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
@@ -1469,24 +1471,35 @@ focused document names the Release gates and remaining CLI/Browser adoption.
 Schema version 5 and packet format 5 add the Workspace-owned
 `packageSources` vector. Each entry contains only a stable source ID, an
 absolute HTTPS service-index endpoint without user information, query, or
-fragment, an authentication requirement, and the Basic-auth username when that
-requirement is `BasicPat`. Source IDs use a bounded ASCII identifier grammar
-and are unique under ordinal comparison.
+fragment, one authentication policy (`Anonymous`, `BasicPat`, or
+`CredentialProvider`), and the Basic-auth username only for `BasicPat`. Source
+IDs use a bounded ASCII identifier grammar and are unique under ordinal
+comparison.
 
-The PAT is host execution authority, not portable state. It is absent from
-definition JSON, packets, URLs, retained postings, and all output. Complete
-restoration carries the credential-free declarations to the host. Before any
-package acquisition, the host must bind every required source ID, reject
-missing or unexpected bindings, and install exactly the packet-declared source
-set. It must not fall back to ambient NuGet configuration when a version-5
-source set exists.
+Each record is safe by construction: no separate annotation can promote a
+generic source after creation. Exact endpoints are unique. Sources on one
+origin cannot mix credential-provider and non-provider policy, preventing an
+anonymous registration from acquiring authority through another declaration's
+provider.
 
-The CLI binds PATs noninteractively from an explicitly named environment
-variable, redirected standard input, or caller-owned file. Inspect Web accepts
-them only as page-session activation input. Those host mechanisms may retain a
-credential in process memory for the active operation or realization, but must
-not write it to a packet, browser storage, generated file, log, diagnostic, or
-telemetry event. Host-specific input and lifetime details remain owned by
+The PAT and provider result are host execution authority, not portable state.
+They are absent from definition JSON, packets, URLs, retained postings, and all
+output. Complete restoration carries the credential-free declarations to the
+host. Before any package acquisition, the host must lower every policy, bind
+every required PAT source ID, reject unsupported policies and missing or
+unexpected bindings, and install exactly the packet-declared source set. It
+must not fall back to ambient NuGet configuration when a version-5 source set
+exists.
+
+The CLI lowers anonymous sources through a credential-free client, PAT sources
+through noninteractive environment, redirected-standard-input, or caller-owned
+file bindings, and credential-provider sources through the host's
+noninteractive NuGet plugin flow. Inspect Web accepts PATs only as page-session
+activation input and rejects credential-provider sources before network work.
+Those host mechanisms may retain a credential in process memory for the active
+operation or realization, but must not write it to a packet, browser storage,
+generated file, log, diagnostic, or telemetry event. Host-specific input and
+lifetime details remain owned by
 [NuGet feed authentication](nuget-authentication.md) and
 [Browser package sources](browser-package-sources.md).
 

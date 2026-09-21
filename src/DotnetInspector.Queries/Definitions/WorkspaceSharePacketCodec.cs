@@ -835,11 +835,12 @@ public static class WorkspaceSharePacketCodec
         foreach (JsonElement tuple in element.EnumerateArray())
         {
             if (tuple.ValueKind != JsonValueKind.Array
-                || tuple.GetArrayLength() is not (2 or 4))
+                || tuple.GetArrayLength() is not (2 or 3 or 4))
             {
                 throw InvalidShape(
                     "Every Workspace package source must be [id, endpoint] "
-                        + "or [id, endpoint, \"p\", username].");
+                        + "[id, endpoint, \"c\"], or "
+                        + "[id, endpoint, \"p\", username].");
             }
 
             JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
@@ -850,9 +851,24 @@ public static class WorkspaceSharePacketCodec
                 Next(ref values),
                 $"package source {index} endpoint");
             WorkspacePackageSourceAuthentication authentication =
-                WorkspacePackageSourceAuthentication.None;
+                WorkspacePackageSourceAuthentication.Anonymous;
             string? username = null;
-            if (tuple.GetArrayLength() == 4)
+            if (tuple.GetArrayLength() == 3)
+            {
+                if (!string.Equals(
+                        RequiredString(
+                            Next(ref values),
+                            $"package source {index} authentication"),
+                        "c",
+                        StringComparison.Ordinal))
+                {
+                    throw InvalidShape(
+                        $"Workspace package source {index} has an unknown authentication kind.");
+                }
+                authentication =
+                    WorkspacePackageSourceAuthentication.CredentialProvider;
+            }
+            else if (tuple.GetArrayLength() == 4)
             {
                 if (!string.Equals(
                         RequiredString(
@@ -892,6 +908,17 @@ public static class WorkspaceSharePacketCodec
                     ex);
             }
             index++;
+        }
+
+        try
+        {
+            WorkspacePackageSourceDefinition.ValidateSet(sources);
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace package source set is invalid.",
+                ex);
         }
 
         return sources;
@@ -2136,7 +2163,12 @@ public static class WorkspaceSharePacketCodec
                         "A Basic PAT package source requires a username."));
         }
         else if (source.Authentication
-            != WorkspacePackageSourceAuthentication.None)
+            == WorkspacePackageSourceAuthentication.CredentialProvider)
+        {
+            writer.WriteAscii(",\"c\""u8);
+        }
+        else if (source.Authentication
+            != WorkspacePackageSourceAuthentication.Anonymous)
         {
             throw InvalidShape(
                 "Workspace package source authentication is unsupported.");

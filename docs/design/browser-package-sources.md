@@ -1148,12 +1148,14 @@ fields, URL user information, queries, and fragments. Descriptor names, IDs,
 and paths are treated as public. Runtime credentials are never part of this
 registry.
 
-### Workspace-declared sources and page-session PATs
+### Workspace-declared source policies and page-session PATs
 
 A schema-version-5 Workspace may carry an exact credential-free source set
 independently of the browser-local registry. Each declaration contains its
 stable Workspace source ID, HTTPS service-index endpoint, authentication
-requirement, and Basic-auth username. It never contains the PAT.
+policy, and Basic-auth username only for a PAT source. Construction selects
+anonymous, PAT, or credential-provider policy directly; a later annotation
+cannot promote a generic source.
 
 Before activating such a Workspace, Inspect Web describes the required source
 IDs so the page can collect each PAT in a password input. The page passes an
@@ -1163,6 +1165,11 @@ session storage, IndexedDB, cache storage, diagnostics, logs, or telemetry.
 Refreshing or reopening the URL therefore requires the PAT again. The active
 managed realization may retain the bound credential in process memory until it
 is replaced or disposed.
+
+Browser/Wasm supports anonymous and page-session PAT declarations. It rejects
+a credential-provider declaration before network work because a page cannot
+launch a NuGet credential-provider plugin. The browser does not reinterpret
+that policy as anonymous or PAT authentication.
 
 Activation validates the complete binding set before package acquisition.
 Missing and unexpected bindings deny all source authorization rather than

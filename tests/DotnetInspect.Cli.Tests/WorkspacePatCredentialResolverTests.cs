@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -320,10 +321,53 @@ public sealed class WorkspacePatCredentialResolverTests
         Assert.False(opened);
     }
 
+    [Fact]
+    public async Task CredentialProviderScope_DoesNotUpgradeAnonymousOrigin()
+    {
+        var inner = new RecordingCredentialSource();
+        var scoped = new WorkspaceCredentialSource(
+            inner,
+            [new Uri("https://private.example/v3/index.json")]);
+
+        Assert.Null(await scoped.GetCredentialsAsync(
+            new Uri("https://public.example/v3/index.json"),
+            isRetry: false,
+            TestContext.Current.CancellationToken));
+        Assert.Empty(inner.Requests);
+
+        PackageSourceCredential? credential =
+            await scoped.GetCredentialsAsync(
+                new Uri("https://private.example/flat/package/index.json"),
+                isRetry: false,
+                TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+        Assert.Equal(
+            ["https://private.example/flat/package/index.json"],
+            inner.Requests);
+    }
+
     private static WorkspacePackageSourceDefinition PatSource() =>
         new(
             "github",
             "https://nuget.pkg.github.com/example/index.json",
             WorkspacePackageSourceAuthentication.BasicPat,
             "example");
+
+    private sealed class RecordingCredentialSource : ICredentialSource
+    {
+        internal List<string> Requests { get; } = [];
+
+        public bool HasCredentialSources => true;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(uri.AbsoluteUri);
+            return Task.FromResult<PackageSourceCredential?>(
+                new("provider", "secret"));
+        }
+    }
 }

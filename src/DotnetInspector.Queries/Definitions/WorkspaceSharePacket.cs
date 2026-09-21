@@ -234,6 +234,7 @@ public sealed class WorkspaceSharePacket
                 "A format-5 Workspace packet requires at least one package source.",
                 nameof(packageSources));
         }
+        WorkspacePackageSourceDefinition.ValidateSet(packageSources);
 
         FormatVersion = formatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(

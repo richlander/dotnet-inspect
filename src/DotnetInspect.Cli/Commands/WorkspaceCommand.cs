@@ -34,7 +34,8 @@ public static partial class WorkspaceCommand
         if (options.Packet is not null && options.PackageSources.Length != 0)
         {
             CommandError.Write(
-                "A Workspace packet already owns its package source declarations and cannot be combined with named --source values.");
+                "A Workspace packet already owns its package source declarations "
+                    + "and cannot be combined with portable NuGet source registrations.");
             return 1;
         }
 
@@ -44,6 +45,7 @@ public static partial class WorkspaceCommand
             || options.ReplacePackage is not null;
         IReadOnlyList<WorkspacePackageSourceDefinition> packageSources =
             options.PackageSources;
+        WorkspacePackageSourceRuntime? sourceRuntime = null;
         if (options.Packet is not null
             && (realizesWorkspace || options.PatBindings.Length != 0))
         {
@@ -84,20 +86,22 @@ public static partial class WorkspaceCommand
                             + "with --source, --add-source, or --nugetconfig.");
                 }
 
-                PackageSource[] resolvedSources =
-                    await WorkspacePatCredentialResolver.ResolveAsync(
+                sourceRuntime =
+                    await WorkspacePatCredentialResolver.BindAsync(
                         packageSources,
                         options.PatBindings,
                         cancellationToken).ConfigureAwait(false);
                 loadOptions = loadOptions with
                 {
+                    HttpClient = sourceRuntime.HttpClient,
                     SourceAuthorization =
-                        new UniformPackageSourceAuthorization(resolvedSources),
+                        new UniformPackageSourceAuthorization(
+                            sourceRuntime.Sources),
                 };
                 runtimeSourceOptions =
                     NuGetSourceResolver.RestrictToResolvedSources(
                         options.SourceOptions,
-                        resolvedSources);
+                        sourceRuntime.Sources);
             }
             else
             {
@@ -114,6 +118,8 @@ public static partial class WorkspaceCommand
             return 1;
         }
 
+        await using WorkspacePackageSourceRuntime? ownedSourceRuntime =
+            sourceRuntime;
         if (options.MakePackageDependenciesExplicit)
         {
             await using var composition =

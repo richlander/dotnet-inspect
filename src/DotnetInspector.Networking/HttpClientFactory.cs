@@ -205,6 +205,26 @@ public static class HttpClientFactory
         CreateClient(includeAuthentication: false);
 
     /// <summary>
+    /// Creates a standard client with one caller-owned authentication policy.
+    /// </summary>
+    /// <remarks>
+    /// The supplied decorator replaces, rather than composes with, the ambient
+    /// authentication decorator. The caller owns the returned client.
+    /// </remarks>
+    public static HttpClient CreateClientWithAuthentication(
+        Func<HttpMessageHandler, HttpMessageHandler> authenticationDecorator)
+    {
+        ArgumentNullException.ThrowIfNull(authenticationDecorator);
+        HttpClientFactoryOptions options = _options;
+        HttpMessageHandler handler = authenticationDecorator(
+            CreateClientHandler(options, includeAuthentication: false));
+        var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+        client.Timeout = options.DefaultTimeout;
+        return client;
+    }
+
+    /// <summary>
     /// Creates the owned handler chain for a standard credential-free client.
     /// Offline and telemetry policy are retained.
     /// </summary>

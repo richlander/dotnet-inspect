@@ -3,6 +3,7 @@ using System.Text;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -102,6 +103,54 @@ internal static class WorkspacePatCredentialResolver
         ];
     }
 
+    internal static async Task<WorkspacePackageSourceRuntime> BindAsync(
+        IReadOnlyList<WorkspacePackageSourceDefinition> sourceDefinitions,
+        IReadOnlyList<WorkspacePatBindingInput> bindings,
+        CancellationToken cancellationToken)
+    {
+        PackageSource[] sources = await ResolveAsync(
+            sourceDefinitions,
+            bindings,
+            cancellationToken).ConfigureAwait(false);
+        if (!sourceDefinitions.Any(static source =>
+                source.Authentication
+                    == WorkspacePackageSourceAuthentication.CredentialProvider))
+        {
+            return new WorkspacePackageSourceRuntime(
+                sources,
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateCredentialFreeClient(),
+                credentialProvider: null);
+        }
+
+        var provider = new PluginCredentialProvider();
+        try
+        {
+            var scopedProvider = new WorkspaceCredentialSource(
+                provider,
+                sourceDefinitions
+                    .Where(static source =>
+                        source.Authentication
+                            == WorkspacePackageSourceAuthentication.CredentialProvider)
+                    .Select(static source => new Uri(source.Endpoint)));
+            HttpClient client =
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateClientWithAuthentication(
+                    inner => new PluginAuthenticationHandler(
+                        scopedProvider,
+                        inner));
+            return new WorkspacePackageSourceRuntime(
+                sources,
+                client,
+                provider);
+        }
+        catch
+        {
+            await provider.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
     internal static void ValidateBindings(
         IReadOnlyList<WorkspacePackageSourceDefinition> sourceDefinitions,
         IReadOnlyList<WorkspacePatBindingInput> bindings)
@@ -132,6 +181,7 @@ internal static class WorkspacePatCredentialResolver
                         + "PAT source in this Workspace.");
             }
         }
+
     }
 
     private static async Task<string> ReadSecretAsync(

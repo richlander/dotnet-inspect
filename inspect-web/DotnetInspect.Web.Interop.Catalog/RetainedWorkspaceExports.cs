@@ -652,7 +652,20 @@ internal static class BrowserRetainedWorkspaceActivationService
                             source.Id,
                             source.Endpoint,
                             source.Authentication
-                                == WorkspacePackageSourceAuthentication.BasicPat,
+                                switch
+                                {
+                                    WorkspacePackageSourceAuthentication.Anonymous =>
+                                        BrowserWorkspacePackageSourceAuthentication
+                                            .Anonymous,
+                                    WorkspacePackageSourceAuthentication.BasicPat =>
+                                        BrowserWorkspacePackageSourceAuthentication
+                                            .Pat,
+                                    WorkspacePackageSourceAuthentication.CredentialProvider =>
+                                        BrowserWorkspacePackageSourceAuthentication
+                                            .CredentialProvider,
+                                    _ => throw new InvalidOperationException(
+                                        "Unsupported Workspace package-source authentication."),
+                                },
                             source.Username)),
                 ],
                 null);

@@ -136,12 +136,27 @@ public static class WorkspaceCommandDefinitions
                     + "dependencies to the portable Workspace definition; "
                     + "requires --share",
             };
-        var requiresPatOption = new Option<string[]>("--requires-pat")
+        var anonymousNuGetSourceOption =
+            new Option<string[]>("--nuget-source-anonymous")
         {
             Description =
-                "Declare that a named --source requires a PAT: source-id=username",
+                "Register a portable anonymous NuGet source: [source-id=]HTTPS-URL",
             AllowMultipleArgumentsPerToken = false,
         };
+        var patRequiredNuGetSourceOption =
+            new Option<string[]>("--nuget-source-pat-required")
+            {
+                Description =
+                    "Register a portable NuGet source that requires an ephemeral PAT: [source-id=]HTTPS-URL",
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var credentialRequiredNuGetSourceOption =
+            new Option<string[]>("--nuget-source-credential-required")
+            {
+                Description =
+                    "Register a portable NuGet source that requires the host credential-provider flow: [source-id=]HTTPS-URL",
+                AllowMultipleArgumentsPerToken = false,
+            };
         var patOption = new Option<string[]>("--pat")
         {
             Description =
@@ -169,7 +184,9 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(lensOption);
         command.Options.Add(shareOption);
         command.Options.Add(makePackageDependenciesExplicitOption);
-        command.Options.Add(requiresPatOption);
+        command.Options.Add(anonymousNuGetSourceOption);
+        command.Options.Add(patRequiredNuGetSourceOption);
+        command.Options.Add(credentialRequiredNuGetSourceOption);
         command.Options.Add(patOption);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
@@ -231,7 +248,9 @@ public static class WorkspaceCommandDefinitions
             if (!TryParsePackageSources(
                     parseResult,
                     opts,
-                    requiresPatOption,
+                    anonymousNuGetSourceOption,
+                    patRequiredNuGetSourceOption,
+                    credentialRequiredNuGetSourceOption,
                     patOption,
                     out WorkspacePackageSourceDefinition[] packageSources,
                     out WorkspacePatBindingInput[] patBindings,
@@ -415,108 +434,76 @@ public static class WorkspaceCommandDefinitions
     static bool TryParsePackageSources(
         ParseResult parseResult,
         SharedOptions options,
-        Option<string[]> requiresPatOption,
+        Option<string[]> anonymousNuGetSourceOption,
+        Option<string[]> patRequiredNuGetSourceOption,
+        Option<string[]> credentialRequiredNuGetSourceOption,
         Option<string[]> patOption,
         out WorkspacePackageSourceDefinition[] packageSources,
         out WorkspacePatBindingInput[] patBindings,
         out NuGetSourceOptions sourceOptions)
     {
-        string[] sourceValues = parseResult.GetValue(options.Source) ?? [];
         NuGetSourceOptions parsedSourceOptions =
             options.ParseNuGetSourceOptions(parseResult);
-        var namedSources = new List<(string Id, string Endpoint)>();
-        var ambientSources = new List<string>();
-        foreach (string value in sourceValues)
-        {
-            if (LooksLikeNamedSource(value))
-            {
-                SplitAssignment(
-                    value,
-                    "--source",
-                    out string id,
-                    out string endpoint);
-                namedSources.Add((id, endpoint));
-            }
-            else
-            {
-                ambientSources.Add(value);
-            }
-        }
-
-        sourceOptions = parsedSourceOptions with
-        {
-            Sources = [.. ambientSources],
-        };
+        sourceOptions = parsedSourceOptions;
         packageSources = [];
         patBindings = [];
 
         try
         {
-            if (namedSources.Count > 0
-                && (ambientSources.Count > 0
+            (WorkspacePackageSourceAuthentication Authentication, string Value)[]
+                declarations = ParseOrderedPackageSourceDeclarations(
+                    parseResult,
+                    anonymousNuGetSourceOption,
+                    patRequiredNuGetSourceOption,
+                    credentialRequiredNuGetSourceOption);
+            if (declarations.Length > 0
+                && (parsedSourceOptions.Sources.Length > 0
                     || parsedSourceOptions.AdditionalSources.Length > 0
                     || parsedSourceOptions.ConfigFile is not null))
             {
                 throw new ArgumentException(
-                    "Named Workspace --source values cannot be combined with "
-                        + "unnamed --source, --add-source, or --nugetconfig.");
+                    "Portable Workspace NuGet source registrations cannot be "
+                        + "combined with --source, --add-source, or --nugetconfig.");
             }
-            if (namedSources.Count > WorkspaceSharePacketCodec.MaxPackageSources)
+            if (declarations.Length > WorkspaceSharePacketCodec.MaxPackageSources)
             {
                 throw new ArgumentException(
                     $"A portable Workspace permits at most "
                         + $"{WorkspaceSharePacketCodec.MaxPackageSources} package sources.");
             }
 
-            var requirements = new Dictionary<string, string>(
-                StringComparer.Ordinal);
-            foreach (string value
-                in parseResult.GetValue(requiresPatOption) ?? [])
+            var sources =
+                new List<WorkspacePackageSourceDefinition>(declarations.Length);
+            for (int index = 0; index < declarations.Length; index++)
             {
-                SplitAssignment(
-                    value,
-                    "--requires-pat",
-                    out string id,
-                    out string username);
-                if (!requirements.TryAdd(id, username))
+                (WorkspacePackageSourceAuthentication authentication, string value) =
+                    declarations[index];
+                string id;
+                string endpoint;
+                if (LooksLikeNamedSource(value))
                 {
-                    throw new ArgumentException(
-                        $"--requires-pat declares source '{id}' more than once.");
+                    SplitAssignment(
+                        value,
+                        "Workspace NuGet source registration",
+                        out id,
+                        out endpoint);
                 }
-            }
-
-            var seenSources = new HashSet<string>(StringComparer.Ordinal);
-            packageSources =
-            [
-                .. namedSources.Select(source =>
+                else
                 {
-                    if (!seenSources.Add(source.Id))
-                    {
-                        throw new ArgumentException(
-                            $"Named Workspace source '{source.Id}' is declared more than once.");
-                    }
+                    id = $"source{index + 1}";
+                    endpoint = value;
+                }
 
-                    return requirements.TryGetValue(
-                        source.Id,
-                        out string? username)
-                            ? new WorkspacePackageSourceDefinition(
-                                source.Id,
-                                source.Endpoint,
-                                WorkspacePackageSourceAuthentication.BasicPat,
-                                username)
-                            : new WorkspacePackageSourceDefinition(
-                                source.Id,
-                                source.Endpoint);
-                }),
-            ];
-            string? missingSource = requirements.Keys.FirstOrDefault(
-                id => !seenSources.Contains(id));
-            if (missingSource is not null)
-            {
-                throw new ArgumentException(
-                    $"--requires-pat names source '{missingSource}', but no "
-                        + "matching named --source was declared.");
+                sources.Add(new WorkspacePackageSourceDefinition(
+                    id,
+                    endpoint,
+                    authentication,
+                    authentication == WorkspacePackageSourceAuthentication.BasicPat
+                        ? id
+                        : null));
             }
+            WorkspacePackageSourceDefinition.ValidateSet(sources);
+            packageSources = [.. sources];
 
             var bindings = new List<WorkspacePatBindingInput>();
             var boundSources = new HashSet<string>(StringComparer.Ordinal);
@@ -554,6 +541,47 @@ public static class WorkspaceCommandDefinitions
                 [ex.Message]);
             return false;
         }
+    }
+
+    static (
+        WorkspacePackageSourceAuthentication Authentication,
+        string Value)[] ParseOrderedPackageSourceDeclarations(
+            ParseResult parseResult,
+            Option<string[]> anonymousNuGetSourceOption,
+            Option<string[]> patRequiredNuGetSourceOption,
+            Option<string[]> credentialRequiredNuGetSourceOption)
+    {
+        var modes =
+            new Dictionary<string, WorkspacePackageSourceAuthentication>(
+                StringComparer.Ordinal)
+            {
+                [anonymousNuGetSourceOption.Name] =
+                    WorkspacePackageSourceAuthentication.Anonymous,
+                [patRequiredNuGetSourceOption.Name] =
+                    WorkspacePackageSourceAuthentication.BasicPat,
+                [credentialRequiredNuGetSourceOption.Name] =
+                    WorkspacePackageSourceAuthentication.CredentialProvider,
+            };
+        var declarations = new List<(
+            WorkspacePackageSourceAuthentication Authentication,
+            string Value)>();
+        for (int index = 0; index < parseResult.Tokens.Count; index++)
+        {
+            Token token = parseResult.Tokens[index];
+            if (token.Type != TokenType.Option
+                || !modes.TryGetValue(
+                    token.Value,
+                    out WorkspacePackageSourceAuthentication mode)
+                || index + 1 >= parseResult.Tokens.Count
+                || parseResult.Tokens[index + 1].Type == TokenType.Option)
+            {
+                continue;
+            }
+
+            declarations.Add((mode, parseResult.Tokens[++index].Value));
+        }
+
+        return [.. declarations];
     }
 
     static WorkspacePatBindingInput ParsePatBinding(

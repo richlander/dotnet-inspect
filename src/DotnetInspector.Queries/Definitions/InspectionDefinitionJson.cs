@@ -2204,8 +2204,10 @@ public static class InspectionDefinitionJson
             Endpoint = source.Endpoint,
             Authentication = source.Authentication switch
             {
-                WorkspacePackageSourceAuthentication.None => "none",
+                WorkspacePackageSourceAuthentication.Anonymous => "anonymous",
                 WorkspacePackageSourceAuthentication.BasicPat => "basicPat",
+                WorkspacePackageSourceAuthentication.CredentialProvider =>
+                    "credentialProvider",
                 _ => throw new InspectionDefinitionException(
                     $"Unsupported Workspace package source authentication "
                         + $"{source.Authentication}."),
@@ -2413,9 +2415,12 @@ public static class InspectionDefinitionJson
             WorkspacePackageSourceAuthentication authentication =
                 source.Authentication switch
                 {
-                    "none" => WorkspacePackageSourceAuthentication.None,
+                    "anonymous" =>
+                        WorkspacePackageSourceAuthentication.Anonymous,
                     "basicPat" =>
                         WorkspacePackageSourceAuthentication.BasicPat,
+                    "credentialProvider" =>
+                        WorkspacePackageSourceAuthentication.CredentialProvider,
                     _ => throw new InspectionDefinitionException(
                         $"Unknown Workspace package source authentication "
                             + $"'{source.Authentication}'."),
