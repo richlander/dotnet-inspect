@@ -152,6 +152,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task DiffHistory_CompactRejectsScalarCountBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--history",
+            "--package",
+            "Definitely.Does.Not.Exist@1.0.0..2.0.0",
+            "--type",
+            "Example.Widget",
+            "--count",
+            "--json",
+            "--compact");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--compact is supported only for complete Diff History JSON or envelope output",
+            error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
+    [Fact]
     public async Task DiffHistory_RejectsNonReplayableSourceBeforeAcquisition()
     {
         const string Secret = "do-not-print";

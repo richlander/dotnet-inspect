@@ -315,11 +315,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "--count",
                 "--rows", "1..1",
                 "--envelope",
+                "--compact",
                 "--tips", "q",
             ]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
+        Assert.DoesNotContain('\n', result.Output.TrimEnd());
         using var envelope = JsonDocument.Parse(result.Output);
         JsonElement content = envelope.RootElement.GetProperty("content");
         Assert.Equal("available", content.GetProperty("outcome").GetString());

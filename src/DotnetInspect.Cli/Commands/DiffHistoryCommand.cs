@@ -252,8 +252,11 @@ internal static class DiffHistoryCommand
             return false;
         }
         if (options.CompactJson
-            && (options.Count
-                || HasHistoryPresentationProjection(options)))
+            && (options.Count && !options.EnvelopeOutput
+                || HasHistoryPresentationProjection(
+                    options,
+                    admitSemanticRowSelection:
+                        options.Count && options.EnvelopeOutput)))
         {
             error =
                 "--compact is supported only for complete Diff History JSON or envelope output.";
@@ -633,12 +636,15 @@ internal static class DiffHistoryCommand
         return true;
     }
 
-    static bool HasHistoryPresentationProjection(DiffOptions options) =>
+    static bool HasHistoryPresentationProjection(
+        DiffOptions options,
+        bool admitSemanticRowSelection = false) =>
         options.Select is not null
         || options.SelectDefault
         || options.Columns is not null
         || options.Fields is not null
-        || options.SemanticRowSelection is { Operations.Count: > 0 }
+        || !admitSemanticRowSelection
+            && options.SemanticRowSelection is { Operations.Count: > 0 }
         || options.Tabular
         || options.Tsv
         || options.Jsonl
