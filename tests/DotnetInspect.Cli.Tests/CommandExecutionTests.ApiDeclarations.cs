@@ -3,7 +3,7 @@ using DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
 
-// PR-fast: bounded declaration selection and rendering for individual types.
+// Inherits Speed=Slow; covered by focused pre-merge and daily Deep Inspect gates.
 public partial class CommandExecutionTests
 {
     [Theory]
@@ -24,6 +24,46 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains(firstConstant, output);
         Assert.Contains(secondConstant, output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_ApiDeclarations_InterfaceConstantsRemainAvailable(
+        bool includeAll)
+    {
+        string[] scope = includeAll ? ["--all"] : [];
+        var (exit, output, error) = await RunAppAsync([
+            "type", "DotnetInspector.Fixtures.IApiDeclarationConstantsFixture",
+            "--library", typeof(IApiDeclarationConstantsFixture).Assembly.Location,
+            "-S", "API Declarations",
+            "--tips", "q",
+            .. scope]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("const int Answer = 42;", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_ApiDeclarations_PreserveFloatingPointNegativeZero(
+        bool includeAll)
+    {
+        string[] scope = includeAll ? ["--all"] : [];
+        var (exit, output, error) = await RunAppAsync([
+            "type", "DotnetInspector.Fixtures.ApiDeclarationConstantsFixture",
+            "--library", typeof(ApiDeclarationConstantsFixture).Assembly.Location,
+            "-S", "API Declarations",
+            "--tips", "q",
+            .. scope]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("const double NegativeZero = -0D;", output);
+        Assert.Contains("const float FloatNegativeZero = -0F;", output);
     }
 
     [Theory]

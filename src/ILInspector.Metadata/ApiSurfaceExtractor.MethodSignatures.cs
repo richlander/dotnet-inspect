@@ -664,6 +664,8 @@ public static partial class ApiSurfaceExtractor
 
     private static string FormatSingleConstantLiteral(float value)
     {
+        if (BitConverter.SingleToInt32Bits(value) == int.MinValue)
+            return "-0F";
         if (float.IsNaN(value))
             return "float.NaN";
         if (float.IsPositiveInfinity(value))
@@ -675,6 +677,8 @@ public static partial class ApiSurfaceExtractor
 
     private static string FormatDoubleConstantLiteral(double value)
     {
+        if (BitConverter.DoubleToInt64Bits(value) == long.MinValue)
+            return "-0D";
         if (double.IsNaN(value))
             return "double.NaN";
         if (double.IsPositiveInfinity(value))

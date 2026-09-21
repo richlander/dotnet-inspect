@@ -151,6 +151,65 @@ public sealed class TypeApiDeclarationInspectionTests
     [Theory]
     [InlineData(TypeApiDeclarationScope.ApiVisible)]
     [InlineData(TypeApiDeclarationScope.All)]
+    public async Task InterfaceConstants_RetainInitializerAlongsideBodylessMethod(
+        TypeApiDeclarationScope scope)
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(IApiDeclarationConstantsFixture)
+                    .Assembly.Location,
+                Name(
+                    "DotnetInspector.Fixtures",
+                    nameof(IApiDeclarationConstantsFixture)),
+                scope);
+
+        Assert.Equal(
+            TypeApiDeclarationOutcome.Available,
+            envelope.Content.Outcome);
+        string text = Assert.IsType<string>(envelope.Content.Text);
+        Assert.Contains("public const int Answer = 42;", text);
+        Assert.Contains("void Observe();", text);
+    }
+
+    [Theory]
+    [InlineData(TypeApiDeclarationScope.ApiVisible)]
+    [InlineData(TypeApiDeclarationScope.All)]
+    public async Task FloatingPointNegativeZero_RetainsExactLiteralSemantics(
+        TypeApiDeclarationScope scope)
+    {
+        Assert.Equal(
+            long.MinValue,
+            BitConverter.DoubleToInt64Bits(
+                ApiDeclarationConstantsFixture.NegativeZero));
+        Assert.Equal(
+            int.MinValue,
+            BitConverter.SingleToInt32Bits(
+                ApiDeclarationConstantsFixture.FloatNegativeZero));
+
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(ApiDeclarationConstantsFixture)
+                    .Assembly.Location,
+                Name(
+                    "DotnetInspector.Fixtures",
+                    nameof(ApiDeclarationConstantsFixture)),
+                scope);
+
+        Assert.Equal(
+            TypeApiDeclarationOutcome.Available,
+            envelope.Content.Outcome);
+        string text = Assert.IsType<string>(envelope.Content.Text);
+        Assert.Contains(
+            "public const double NegativeZero = -0D;",
+            text);
+        Assert.Contains(
+            "public const float FloatNegativeZero = -0F;",
+            text);
+    }
+
+    [Theory]
+    [InlineData(TypeApiDeclarationScope.ApiVisible)]
+    [InlineData(TypeApiDeclarationScope.All)]
     public async Task ExtensionReceiver_DoesNotPublishDiscoveryProjection(
         TypeApiDeclarationScope scope)
     {

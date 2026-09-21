@@ -126,14 +126,18 @@ The motivating real asset is `System.Text.Json@10.0.5`, `net10.0`,
 whereas its private/static implementation declarations appear only in all
 scope. Neither output contains their implementation bodies.
 
-The PR-fast Release gates are `TypeApiDeclarationInspectionTests`,
+The Release gates are `TypeApiDeclarationInspectionTests`,
 `TypeApiDeclarationSectionTests`, the `CommandExecutionTests.Type_ApiDeclarations_*`
 cases, and the declaration participant case in `SourceForwarderResolutionTests`.
+The shared and section tests are PR-fast. The command cases inherit
+`CommandExecutionTests`' slow classification and run in the focused pre-merge
+gate and daily Deep Inspect rather than the PR-fast selection.
 They cover native/Markdown/structured and mixed output, mixed-accessibility
 property accessors, protected internal versus private protected, nested generic
 context and subtree scope, enums and delegates, exact non-public roots, cyclic
 type identity, and bounded extraction. Constant fields and nonsequential enum
-values retain their metadata values. Receiver projections and private explicit
+values retain their metadata values, including interface constants and
+floating-point signed zero. Receiver projections and private explicit
 implementations exercise the declaration-membership boundary. Rejected nested
 declarations and incomplete identity projections remain unavailable, not
 apparently complete output or a conclusive missing type.
