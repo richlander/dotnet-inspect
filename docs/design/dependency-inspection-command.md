@@ -1276,10 +1276,13 @@ family-incomplete inventory is a visible typed inventory failure.
 No matching package group, unavailable restored target selection, and an empty
 selected group remain distinct states.
 
-When `--tfm` is omitted, package-manifest traversal uses the package
-dependency-group owner's per-manifest default selection. Each package retains
-its selected framework, and the resulting graph does not claim one shared
-target framework.
+When `--tfm` is omitted, a package root may retain the dependency-group owner's
+package-local no-request selection, while recursive package-manifest traversal
+uses `TraversalTargetFrameworkPolicy.ProductDefault(net12.0)`. Supplying
+`--tfm` configures the traversal policy as well as the command's existing root
+selection gesture. Candidate-acquired manifests use compatible selection
+against that one traversal target; a selected lower framework never replaces
+the target on a later edge.
 
 This design does not add `--rid`. A restored target selected by existing
 owner policy retains and discloses its RID. A future explicit RID gesture would

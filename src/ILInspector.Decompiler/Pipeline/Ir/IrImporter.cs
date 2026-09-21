@@ -1489,11 +1489,16 @@ public static class IrImporter
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
 
-                    if (source.CrossAssembly.ExtensionArgumentsInferRecordedTypeArguments(
+                    if (source.CrossAssembly.TryProveExtensionTypeArgumentInference(
                         callee,
-                        arguments))
+                        arguments,
+                        out var lambdaOutputs))
                     {
-                        callee = callee with { CanOmitTypeArguments = true };
+                        callee = callee with
+                        {
+                            CanOmitTypeArguments = true,
+                            TypeArgumentElisionLambdaOutputs = lambdaOutputs,
+                        };
                     }
 
                     var call = new Call(

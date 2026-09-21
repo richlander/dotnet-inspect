@@ -61,6 +61,12 @@ substrates, and inspection producers that will extend that space.
   bounds, source batching, consumer paging, and rendering distinct while
   exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
   consumers, and other hosts.
+  [QuerySpace Library Boundary](design/query-space-library.md) separately owns
+  the target independent `QuerySpace` assembly, package, public namespace,
+  dependency and lifetime boundaries, and optional execution-witness seams.
+  It composes the existing query owners physically without taking their
+  semantics; `DotnetInspector.QueryEngine` remains the transitional carrier
+  until the focused migration under #7976 retires it.
   [Resource Explanation](design/resource-explanation.md) owns exact,
   shell-safe product-resource paths and a bounded host-neutral explanation
   Document over owner-issued structural, query, and value-vocabulary
@@ -132,9 +138,12 @@ substrates, and inspection producers that will extend that space.
   reachability.   The
   [realized package dependency context](design/realized-package-dependency-context.md)
   query binds one physical Package Root selection to dependency evidence
-  projected from that exact retained content and selection intent, producing
-  detached source evidence for realized-package traversal without moving asset,
-  group, or traversal policy. The
+  projected from that exact retained content and selection intent. Package
+  Dependency Traversal retains that complete context as a typed root source
+  without moving its package-local asset or group selection, retains one
+  traversal target for compatible candidate-manifest selection, and leaves
+  Platform-pruned route composition to the Workspace operation that selected
+  the relevant ecosystem. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
@@ -437,9 +446,13 @@ substrates, and inspection producers that will extend that space.
   [Ecosystem Population Loading](design/ecosystem-population-loading.md) owner
   defines one explicit host-neutral operation over a statically selected
   Ecosystem loader binding. It preserves exact Workspace, registration,
-  capability, source-result, and admission correspondence while keeping loader
-  execution out of catalog discovery, registration, construction, and
-  restoration. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
+  capability, source-result, and per-child Workspace admission correspondence
+  while keeping loader execution out of catalog discovery, registration,
+  construction, and restoration. Its admission composer atomically transfers
+  each session-backed child through ordinary Workspace admission, reports
+  unsupported owner shapes, and issues historical contribution witnesses only
+  for accepted Focus Libraries. Navigation remains responsible for current
+  route validity. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
   consumers; each composes its exact PlatformHouse family without exposing a
   user-facing Platform component or merging focus and binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
@@ -543,6 +556,9 @@ substrates, and inspection producers that will extend that space.
   [Research Finding census projection](design/research-finding-census-projection.md)
   owns preservation of one producer-sealed body-fact receipt and its instance
   keys across those projections.
+  The proposed [Library Structural Report](design/library-structural-report.md)
+  separately owns one exact library's qualified compiled-IL structural
+  population document without assigning a score or source-level meaning.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
@@ -871,8 +887,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   Platform/ASP.NET Core/Microsoft.Extensions Workspace.
 - [Ecosystem Population Loading](design/ecosystem-population-loading.md):
   explicit execution of one statically selected special loader for one exact
-  Workspace Ecosystem registration, with typed outcomes and owner-preserving
-  handoff to ordinary Workspace admission.
+  Workspace Ecosystem registration, with typed outcomes, per-child
+  owner-preserving handoff to ordinary Workspace admission, exact accepted
+  Library correspondence, and Focus-only historical contribution witnesses.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,

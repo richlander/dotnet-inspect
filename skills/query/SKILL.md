@@ -235,6 +235,9 @@ dnx dotnet-inspect -y -- package query Newtonsoft.Json \
 dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+  --where "depends starts-with Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 dnx dotnet-inspect -y -- package query 'Azure.*' \
   --where "dependencies=cross-prefix"
 dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
@@ -294,6 +297,10 @@ by default; use `dependency-target=<TFM>` to select one compatible group, or
 `all` remains distinct from a manifest's `any` group and does not request
 traversal. `dependencies=cross-prefix` matches a direct declaration whose first
 dot-delimited package-ID segment differs from the package's own segment.
+`depends starts-with <literal-package-id-prefix>` matches direct dependencies
+using case-insensitive literal prefix semantics. Include a trailing `.` to
+require a dot-delimited family boundary; repeat the term to require every
+prefix.
 `depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
 registered exact packages and package prefixes for one canonical ecosystem;
 repeat it to require every named ecosystem.
@@ -466,8 +473,9 @@ selects one displayed row; `first` and `last` mean the rendered endpoints.
 Missing payloads fail rather than sliding to another row.
 
 Keep work bounds and ranking separate: Package Query `--take N` bounds
-candidate work before final row selection, while `--top N` requires a ranking
-order. Neither is another spelling of `-n`.
+candidate work before final row selection, and Library Query `--take N` bounds
+its explicit Library population before final row selection, while `--top N`
+requires a ranking order. None is another spelling of `-n`.
 
 ## Use a URL as part of the answer
 
@@ -493,5 +501,8 @@ Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
 Inspect Web rejects both formats. Keep them as packet strings for supported
 CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
 Web does not yet restore query-bearing packets. Keep Package Query answers in
-Content rather than manufacturing a link.
+Content rather than manufacturing a link. Inspect Web directly adopts Library
+Query in the current package's Library navigation by sending the same portable
+`references` intent to the shared envelope and filtering with returned asset
+IDs; it does not infer matches from display names.
 Offer a URL only for a browser-restorable scenario selection.

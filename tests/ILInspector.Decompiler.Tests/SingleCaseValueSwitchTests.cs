@@ -189,6 +189,31 @@ public sealed class SingleCaseValueSwitchTests
         }
     }
 
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [Trait("Area", "Fidelity")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompilerProducedMaxLengthProductSpellingRecompilesExactly(bool updated)
+    {
+        string path = FixturePath(updated);
+        var result = Assert.Single(FidelityCheck.EvaluateTargets(
+            [path],
+            [
+                new FidelityCheck.CompileBackTarget(
+                    path,
+                    FixtureType,
+                    "get_MaxLength",
+                    Overload: 0,
+                    Signature: "() -> corelib:System.Int64"),
+            ],
+            lowered: false,
+            options: StyleOptionCatalog.DefaultOptions));
+
+        Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
     static void AssertExact(ReturnToSender.Result result)
     {
         Assert.False(result.UsedCompileBackFloor);

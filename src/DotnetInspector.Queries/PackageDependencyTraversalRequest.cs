@@ -41,62 +41,45 @@ public enum PackageDependencyTraversalRootRecurrenceAuthority
 }
 
 /// <summary>
-/// The typed framework-selection mode every admitted root and transitive manifest
-/// projection is constructed under. This is structural request currency, not a
-/// reconstruction of <see cref="PackageDependencyEvidenceSelection.RequestedFramework"/>.
+/// The owner-issued evidence source for one admitted package traversal root.
 /// </summary>
-public abstract record PackageDependencyTraversalFrameworkMode
+public abstract record PackageDependencyTraversalRootSource
 {
-    private PackageDependencyTraversalFrameworkMode()
+    private protected PackageDependencyTraversalRootSource()
     {
     }
 
-    /// <summary>Gets the requested framework text to project every manifest against, or
-    /// <see langword="null"/> for <see cref="ManifestDefault"/>.</summary>
-    internal abstract string? RequestedFramework { get; }
+    internal abstract PackageDependencyEvidenceRoot Evidence { get; }
 
-    /// <summary>One validated canonical NuGet framework identity.</summary>
-    public sealed record Exact :
-        PackageDependencyTraversalFrameworkMode
+    /// <summary>
+    /// A package dependency-evidence root whose association is owned by its
+    /// supplying adapter rather than by a realized package participant.
+    /// </summary>
+    public sealed record ProjectedEvidence :
+        PackageDependencyTraversalRootSource
     {
-        internal Exact(string canonicalFramework)
-        {
-            CanonicalFramework = canonicalFramework;
-        }
+        internal ProjectedEvidence(PackageDependencyEvidenceRoot evidence) =>
+            Root = evidence ?? throw new ArgumentNullException(nameof(evidence));
 
-        public string CanonicalFramework { get; }
+        public PackageDependencyEvidenceRoot Root { get; }
 
-        internal override string? RequestedFramework => CanonicalFramework;
+        internal override PackageDependencyEvidenceRoot Evidence => Root;
     }
 
     /// <summary>
-    /// Each manifest uses the package dependency-group owner's explicit no-request
-    /// selection policy; the result retains each node's independently selected
-    /// framework rather than claiming one graph-wide target framework.
+    /// Dependency evidence associated with one exact realized package
+    /// participant.
     /// </summary>
-    public sealed record ManifestDefault : PackageDependencyTraversalFrameworkMode
+    public sealed record RealizedPackage :
+        PackageDependencyTraversalRootSource
     {
-        internal static ManifestDefault Instance { get; } = new();
+        internal RealizedPackage(RealizedPackageDependencyContext context) =>
+            Context = context ?? throw new ArgumentNullException(nameof(context));
 
-        internal override string? RequestedFramework => null;
-    }
+        public RealizedPackageDependencyContext Context { get; }
 
-    /// <summary>
-    /// Validates and canonicalizes <paramref name="framework"/> through the same
-    /// canonical NuGet framework identity every other exact-framework request uses.
-    /// </summary>
-    public static bool TryCreateExact(string framework, out Exact mode)
-    {
-        if (NuGetTargetFrameworkIdentity.TryNormalize(
-                framework,
-                out string canonical))
-        {
-            mode = new Exact(canonical);
-            return true;
-        }
-
-        mode = null!;
-        return false;
+        internal override PackageDependencyEvidenceRoot Evidence =>
+            Context.Evidence;
     }
 }
 
@@ -106,11 +89,34 @@ public sealed record PackageDependencyTraversalRootOccurrence
     public PackageDependencyTraversalRootOccurrence(
         PackageDependencyEvidenceRoot root,
         PackageDependencyTraversalExpansionAuthority authority,
-        PackageDependencyTraversalRootRecurrenceAuthority
-            recurrenceAuthority =
-                PackageDependencyTraversalRootRecurrenceAuthority.None)
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority =
+            PackageDependencyTraversalRootRecurrenceAuthority.None)
+        : this(
+            new PackageDependencyTraversalRootSource.ProjectedEvidence(root),
+            authority,
+            recurrenceAuthority)
     {
-        ArgumentNullException.ThrowIfNull(root);
+    }
+
+    public PackageDependencyTraversalRootOccurrence(
+        RealizedPackageDependencyContext context,
+        PackageDependencyTraversalExpansionAuthority authority,
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority =
+            PackageDependencyTraversalRootRecurrenceAuthority.None)
+        : this(
+            new PackageDependencyTraversalRootSource.RealizedPackage(context),
+            authority,
+            recurrenceAuthority)
+    {
+    }
+
+    private PackageDependencyTraversalRootOccurrence(
+        PackageDependencyTraversalRootSource source,
+        PackageDependencyTraversalExpansionAuthority authority,
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        PackageDependencyEvidenceRoot root = source.Evidence;
         if (root.Identity is not PackageDependencyEvidenceRootIdentity.Package)
         {
             throw new ArgumentException(
@@ -126,12 +132,14 @@ public sealed record PackageDependencyTraversalRootOccurrence
                 nameof(root));
         }
 
-        Root = root;
+        Source = source;
         Authority = authority;
         RecurrenceAuthority = recurrenceAuthority;
     }
 
-    public PackageDependencyEvidenceRoot Root { get; }
+    public PackageDependencyTraversalRootSource Source { get; }
+
+    public PackageDependencyEvidenceRoot Root => Source.Evidence;
 
     public PackageDependencyTraversalExpansionAuthority Authority { get; }
 
@@ -183,7 +191,7 @@ public sealed record PackageDependencyTraversalRequest
 {
     public PackageDependencyTraversalRequest(
         ImmutableArray<PackageDependencyTraversalRootOccurrence> roots,
-        PackageDependencyTraversalFrameworkMode frameworkMode,
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
         IPackageDependencyTraversalCandidateResolver candidateResolver,
         IPackageDependencyTraversalManifestAcquirer manifestAcquirer,
         PackageDependencyTraversalWorkBudget workBudget,
@@ -196,7 +204,7 @@ public sealed record PackageDependencyTraversalRequest
                 nameof(roots));
         }
 
-        ArgumentNullException.ThrowIfNull(frameworkMode);
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         ArgumentNullException.ThrowIfNull(candidateResolver);
         ArgumentNullException.ThrowIfNull(manifestAcquirer);
         ArgumentNullException.ThrowIfNull(workBudget);
@@ -209,7 +217,7 @@ public sealed record PackageDependencyTraversalRequest
         }
 
         Roots = roots;
-        FrameworkMode = frameworkMode;
+        TraversalTargetPolicy = traversalTargetPolicy;
         CandidateResolver = candidateResolver;
         ManifestAcquirer = manifestAcquirer;
         WorkBudget = workBudget;
@@ -218,7 +226,7 @@ public sealed record PackageDependencyTraversalRequest
 
     public ImmutableArray<PackageDependencyTraversalRootOccurrence> Roots { get; }
 
-    public PackageDependencyTraversalFrameworkMode FrameworkMode { get; }
+    public TraversalTargetFrameworkPolicy TraversalTargetPolicy { get; }
 
     public IPackageDependencyTraversalCandidateResolver CandidateResolver { get; }
 

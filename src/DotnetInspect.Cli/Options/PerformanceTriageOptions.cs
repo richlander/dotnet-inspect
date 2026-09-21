@@ -374,7 +374,7 @@ public sealed record PerformanceTriageOptions
         out RowQueryOperator @operator)
     {
         ArgumentNullException.ThrowIfNull(field);
-        @operator = syntax switch
+        RowQueryOperator? resolved = syntax switch
         {
             RowPredicateOperator.Equals => RowQueryOperator.Equals,
             RowPredicateOperator.NotEquals => RowQueryOperator.NotEquals,
@@ -382,9 +382,11 @@ public sealed record PerformanceTriageOptions
                 RowQueryOperator.GreaterOrEqual,
             RowPredicateOperator.LessOrEqual =>
                 RowQueryOperator.LessOrEqual,
-            _ => throw new InvalidOperationException(
-                $"Unknown row predicate operator '{syntax}'."),
+            _ => null,
         };
+        @operator = resolved.GetValueOrDefault();
+        if (resolved is null)
+            return false;
         return field.Operators.Contains(@operator);
     }
 
