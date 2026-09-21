@@ -888,6 +888,11 @@ public class QueryDiscoveryTests
                 key,
                 RowPredicateOperator.GreaterOrEqual,
                 out _));
+        Assert.False(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                key,
+                RowPredicateOperator.StartsWith,
+                out _));
     }
 
     [Fact]
