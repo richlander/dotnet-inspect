@@ -78,10 +78,11 @@ Member domain categories remain explicit lenses rather than automatic
 verbosity scope. Their row sets, graphs, and documents are `Verbose`, so exact
 category or section selection promotes the request to Detailed and retains
 the complete evidence. The same rule applies to the exact-name `Member Index`,
-`Finding Census`, `Clone Candidates`, and `Implementation Profiles` sections.
-Exact-member `Source Locations` is `Fixed`: it emits one logical-member row
-and exact selection requires Normal. Broad and named-overload Source Locations
-remain `Verbose` because they emit one row per selected member.
+`Finding Census`, `Clone Candidates`, `Type Metrics`, and `Member Metrics`
+sections. Exact-member `Source Locations` is `Fixed`: it emits one
+logical-member row and exact selection requires Normal. Broad and
+named-overload Source Locations remain `Verbose` because they emit one row per
+selected member.
 
 These declarations do not add any domain section to bare `-v:n` or `-v:d`.
 Automatic verbosity still uses only the route's base `@Member` union; selecting
