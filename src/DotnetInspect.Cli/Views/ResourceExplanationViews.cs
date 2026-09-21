@@ -156,6 +156,8 @@ public sealed record ResourceExplanationResourceRow(
     public List<string> Formats { get; init; } =
         [.. Formats.Select(format => LibraryViewText.Contain(format))];
 
+    public int? Members { get; init; } = Members;
+
     public static ResourceExplanationResourceRow Create(
         ResourceExplanationResource resource)
     {
