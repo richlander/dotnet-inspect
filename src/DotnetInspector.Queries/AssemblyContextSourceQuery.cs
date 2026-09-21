@@ -460,6 +460,10 @@ public sealed record TypeSourcePdbAcquisitionEvidence(
                     .PreferenceWindowElapsed,
             PdbTypeSourceOutcome.PortablePdbAcquisitionFailed =>
                 TypeSourcePortablePdbDisposition.AcquisitionFailed,
+            _ when attempt?.PortablePdbAvailable is false =>
+                TypeSourcePortablePdbDisposition.Unavailable,
+            _ when attempt?.PortablePdbAvailable is null =>
+                TypeSourcePortablePdbDisposition.NotAttempted,
             _ =>
                 TypeSourcePortablePdbDisposition.Available,
         };

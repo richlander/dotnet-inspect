@@ -1316,14 +1316,10 @@ public class SymbolPackageDownloaderTests : IDisposable
 
     [Fact]
     public async Task
-        AcquirePdbAsync_CanceledPartialBodyPreservesStatusAndBytes()
+        AcquirePdbAsync_CanceledRetryPreservesPriorStatusAndBytes()
     {
-        var stream = new PartialThenStallingStream();
-        var handler = new CountingHandler(_ =>
-            new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StreamContent(stream),
-            });
+        var handler =
+            new PartialFailureThenBlockingHandler();
         using var client = new HttpClient(handler);
         var downloader =
             new SymbolPackageDownloader(
@@ -1344,7 +1340,7 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken: cancellation.Token,
                 evidence: evidence);
 
-        await stream.BlockingReadStarted.Task.WaitAsync(
+        await handler.SecondRequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
         cancellation.Cancel();
@@ -1365,7 +1361,7 @@ public class SymbolPackageDownloaderTests : IDisposable
             PortablePdbNetworkAttemptOutcome.Canceled,
             attempt.Outcome);
         Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
-        Assert.Equal(1, attempt.RequestCount);
+        Assert.Equal(2, attempt.RequestCount);
         Assert.Equal(4, attempt.BodyBytesRead);
     }
 
@@ -1452,12 +1448,41 @@ public class SymbolPackageDownloaderTests : IDisposable
         }
     }
 
-    private sealed class PartialThenStallingStream : Stream
+    private sealed class PartialFailureThenBlockingHandler
+        : HttpMessageHandler
+    {
+        private int _requestCount;
+
+        public TaskCompletionSource SecondRequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _requestCount) == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content =
+                        new StreamContent(
+                            new PrefixThenFailStream()),
+                    RequestMessage = request,
+                };
+            }
+
+            SecondRequestStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "A canceled request unexpectedly completed.");
+        }
+    }
+
+    private sealed class PrefixThenFailStream : Stream
     {
         private int _readCount;
-
-        public TaskCompletionSource BlockingReadStarted { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -1480,11 +1505,9 @@ public class SymbolPackageDownloaderTests : IDisposable
                 return 4;
             }
 
-            BlockingReadStarted.TrySetResult();
-            await Task.Delay(
-                Timeout.InfiniteTimeSpan,
-                cancellationToken);
-            return 0;
+            await Task.Yield();
+            throw new IOException(
+                "Injected response body failure.");
         }
 
         public override int Read(

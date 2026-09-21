@@ -424,6 +424,7 @@ public static class HttpRetryHelper
         int attempts = 0;
         int requestCount = 0;
         long bodyBytesRead = 0;
+        HttpStatusCode? lastObservedStatusCode = null;
 
         while (true)
         {
@@ -450,16 +451,18 @@ public static class HttpRetryHelper
                     requestCount++;
                     progress?.Invoke(new(
                         requestCount,
-                        StatusCode: null,
+                        lastObservedStatusCode,
                         bodyBytesRead));
 
                     using var response = await client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
                         timeout.Token).ConfigureAwait(false);
+                    lastObservedStatusCode =
+                        response.StatusCode;
                     progress?.Invoke(new(
                         requestCount,
-                        response.StatusCode,
+                        lastObservedStatusCode,
                         bodyBytesRead));
 
                     if (response.IsSuccessStatusCode)

@@ -1540,12 +1540,20 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Null(available.LibraryFailure);
     }
 
-    [Fact]
-    public async Task TypeSourceInspection_LibraryAdmissionLimitCannotBecomeDecompilerFallback()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        TypeSourceInspection_LibraryAdmissionLimitPreservesPdbAvailability(
+        bool pdbAvailable)
     {
         TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
-        using var host = QueryHost.WithPdb(
-            assembly.PdbPath, SourcePairBytes(FixtureCatalog.SourceDiffV1));
+        using var host = pdbAvailable
+            ? QueryHost.WithPdb(
+                assembly.PdbPath,
+                SourcePairBytes(
+                    FixtureCatalog.SourceDiffV1))
+            : QueryHost.WithoutPdb();
         SourceHouseLimits defaults = host.Context.TypeSourceLimits;
         var context = new AssemblyContextSourceQueryContext(
             host.Context.SymbolClient, host.Context.PdbStore,
@@ -1574,6 +1582,16 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Null(unavailable.HouseOutcome);
         Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Equal(
+            pdbAvailable,
+            unavailable.PdbAttempt
+                ?.PortablePdbAvailable);
+        AssertDiagnostic(
+            inspection,
+            pdbAvailable
+                ? "type-source.portable-pdb.available"
+                : "type-source.portable-pdb.unavailable",
+            InspectionDiagnosticSeverity.Information);
         Assert.Empty(host.SourceRequests);
     }
 

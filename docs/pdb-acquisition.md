@@ -464,8 +464,9 @@ symbol-package, or symbol-server route and records:
 - bytes read across attempts; and
 - monotonic elapsed duration.
 
-Canceled and failed attempts retain any response status and body-byte count
-observed before settlement rather than reporting the operation as if no
+Canceled and failed attempts retain the latest response status and cumulative
+body-byte count observed before settlement, including when a later retry is
+canceled before receiving headers, rather than reporting the operation as if no
 response arrived.
 
 `Acquired` is emitted only after the downloaded or cached content has passed

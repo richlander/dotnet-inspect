@@ -120,6 +120,9 @@ result-relevant Portable PDB diagnostic. The stable codes distinguish:
 An operation that rejects the subject or fails before attempting PDB work
 emits no PDB diagnostic. These diagnostics describe the settled result; they do
 not contain request logs, timing samples, cache internals, or exception traces.
+Matching-PDB availability is retained independently from a later House or
+Library terminal outcome so those downstream failures cannot change the PDB
+disposition.
 
 `TypeSourceInspection.ExecuteWithPdbLatencyHedgeAndEvidenceAsync` composes the
 same baseline envelope with `TypeSourcePdbAcquisitionEvidence`. The evidence

@@ -119,6 +119,11 @@ public static partial class AssemblyContextSourceQuery
                 _ => throw new InvalidOperationException(
                     "Authored source inspection did not settle."),
             };
+            inspection = inspection with
+            {
+                PortablePdbAvailable =
+                    authored.PortablePdbAvailable,
+            };
             if (inspection.IsComplete
                 && authored.Provenance is null
                 && authored.ProvenanceFailure is { } provenanceFailure)
@@ -175,12 +180,19 @@ public static partial class AssemblyContextSourceQuery
         Exception? provenanceFailure = null;
         Exception? acquisitionFailure = opened.Failure;
         Exception? primaryFailure = null;
+        bool? portablePdbAvailable = null;
         if (opened.Source is { } source)
         {
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(participant, version);
+                portablePdbAvailable =
+                    source.Context.HasPdb
+                        ? true
+                        : source.Context.PdbId is not null
+                            ? false
+                            : null;
                 try
                 {
                     provenance = new(
@@ -230,7 +242,16 @@ public static partial class AssemblyContextSourceQuery
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
             if (!retainLibrary)
-                return new(AcquisitionFailure: acquisitionFailure);
+            {
+                return new(
+                    AcquisitionFailure: acquisitionFailure)
+                {
+                    PortablePdbAvailable =
+                        acquisitionFailure is null
+                            ? null
+                            : false,
+                };
+            }
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -275,6 +296,8 @@ public static partial class AssemblyContextSourceQuery
                 ProvenanceFailure: provenanceFailure)
             {
                 LibraryFailure = terminal,
+                PortablePdbAvailable =
+                    portablePdbAvailable,
             };
         }
         if (admission is not AssemblyContextLibraryAdapterResult.Completed completed)
@@ -343,6 +366,8 @@ public static partial class AssemblyContextSourceQuery
         {
             HouseOutcome = outcome,
             RetainedLibrary = retainLibrary ? completed : null,
+            PortablePdbAvailable =
+                portablePdbAvailable,
         };
     }
 
@@ -763,5 +788,6 @@ public static partial class AssemblyContextSourceQuery
         public AssemblyContextLibraryAdapterResult.Completed?
             RetainedLibrary
         { get; init; }
+        public bool? PortablePdbAvailable { get; init; }
     }
 }
