@@ -34,6 +34,113 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DiscoveryPath_CanBePassedUnchangedToExplain()
+    {
+        var human = await RunAsync(
+            "library",
+            "-D",
+            "@Dependencies");
+
+        Assert.Equal(0, human.ExitCode);
+        Assert.Empty(human.Error);
+        Assert.Contains("| Name | Kind | Path |", human.Output);
+        Assert.Contains(
+            "| Reference Hierarchy | section "
+            + "| library/sections/reference-hierarchy |",
+            human.Output);
+
+        var tree = await RunAsync(
+            "library",
+            "-D",
+            "@Dependencies",
+            "--tree");
+
+        Assert.Equal(0, tree.ExitCode);
+        Assert.Empty(tree.Error);
+        Assert.Contains(
+            "Reference Hierarchy "
+            + "[library/sections/reference-hierarchy]",
+            tree.Output);
+
+        var discovery = await RunAsync(
+            "library",
+            "-D",
+            "@Dependencies",
+            "--json");
+
+        Assert.Equal(0, discovery.ExitCode);
+        Assert.Empty(discovery.Error);
+        using JsonDocument discoveryDocument =
+            JsonDocument.Parse(discovery.Output);
+        JsonElement row = discoveryDocument.RootElement
+            .EnumerateArray()
+            .Single(element =>
+                element.GetProperty("name").GetString()
+                == "Reference Hierarchy");
+        string path = row.GetProperty("path").GetString()!;
+        Assert.Equal(
+            "library/sections/reference-hierarchy",
+            path);
+
+        var projected = await RunAsync(
+            "library",
+            "-D",
+            "@Dependencies",
+            "--json",
+            "--fields",
+            "Name,Path");
+
+        Assert.Equal(0, projected.ExitCode);
+        Assert.Empty(projected.Error);
+        using JsonDocument projectedDocument =
+            JsonDocument.Parse(projected.Output);
+        JsonElement projectedRow = projectedDocument.RootElement
+            .EnumerateArray()
+            .Single(element =>
+                element.GetProperty("name").GetString()
+                == "Reference Hierarchy");
+        Assert.Equal(
+            path,
+            projectedRow.GetProperty("path").GetString());
+
+        var detailed = await RunAsync(
+            "library",
+            "-D",
+            "Reference Hierarchy",
+            "--details",
+            "--json");
+
+        Assert.Equal(0, detailed.ExitCode);
+        Assert.Empty(detailed.Error);
+        using JsonDocument detailedDocument =
+            JsonDocument.Parse(detailed.Output);
+        Assert.Equal(
+            path,
+            detailedDocument.RootElement[0]
+                .GetProperty("path")
+                .GetString());
+
+        var explanation = await RunAsync("explain", path, "--json");
+
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument explanationDocument =
+            JsonDocument.Parse(explanation.Output);
+        Assert.Equal(
+            path,
+            explanationDocument.RootElement
+                .GetProperty("requested_path")
+                .GetString());
+
+        var pathless = await RunAsync("vocabulary", "-D");
+
+        Assert.Equal(0, pathless.ExitCode);
+        Assert.Empty(pathless.Error);
+        Assert.Contains("| Name | Kind |", pathless.Output);
+        Assert.DoesNotContain("| Name | Kind | Path |", pathless.Output);
+    }
+
+    [Fact]
     public async Task Json_UsesTheHostNeutralContentShape()
     {
         var result = await RunAsync(

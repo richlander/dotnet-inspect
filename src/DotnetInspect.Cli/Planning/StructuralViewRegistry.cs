@@ -1083,8 +1083,8 @@ public static class StructuralViewRegistry
             if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
                 return 1;
 
-            DiscoveryDocument? document =
-                DiscoveryDocumentFactory.Create(
+            DiscoveryDocumentFactory.Projection? detailedProjection =
+                DiscoveryDocumentFactory.CreateProjection(
                     "library",
                     request.Discover,
                     schema,
@@ -1095,11 +1095,11 @@ public static class StructuralViewRegistry
                     projection.ExactOnlySections,
                     projection.OutputCapabilities,
                     requireExactSelection: true);
-            if (document is null)
+            if (detailedProjection is null)
                 return 1;
 
             return DetailedDiscoverOutput.Write(
-                document,
+                detailedProjection,
                 detailedRequest);
         }
 
@@ -1132,10 +1132,11 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
-        DiscoveryDocument? discoveryDocument = null;
+        DiscoveryDocumentFactory.Projection? discoveryProjection = null;
         if (projection.OutputCapabilities is not null)
         {
-            discoveryDocument = DiscoveryDocumentFactory.Create(
+            discoveryProjection =
+                DiscoveryDocumentFactory.CreateProjection(
                 "library",
                 request.Discover,
                 schema,
@@ -1147,7 +1148,7 @@ public static class StructuralViewRegistry
                 projection.SectionCostAnnotations,
                 projection.ExactOnlySections,
                 projection.OutputCapabilities);
-            if (discoveryDocument is null)
+            if (discoveryProjection is null)
                 return 1;
         }
 
@@ -1170,7 +1171,10 @@ public static class StructuralViewRegistry
             listedCategoryDoors:
                 projection.ListedCategoryDoors,
             exactOnlySections: projection.ExactOnlySections,
-            document: discoveryDocument);
+            document: discoveryProjection?.Document,
+            resourcePaths: discoveryProjection?.ResourcePaths.ToDictionary(
+                static registration => registration.Identity,
+                static registration => registration.Path));
     }
 
     public static int Execute(
