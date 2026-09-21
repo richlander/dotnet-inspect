@@ -22,6 +22,31 @@ public static class LibraryQueryInspection
             population.Diagnostics,
             plan,
             cancellationToken);
+        return Complete(plan, content);
+    }
+
+    public static InspectionEnvelope<LibraryQueryDocument>
+        ExecuteParticipants(
+            AssemblyContextGroup? group,
+            IReadOnlyList<LibraryQueryParticipant> population,
+            LibraryQueryPlan plan,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        LibraryQueryDocument content = LibraryQuery.ExecuteParticipants(
+            group,
+            population,
+            plan,
+            cancellationToken);
+        return Complete(plan, content);
+    }
+
+    private static InspectionEnvelope<LibraryQueryDocument> Complete(
+        LibraryQueryPlan plan,
+        LibraryQueryDocument content)
+    {
         ValidateContent(plan, content);
 
         return new(
