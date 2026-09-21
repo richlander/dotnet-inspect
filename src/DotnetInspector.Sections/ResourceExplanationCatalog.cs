@@ -632,8 +632,9 @@ public sealed class ResourceExplanationCatalog
             if (!paths[resource.Identity].Value.StartsWith(
                     expectedPrefix,
                     StringComparison.Ordinal)
-                || paths[resource.Identity].Value.Length
-                    <= expectedPrefix.Length)
+                || !ResourcePath.IsCanonicalSegment(
+                    paths[resource.Identity].Value[
+                        expectedPrefix.Length..]))
             {
                 throw new ArgumentException(
                     $"Structural path '{paths[resource.Identity]}' does not "

@@ -129,6 +129,30 @@ public class ResourceExplanationTests
                 ]));
     }
 
+    [Theory]
+    [InlineData(DiscoveryResourceKind.Category)]
+    [InlineData(DiscoveryResourceKind.Section)]
+    [InlineData(DiscoveryResourceKind.Item)]
+    public void StructuralCatalog_RejectsExtraHierarchySegments(
+        DiscoveryResourceKind kind)
+    {
+        (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
+            registrations) = StructuralFixture();
+        int index = Array.FindIndex(
+            registrations,
+            registration => registration.Identity.Kind == kind);
+        StructuralResourcePathRegistration registration =
+            registrations[index];
+        registrations[index] = new(
+            registration.Identity,
+            new ResourcePath($"{registration.Path.Value}/extra"));
+
+        Assert.Throws<ArgumentException>(() =>
+            ResourceExplanationCatalog.CreateStructural(
+                discovery,
+                registrations));
+    }
+
     [Fact]
     public void Resource_RejectsMismatchedTypedDetailVariant()
     {
