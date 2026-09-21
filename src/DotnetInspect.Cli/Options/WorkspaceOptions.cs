@@ -11,7 +11,7 @@ public sealed record WorkspaceOptions
     public string[] Packages { get; init; } = [];
     public string? Tfm { get; init; }
     public string? Packet { get; init; }
-    public int? ReplacePackage { get; init; }
+    public WorkspacePackageComponentPath? UpdatePackage { get; init; }
     public string? ReplacementVersion { get; init; }
     public string? ReplacementTfm { get; init; }
     public bool EnvelopeOutput { get; init; }

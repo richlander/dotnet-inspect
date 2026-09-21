@@ -234,7 +234,8 @@ payloads use temporary storage and are downloaded again on a later invocation.
 
 Diff History renders `Evaluations` and `Transitions` over the same vector. Omit
 `--at` for full-population evaluation, repeat it for explicit checkpoints, or
-use `--max-probes` for adaptive bisection.
+use `--max-probes` for adaptive bisection. Add `--sample-percent P` for a
+deterministic population-relative survey, optionally capped by `--max-probes`.
 Choose the type-focused census with `--type-presence`, `--members`, or
 `--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
 Add `--member` to `api.member` for one exact member identity track. The same
