@@ -1120,6 +1120,7 @@ sealed class LocalDeclarationUnsafeContext(IrFunction function)
             LocalFunctionStatement => false,
             TryCatch tryCatch => tryCatch.Clauses.Any(clause =>
                 HasRequiredUnsafeOperation(clause.Filter)),
+            TryFinally => false,
             _ => HasRequiredUnsafeOperation(node),
         };
 
