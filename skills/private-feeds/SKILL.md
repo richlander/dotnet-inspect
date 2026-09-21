@@ -43,27 +43,6 @@ Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
 
-### Portable Workspace PAT slots
-
-For a PAT-only HTTPS feed, author a credential-free Workspace packet with a
-named source and bind the PAT separately on every execution:
-
-```bash
-packet=$(dnx dotnet-inspect -y -- workspace \
-  --package MyCompany.Widget@1.2.3 --tfm net10.0 \
-  --source github=https://nuget.pkg.github.com/OWNER/index.json \
-  --requires-pat github=OWNER --share packet)
-
-GITHUB_TOKEN=... dnx dotnet-inspect -y -- workspace --packet "$packet" \
-  --pat github=env:GITHUB_TOKEN
-```
-
-`--pat` also accepts `source-id=stdin` for redirected input and
-`source-id=file:PATH` for a caller-owned file. It never accepts a literal PAT,
-never prompts, and requires every declared PAT slot before network access. The
-credential remains process-local and is absent from packets, generated files,
-logs, diagnostics, and telemetry.
-
 ### Query versions from a folder feed
 
 Online version queries support NuGet V2/V3 folder feeds, specified as a
