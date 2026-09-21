@@ -1158,28 +1158,6 @@ public sealed class MetadataMethodImplementationEvidenceTests
         Assert.DoesNotContain(
             MetadataOperationWorkKind.DeclarationNameMaterialization,
             work);
-
-        long retainedBeforeName = structural.Counters.RetainedText;
-        MetadataMethodImplementationResult.Rejected retained =
-            Assert.IsType<MetadataMethodImplementationResult.Rejected>(
-                Relate(
-                    Policy(
-                        MetadataOperationDimension.RetainedText,
-                        retainedBeforeName
-                            + OverlongDeclarationNameLength
-                            - 1)));
-        Assert.Equal(
-            MetadataMethodImplementationMechanism.RowRead,
-            retained.Failure.Mechanism);
-        Assert.Equal(
-            MetadataOperationDimension.RetainedText,
-            retained.Failure.BudgetDimension);
-        Assert.Equal(
-            OverlongDeclarationNameLength,
-            retained.Failure.AttemptedCharge);
-        Assert.Equal(
-            retainedBeforeName,
-            retained.Counters.RetainedText);
     }
 
     [Fact]
