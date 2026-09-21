@@ -22,6 +22,8 @@ internal sealed record DependsAssetDocument
 
     public List<DependsDependencyJson>? Dependencies { get; init; }
 
+    public List<DependsLicenseJson>? Licenses { get; init; }
+
     public List<DependsPruningJson>? Pruning { get; init; }
 
     public List<DependencyEvidenceRestoredEdgeJson>? RestoredEdges
@@ -84,6 +86,12 @@ internal sealed record DependsAssetDocument
                 projection.Dependencies,
                 rows,
                 DependsDependencyJson.Create),
+            Licenses = Project(
+                sections,
+                DependsAssetSections.Licenses,
+                projection.Licenses,
+                rows,
+                DependsLicenseJson.Create),
             Pruning = Project(
                 sections,
                 DependsAssetSections.Pruning,
@@ -257,6 +265,8 @@ internal sealed record DependsAssetSummaryJson
 
     public required DependsPruningSummaryJson Pruning { get; init; }
 
+    public required DependencyInspectionLicenseSummary Licenses { get; init; }
+
     public int? RequestedDepth { get; init; }
 
     public required int HierarchyOccurrences { get; init; }
@@ -281,6 +291,7 @@ internal sealed record DependsAssetSummaryJson
             RestoredRelationshipCompletion =
                 summary.RestoredRelationshipCompletion,
             Pruning = DependsPruningSummaryJson.Create(summary.Pruning),
+            Licenses = summary.Licenses,
             RequestedDepth = summary.RequestedDepth,
             HierarchyOccurrences = summary.HierarchyOccurrences,
             CanonicalNodes = summary.CanonicalNodes,
@@ -288,6 +299,47 @@ internal sealed record DependsAssetSummaryJson
             PackagePrefix = summary.PackagePrefix is { } prefix
                 ? DependencyEvidencePrefixJson.Create(prefix, tokens)
                 : null,
+        };
+}
+
+internal sealed record DependsLicenseJson
+{
+    public required string Package { get; init; }
+
+    public required string Version { get; init; }
+
+    public required DependencyInspectionLicenseState State { get; init; }
+
+    [JsonConverter(
+        typeof(DotnetInspector.Sections.InertStringJsonConverter))]
+    public required InertString License { get; init; }
+
+    public DependencyInspectionLicenseIdentityKind? IdentityKind { get; init; }
+
+    public DependencyInspectionLicenseDeclarationKind? DeclarationKind
+    { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString? DeclarationValue { get; init; }
+
+    public PackageLicenseInventoryFailureReason? FailureReason { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString? FailureMessage { get; init; }
+
+    internal static DependsLicenseJson Create(
+        DependencyInspectionLicense row) =>
+        new()
+        {
+            Package = row.PackageId,
+            Version = row.PackageVersion,
+            State = row.State,
+            License = row.License,
+            IdentityKind = row.IdentityKind,
+            DeclarationKind = row.DeclarationKind,
+            DeclarationValue = row.DeclarationValue,
+            FailureReason = row.FailureReason,
+            FailureMessage = row.FailureMessage,
         };
 }
 

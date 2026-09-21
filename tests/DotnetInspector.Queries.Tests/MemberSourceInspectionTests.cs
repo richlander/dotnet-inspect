@@ -278,6 +278,30 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(envelope.Diagnostics);
     }
 
+    [Fact]
+    public async Task MemberSourceInspection_SelectedInitializerCarriesItsScope()
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.DecompilerUnsafeLegacy);
+        var (type, property) = assembly.MemberTarget("Value", "ConstructorGetterComputed");
+        var getter = Assert.Single(ApiMemberAccessors.Create(property, type));
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+        var envelope = await MemberSourceInspection.ExecuteAsync(
+            group, assembly.Participant, AssemblyMemberSourceRequest.From(type, getter),
+            host.Context, TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
+        var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        Assert.Contains("struct ConstructorGetterComputed(int value)", source.Text);
+        Assert.Contains("get => field + 1;", source.Text);
+        Assert.Contains("} = value;", source.Text);
+        var body = Assert.Single(source.Decompilation.BodyProjections, projection => projection.ContributesToOutput);
+        Assert.Equal(getter.MetadataToken, body.Address.Token);
+        Assert.Equal(2, source.Decompilation.BodyProjectionsAttempted);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
     // These member-level production outcomes are PR-fast.
     [Fact]
     public async Task MemberSourceInspection_RealRepositoryAuthoredResultIsDetached()

@@ -126,7 +126,12 @@ public partial class LibraryCommand
                 UnsafeEvidencePresenceQuery.Definition),
         ];
 
-    public static async Task<int> ExecuteAsync(LibraryOptions options)
+    public static Task<int> ExecuteAsync(LibraryOptions options) =>
+        ExecuteAsync(options, workspaceLoadOptions: null);
+
+    internal static async Task<int> ExecuteAsync(
+        LibraryOptions options,
+        WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
         if (!LibrarySourceAdapter.TryBind(
                 options,
@@ -138,8 +143,61 @@ public partial class LibraryCommand
         }
 
         options = source!.ApplyTo(options);
+        if (options.WorkspacePacket is not null)
+        {
+            return await ExecuteWorkspacePackageAsync(
+                options,
+                workspaceLoadOptions).ConfigureAwait(false);
+        }
+
+        return await ExecuteBoundAsync(
+            options,
+            source,
+            preResolvedPackage: null).ConfigureAwait(false);
+    }
+
+    internal static async Task<int> ExecuteResolvedPackageAsync(
+        LibraryOptions options,
+        PackageExtractionResult resolution)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        if (!LibrarySourceAdapter.TryBind(
+                options,
+                out LibrarySourceBinding? source,
+                out string? sourceError))
+        {
+            CommandError.Write(sourceError!);
+            return 1;
+        }
+
+        options = source!.ApplyTo(options);
+        if (source.Selector is not SourceSelector.PackageSource)
+        {
+            CommandError.Write(
+                "Resolved Package Library execution requires a Package "
+                    + "source selector.");
+            return 1;
+        }
+
+        return await ExecuteBoundAsync(
+            options,
+            source,
+            resolution).ConfigureAwait(false);
+    }
+
+    static async Task<int> ExecuteBoundAsync(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        PackageExtractionResult? preResolvedPackage)
+    {
         if (!options.Trace)
-            return await ExecuteCoreAsync(options, source, trace: null);
+        {
+            return await ExecuteCoreAsync(
+                options,
+                source,
+                trace: null,
+                preResolvedPackage).ConfigureAwait(false);
+        }
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
         // which is exactly when "what did this actually scan?" is worth knowing.
@@ -157,7 +215,11 @@ public partial class LibraryCommand
 
         try
         {
-            return await ExecuteCoreAsync(options, source, trace);
+            return await ExecuteCoreAsync(
+                options,
+                source,
+                trace,
+                preResolvedPackage).ConfigureAwait(false);
         }
         finally
         {
@@ -195,7 +257,8 @@ public partial class LibraryCommand
     private static async Task<int> ExecuteCoreAsync(
         LibraryOptions options,
         LibrarySourceBinding source,
-        InspectionTrace? trace)
+        InspectionTrace? trace,
+        PackageExtractionResult? preResolvedPackage)
     {
         if (options.IntegrationQuery.HasFilter
             && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
@@ -387,7 +450,7 @@ public partial class LibraryCommand
                 options.IncludeSections,
                 options.ExactIncludeSections,
                 sections.SelectableSectionNames,
-                SectionNames.ImplementationProfiles);
+                SectionNames.MemberMetrics);
         if (implementationProfilesSelection.Error is not null)
         {
             CommandError.Write(
@@ -516,10 +579,10 @@ public partial class LibraryCommand
                 options.IncludeSections))
         {
             if (options.IncludeSections.Contains(
-                    SectionNames.ImplementationProfiles))
+                    SectionNames.MemberMetrics))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
+                    "Document --json cannot represent Member Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
             }
             else
@@ -1076,7 +1139,11 @@ public partial class LibraryCommand
                     assemblyPath,
                     source.PackageTarget!,
                     options.Tfm,
-                    options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
+                    options.SourceOptions,
+                    options.IncludePrerelease,
+                    logger,
+                    context.HttpClient,
+                    preResolvedPackage);
                 if (extractResult == null)
                 {
                     return 1;
@@ -4305,20 +4372,29 @@ public partial class LibraryCommand
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        PackageExtractionResult? preResolvedPackage)
     {
-        var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient,
-            packageTarget,
-            logger.Log,
-            sourceOptions: sourceOptions,
-            includePrerelease: includePrerelease);
-        if (!outcome.IsSuccess)
+        PackageExtractionResult resolution;
+        if (preResolvedPackage is null)
         {
-            CommandError.Write($"{outcome.ErrorMessage}");
-            return null;
+            var outcome = await PackageExtractor.ExtractPackageAsync(
+                httpClient,
+                packageTarget,
+                logger.Log,
+                sourceOptions: sourceOptions,
+                includePrerelease: includePrerelease);
+            if (!outcome.IsSuccess)
+            {
+                CommandError.Write($"{outcome.ErrorMessage}");
+                return null;
+            }
+            resolution = outcome.Result!;
         }
-        var resolution = outcome.Result!;
+        else
+        {
+            resolution = preResolvedPackage;
+        }
 
         string extractPath = resolution.ExtractPath;
         string? tempDir = resolution.TempDir;

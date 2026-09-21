@@ -38,5 +38,4 @@ public sealed partial class DependsAssetCommandTests
 
     private static string ProjectDirectoryFixture =>
         FixtureCatalog.RestoredProjectDependencyFacts.ProjectDirectory();
-
 }

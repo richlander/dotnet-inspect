@@ -48,6 +48,15 @@ Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
 or `@Audit` doors remain available. The explicit-only whole-package and
 license-file listings remain outside every automatic verbosity preset.
 
+Package domain sections remain explicit rather than joining automatic
+`@Package` and `@Files` scope. Dependency Hierarchy, the package content audit
+rows, Identifier Confusion, SourceLink Files, and SourceLink Missing Files are
+`Verbose`; their populations grow with dependencies, package content,
+identifiers, mapped documents, or source failures. SourceLink Availability and
+Integrity are `Fixed` aggregate field tables. Their source acquisition remains
+capability-gated, so their exact or `@SourceLink` selection still requires
+Detailed despite the fixed output shape.
+
 For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
 Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
 the command's authored primary result and diagnostic context at `-v:m`, are
@@ -74,9 +83,20 @@ longer adds Custom Attributes, Decompiled Source, or IL, and `-v:d` restores
 those sections plus applicable PDB Source. Explicit selection retains each
 complete section.
 
-This focused audit changes only the broad, named-overload, and exact-member
-base `@Member` behavior. Domain and uncategorized member catalogs remain later
-issue #3284 work.
+Member domain categories remain explicit lenses rather than automatic
+verbosity scope. Their row sets, graphs, and documents are `Verbose`, so exact
+category or section selection promotes the request to Detailed and retains
+the complete evidence. The same rule applies to the exact-name `Member Index`,
+`Finding Census`, `Clone Candidates`, `Type Metrics`, and `Member Metrics`
+sections. Exact-member `Source Locations` is `Fixed`: it emits one
+logical-member row and exact selection requires Normal. Broad and
+named-overload Source Locations remain `Verbose` because they emit one row per
+selected member.
+
+These declarations do not add any domain section to bare `-v:n` or `-v:d`.
+Automatic verbosity still uses only the route's base `@Member` union; selecting
+an exact domain category or exact section name is the gesture that enters the
+additional evidence.
 
 ## Categories
 

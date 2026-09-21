@@ -278,9 +278,11 @@ public class SemanticFactsSectionTests
             SectionNames.CostFacts);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("| Allocation Facts | section", result.Output);
-        Assert.Contains("| Safety Facts | section", result.Output);
-        Assert.Contains("| Cost Facts | section", result.Output);
+        Assert.Contains("@Audit (category)", result.Output);
+        Assert.Contains("Safety Facts", result.Output);
+        Assert.Contains("@Performance (category)", result.Output);
+        Assert.Contains("Allocation Facts", result.Output);
+        Assert.Contains("Cost Facts", result.Output);
     }
 
     private static LibraryCoordinateRequest.IlPoint ILCoordinate(

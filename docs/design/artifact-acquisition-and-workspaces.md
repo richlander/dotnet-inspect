@@ -4017,9 +4017,9 @@ identity is required to distinguish it. The adjacent Scope snapshot separately
 supplies its exact physical-composition observation; neither the definition
 association nor plan equality authorizes Artifact access.
 
-The current `WorkspaceDefinitionSnapshot.Identity` property is a compatibility
-surface pending the #7982 retirement slice. New contracts and gates use the
-owner-issued tuple rather than that additional token.
+`WorkspaceDefinitionSnapshot` is identified by its exact Workspace,
+registration revision, and Scope revision tuple. It exposes no additional
+snapshot identity.
 
 The live `WorkspaceRealizationOperationLease` joins the selected realization,
 that definition snapshot, and the corresponding Scope observation. The lease
@@ -4046,6 +4046,11 @@ Candidate completion closes new construction admission, waits for every
 already-admitted construction lease to release, and then captures one complete
 definition snapshot. A Scope snapshot that still reports unfinished
 preparation is not ready for publication.
+
+A candidate is identified by its exact coordinator-owned object and realization
+state; it exposes no second candidate identity. Concurrent candidate starts use
+one coordinator-private sequencing token that never enters a candidate,
+result, settlement, or consumer contract.
 
 A newer replacement attempt supersedes the older unpublished candidate,
 closes its construction admission, lets already-admitted construction finish,
@@ -4082,20 +4087,37 @@ The drainage records are settlement evidence, not a live-Workspace registry.
 There is no rollback or switch-back authority. Reusing an earlier retained
 definition constructs a fresh realization.
 
-##### Shared immutable resources
+##### Cross-Workspace composition and sharing
 
-Candidate, active, and draining realizations may hold independently releasable
-lower-owner references to the same immutable package payload, content
-generation, source cache entry, or validated derivation. Each realization
-still owns distinct Roots, occurrence identities, binding contexts, query
-leases, reservations, and operation authority.
+Workspace composition distinguishes logical authority from lower-owner
+physical reuse. “Shared” never means that one Workspace grants another its
+resolution state or live access:
 
-Closing a predecessor releases only its ownership. It cannot invalidate a
-successor's reference, relabel one content generation as another, or transfer a
-Root or live lease to the successor. Coordinates and equal definitions never
-prove shared content identity. Deduplication, cache validity, aggregate
-reference counting, and final reclamation remain with their existing lower
-owners.
+| Surface | Cross-Workspace contract | Availability |
+| --- | --- | --- |
+| Roots, occurrence identities, registrations, binding contexts, query leases, reservations, and operation authority | Each realization owns distinct values. They are never transferred, relabeled, or inferred from equal coordinates or definitions. | Structurally isolated. |
+| Resource-free observations and detached evidence | An owner-defined operation may accept them as explicit inputs. They carry association or outcome evidence, never an opener or live authority. | Structurally composable after successful production; production itself may fail. |
+| Retained immutable package-content snapshots, source-cache entries, and validated derivations | Realizations may hold independently releasable lower-owner references to the same snapshot or backing content when that owner validates identity, authorization, freshness, and lifetime. | Optional reuse, never promised. |
+| Persistent-cache evidence | A cache-category owner may admit a validated result under its complete semantic key and current authorization contract. A hit never supplies Workspace identity or operation authority. | Optional reuse; a miss or invalid entry takes the ordinary typed path. |
+
+A focused owner-defined operation may take a caller-selected source Workspace
+and destination Workspace as explicit arguments. It accesses the named source
+only under the source Workspace's authority and, while that access remains
+valid, accesses the named destination only under the destination Workspace's
+authority. These are operation-scoped accesses to the two supplied endpoints,
+not a facility for discovering or borrowing from a set of active Workspaces.
+Either access may fail visibly, and accessed content remains inside both
+owners' lifetimes. The operation may compare the inputs or detach resource-free
+evidence; it does not install one Workspace's Root, registration, binding
+context, resolution index, lease, or authority in the other.
+
+Candidate, active, and draining realizations may therefore reuse lower-owner
+immutable backing without depending on that reuse. Closing a predecessor
+releases only its ownership. It cannot invalidate a successor's reference,
+relabel one retained snapshot as another, or transfer a Root or live lease to
+the successor. Coordinates and equal definitions never prove shared content
+identity. Deduplication, cache validity, aggregate reference counting, and
+final reclamation remain with their existing lower owners.
 
 ##### Settlement and host progress
 
@@ -4122,7 +4144,7 @@ awaited work is lexical, or uses an independent operation scope when work can
 overlap close. It does not create candidate, cutover, predecessor, or aggregate
 settlement state merely to execute one realization.
 
-The implementation is `WorkspaceRealizationCoordinator`,
+The implementation is `WorkspaceReplacementCoordinator`,
 `WorkspaceRealizationConstructionLease`,
 `WorkspaceRealizationOperationLease`, and `WorkspaceDefinitionSnapshot`.
 These types implement the replacement-capable path. Direct owner-backed
@@ -4139,6 +4161,7 @@ single-thread progress.
 
 The corresponding Release gates are:
 
+- `ReplacementSurface_OmitsRedundantIdentityTypes`;
 - `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
 - `CandidateFailure_PreservesActiveRealization`;
 - `CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization`;

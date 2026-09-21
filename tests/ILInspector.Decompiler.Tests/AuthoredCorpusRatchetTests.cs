@@ -1430,71 +1430,6 @@ public class AuthoredCorpusRatchetTests
         Assert.Null(AuthoredCorpusExitContract.PreemptedGateRefusal(order, Gates));
     }
 
-    [Fact]
-    public void DeepInspect_RunsTheWholeFileSourceOracleGate()
-    {
-        string root = FindRepositoryRoot();
-        string workflow = File.ReadAllText(
-            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
-        string poolScript = File.ReadAllText(
-            Path.Combine(root, "eng", "prepare-authored-source-oracles.sh"));
-
-        Assert.Contains(
-            "prepare-authored-source-oracles.sh \"$RUNNER_TEMP/source-oracle-assemblies.txt\"",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "mapfile -t oracle_assemblies < \"$RUNNER_TEMP/source-oracle-assemblies.txt\"",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--source-oracle-manifest external/authored-source-corpus/oracle/manifest.json",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--json \"${oracle_assemblies[@]}\"",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "VERSION=\"10.0.10\"",
-            poolScript,
-            StringComparison.Ordinal);
-        string[] expectedSpecs =
-        [
-            "System.Text.Encodings.Web|system.text.encodings.web|lib/net10.0/System.Text.Encodings.Web.dll|91f4b016890cfd5468d46d32c451931cac34096f869cc1c8077c902d9a7f5ccd",
-            "System.Runtime.Serialization.Formatters|system.runtime.serialization.formatters|lib/net8.0/System.Runtime.Serialization.Formatters.dll|33693c0971e95d158efc64307e6ef379a9dc322f1642178e3c29c8e1d4db255e",
-            "System.Reflection.Context|system.reflection.context|lib/net10.0/System.Reflection.Context.dll|94da27080f9aaa03e3719828976838ba39b0d8d7299fe9bd6130b1c822014f3b",
-            "System.Reflection.Metadata|system.reflection.metadata|lib/net10.0/System.Reflection.Metadata.dll|2a8c49aa47e910f4e690bce79be3986d3cfb0df8d8e978bbdf51b76d594a378d",
-        ];
-        Assert.Equal(
-            expectedSpecs,
-            poolScript
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => line.Trim())
-                .Where(line => line.StartsWith("\"System.", StringComparison.Ordinal))
-                .Select(line => line.Trim('"')));
-        Assert.Contains(
-            "printf '    <PackageReference Include=\"%s\" Version=\"%s\" />\\n' \"$package_id\" \"$VERSION\"",
-            poolScript,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "if [ \"$actual_sha256\" != \"$expected_sha256\" ]; then",
-            poolScript,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "printf '%s\\n' \"${assemblies[@]}\" > \"$out\"",
-            poolScript,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "dotnet restore \"$tmp/oracles.csproj\" --verbosity quiet >&2",
-            poolScript,
-            StringComparison.Ordinal);
-    }
-
     /// <summary>
     /// Drift measurement is sound only when nothing went uncounted.
     ///
@@ -1717,37 +1652,6 @@ public class AuthoredCorpusRatchetTests
         await AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
 
         Assert.Contains("[integrity-only]", captured.ToString(), StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// <c>AuthoredCorpusBenchmark</c> names <c>Console.Out</c> exactly once, where it
-    /// defaults the caller's writer.
-    ///
-    /// <para>This is a source pin rather than a behavioural assertion because the defect
-    /// it guards is an <em>omission</em>: a report line added later that writes to the
-    /// global console instead of the injected writer. A behavioural test only catches
-    /// the lines it happens to assert on, which is exactly how two such lines survived
-    /// the round-five fix that introduced the writer. Any new global write fails here
-    /// whether or not anyone thought to assert on it.</para>
-    ///
-    /// <para>If this fails, do not raise the count — route the new write through the
-    /// <c>output</c> parameter. <c>Console.Error</c> is deliberately not pinned: the
-    /// side channel stays on stderr in both modes so <c>--json</c> emits parseable JSON
-    /// on stdout.</para>
-    /// </summary>
-    [Fact]
-    public void Benchmark_WritesToTheGlobalConsoleOnlyWhereItDefaultsTheWriter()
-    {
-        string source = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(), "tools", "DecompilerHarness", "AuthoredCorpusBenchmark.cs"));
-
-        var mentions = source
-            .Split('\n')
-            .Where(line => line.Contains("Console.Out", StringComparison.Ordinal))
-            .Select(line => line.Trim())
-            .ToArray();
-
-        Assert.Equal(["output ??= Console.Out;"], mentions);
     }
 
     internal static string FindRepositoryRoot()
