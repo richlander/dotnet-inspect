@@ -372,6 +372,145 @@ public sealed class EcosystemPopulationLoadingTests
 
     [Fact]
     public async Task
+        CurrentNavigationContributionPreservesExactFocusAdmission()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        WorkspaceEcosystemRegistrationDeclaration neighboring =
+            Declaration("ecosystem.neighboring");
+        var changed =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            workspace.Declaration),
+                        new WorkspaceRegistration.Ecosystem(neighboring),
+                    ]));
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    changed.Revision,
+                    admission));
+
+        Assert.Same(
+            Assert.Single(admission.Contributions),
+            projected.Source);
+        Assert.Equal(
+            EcosystemPopulationLibraryRole.Focus,
+            projected.Source.Correspondence.LoadedLibrary.Roles);
+        var available =
+            Assert.IsType<
+                NavigationEcosystemContributionOutcome.Available>(
+                    projected.Outcome);
+        NavigationEcosystemLibraryContribution contribution =
+            available.Contribution;
+        Assert.Same(
+            workspace.Workspace.Identity,
+            contribution.Workspace);
+        Assert.Same(
+            workspace.Revision,
+            contribution.HistoricalRevision);
+        Assert.Same(changed.Revision, contribution.Ecosystem.Revision);
+        Assert.Same(
+            workspace.Declaration,
+            contribution.Ecosystem.Registration);
+        Assert.Same(
+            projected.Source.Correspondence.Admission,
+            contribution.Admission);
+        Assert.Same(
+            projected.Source.Correspondence.Occurrence,
+            contribution.Library);
+        Assert.DoesNotContain(
+            typeof(NavigationEcosystemLibraryContribution)
+                .GetProperties(),
+            property => property.Name.Contains(
+                "Package",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        EqualTextRegistrationReplacementDoesNotReauthorizeContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        WorkspaceEcosystemRegistrationDeclaration replacement =
+            Declaration(workspace.Declaration.Id.Value);
+        var changed =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            replacement),
+                    ]));
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    changed.Revision,
+                    admission));
+
+        var unavailable =
+            Assert.IsType<
+                NavigationEcosystemContributionOutcome.Unavailable>(
+                    projected.Outcome);
+        Assert.Equal(
+            NavigationEcosystemContributionUnavailableReason
+                .RegistrationNotCurrent,
+            unavailable.Reason);
+        Assert.Same(changed.Revision, unavailable.CurrentRevision);
+        Assert.Same(
+            workspace.Declaration,
+            projected.Source.Correspondence.LoadReceipt.Request
+                .Registration);
+    }
+
+    [Fact]
+    public async Task ForeignWorkspaceCannotConsumeContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        await using var foreignWorkspace = new InspectionWorkspace(
+            new WorkspacePlan(
+                [
+                    new WorkspaceRegistration.Ecosystem(
+                        workspace.Declaration),
+                ]));
+        WorkspaceRegistrationRevision foreignRevision =
+            Read(foreignWorkspace);
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    foreignRevision,
+                    admission));
+
+        var rejected =
+            Assert.IsType<
+                NavigationEcosystemContributionOutcome.Rejected>(
+                    projected.Outcome);
+        Assert.Equal(
+            NavigationEcosystemContributionRejection.ForeignWorkspace,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public async Task
         IncompleteLoadAdmitsOnlyItsIndependentlyCompletedPlatformChild()
     {
         CompletedPlatformPopulation platform =
@@ -1665,6 +1804,25 @@ public sealed class EcosystemPopulationLoadingTests
                 (_, _) => operation(),
                 TestContext.Current.CancellationToken))
             .Value;
+
+    static async Task<EcosystemPopulationAdmissionResult>
+        AdmitPlatformAsync(
+            WorkspaceFixture workspace,
+            CompletedPlatformPopulation platform)
+    {
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        new(LoadMode.PlatformCompleted)
+                        {
+                            Platform = platform,
+                        },
+                        TestContext.Current.CancellationToken)));
+        return await EcosystemPopulationAdmissionOperation.AdmitAsync(
+            workspace.Workspace,
+            outcome);
+    }
 
     static WorkspaceEcosystemRegistrationDeclaration Declaration(
         string id) =>

@@ -744,7 +744,7 @@ where present, must not erase Platform and Package source distinction.
 
 ## Production adoption
 
-This shared capability has nine focused stages:
+This shared capability has ten focused stages:
 
 1. Lock this Ecosystem Population Loading contract.
 2. **Implemented:** host-neutral binding, request, outcome, receipt, and
@@ -773,11 +773,19 @@ This shared capability has nine focused stages:
    and occurrence correspondence; issue historical contribution witnesses
    only for accepted Focus Libraries; report unsupported owner shapes and
    preserve per-child dispositions without whole-load rollback.
-7. Have Navigation consume accepted contribution witnesses to issue and
-   reconcile current `.NET Runtime` and ASP.NET Core routes.
-8. Adopt equivalent explicit loading in the CLI and Browser/Wasm; Browser uses
+7. **Implemented:** project accepted Focus witnesses through a one-way adapter
+   into Navigation-owned point-in-time contribution evidence. Exact historical
+   admission remains available only while the same declaration object is
+   present in the caller-supplied current registration revision; a foreign
+   current revision is rejected, removal stays typed, and no Package ancestry
+   is inferred. The adapter consumes the inseparable owner-issued Focus witness
+   rather than accepting independently substitutable registration, admission,
+   and Library values.
+8. Have Navigation issue and reconcile current `.NET Runtime` and ASP.NET Core
+   subjects and routes from that contribution evidence.
+9. Adopt equivalent explicit loading in the CLI and Browser/Wasm; Browser uses
    only supported non-installed source capabilities.
-9. Retire direct host-local platform population activation and include the
+10. Retire direct host-local platform population activation and include the
    behavior in a separately authorized release and production deployment.
 
 This sequence composes with the overall Workspace-rooted Navigation plan in
@@ -803,10 +811,11 @@ stages add these focused Release gates:
 | Admission correspondence | Every accepted Library joins the exact loader receipt, child settlement, owner-issued roles, Workspace admission receipt, and occurrence |
 | Per-child atomicity | One session-backed child enters Workspace atomically; earlier accepted children are not rolled back when another child rejects, fails, or is unsupported |
 | Focus contribution | Every accepted Focus Library receives one historical Ecosystem contribution witness; binding-support-only Libraries receive none |
+| Navigation intake | The Focus-only adapter preserves exact historical admission and returns current contribution evidence only for the same Workspace and exact declaration retained by the supplied current revision |
 | Unsupported admission shape | A Library-bearing child without an Artifact session, or a session without Libraries, is retired and reported as unsupported without changing the loader outcome |
 | Owner disposition | Every returned Library owner and adjacent Artifact session transfers once or is retired on non-success, cancellation, unsupported shape, or partial admission; Artifact retirement follows untransferred Library retirement and cleanup failure remains visible |
 | Product family correspondence | A Runtime or ASP.NET Core loader rejects a Platform outcome whose request names another family; a completed mismatch retires every Library owner and Artifact authority before returning |
-| Adapter composition | A public package-backed capability wraps the package PlatformHouse adapter and completes the Runtime loader without private conversion, reflection, or friend access |
+| Adapter composition | A public package-backed capability wraps the package PlatformHouse adapter, completes the Runtime loader, admits its Libraries, and projects their exact Focus witnesses through Navigation intake without private conversion, reflection, or friend access |
 | Platform-family source distinction | Runtime and Package `System.Text.Json`, and ASP.NET Core and Package `Microsoft.AspNetCore.Http.Abstractions`, remain distinct through loading, admission, and Navigation |
 | ASP.NET Core focus role | Runtime binding-support Libraries do not receive an ASP.NET Core Ecosystem relation without an independent exact witness |
 | Host parity | CLI and Browser/Wasm issue equivalent logical requests and interpret the same outcomes with different authorized source plans |

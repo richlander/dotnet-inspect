@@ -93,6 +93,29 @@ public sealed class PackagePlatformLibraryMaterializerTests
                             .SourceProvenance);
                 });
         Assert.Equal(2, admission.Contributions.Count);
+        IReadOnlyList<EcosystemPopulationNavigationContribution>
+            navigation =
+                EcosystemPopulationNavigationProjection.Project(
+                    revision,
+                    admission);
+        Assert.Equal(2, navigation.Count);
+        Assert.All(
+            navigation,
+            contribution =>
+            {
+                Assert.Contains(
+                    contribution.Source,
+                    admission.Contributions);
+                var available = Assert.IsType<
+                    NavigationEcosystemContributionOutcome.Available>(
+                        contribution.Outcome);
+                Assert.Same(
+                    registration,
+                    available.Contribution.Ecosystem.Registration);
+                Assert.Same(
+                    contribution.Source.Correspondence.Occurrence,
+                    available.Contribution.Library);
+            });
         var accepted =
                 Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
                     Assert.IsType<

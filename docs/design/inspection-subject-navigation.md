@@ -121,6 +121,16 @@ CLI gates prove only the implemented Package-backed subset. They do not yet
 prove Ecosystem subjects, direct Workspace-to-Library routes, route-independent
 subject identity, or route reconciliation.
 
+The first preparatory Ecosystem-intake slice is implemented by the
+Navigation-owned result contract in `DotnetInspector.Queries` and
+`EcosystemPopulationNavigationProjection` in
+`DotnetInspector.EcosystemLoading`. The adapter classifies each owner-issued
+historical accepted Focus witness against one caller-supplied current Workspace
+registration revision and returns exact current contribution evidence only
+while the same declaration object remains registered in the same Workspace.
+This slice does not implement the target Ecosystem occurrence identity,
+structural subject, route, activation, or reconciliation.
+
 PR #5433 demonstrates the intended browser distinction: Workspace manages
 retained coordinates, Package is inspectable, and package tabs are absent.
 Those browser identities and transitions remain host-local migration facts,
@@ -878,6 +888,49 @@ replaced in place rather than retained as a parallel identity family.
 identity family. The closed-kind, component-binding, route-validation, and
 construction gates must be updated to this Workspace-rooted graph while
 preserving their existing exact Type and Member witnesses.
+
+### Current Ecosystem contribution intake
+
+The preparatory intake consumes only owner-issued evidence already produced by
+Ecosystem Population Loading:
+
+- the exact historical registration revision and declaration retained by the
+  load receipt;
+- the exact Workspace Library admission receipt and occurrence; and
+- the Focus-only contribution witness that joins them.
+
+`EcosystemPopulationNavigationProjection` compares each inseparable
+Focus-witness association with one caller-supplied current Workspace
+registration revision. It returns:
+
+- `Available` with one `NavigationEcosystemLibraryContribution` when the
+  current revision belongs to the witness's exact Workspace and still contains
+  the same declaration object;
+- `Unavailable(RegistrationNotCurrent)` when the historical evidence is valid
+  but that exact declaration is absent from the current revision; or
+- `Rejected(ForeignWorkspace)` when the current revision belongs to another
+  Workspace.
+
+An equal ID or equal declaration value is not currentness. An unrelated
+registration revision may preserve the contribution only by retaining the same
+exact declaration object. The available value retains both historical and
+current revisions, the exact declaration, admission receipt, and Library
+occurrence. It has no Package field or implied Package ancestry.
+
+`EcosystemPopulationNavigationProjection` is the one-way adapter because
+`DotnetInspector.EcosystemLoading` already references
+`DotnetInspector.Queries`; reversing that dependency would create a cycle. It
+accepts only `EcosystemPopulationAdmissionResult.Contributions`, whose
+owner-issued witnesses already bind the exact historical registration,
+accepted admission, occurrence, and Focus role. The adapter does not expose a
+component-wise evaluator that could substitute support-only or unrelated
+evidence; binding-support-only Libraries never enter this intake.
+
+This evidence is route-ready but is not itself a structural relation identity
+or route. The target graph still requires a nominal current Ecosystem
+occurrence, route construction, activation, and reconciliation in one coherent
+replacement of the package-only subject implementation. Hosts must not expose
+the available intake value as a supported route before that slice lands.
 
 A navigation lens identity combines one exact structural subject identity with
 one view-facet registry identity:
@@ -2172,8 +2225,11 @@ overall tracker. The current plan has sixteen focused stages:
 7. Have View Facet Registry make an explicit target-aware applicability
    decision for existing Compare descriptors; the initial path keeps
    source-native subjects without Package association inapplicable.
-8. Replace Navigation's package-only subject implementation with the closed
-   subject graph, route state, activation, reconciliation, and Release gates.
+8. **Partially implemented:** first consume accepted Focus witnesses as exact
+   point-in-time current contribution evidence without Package ancestry. Then
+   replace Navigation's package-only subject implementation with the closed
+   subject graph, route state, activation, reconciliation, and remaining
+   Release gates.
 9. Have Workspace Definitions resolve portable subject intent into exact fresh
    Workspace subjects and routes without serializing runtime identities.
 10. Adopt the same Workspace-rooted subjects and routes in the CLI through the
@@ -2252,6 +2308,9 @@ The eventual subject-navigation implementation must include named gates for:
 - `SubjectIdentity_ExcludesRouteIdentity`
 - `EcosystemSubject_RequiresExactWorkspaceRegistrationOccurrence`
 - `LibrarySubject_RequiresExactWorkspaceAdmissionOccurrence`
+- `CurrentNavigationContributionPreservesExactFocusAdmission`
+- `EqualTextRegistrationReplacementDoesNotReauthorizeContribution`
+- `ForeignWorkspaceCannotConsumeContribution`
 - `Construction_RejectsAbsentOwnerIssuedComponents`
 - `Route_AllowsOnlyClosedTypedRelations`
 - `Route_RequiresOneExactWorkspaceAndContiguousWitnesses`
