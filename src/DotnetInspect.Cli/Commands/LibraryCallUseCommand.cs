@@ -12,6 +12,7 @@ using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
+using QuerySpace.Composition;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -172,6 +173,18 @@ public static class LibraryCallUseCommand
             return 1;
         }
 
+        LibraryCallUseSections.SemanticRowDeclaration? semanticRows =
+            null;
+        if (options.RowSelection is not null
+            && !LibraryCallUseSections.TryGetSemanticRows(
+                options.Select,
+                out semanticRows))
+        {
+            throw new InvalidOperationException(
+                "Semantic row selection was activated without a Graph "
+                    + "Libraries row declaration.");
+        }
+
         if (options.Libraries.Length != 2)
         {
             CommandError.Write(
@@ -245,8 +258,11 @@ public static class LibraryCallUseCommand
                         group.Participants[1].Assembly);
                     bool requiresClusters =
                         options.QueryPlan.Cluster is not null
-                        || selectedNameSet.Contains(
-                            DirectUseClustersSection);
+                        || semanticRows?.Rows
+                            .RequiresDirectUseClusters is true
+                        || (semanticRows is null
+                            && selectedNameSet.Contains(
+                                DirectUseClustersSection));
                     allClusters = requiresClusters
                         ? AssemblyPairDirectUseClusterProjection
                             .Create(result)
@@ -320,56 +336,100 @@ public static class LibraryCallUseCommand
             AssemblyPairCallUseProjection.Create(selectedResult!);
         IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
             selectedResult!.Occurrences;
-        bool selectsDirectUseClusterRows =
-            options.RowSelection is not null
-            && selectedNames.Length == 1
-            && selectedNames[0].Equals(
-                DirectUseClustersSection,
-                StringComparison.OrdinalIgnoreCase);
-        if (selectsDirectUseClusterRows)
+        bool wroteCount = false;
+        if (semanticRows is not null)
         {
-            if (!CliSemanticRowSelection.TrySelect(
-                    options.RowSelection,
-                    selectedClusters!.Clusters,
-                    "Library direct-use clusters",
-                    failure =>
-                        $"Library direct-use cluster row selection stage "
-                        + $"{failure.Failure.StageNumber} requires cluster "
-                        + $"{failure.Failure.RequiredPosition}, but only "
-                        + $"{failure.Failure.AvailableCount} direct-use clusters are available.",
-                    out IReadOnlyList<AssemblyPairDirectUseCluster>
-                        selectedClusterRows))
+            var rowProjection =
+                new GraphLibrariesSectionRowProjection(
+                    projection,
+                    selectedClusters!,
+                    selectedOccurrences);
+            QuerySpaceTerminalRequirement terminal =
+                options.Count
+                    ? QuerySpaceTerminalRequirement.Count
+                    : QuerySpaceTerminalRequirement.Rows;
+            QuerySpaceSectionRowResolutionResult<
+                GraphLibrariesSectionRowProjection> resolution =
+                    semanticRows.Rows.Resolve(
+                        options.QueryPlan,
+                        options.RowSelection!,
+                        terminal,
+                        rowProjection);
+            if (!resolution.IsSuccess)
             {
+                CommandError.Write(
+                    "Graph Libraries row selection could not be resolved: "
+                        + $"{resolution.Failure!.RowQueryFailure.Reason}.");
                 return 1;
             }
 
-            selectedClusters = selectedClusters with
+            if (options.Count)
             {
-                Clusters = [.. selectedClusterRows],
-            };
+                SectionCountOutcome<string, string> count =
+                    QuerySpaceSectionRowExecutor.ApplyCount<
+                        GraphLibrariesSectionRowProjection,
+                        string>(resolution.Request!);
+                if (count is SectionCountOutcome<
+                        string,
+                        string>.Semantic failure)
+                {
+                    CommandError.Write(
+                        semanticRows.FormatFailure(
+                            failure.StageNumber,
+                            failure.RequiredPosition,
+                            failure.AvailableCount));
+                    return 1;
+                }
+
+                if (count is not SectionCountOutcome<
+                        string,
+                        string>.Completed completed)
+                {
+                    throw new InvalidOperationException(
+                        "Graph Libraries Count did not produce an exact "
+                            + "row-set cardinality.");
+                }
+                CountOutput.WriteCount(
+                    AssertSingleCount(
+                        completed,
+                        semanticRows.Rows.RowSet));
+                wroteCount = true;
+            }
+            else
+            {
+                SectionRowsOutcome<
+                    string,
+                    GraphLibrariesSectionRowProjection> rows =
+                        QuerySpaceSectionRowExecutor.ApplyRows(
+                            resolution.Request!);
+                if (!rows.IsSuccess)
+                {
+                    CommandError.Write(
+                        semanticRows.FormatFailure(
+                            rows.Failure!.Failure.StageNumber,
+                            rows.Failure.Failure.RequiredPosition,
+                            rows.Failure.Failure.AvailableCount));
+                    return 1;
+                }
+
+                rowProjection = rows.Rebind(rowProjection);
+                projection = rowProjection.Summaries;
+                selectedClusters = rowProjection.Clusters;
+                selectedOccurrences = rowProjection.CallSites;
+            }
         }
-        else if (!CliSemanticRowSelection.TrySelect(
-                     options.RowSelection,
-                     selectedResult.Occurrences,
-                     "Library call sites",
-                     failure =>
-                         $"Library call-site row selection stage "
-                         + $"{failure.Failure.StageNumber} requires call site "
-                         + $"{failure.Failure.RequiredPosition}, but only "
-                         + $"{failure.Failure.AvailableCount} call sites are available.",
-                     out selectedOccurrences))
+        if (!wroteCount)
         {
-            return 1;
+            Write(
+                selectedResult!,
+                projection,
+                selectedClusters!,
+                rootPathInspection,
+                options,
+                selectedNames,
+                defaultCallSiteView,
+                selectedOccurrences);
         }
-        Write(
-            selectedResult!,
-            projection,
-            selectedClusters!,
-            rootPathInspection,
-            options,
-            selectedNames,
-            defaultCallSiteView,
-            selectedOccurrences);
         if (rootPathInspection is { Content.IsComplete: false })
         {
             CommandError.Write(
@@ -391,6 +451,23 @@ public static class LibraryCallUseCommand
         }
 
         return 0;
+    }
+
+    static int AssertSingleCount(
+        SectionCountOutcome<string, string>.Completed completed,
+        string expectedRowSet)
+    {
+        SectionCountEntry<string> count =
+            completed.Counts is [var single]
+                && string.Equals(
+                    single.Identity,
+                    expectedRowSet,
+                    StringComparison.Ordinal)
+                    ? single
+                    : throw new InvalidOperationException(
+                        "Graph Libraries Count returned an unexpected "
+                            + "row-set identity.");
+        return count.Value;
     }
 
     static DocumentSchema CreateSchema() =>

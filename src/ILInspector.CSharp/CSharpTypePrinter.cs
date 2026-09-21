@@ -1326,8 +1326,15 @@ public sealed class CSharpTypePrinter
                 $"Member body shape '{policy.Body?.GetType().Name}' is not valid for {member.Kind} '{member.Name}'.",
                 parameterName);
         }
+        bool isInterfaceConstantInitializer =
+            type.Kind == "interface"
+            && member.Kind == "field"
+            && member.IsConst
+            && policy.BodyPolicy == CSharpBodyPolicy.Full
+            && policy.Body is CSharpFieldInitializer;
         if (type.Kind == "interface"
-            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton)
+            && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
+            && !isInterfaceConstantInitializer)
         {
             throw new ArgumentException(
                 $"Interface member '{member.Name}' must use skeleton body policy.",

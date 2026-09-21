@@ -430,8 +430,8 @@ public static class StyleOptionCatalog
         new StyleOptionTierDescriptor
         {
             Id = StyleOptionTier.Synthesis,
-            Title = "Name synthesis",
-            Summary = "Readable invented names for locals that have none of their own. Compiles to identical IL, but these names no longer match the ones the IL uses.",
+            Title = "Local naming",
+            Summary = "Readable or approximate display names for locals. Compiles to identical IL, but the selected names may not represent exact source identity.",
             Order = 3,
             ByteDivergent = false,
         },
@@ -480,6 +480,16 @@ public static class StyleOptionCatalog
             configKey: "dotnet_inspect_style_slot_local_names",
             get: static o => !o.ReadableLocalNames,
             with: static (o, v) => o with { ReadableLocalNames = !v }),
+        Boolean(
+            id: "approximate-pdb-local-names",
+            title: "Prefer approximate PDB local names",
+            summary: "When exact scoped identity cannot be represented, use a deterministic collision-resolved name associated with the physical PDB slot; fidelity remains Partial.",
+            tier: StyleOptionTier.Synthesis,
+            byteDivergent: false,
+            oracleEndorsed: false,
+            configKey: "dotnet_inspect_style_approximate_pdb_local_names",
+            get: static o => o.ApproximatePdbLocalNames,
+            with: static (o, v) => o with { ApproximatePdbLocalNames = v }),
         Boolean(
             id: "wrap-splittable-expressions",
             title: "Wrap long boolean chains",

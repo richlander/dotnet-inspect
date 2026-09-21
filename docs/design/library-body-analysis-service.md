@@ -156,6 +156,15 @@ map, and generated-framework classification internally. This keeps the result
 types semantically separate without repeating retained evidence or
 whole-library classification.
 
+`LibraryImplementationProfileAnalysisResult` publishes an Analysis-issued
+implementation-profile population coverage receipt beside its profile rows.
+The receipt records whether profiles were requested, whether the execution
+covered the full method-evidence population, the declared methods, physical
+managed bodies, profiled physical bodies, unavailable physical bodies with
+their Analysis-owned reasons, and the shared diagnostics. Consumers that need a
+whole-library population use this receipt directly rather than inferring
+coverage from missing rows, display labels, or profile order.
+
 Common execution identity, coverage, and diagnostics may be published once in
 an execution receipt. A focused result refers to that common evidence through
 an explicit typed association; it does not infer correspondence from a path,
@@ -263,6 +272,13 @@ execution prepares one token-scoped input; coordinate-file execution prepares
 one input for the union of selected physical MethodDef tokens. This preserves
 the existing point-fact output and typed failure boundary while removing both
 `AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
+
+The implementation-profile population slice adds the coverage receipt required
+by Library Metrics without changing existing Member Metrics rows. It preserves
+Analysis ownership of declared-method enumeration, managed-body enumeration,
+body-scope qualification, recoverable diagnostics, and unavailable-body
+classification so Research can later decide whether a whole-library report is
+available.
 
 The pathological graph cases remain explicit: bodiless declarations may still
 be selected as roots, async and lifted calls retain physical evidence

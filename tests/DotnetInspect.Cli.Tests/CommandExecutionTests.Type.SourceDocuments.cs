@@ -163,6 +163,7 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
+        Assert.Contains("| API Declarations | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
         Assert.Contains("| Fields | section |", output);
     }

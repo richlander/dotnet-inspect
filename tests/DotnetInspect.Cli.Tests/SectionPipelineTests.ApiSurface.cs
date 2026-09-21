@@ -252,7 +252,7 @@ public partial class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(35, pipeline.AllSectionNames.Length);
+        Assert.Equal(36, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
     }
 
@@ -782,6 +782,7 @@ public partial class SectionPipelineTests
             [
                 SectionNames.MemberIndex,
                 SectionNames.TypeMetrics,
+                SectionNames.ApiDeclarations,
                 SectionNames.CloneCandidates,
             ],
             Uncategorized(broad));

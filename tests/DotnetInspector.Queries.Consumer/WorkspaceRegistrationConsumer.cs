@@ -10,6 +10,8 @@ public sealed record WorkspaceRegistrationObservation(
     ImmutableArray<ExactLibrarySourceCoordinate> ExactLibraries,
     ImmutableArray<PackagePrefixDeclaration> PackagePrefixes,
     ImmutableArray<WorkspaceEcosystemRegistrationDeclaration> Ecosystems,
+    ImmutableArray<WorkspaceEcosystemContributionRelation>
+        EcosystemContributions,
     ImmutableArray<WorkspaceContextInput> Contexts);
 
 public static class WorkspaceRegistrationConsumer
@@ -66,6 +68,7 @@ public static class WorkspaceRegistrationConsumer
             libraries.ToImmutable(),
             prefixes.ToImmutable(),
             ecosystems.ToImmutable(),
+            available.Revision.EcosystemContributions,
             available.Revision.Plan.Contexts);
     }
 

@@ -132,6 +132,7 @@ public class StyleOptionCatalogTests
             new[]
             {
                 "slot-local-names",
+                "approximate-pdb-local-names",
                 "wrap-splittable-expressions",
                 "disable-one-liner-wrapping",
                 "wrap-expression-body-arrow",
@@ -196,11 +197,13 @@ public class StyleOptionCatalogTests
         var resolved = StyleOptionCatalog.ResolveChoices(
         [
             "slot-local-names",
+            "approximate-pdb-local-names",
             "qualify-field-access",
             "guarded-boolean-return-style:branchless",
         ]);
 
         Assert.False(resolved.ReadableLocalNames);
+        Assert.True(resolved.ApproximatePdbLocalNames);
         Assert.True(resolved.QualifyFieldAccess);
         Assert.True(resolved.PreferBranchlessBoolean);
         Assert.False(resolved.PreferConditionalExpressionReturn);
@@ -313,8 +316,10 @@ public class StyleOptionCatalogTests
         Assert.Equal("false", slotNames.DefaultValue);
         Assert.Equal("true", longLiterals.DefaultValue);
         Assert.True(StyleOptionCatalog.DefaultOptions.ReadableLocalNames);
+        Assert.False(StyleOptionCatalog.DefaultOptions.ApproximatePdbLocalNames);
         Assert.True(StyleOptionCatalog.DefaultOptions.PreferLongLiteralSuffix);
         Assert.False(PrinterOptions.Default.ReadableLocalNames);
+        Assert.False(PrinterOptions.Default.ApproximatePdbLocalNames);
         Assert.False(PrinterOptions.Default.PreferLongLiteralSuffix);
     }
 

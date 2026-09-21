@@ -47,7 +47,7 @@ docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecyc
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
-docs/design/models/type-source-latency-hedge/Safety.cfg=0
+docs/design/models/type-source-pdb-latency-hedge/Safety.cfg=0
 docs/design/models/inspect-web-worker-controls/BrokenAcceptWrongAcknowledgment.cfg=12
 docs/design/models/inspect-web-worker-controls/BrokenPostAfterClose.cfg=12
 docs/design/models/inspect-web-worker-controls/BrokenRetireBeforeAcknowledgment.cfg=12
