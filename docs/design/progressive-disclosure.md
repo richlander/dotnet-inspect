@@ -48,6 +48,15 @@ Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
 or `@Audit` doors remain available. The explicit-only whole-package and
 license-file listings remain outside every automatic verbosity preset.
 
+Package domain sections remain explicit rather than joining automatic
+`@Package` and `@Files` scope. Dependency Hierarchy, the package content audit
+rows, Identifier Confusion, SourceLink Files, and SourceLink Missing Files are
+`Verbose`; their populations grow with dependencies, package content,
+identifiers, mapped documents, or source failures. SourceLink Availability and
+Integrity are `Fixed` aggregate field tables. Their source acquisition remains
+capability-gated, so their exact or `@SourceLink` selection still requires
+Detailed despite the fixed output shape.
+
 For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
 Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
 the command's authored primary result and diagnostic context at `-v:m`, are

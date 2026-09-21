@@ -345,8 +345,9 @@ public enum TypeSourceLatencyHedgeSelection
 {
     AuthoredBeforeDecompilation,
     AuthoredAfterDecompilation,
+    DecompiledAfterPdbUnavailable,
     DecompiledAfterAuthoredUnavailable,
-    DecompiledAfterPreferenceWindow,
+    DecompiledAfterPdbPreferenceWindow,
     Unavailable,
 }
 
@@ -739,20 +740,21 @@ public static partial class AssemblyContextSourceQuery
             participant,
             request,
             context,
-            latencyHedge: null,
+            executionPlan: null,
             cancellationToken);
 
     /// <summary>
-    /// Executes ordinary type source with bounded PDB and authored-source
-    /// preference windows. Explicit document requests use the serial operation.
+    /// Executes ordinary type source with a bounded Portable PDB preference
+    /// window and serial authored settlement after prompt PDB availability.
+    /// Explicit document requests use the serial operation.
     /// </summary>
     public static Task<AssemblyTypeSourceEntry>
-        ExecuteTypeWithLatencyHedgeAsync(
+        ExecuteTypeWithPdbLatencyHedgeAsync(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             AssemblyTypeSourceRequest request,
             AssemblyContextSourceQueryContext context,
-            TypeSourceLatencyHedge latencyHedge,
+            TypeSourcePdbLatencyHedge latencyHedge,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(latencyHedge);
@@ -761,7 +763,8 @@ public static partial class AssemblyContextSourceQuery
             participant,
             request,
             context,
-            latencyHedge,
+            new TypeSourceExecutionPlan.Pdb(
+                latencyHedge),
             cancellationToken);
     }
 
@@ -770,7 +773,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyContextParticipant participant,
         AssemblyTypeSourceRequest request,
         AssemblyContextSourceQueryContext context,
-        TypeSourceLatencyHedge? latencyHedge,
+        TypeSourceExecutionPlan? executionPlan,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
@@ -830,20 +833,23 @@ public static partial class AssemblyContextSourceQuery
 
         try
         {
-            if (latencyHedge is not null
-                && request.OriginalDocumentPath is null)
+            if (request.OriginalDocumentPath is null)
             {
-                return await InspectTypeWithLatencyHedgeAsync(
-                        group,
-                        subject,
-                        participant,
-                        request,
-                        context,
-                        available.Value.Retained,
-                        bindingPolicyVersion,
-                        latencyHedge,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                if (executionPlan
+                    is TypeSourceExecutionPlan.Pdb pdb)
+                {
+                    return await InspectTypeWithPdbLatencyHedgeAsync(
+                            group,
+                            subject,
+                            participant,
+                            request,
+                            context,
+                            available.Value.Retained,
+                            bindingPolicyVersion,
+                            pdb.LatencyHedge,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
 
             return await InspectTypeAsync(
@@ -864,6 +870,13 @@ public static partial class AssemblyContextSourceQuery
                 request,
                 InspectionFailure(ex));
         }
+    }
+
+    private abstract record TypeSourceExecutionPlan
+    {
+        internal sealed record Pdb(
+            TypeSourcePdbLatencyHedge LatencyHedge)
+            : TypeSourceExecutionPlan;
     }
 
     internal static async Task<AssemblyMemberSourceEntry> InspectMemberAsync(

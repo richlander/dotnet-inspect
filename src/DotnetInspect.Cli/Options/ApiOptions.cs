@@ -309,7 +309,8 @@ public partial record ApiOptions : IProjectionOptions
         && Fields is not { Length: > 0 }
         && IncludeSections is { Count: 1 } sections
         && sections.First() is
-            SectionNames.DecompiledSource
+            SectionNames.ApiDeclarations
+            or SectionNames.DecompiledSource
             or SectionNames.AnnotatedSource
             or SectionNames.PdbSource
             or SectionNames.SourceDiff
@@ -352,6 +353,12 @@ public record TypeOptions : ApiOptions
     public bool AllowPlatformPrefixFallback { get; init; }
     public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
         TypeDecompilationInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<TypeApiDeclarationResult>?
+        TypeApiDeclarationInspection
     {
         get;
         init;

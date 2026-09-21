@@ -4063,9 +4063,9 @@ identity is required to distinguish it. The adjacent Scope snapshot separately
 supplies its exact physical-composition observation; neither the definition
 association nor plan equality authorizes Artifact access.
 
-The current `WorkspaceDefinitionSnapshot.Identity` property is a compatibility
-surface pending the #7982 retirement slice. New contracts and gates use the
-owner-issued tuple rather than that additional token.
+`WorkspaceDefinitionSnapshot` is identified by its exact Workspace,
+registration revision, and Scope revision tuple. It exposes no additional
+snapshot identity.
 
 The live `WorkspaceRealizationOperationLease` joins the selected realization,
 that definition snapshot, and the corresponding Scope observation. The lease
@@ -4092,6 +4092,11 @@ Candidate completion closes new construction admission, waits for every
 already-admitted construction lease to release, and then captures one complete
 definition snapshot. A Scope snapshot that still reports unfinished
 preparation is not ready for publication.
+
+A candidate is identified by its exact coordinator-owned object and realization
+state; it exposes no second candidate identity. Concurrent candidate starts use
+one coordinator-private sequencing token that never enters a candidate,
+result, settlement, or consumer contract.
 
 A newer replacement attempt supersedes the older unpublished candidate,
 closes its construction admission, lets already-admitted construction finish,
@@ -4185,7 +4190,7 @@ awaited work is lexical, or uses an independent operation scope when work can
 overlap close. It does not create candidate, cutover, predecessor, or aggregate
 settlement state merely to execute one realization.
 
-The implementation is `WorkspaceRealizationCoordinator`,
+The implementation is `WorkspaceReplacementCoordinator`,
 `WorkspaceRealizationConstructionLease`,
 `WorkspaceRealizationOperationLease`, and `WorkspaceDefinitionSnapshot`.
 These types implement the replacement-capable path. Direct owner-backed
@@ -4202,6 +4207,7 @@ single-thread progress.
 
 The corresponding Release gates are:
 
+- `ReplacementSurface_OmitsRedundantIdentityTypes`;
 - `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
 - `CandidateFailure_PreservesActiveRealization`;
 - `CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization`;

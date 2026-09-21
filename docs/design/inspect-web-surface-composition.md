@@ -261,9 +261,11 @@ actions in the result:
 
 - Source places `Copy`, optional `Open`, and `Explore` in the working-surface
   action region while source content starts at the top of its pane and compact
-  provenance stays attached to the bottom. `Explore` opens Settings at
-  **Decompiler style** so the complete source presentation options are
-  available; dismissal returns focus to the same Source action.
+  provenance stays attached to the bottom. Type Source `Explore` requests the
+  routed whole-Type experience owned by
+  [Inspect Web Type Explorer](inspect-web-type-explorer.md); this document owns
+  only the action's placement. Member Source retains its existing contextual
+  Settings destination; changing that destination is outside Type Explorer.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
@@ -1328,7 +1330,7 @@ summary, centered maximum-width column, or inset source card.
 Their layout is:
 
 ```text
-Working-surface actions                                  Copy   Open
+Working-surface actions                        Copy   Open   Explore
 Types or Members | source content
                  | source provenance
 
@@ -1781,8 +1783,9 @@ with the absence of a synthesized `Default feed` control.
 2. Confirm that the source pane uses all remaining width, Copy, optional Open,
    and Explore appear in the working-surface action region, source content
    begins at the top of the pane, and compact provenance remains attached to
-   its bottom. Open Explore and confirm that Settings focuses Decompiler style
-   and dismissal returns focus to Explore.
+   its bottom. Open Explore and confirm that the routed
+   [Type Explorer](inspect-web-type-explorer.md) receives the exact Type rather
+   than opening Settings.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.

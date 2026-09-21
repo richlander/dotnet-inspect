@@ -815,9 +815,17 @@ one flat `BrowserSource` plus a member-only catalog of rebased UTF-16 spans for
 the complete member, XML documentation groups, attribute lists, signature, and
 body. The transported text remains only the exact complete-member substring;
 the verified full document and native absolute spans stay managed. XML
-documentation and attributes may each carry multiple spans. Type Source and
-call-graph member Source retain the unchanged five-field `BrowserSource`
-contract, and decompiled member Source carries an empty part catalog.
+documentation and attributes may each carry multiple spans. Call-graph member
+Source retains the five-field `BrowserSource` contract, and decompiled member
+Source carries an empty part catalog. Type Source wraps that unchanged source
+value in the `source` arm of `BrowserTypeCodeView`. Its existing viewer also
+offers **API Declarations** (public/protected) and **All Declarations**;
+neither is implementation source. Both use the completed host-neutral
+`TypeApiDeclarationInspection.Execute` operation on the compile/API participant,
+including reference-only packages. The `apiDeclarations` arm retains the
+entire inspection envelope, including Share and explicit unavailable evidence.
+The selected view participates in operation identity, so changing scope cannot
+reuse a stale source result. See [Type API Declaration Inspection](../docs/design/type-api-declarations.md).
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
 PDB source. Whole-member source remains MethodDef-scoped: a

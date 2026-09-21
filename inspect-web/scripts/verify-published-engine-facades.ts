@@ -388,15 +388,23 @@ export function inspectWebRuntimeObservation() {
       "analysis.queryPackageOpportunities");
     operations.push("analysis.queryPackageOpportunities.visibleFailure");
 
-    await expectVisibleFailure(
+    const typeSourceFailure = await withTimeout(Promise.resolve(
       operation(sourceFacade, "queryTypeSource")(
+        crypto.randomUUID(),
         packageId,
         packageVersion,
         framework,
         "Fixture.dll",
         "Fixture.Type",
-        "[]"),
+        "[]",
+        "source")),
       "source.queryTypeSource");
+    assert.ok(
+      typeof typeSourceFailure === "object" && typeSourceFailure !== null
+        && "kind" in typeSourceFailure && typeSourceFailure.kind === "Failed"
+        && "error" in typeSourceFailure && typeof typeSourceFailure.error === "string"
+        && typeSourceFailure.error.length > 0,
+      "source.queryTypeSource must report an explicit managed failure");
     operations.push("source.queryTypeSource.visibleFailure");
 
     await expectVisibleFailure(
