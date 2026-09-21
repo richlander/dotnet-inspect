@@ -420,7 +420,56 @@ lines.
 
 This audit changes only base `@Member` behavior and declarations directly
 reused by its overload/detail composition. Domain-only and uncategorized
-analysis sections remain later #3284 work.
+analysis sections are audited separately below.
+
+#### Domain and uncategorized `@Member` evidence
+
+The domain and exact-name audit covers the broad exact-type, named-overload,
+and exact-member catalogs. Domain categories remain outside automatic output:
+their growth declarations determine the verbosity required by explicit
+category or exact-section selection, not whether `-v:n` or `-v:d` enters the
+domain.
+
+The broad and shared descriptors have these measured and structural bounds:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
+| Unsafe Members | 192 `System.String` rows; one row per unsafe finding or visible decode diagnostic | `Verbose` |
+| Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
+| Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
+| Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
+| Performance Triage | 31 `System.String` rows; one row per optimization opportunity | `Verbose` |
+| Implementation Profiles | 301 `System.String` rows; one row per scoped method profile | `Verbose` |
+| Clone Candidates | Ranked candidate rows with a default result ceiling of 100, above the Informative range | `Verbose` |
+| Exception Regions, Source Locations, Source Files, Facts | One row per region, selected source-located member, SourceLink document, or research fact; none has a section-level row cap | `Verbose` |
+| Cost Overlay, Semantics Overlay | Annotated documents grow with selected methods, source, and projected facts | `Verbose` |
+
+Shared descriptors retain the broad producer classification when an overload
+or exact-member route narrows their scope. This keeps one declaration for one
+producer contract; a narrower invocation does not redefine the section's
+maximum shape.
+
+The exact-member-only descriptors have these bounds:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Annotated Source | `Enumerable.ToArray:1` exceeds 24 rendered lines; output grows with the selected body and annotations | `Verbose` |
+| Annotated Source Document, Finding Census | Portable documents contain target-dependent source trees, facts, instances, and correlation data | `Verbose` |
+| Source Diff | Diff length grows with the PDB and decompiled source documents | `Verbose` |
+| Fidelity Causes, Applied Taste | One row per recorded cause or decompiler decision; either population grows with body evidence | `Verbose` |
+| Calls, Callers, Call Graph | One row per call site, caller edge, or graph edge | `Verbose` |
+| Exception Regions, Unsafe Operations, Facts | One row per region, unsafe operation, or research fact | `Verbose` |
+| Body Shapes, Body Shape Summary | One row per matching occurrence or distinct `(Kind, Match)` group; one method can contain arbitrarily many | `Verbose` |
+| Cost Overlay, Semantics Overlay | Annotated documents grow with body text and projected facts | `Verbose` |
+| Source Locations | One selected logical member produces at most one location row | `Fixed` |
+
+The uncategorized `Member Index`, `Finding Census`, `Clone Candidates`, and
+`Implementation Profiles` sections therefore require Detailed when selected
+by exact name. The overload route's `Signature` and `Custom Attributes`
+retain their base-audit `Fixed` and `Verbose` declarations. Exact-member
+`Source Locations` is the bounded exception: exact selection requires Normal,
+while broad and overload source-location inventories remain `Verbose`.
 
 ### Cost
 
@@ -776,7 +825,7 @@ The member command's current authored ownership is:
 selector and indivisible-document contracts are not coherent promises for a
 broader category. `Clone Candidates` also remains exact-name-only because its
 cross-member comparison does not compose with partial category selection.
-`Implementation Profiles` remains exact-name-only because its unbounded
+`Type Metrics` and `Member Metrics` remain exact-name-only because their unbounded
 whole-assembly acquisition must not be implied by category selection. On an
 overload inventory, `Signature` and `Custom Attributes` remain exact-name
 sections because both require one selected overload.
