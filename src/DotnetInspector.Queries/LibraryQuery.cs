@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;

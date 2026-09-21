@@ -1,5 +1,5 @@
 using DotnetInspector.PackageQueries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;

@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
