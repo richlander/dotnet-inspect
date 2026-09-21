@@ -127,7 +127,7 @@ public static class LibrarySections
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
-            .Add<ImplementationProfiles>(
+            .Add<MemberMetrics>(
                 ImplementationProfilesQuery.Definition,
                 HasMethodBodies)
             .Add<BodyShapes>(
@@ -945,11 +945,10 @@ public static class LibrarySections
                 { Methods.IsEmpty: false };
     }
 
-    public sealed class ImplementationProfiles
+    public sealed class MemberMetrics
         : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name =>
-            SectionNames.ImplementationProfiles;
+        public static string Name => SectionNames.MemberMetrics;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>

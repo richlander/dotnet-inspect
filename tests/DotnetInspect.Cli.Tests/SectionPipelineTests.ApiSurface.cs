@@ -252,7 +252,7 @@ public partial class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(35, pipeline.AllSectionNames.Length);
+        Assert.Equal(36, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
     }
 
@@ -432,8 +432,8 @@ public partial class SectionPipelineTests
                 ApiMemberSectionDescriptors.CostFacts.SizeClass),
             (ApiMemberSectionDescriptors.TopLeverage.Name,
                 ApiMemberSectionDescriptors.TopLeverage.SizeClass),
-            (ApiMemberSectionDescriptors.ImplementationProfiles.Name,
-                ApiMemberSectionDescriptors.ImplementationProfiles.SizeClass),
+            (ApiMemberSectionDescriptors.TypeMetrics.Name,
+                ApiMemberSectionDescriptors.TypeMetrics.SizeClass),
             (ApiMemberSectionDescriptors.OptimizationOpportunities.Name,
                 ApiMemberSectionDescriptors.OptimizationOpportunities.SizeClass),
             (ApiMemberSectionDescriptors.SourceLocations.Name,
@@ -779,7 +779,8 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.MemberIndex,
-                SectionNames.ImplementationProfiles,
+                SectionNames.TypeMetrics,
+                SectionNames.ApiDeclarations,
                 SectionNames.CloneCandidates,
             ],
             Uncategorized(broad));
@@ -790,14 +791,14 @@ public partial class SectionPipelineTests
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
             ],
             Uncategorized(overload));
         Assert.Equal(
             [
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
             ],
             Uncategorized(detail));
     }

@@ -165,7 +165,7 @@ public static class ApiMemberSectionDescriptors
             .Add<SafetyFacts>()
             .Add<CostFacts>()
             .Add<TopLeverage>()
-            .Add<ImplementationProfiles>()
+            .Add<TypeMetrics>()
             .Add<OptimizationOpportunities>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapes>()
             .Add<ApiMemberDetailSectionDescriptors.BodyShapeSummary>()
@@ -499,11 +499,23 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsBodyBacked);
     }
 
-    public sealed class ImplementationProfiles
+    public sealed class TypeMetrics
         : ISectionDescriptor<ApiType>
     {
-        public static string Name =>
-            SectionNames.ImplementationProfiles;
+        public static string Name => SectionNames.TypeMetrics;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool ExplicitOnly => true;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool ProbeEffectiveness => false;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(IsBodyBacked);
+    }
+
+    public sealed class MemberMetrics
+        : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.MemberMetrics;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
@@ -685,7 +697,8 @@ public static class ApiMemberSectionPipelines
                 SectionNames.MemberIndex,
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.TypeMetrics,
+                SectionNames.MemberMetrics,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -890,7 +903,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.CloneCandidates>(
                 model => model.Members.Count == 1)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.ImplementationProfiles>()
+            .Add<ApiMemberSectionDescriptors.MemberMetrics>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleBodyBackedMember)
@@ -985,7 +998,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<BodyShapeSummary>()
             .Add<ApiMemberSectionDescriptors.CloneCandidates>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
-            .Add<ApiMemberSectionDescriptors.ImplementationProfiles>()
+            .Add<ApiMemberSectionDescriptors.MemberMetrics>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
             .Add<ILBody>();

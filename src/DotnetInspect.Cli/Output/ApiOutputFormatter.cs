@@ -2849,6 +2849,7 @@ public static class ApiOutputFormatter
         TypeView view,
         ApiType type,
         Analysis.LibraryBodyIndex index,
+        bool memberScope,
         bool restrictToModelMembers = false,
         int? selectedMethodToken = null)
     {
@@ -2900,7 +2901,12 @@ public static class ApiOutputFormatter
             })
             .ToList();
         if (rows.Count > 0)
-            view.ImplementationProfileRows = rows;
+        {
+            if (memberScope)
+                view.MemberMetricRows = rows;
+            else
+                view.TypeMetricRows = rows;
+        }
     }
 
     internal static bool IncludesImplementationProfileDiagnostic(

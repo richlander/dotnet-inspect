@@ -260,11 +260,12 @@ public partial class ApiCommand
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson)
         {
-            if (GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.ImplementationProfiles))
+            if (SectionNames.IncludesBodyMetrics(
+                    GetRequestedMemberSections(type, options)))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
+                    $"Document --json cannot represent "
+                    + $"{(options is MemberOptions ? SectionNames.MemberMetrics : SectionNames.TypeMetrics)} analysis. "
                     + "Use --jsonl, --tsv, or --table.");
                 return 1;
             }
@@ -478,8 +479,8 @@ public partial class ApiCommand
             }
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.ImplementationProfiles))
+                && SectionNames.IncludesBodyMetrics(
+                    GetRequestedMemberSections(type, options)))
             {
                 bool restrictImplementationProfiles =
                     ApiMemberSectionPipelines
@@ -494,7 +495,8 @@ public partial class ApiCommand
                             options)
                         : type,
                     TypeAnalysisIndex(),
-                    restrictToModelMembers:
+                            options is MemberOptions,
+                            restrictToModelMembers:
                         restrictImplementationProfiles,
                     selectedMethodToken:
                         (options as MemberOptions)?
