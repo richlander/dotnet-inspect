@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
+  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "../src/library-subject-nav.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -125,6 +127,37 @@ test("Library navigation renders the aggregate first and keeps empty Libraries",
   assert.match(html,
     /data-library-subject="Example\.Empty"[\s\S]*0 types · 0 members/);
   assert.match(html, /role="listbox"[\s\S]*aria-activedescendant=/);
+});
+
+test("Library subjects sort alphabetically and prefer a case-insensitive namesake", () => {
+  const libraries = [
+    {
+      id: "asset:zulu",
+      name: "Example.Zulu",
+      asset: "lib/net10.0/Example.Zulu.dll",
+    },
+    {
+      id: "asset:namesake",
+      name: "example.package",
+      asset: "lib/net10.0/example.package.dll",
+    },
+    {
+      id: "asset:alpha",
+      name: "Example.Alpha",
+      asset: "lib/net10.0/Example.Alpha.dll",
+    },
+  ];
+
+  assert.deepEqual(
+    alphabetizeLibrarySubjects(libraries).map(library => library.id),
+    ["asset:alpha", "asset:namesake", "asset:zulu"]);
+  assert.equal(
+    preferredLibrarySubjectId(libraries, "Example.Package"),
+    "asset:namesake");
+  assert.equal(
+    preferredLibrarySubjectId(libraries, "Missing.Package"),
+    "asset:alpha");
+  assert.equal(preferredLibrarySubjectId([], "Example.Package"), null);
 });
 
 test("Library navigation qualifies duplicate names with product-owned assets", () => {
