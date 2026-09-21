@@ -3200,7 +3200,6 @@ public class SourceForwarderResolutionTests
                             Print = print,
                             SourcePart = parts ? MemberSourcePartKind.Signature : null,
                             PrintRow = print ? RowSelector.First : null,
-                            Bare = print,
                         },
                         source,
                         fixture.Loaded)
@@ -3213,7 +3212,6 @@ public class SourceForwarderResolutionTests
                             ShowDocs = false,
                             Print = print,
                             PrintRow = print ? RowSelector.First : null,
-                            Bare = print,
                         },
                         source,
                         fixture.Loaded));

@@ -44,7 +44,7 @@ public partial class DependsAssetCommandTests
         (int markdownExit, string markdown, string markdownError) =
             await RunCapturedAsync(arguments);
         (int projectedExit, string projected, string projectedError) =
-            await RunCapturedAsync([.. arguments, "--columns", "Target"]);
+            await RunCapturedAsync([.. arguments, "--columns", "Root"]);
         (int jsonExit, string json, string jsonError) =
             await RunCapturedAsync([.. arguments, "--json", "--compact"]);
 
@@ -62,6 +62,17 @@ public partial class DependsAssetCommandTests
             "## Dependencies",
             markdown,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "```text",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.True(
+            markdown.IndexOf(
+                "## Dependency Hierarchy",
+                StringComparison.Ordinal)
+            < markdown.IndexOf(
+                "## Dependencies",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             "| Root Set |",
             markdown,
@@ -74,6 +85,17 @@ public partial class DependsAssetCommandTests
             "## Dependency Hierarchy",
             projected.TrimStart(),
             StringComparison.Ordinal);
+        Assert.Contains(
+            "## Dependencies",
+            projected,
+            StringComparison.Ordinal);
+        Assert.True(
+            projected.IndexOf(
+                "## Dependency Hierarchy",
+                StringComparison.Ordinal)
+            < projected.IndexOf(
+                "## Dependencies",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             "| Root Set |",
             projected,
@@ -85,6 +107,37 @@ public partial class DependsAssetCommandTests
 
         using JsonDocument document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.TryGetProperty("summary", out _));
+    }
+
+    [Fact]
+    public async Task MarkdownRendersEmbeddedMermaidWithNeighboringSection()
+    {
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Hierarchy,Dependencies",
+            "--markdown",
+            "--mermaid",
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "## Dependency Hierarchy",
+            output.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.Contains("```mermaid", output, StringComparison.Ordinal);
+        Assert.Contains("## Dependencies", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Root Set |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            output.Split(Environment.NewLine),
+            StringComparer.Ordinal);
     }
 
     [Fact]

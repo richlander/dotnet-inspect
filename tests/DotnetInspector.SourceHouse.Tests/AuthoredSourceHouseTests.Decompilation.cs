@@ -452,6 +452,44 @@ public sealed partial class AuthoredSourceHouseTests
             completed.Work.BodyProjectionsAttempted);
     }
 
+    [Fact]
+    public async Task
+        TypeDecompilation_ExactTypeIncludesNonPublicMembers()
+    {
+        string assemblyPath =
+            typeof(DecompilationFixture.SurfaceSelection).Assembly.Location;
+        SourceHouseTarget.TypeTarget target =
+            TypeTarget(
+                assemblyPath,
+                typeof(DecompilationFixture.SurfaceSelection)
+                    .FullName!
+                    .Replace('+', '.'));
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(assemblyPath);
+
+        SourceHouseDecompilationOutcome.Completed completed =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                await SourceHouse.ExecuteDecompilationAsync(
+                    DecompilationRequest(
+                        library,
+                        target,
+                        assemblyPath),
+                    library.IssueOperation(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            CSharpDecompilationStatus.Available,
+            completed.Attempt.Status);
+        Assert.Contains(
+            "public int Included()",
+            completed.Attempt.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private static int ConcealedCore()",
+            completed.Attempt.Text,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -637,6 +675,13 @@ public sealed partial class AuthoredSourceHouseTests
             {
                 public int Value() => 42;
             }
+        }
+
+        public sealed class SurfaceSelection
+        {
+            public int Included() => ConcealedCore();
+
+            private static int ConcealedCore() => 1;
         }
     }
 }

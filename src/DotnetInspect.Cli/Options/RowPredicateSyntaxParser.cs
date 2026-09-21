@@ -1,4 +1,6 @@
 using ILInspector.CSharp;
+using QuerySpace;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -18,6 +20,47 @@ internal readonly record struct RowPredicateSyntax(
 
 internal static class RowPredicateSyntaxParser
 {
+    private readonly record struct OperatorSyntax(
+        string Token,
+        string Comparison,
+        RowPredicateOperator PredicateOperator,
+        PortableQueryOperator PortableOperator,
+        RowQueryOperator? RowOperator);
+
+    private static readonly OperatorSyntax[] Operators =
+    [
+        new(
+            " starts-with ",
+            "starts-with",
+            RowPredicateOperator.StartsWith,
+            PortableQueryOperator.StartsWith,
+            null),
+        new(
+            ">=",
+            ">=",
+            RowPredicateOperator.GreaterOrEqual,
+            PortableQueryOperator.AtLeast,
+            RowQueryOperator.GreaterOrEqual),
+        new(
+            "<=",
+            "<=",
+            RowPredicateOperator.LessOrEqual,
+            PortableQueryOperator.AtMost,
+            RowQueryOperator.LessOrEqual),
+        new(
+            "!=",
+            "!=",
+            RowPredicateOperator.NotEquals,
+            PortableQueryOperator.NotEqual,
+            RowQueryOperator.NotEquals),
+        new(
+            "=",
+            "=",
+            RowPredicateOperator.Equals,
+            PortableQueryOperator.Equal,
+            RowQueryOperator.Equals),
+    ];
+
     internal static bool TryParse(
         string expression,
         out RowPredicateSyntax syntax,
@@ -41,8 +84,9 @@ internal static class RowPredicateSyntaxParser
             return false;
         }
 
-        var (index, token, parsedOperator) = found;
-        string value = expression[(index + token.Length)..].Trim();
+        var (index, operatorSyntax) = found;
+        string value =
+            expression[(index + operatorSyntax.Token.Length)..].Trim();
         if (value.Length == 0)
         {
             error = $"Missing value in --where predicate '{Contain(expression)}'.";
@@ -51,7 +95,7 @@ internal static class RowPredicateSyntaxParser
 
         syntax = new RowPredicateSyntax(
             expression[..index].Trim(),
-            parsedOperator,
+            operatorSyntax.PredicateOperator,
             value);
         error = "";
         return true;
@@ -62,20 +106,66 @@ internal static class RowPredicateSyntaxParser
             .Replace("-", "", StringComparison.Ordinal)
             .Replace("_", "", StringComparison.Ordinal);
 
+    internal static PortableQueryOperator PortableOperator(
+        RowPredicateOperator @operator)
+    {
+        foreach (OperatorSyntax syntax in Operators)
+        {
+            if (syntax.PredicateOperator == @operator)
+                return syntax.PortableOperator;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(@operator));
+    }
+
+    internal static bool TryRowOperator(
+        RowPredicateOperator @operator,
+        out RowQueryOperator rowOperator)
+    {
+        foreach (OperatorSyntax syntax in Operators)
+        {
+            if (syntax.PredicateOperator == @operator
+                && syntax.RowOperator is { } resolved)
+            {
+                rowOperator = resolved;
+                return true;
+            }
+        }
+
+        rowOperator = default;
+        return false;
+    }
+
+    internal static string Comparison(
+        PortableQueryOperator @operator)
+    {
+        foreach (OperatorSyntax syntax in Operators)
+        {
+            if (syntax.PortableOperator == @operator)
+                return syntax.Comparison;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(@operator));
+    }
+
+    internal static string Comparison(
+        RowQueryOperator @operator)
+    {
+        foreach (OperatorSyntax syntax in Operators)
+        {
+            if (syntax.RowOperator == @operator)
+                return syntax.Comparison;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(@operator));
+    }
+
     private static (
         int Index,
-        string Token,
-        RowPredicateOperator Operator)? FindOperator(string expression)
+        OperatorSyntax Syntax)? FindOperator(string expression)
     {
-        (int Index, string Token, RowPredicateOperator Operator)? best = null;
-        foreach (var candidate in new[]
-        {
-            (Token: " starts-with ", Operator: RowPredicateOperator.StartsWith),
-            (Token: ">=", Operator: RowPredicateOperator.GreaterOrEqual),
-            (Token: "<=", Operator: RowPredicateOperator.LessOrEqual),
-            (Token: "!=", Operator: RowPredicateOperator.NotEquals),
-            (Token: "=", Operator: RowPredicateOperator.Equals),
-        })
+        (int Index, OperatorSyntax Syntax)? best = null;
+        foreach (OperatorSyntax candidate in Operators)
         {
             int index = expression.IndexOf(candidate.Token, StringComparison.Ordinal);
             if (index <= 0)
@@ -83,9 +173,10 @@ internal static class RowPredicateSyntaxParser
             if (best is null
                 || index < best.Value.Index
                 || index == best.Value.Index
-                && candidate.Token.Length > best.Value.Token.Length)
+                && candidate.Token.Length
+                    > best.Value.Syntax.Token.Length)
             {
-                best = (index, candidate.Token, candidate.Operator);
+                best = (index, candidate);
             }
         }
         return best;

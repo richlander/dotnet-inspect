@@ -404,7 +404,9 @@ public sealed record CompileBackMemberRequirement(
     int? AdderToken = null,
     int? RemoverToken = null,
     bool IsReadOnly = false,
-    CSharpBlockBody? CompanionBody = null)
+    CSharpBlockBody? CompanionBody = null,
+    string? PropertyInitializer = null,
+    string? PropertyGetterExpression = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -420,7 +422,8 @@ internal sealed record ProductTargetBody(
     bool RequiresAsyncModifier = false,
     bool RequiresUnsafeModifier = false,
     DecompilationFidelity Fidelity = DecompilationFidelity.Full,
-    bool UsesAutomaticGetterBody = false);
+    bool UsesAutomaticGetterBody = false,
+    string? SingleLineExpression = null);
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)

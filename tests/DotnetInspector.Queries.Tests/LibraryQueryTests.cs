@@ -1,7 +1,7 @@
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries.EmbeddedFixtures;
-using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace.Operations;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;

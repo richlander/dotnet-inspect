@@ -1,8 +1,8 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;

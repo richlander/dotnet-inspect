@@ -1,5 +1,5 @@
 {
-  "$comment": "Normative vectors for docs/design/portable-query-payload.md, checked by tests/DotnetInspector.PortableQueries.Tests against src/DotnetInspector.QueryEngine. encode: intent -> canonical bytes, which must also decode and re-emit unchanged. encode-reject: intent refused before canonicalizing, with reason. reject: bytes refused at decode, with reason. pair: two (queryId, canonical) states and whether they are the same query. Keys, dimensions, and named orders are illustrative.",
+  "$comment": "Normative vectors for docs/design/portable-query-payload.md, checked by tests/DotnetInspector.PortableQueries.Tests against src/QuerySpace. encode: intent -> canonical bytes, which must also decode and re-emit unchanged. encode-reject: intent refused before canonicalizing, with reason. reject: bytes refused at decode, with reason. pair: two (queryId, canonical) states and whether they are the same query. Keys, dimensions, and named orders are illustrative.",
   "encode": [
     {
       "name": "package-query",

@@ -3,7 +3,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -66,7 +66,10 @@ public sealed record LibraryQueryOptions : IProjectionOptions
             new SectionQueryKey(
                 term.Descriptor.Key,
                 ["--where"],
-                [.. term.Operators.Select(Comparison)],
+                [
+                    .. term.Operators.Select(
+                        RowPredicateSyntaxParser.Comparison),
+                ],
                 term.Descriptor.ValueKind,
                 [],
                 $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
@@ -108,7 +111,11 @@ public sealed record LibraryQueryOptions : IProjectionOptions
                 plan = null;
                 return false;
             }
-            if (syntax.Operator != RowPredicateOperator.Equals)
+            PortableQueryOperator @operator =
+                RowPredicateSyntaxParser.PortableOperator(
+                    syntax.Operator);
+            if (!LibraryQuery.RegisteredTerms.Any(term =>
+                    term.Operators.Contains(@operator)))
             {
                 plan = null;
                 error =
@@ -134,7 +141,7 @@ public sealed record LibraryQueryOptions : IProjectionOptions
             terms.Add(
                 new(
                     registered.Descriptor.Key,
-                    PortableQueryOperator.Equal,
+                    @operator,
                     syntax.Value));
         }
 
@@ -197,10 +204,4 @@ public sealed record LibraryQueryOptions : IProjectionOptions
         };
     }
 
-    private static string Comparison(
-        PortableQueryOperator @operator) =>
-        @operator == PortableQueryOperator.Equal
-            ? "="
-            : throw new InvalidOperationException(
-                "Library Query registered an unsupported CLI comparison.");
 }

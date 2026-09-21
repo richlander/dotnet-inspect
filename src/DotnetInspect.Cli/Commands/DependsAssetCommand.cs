@@ -11,7 +11,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
@@ -461,6 +461,11 @@ public partial class DependsCommand
                 root.Value));
         bool hasNuspec = options.AssetRoots.Any(root =>
             root.Kind == DependencyInspectionRootKind.Nuspec);
+        bool hasProject = options.AssetRoots.Any(root =>
+            root.Kind == DependencyInspectionRootKind.Project);
+        bool licensesRequested = candidateSections.Contains(
+            DependsAssetSections.Licenses,
+            StringComparer.OrdinalIgnoreCase);
         bool hasPackageBackedLibrary = options.AssetRoots.Any(root =>
             root.Kind == DependencyInspectionRootKind.Library
             && LibraryMayConsumeSources(root.Value, options.Tfm));
@@ -486,6 +491,18 @@ public partial class DependsCommand
         {
             CommandError.Write(
                 "--package-prefix currently uses the NuGet Gallery source and cannot be combined with source overrides.");
+            return false;
+        }
+        if (hasPrefix && licensesRequested)
+        {
+            CommandError.Write(
+                "The Licenses section requires explicit package, nuspec, or project roots and cannot be combined with --package-prefix.");
+            return false;
+        }
+        if (licensesRequested && !hasEvidenceRoots)
+        {
+            CommandError.Write(
+                "The Licenses section requires at least one --package, --nuspec, or --project root.");
             return false;
         }
 
@@ -532,17 +549,19 @@ public partial class DependsCommand
             && !hasRemotePackage
             && !(hasLocalPackage
                 && (hierarchyRequested
+                    || licensesRequested
                     || candidateSections.Contains(
                         DependsAssetSections.Pruning,
                         StringComparer.OrdinalIgnoreCase)))
+            && !(licensesRequested && (hasNuspec || hasProject))
             && !hasPackageBackedLibrary)
         {
             CommandError.Write(
-                "--source, --add-source, and --nugetconfig require a remote --package root or graph traversal from a local .nupkg root.");
+                "--source, --add-source, and --nugetconfig require a remote --package root, package traversal from a local .nupkg root, or the Licenses section for a nuspec or project root.");
             return false;
         }
 
-        if (hierarchyRequested
+        if ((hierarchyRequested || licensesRequested)
             && (hasRemotePackage
                 || hasLocalPackage
                 || hasNuspec
@@ -594,6 +613,9 @@ public partial class DependsCommand
                 DependsAssetSections.SectionOrder.Where(section =>
                     !section.Equals(
                         DependsAssetSections.Pruning,
+                        StringComparison.OrdinalIgnoreCase)
+                    && !section.Equals(
+                        DependsAssetSections.Licenses,
                         StringComparison.OrdinalIgnoreCase)),
                 StringComparer.OrdinalIgnoreCase);
         }
@@ -847,7 +869,7 @@ public partial class DependsCommand
                         context.Logger.Log,
                         composition,
                         operationContext,
-                        plan.Traversal,
+                        plan.PackageTraversal,
                         traversalDepth,
                         cancellationToken,
                         settledPackageCoordinate:
@@ -931,7 +953,7 @@ public partial class DependsCommand
             packageInputIndexes.Add(inputIndex);
         }
 
-        if (plan.Traversal && packageInputIndexes.Count > 0)
+        if (plan.PackageTraversal && packageInputIndexes.Count > 0)
         {
             TraversalTargetFrameworkPolicy traversalTargetPolicy =
                 options.Tfm is { } framework
@@ -954,6 +976,7 @@ public partial class DependsCommand
                                             .Provenance.AcquisitionForm
                                         == PackageDependencyEvidenceAcquisitionForm
                                             .DirectNuspec
+                                        && !plan.Licenses
                                         ? PackageDependencyTraversalExpansionAuthority
                                             .DirectDeclarationsOnly
                                         : PackageDependencyTraversalExpansionAuthority
@@ -975,10 +998,13 @@ public partial class DependsCommand
                         traversalDepth),
                     cancellationToken,
                     operationContext).ConfigureAwait(false);
-            graphDocuments.Add(
-                DependencyGraphProjection.Package(
-                    packageTraversal,
-                    packageOccurrences));
+            if (plan.Traversal)
+            {
+                graphDocuments.Add(
+                    DependencyGraphProjection.Package(
+                        packageTraversal,
+                        packageOccurrences));
+            }
         }
         if (plan.Traversal)
         {
@@ -1091,6 +1117,28 @@ public partial class DependsCommand
             : evidenceOutcome.RootSet.AdmittedRootCount
                 + evidenceOutcome.RootSet.FailedRootCount
                 + evidenceOutcome.RootSet.RejectedRootCount;
+        var liveEvidenceDocument = new DependencyInspectionEvidenceDocument(
+            evidenceOutcome,
+            admittedRootOccurrences,
+            failedRootOccurrences);
+        DependencyEvidenceProjection liveEvidence =
+            DependencyEvidenceProjection.Create(liveEvidenceDocument);
+        DependsLicenseProjectionResult licenses =
+            await AcquireLicenseProjectionAsync(
+                options,
+                plan,
+                packageTraversal,
+                liveEvidence,
+                evidenceOutcome,
+                composition,
+                operationContext,
+                context,
+                cancellationToken).ConfigureAwait(false);
+        additionalFailures =
+        [
+            .. additionalFailures,
+            .. licenses.Failures,
+        ];
         var operationRequest = new DependencyInspectionOperationRequest(
             new DependencyInspectionPlan(
                 plan.Declarations,
@@ -1100,7 +1148,10 @@ public partial class DependsCommand
                 options.Tfm is null
                     ? null
                     : new InertString(TextPolicy.Field, options.Tfm),
-                plan.Traversal ? traversalDepth : null),
+                plan.Traversal ? traversalDepth : null)
+            {
+                Licenses = plan.Licenses,
+            },
             requestedRoots,
             options.PackagePrefix is not null,
             evidenceOutcome,
@@ -1112,7 +1163,11 @@ public partial class DependsCommand
             pruning.Rows,
             pruning.Failures,
             pruning.Summary,
-            sharePreparation?.Share);
+            sharePreparation?.Share)
+        {
+            Licenses = licenses.Rows,
+            LicenseSummary = licenses.Summary,
+        };
         var builder = new EvidenceInspectionBuilder<
             DependencyInspectionContent,
             DependencyInspectionEvidenceDocument>();
@@ -1132,12 +1187,6 @@ public partial class DependsCommand
         DependencyEvidenceProjection? evidence = enriched is null
             ? null
             : DependencyEvidenceProjection.Create(enriched.Evidence);
-        var liveEvidenceDocument = new DependencyInspectionEvidenceDocument(
-            evidenceOutcome,
-            admittedRootOccurrences,
-            failedRootOccurrences);
-        DependencyEvidenceProjection liveEvidence =
-            DependencyEvidenceProjection.Create(liveEvidenceDocument);
         ImmutableArray<DependencyInspectionFailure> liveFailures =
         [
             .. liveEvidence.Failures
@@ -1190,6 +1239,7 @@ public partial class DependsCommand
             DependencyEvidenceFailurePhase.Graph =>
                 plan.RestoredRelationships,
             DependencyEvidenceFailurePhase.Traversal => plan.Traversal,
+            DependencyEvidenceFailurePhase.License => plan.Licenses,
             DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
             _ => false,
         };
@@ -1203,6 +1253,121 @@ public partial class DependsCommand
             MaxPackages = options.MaxPackages,
             SourceOptions = options.SourceOptions,
         };
+
+    private static async Task<DependsLicenseProjectionResult>
+        AcquireLicenseProjectionAsync(
+            DependsOptions options,
+            DependsAssetRequestPlan plan,
+            PackageDependencyTraversalOutcome? packageTraversal,
+            DependencyEvidenceProjection evidence,
+            PackageDependencyEvidenceOutcome evidenceOutcome,
+            DesktopPackageSourceComposition composition,
+            NuGetOperationContext operationContext,
+            CommandContext context,
+            CancellationToken cancellationToken)
+    {
+        if (!plan.Licenses)
+        {
+            return new DependsLicenseProjectionResult(
+                [],
+                DependencyInspectionLicenseSummary.NotRequested,
+                []);
+        }
+
+        var coordinates = new HashSet<PackageSourceCoordinate>();
+        if (packageTraversal is not null)
+        {
+            var explicitRootCoordinates = packageTraversal.Roots
+                .Select(root =>
+                    packageTraversal.Nodes[root.NodeIndex].Coordinate)
+                .ToHashSet();
+            foreach (PackageDependencyTraversalEdge edge in
+                     packageTraversal.Edges)
+            {
+                if (edge.Target
+                    is not PackageDependencyTraversalEdgeTarget.Node target)
+                {
+                    continue;
+                }
+                PackageSourceCoordinate coordinate =
+                    packageTraversal.Nodes[target.NodeIndex].Coordinate;
+                if (!explicitRootCoordinates.Contains(coordinate))
+                    coordinates.Add(coordinate);
+            }
+        }
+        foreach (DependencyEvidenceRestoredPackageRow package in
+                 evidence.RestoredPackages)
+        {
+            coordinates.Add(package.Identity.Coordinate);
+        }
+
+        var source = new DesktopPackageLicenseManifestSource(
+            composition,
+            options.SourceOptions,
+            context.Logger.Log);
+        PackageLicenseInventoryResult inventory =
+            await PackageLicenseInventoryQuery.ExecuteAsync(
+                coordinates,
+                source,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+        bool sourceComplete =
+            evidenceOutcome.RootSet.Completion
+                == PackageDependencyEvidenceRootSetCompletion.Complete
+            && IsComplete(evidenceOutcome.Phases.Declarations)
+            && IsComplete(evidenceOutcome.Phases.Relationships)
+            && (packageTraversal is null
+                || packageTraversal.IsSuccessful);
+        int unavailable = inventory.Items.Count(
+            static item => item.Failure is not null);
+        DependencyInspectionLicenseCompletion completion =
+            sourceComplete
+            && inventory.Completion
+                == PackageLicenseInventoryCompletion.Complete
+                ? DependencyInspectionLicenseCompletion.Complete
+                : DependencyInspectionLicenseCompletion.Partial;
+        return new DependsLicenseProjectionResult(
+            [.. inventory.Items.Select(
+                DependencyInspectionLicense.Create)],
+            new DependencyInspectionLicenseSummary(
+                completion,
+                inventory.Items.Length,
+                inventory.Items.Length - unavailable,
+                unavailable),
+            [
+                .. inventory.Items
+                    .Where(static item => item.Failure is not null)
+                    .Select(static item =>
+                    {
+                        PackageLicenseInventoryFailure failure =
+                            item.Failure!;
+                        return new DependencyInspectionFailure.Evidence(
+                            new DependencyEvidenceFailureRow(
+                                DependencyEvidenceFailurePhase.License,
+                                failure.Reason.ToString(),
+                                SourceKind: null,
+                                RootIndex: null,
+                                RootIdentity: null,
+                                Group: null,
+                                GroupIndex: null,
+                                Source: null,
+                                Subject: null,
+                                item.Coordinate.PackageId,
+                                item.Coordinate.Version,
+                                SourceLabel: null,
+                                new InertString(
+                                    TextPolicy.Prose,
+                                    failure.Message),
+                                Occurrences: 1));
+                    }),
+            ]);
+    }
+
+    private static bool IsComplete(
+        PackageDependencyEvidencePhaseCounts counts) =>
+        counts.Incomplete == 0
+        && counts.Unavailable == 0
+        && counts.Failed == 0;
 
     private static TraversalTargetFrameworkPolicy
         CreateTraversalTargetPolicy(string framework)
@@ -1309,7 +1474,7 @@ public partial class DependsCommand
         DependsAssetRequestPlan plan)
     {
         var failures = ImmutableArray.CreateBuilder<DependencyInspectionFailure>();
-        if (plan.Traversal && packageTraversal is not null)
+        if (plan.PackageTraversal && packageTraversal is not null)
         {
             foreach (PackageDependencyTraversalFailedResolutionNode failed in
                      packageTraversal.FailedResolutions)
@@ -1393,7 +1558,7 @@ public partial class DependsCommand
             }
         }
 
-        if (plan.Traversal && acquisition is not null)
+        if (plan.PackageTraversal && acquisition is not null)
         {
             foreach (DependencyEvidenceAcquiredRoot acquired in
                      acquisition.Roots)
@@ -2247,39 +2412,26 @@ public partial class DependsCommand
         IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
-        var sections = new HashSet<string>(
-            includeSections,
-            StringComparer.OrdinalIgnoreCase);
-        bool includeHierarchy = sections.Remove(
-            DependsAssetSections.DependencyHierarchy);
-        string hierarchy = includeHierarchy
-            ? RenderHierarchySection(
-                projection,
-                hierarchyRows,
-                options.EmbeddedMermaid)
-            : "";
-        string evidence = "";
-        if (sections.Count > 0)
+        var writerOptions = new MarkoutWriterOptions
         {
-            var writerOptions = new MarkoutWriterOptions
-            {
-                IncludeSections = sections,
-            };
-            var writer = new MarkoutWriter(
-                new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
-                writerOptions);
-            DependsAssetViewContext.Default.Serialize(
-                BuildAssetTableView(
-                    projection,
-                    sections,
-                    options.Rows,
-                    hierarchyRows),
-                writer);
-            evidence = writer.ToString();
-        }
-
-        output.WriteLine(
-            JoinMarkdown(hierarchy, evidence));
+            IncludeSections = includeSections,
+            SectionOrder = DependsAssetSections.SectionOrder,
+        };
+        DependsAssetView view = BuildAssetView(
+            projection,
+            includeSections,
+            options.Rows,
+            hierarchyRows,
+            options.EmbeddedMermaid);
+        MarkoutSerializer.Serialize(
+            DependsAssetMarkdownView.From(view),
+            output,
+            new MarkdownFormatter(
+                options.EmbeddedMermaid
+                    ? MarkdownGraphMode.Mermaid
+                    : MarkdownGraphMode.FencedTree),
+            DependsAssetViewContext.Default,
+            writerOptions);
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -2293,11 +2445,13 @@ public partial class DependsCommand
             options.Columns,
             options.Fields);
         writerOptions.IncludeSections = includeSections;
-        var writer = new MarkoutWriter(
+        writerOptions.SectionOrder = DependsAssetSections.SectionOrder;
+        MarkoutSerializer.Serialize(
+            tableView,
+            output,
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
+            DependsAssetViewContext.Default,
             writerOptions);
-        DependsAssetViewContext.Default.Serialize(tableView, writer);
-        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(
@@ -2496,6 +2650,13 @@ public partial class DependsCommand
                     or DependencyInspectionPruningCompletion.SourceBounded;
         }
         if (section.Equals(
+                DependsAssetSections.Licenses,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return projection.Summary.Licenses.Completion
+                == DependencyInspectionLicenseCompletion.Complete;
+        }
+        if (section.Equals(
                 DependsAssetSections.RestoredEdges,
                 StringComparison.OrdinalIgnoreCase)
             || section.Equals(
@@ -2537,6 +2698,19 @@ public partial class DependsCommand
             RestoredRelationships =
                 summary.RestoredRelationshipCompletion.ToString(),
             Pruning = summary.Pruning.Completion.ToString(),
+            LicenseInventory = summary.Licenses.Completion.ToString(),
+            LicensePackages = summary.Licenses.Completion
+                    == DependencyInspectionLicenseCompletion.NotRequested
+                ? null
+                : summary.Licenses.Packages,
+            LicenseAvailable = summary.Licenses.Completion
+                    == DependencyInspectionLicenseCompletion.NotRequested
+                ? null
+                : summary.Licenses.Available,
+            LicenseUnavailable = summary.Licenses.Completion
+                    == DependencyInspectionLicenseCompletion.NotRequested
+                ? null
+                : summary.Licenses.Unavailable,
             PruningRoots = summary.Pruning.Completion
                     == DependencyInspectionPruningCompletion.NotRequested
                 ? null
@@ -2588,6 +2762,12 @@ public partial class DependsCommand
                 projection.Dependencies,
                 rows,
                 DependsDependencyView.From),
+            Licenses = Rows(
+                sections,
+                DependsAssetSections.Licenses,
+                projection.Licenses,
+                rows,
+                DependsLicenseView.From),
             PruningRows = Rows(
                 sections,
                 DependsAssetSections.Pruning,
@@ -2649,6 +2829,12 @@ public partial class DependsCommand
                 projection.Dependencies,
                 rows,
                 DependsDependencyView.From),
+            Licenses = Rows(
+                sections,
+                DependsAssetSections.Licenses,
+                projection.Licenses,
+                rows,
+                DependsLicenseView.From),
             Pruning = Rows(
                 sections,
                 DependsAssetSections.Pruning,
@@ -2855,6 +3041,12 @@ public partial class DependsCommand
             CommandError.WriteWarning(
                 $"Package pruning evidence completed as {projection.Summary.Pruning.Completion}.");
         }
+        if (projection.Summary.Licenses.Completion
+            == DependencyInspectionLicenseCompletion.Partial)
+        {
+            CommandError.WriteWarning(
+                "Package license inventory completed as Partial.");
+        }
     }
 
     internal static int AssetExitCode(DependsAssetProjection projection) =>
@@ -2872,6 +3064,8 @@ public partial class DependsCommand
             || projection.Summary.Pruning.Completion
                 is DependencyInspectionPruningCompletion.Partial
                     or DependencyInspectionPruningCompletion.Failed
+            || projection.Summary.Licenses.Completion
+                == DependencyInspectionLicenseCompletion.Partial
             || projection.Summary.PackagePrefix is { } prefix
             && IsFailedPrefixTruncation(prefix.TruncationReason)
             || projection.Summary.FailedRoots > 0
@@ -2892,4 +3086,9 @@ public partial class DependsCommand
         PackageDependencyEvidenceGroupIdentity? SelectedGroup,
         int? SelectedGroupIndex,
         PackageDependencyEvidenceGroupOccurrence? SelectedSourceOccurrence);
+
+    private sealed record DependsLicenseProjectionResult(
+        ImmutableArray<DependencyInspectionLicense> Rows,
+        DependencyInspectionLicenseSummary Summary,
+        ImmutableArray<DependencyInspectionFailure> Failures);
 }

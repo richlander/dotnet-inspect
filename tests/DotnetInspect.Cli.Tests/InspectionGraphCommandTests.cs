@@ -8,7 +8,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;

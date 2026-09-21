@@ -15,6 +15,27 @@ public struct ConstructorGetterComputed(int value)
     public int Value { get => field + 1; } = value;
 }
 
+public readonly struct ConstructorGetterLogged(int value)
+{
+    public int Value
+    {
+        get
+        {
+            Console.WriteLine(field);
+            return field;
+        }
+    } = value;
+}
+
+public readonly struct ConstructorGetterExpressionAttribute(int value)
+{
+    public int Value
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get => field + 1;
+    } = value;
+}
+
 public readonly struct ConstructorGetterParameterName
 {
     public ConstructorGetterParameterName(int Value) => this.Value = Value;
@@ -24,6 +45,70 @@ public readonly struct ConstructorGetterParameterName
 public readonly struct ConstructorGetterKeywordParameter
 {
     public ConstructorGetterKeywordParameter(int @event) => Value = @event;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterOptional(int value = 7)
+{
+    public int Value { get; } = value;
+}
+
+public readonly struct ConstructorGetterPrivate
+{
+    ConstructorGetterPrivate(int value) => Value = value;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterAttributed
+{
+    [Obsolete("Use the default value instead.")]
+    public ConstructorGetterAttributed(int value) => Value = value;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterImplementation
+{
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public ConstructorGetterImplementation(int value) => Value = value;
+    public int Value { get; }
+}
+
+public readonly struct ConstructorGetterTypeName<T>
+{
+    public ConstructorGetterTypeName(IList<T> Array) => Items = Array;
+    public IList<T> Items { get => field ?? System.Array.Empty<T>(); }
+}
+
+public readonly struct ConstructorGetterTypeParameter<T>
+{
+    public ConstructorGetterTypeParameter(T T) => Value = T;
+    public T Value { get; }
+}
+
+public readonly struct ConstructorGetterReturnAttributeCollision
+{
+    public ConstructorGetterReturnAttributeCollision(int System) => Value = System;
+    public int Value
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get;
+    }
+}
+
+public readonly struct ConstructorGetterReturnAttribute
+{
+    public ConstructorGetterReturnAttribute(int value) => Value = value;
+    public int Value
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get;
+    }
+}
+
+public readonly struct ConstructorGetterPropertyAttribute
+{
+    public ConstructorGetterPropertyAttribute(int System) => Value = System;
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public int Value { get; }
 }
 

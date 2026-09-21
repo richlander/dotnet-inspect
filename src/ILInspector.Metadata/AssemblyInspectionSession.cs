@@ -57,7 +57,16 @@ public sealed class AssemblyInspectionSession :
     public static AssemblyInspectionSession Open(AssemblyImageSnapshot snapshot) =>
         new(AssemblyImage.Open(snapshot));
 
-    internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
+    /// <summary>
+    /// Opens an owner-backed session by prefetching a transferred stream.
+    /// </summary>
+    /// <param name="stream">The readable stream whose ownership transfers to this operation.</param>
+    /// <remarks>
+    /// The complete image is prefetched synchronously. This method closes
+    /// <paramref name="stream"/> before returning or throwing, and the returned
+    /// session owns the prefetched image until disposed.
+    /// </remarks>
+    public static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
 
     // Only the synchronous artifact query scope uses this borrow. It disposes

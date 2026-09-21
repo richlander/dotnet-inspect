@@ -138,6 +138,112 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void AllocationTypeMatch_StringMaterializationAcceptsOnlyRuntimeString()
+    {
+        var candidate = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            predictedType: null,
+            source: "triage",
+            allocationKind: "string-materialization");
+
+        Assert.True(
+            candidate.MatchesAllocatedType(
+                "System.String"));
+        Assert.False(
+            candidate.MatchesAllocatedType(
+                "System.Char[]"));
+        Assert.False(
+            candidate.MatchesAllocatedType(
+                "System.Text.StringBuilder"));
+        Assert.False(
+            candidate.MatchesAllocatedType(
+                "Fixture.String"));
+
+        var contradictoryCandidate = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            predictedType: "System.Char[]",
+            source: "triage",
+            allocationKind: "string-materialization");
+        Assert.Null(
+            contradictoryCandidate.AllocatedType);
+        Assert.Null(
+            contradictoryCandidate.PredictedType);
+        Assert.True(
+            contradictoryCandidate.MatchesAllocatedType(
+                "System.String"));
+        Assert.False(
+            contradictoryCandidate.MatchesAllocatedType(
+                "System.Char[]"));
+
+        var result = new CorrelationResult();
+        result.Candidates.Add(candidate);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(candidate.TypeConfirmed);
+        Assert.False(
+            candidate.RuntimeStringAllocationConfirmed);
+        Assert.Equal(
+            "cold-for-this-workload",
+            candidate.Status);
+    }
+
+    [Fact]
+    public void CandidateLookup_StringMaterializationProjectsSameCoordinateRawString()
+    {
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            predictedType: null,
+            source: "triage",
+            allocationKind: "string-materialization");
+        var library = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library");
+
+        _ = CandidateLookup.Create(
+            [triage, library]);
+
+        Assert.True(library.ProjectedByTriage);
+        Assert.Collection(
+            triage.ProjectedLibraries,
+            projected => Assert.Same(
+                library,
+                projected));
+    }
+
+    [Fact]
+    public void OptimizationVerdict_StringMaterializationRequiresConsumerInspection()
+    {
+        var stringCandidate = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            predictedType: null,
+            source: "triage",
+            allocationKind: "string-materialization");
+        var allocationCandidate = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Object");
+
+        Assert.True(
+            stringCandidate.RequiresConsumerInspection);
+        Assert.False(
+            stringCandidate.EligibleForOptimizationVerdict);
+        Assert.False(
+            allocationCandidate.RequiresConsumerInspection);
+        Assert.True(
+            allocationCandidate.EligibleForOptimizationVerdict);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_MarksUnobservedCandidate_WhenPredictedTypeIsRealizedHot()
     {
         var candidate = CandidateWithType(1, "Aspire.ColorGenerator.GetColorIndex(string)", "System.Func<string, System.Lazy<int>>");
@@ -1353,7 +1459,7 @@ public class TypeConfirmationTests
     static AllocationCandidate CandidateWithType(
         int id,
         string method,
-        string predictedType,
+        string? predictedType,
         string? detail = null,
         string source = "library",
         string assemblyName = "Fixture",
@@ -1362,7 +1468,8 @@ public class TypeConfirmationTests
         Guid? moduleVersionId = null,
         string libraryPath = "/tmp/Fixture.dll",
         int? evidenceMethodToken = null,
-        bool supportingCallSite = false)
+        bool supportingCallSite = false,
+        string allocationKind = "Delegate")
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -1378,7 +1485,7 @@ public class TypeConfirmationTests
             method,
             methodKey,
             stackKey,
-            "Delegate",
+            allocationKind,
             predictedType,
             detail,
             false,

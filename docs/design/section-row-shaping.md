@@ -15,10 +15,12 @@ binds Head, Tail, and Window intent directly to one unordered cohort for
 package-version rows. Ordered/ranked intent resolution, projection, general
 Count binding, source outcomes, and multiple-cohort composition remain
 unimplemented.
-The dependency-free `SectionCountOutcome<TIdentity, TEvidence>` carrier
-implements the terminal exact-count, source-for-Count, and semantic-failure
-branches consumed by Diff History; it does not itself resolve or execute a
-section request.
+The `DotnetInspector.Sections`-owned
+`SectionCountOutcome<TIdentity, TEvidence>` carrier implements the terminal
+exact-count, source-for-Count, and semantic-failure branches consumed by Diff
+History; it does not itself resolve or execute a section request. The L1
+PackageQueries outcome remains Count-free, while L2 returns
+`DiffHistorySectionAvailable` with the optional section Count outcome.
 
 Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -46,11 +48,11 @@ L2 `DotnetInspector.Sections` is the authority that binds resolved row-shaping
 intent to owner-declared logical row sets and returns typed row or reduction
 outcomes.
 
-`RowSelectionIntent` is physically carried by
-`DotnetInspector.QueryEngine` because `RowQueryIntent` embeds it and row-query
-resolution consumes it. [QuerySpace Library
-Boundary](query-space-library.md) owns its target physical and namespace
-migration. This design retains ownership of that unresolved selection intent.
+`RowSelectionIntent` is physically carried by `QuerySpace` because
+`RowQueryIntent` embeds it and row-query resolution consumes it.
+[QuerySpace Library Boundary](query-space-library.md) owns that physical and
+namespace composition. This design retains ownership of that unresolved
+selection intent.
 Declared-row-set binding and the `RowsCohort*` family remain in
 `DotnetInspector.Sections`.
 

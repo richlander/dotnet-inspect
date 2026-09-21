@@ -4,18 +4,24 @@
 
 Focused design for
 [#7976](https://github.com/richlander/dotnet-inspect/issues/7976).
-It establishes the target library boundary before the portable query, row
-planning, semantic selection, Query Operation, and Query Space composition
-contracts move from `DotnetInspector.QueryEngine`.
+It establishes the library boundary under which portable query, row planning,
+semantic selection, Query Operation, and Query Space composition contracts
+move from `DotnetInspector.QueryEngine`.
 
-The current implementation remains in `DotnetInspector.QueryEngine`.
-Implementation, row-execution restructuring, source generation, System.Text.Json
-integration, and product adoption are separate focused slices under the
-[adoption sequence](#adoption-sequence).
+The `QuerySpace` project now carries portable intent and payload contracts,
+row-query and semantic-selection contracts, Query Operation registration, and
+the first immutable Query Space descriptor and request contracts.
+`DotnetInspector.QueryEngine` is retired. Section-owned Count outcomes now live
+in `DotnetInspector.Sections`.
 
-No implementation gate yet verifies this target. Every property in
-[Required evidence](#required-evidence) is **unverified** until its named
-adoption lands and runs its Release gate.
+The existing portable-query, row-query, row-selection, Query Operation, and
+direct-consumer Release gates verify this physical boundary and the initial
+composition structure. Row-execution restructuring, complete section-row
+resolution, source generation, System.Text.Json integration, and broader
+product adoption remain separate focused slices under the
+[adoption sequence](#adoption-sequence). Later properties in
+[Required evidence](#required-evidence) remain **unverified** until their named
+adoption lands.
 
 ## Owner and exact claim
 
@@ -116,7 +122,7 @@ results.
 
 ## Library contents
 
-The target `QuerySpace` library carries reusable contracts from these existing
+The `QuerySpace` library carries reusable contracts from these existing
 owners:
 
 | Contract | Semantic owner |
@@ -144,8 +150,8 @@ QuerySpace.
 
 ## Namespaces and identity
 
-The target package and assembly name is `QuerySpace`. Its public namespaces
-are organized by reusable role:
+The package and assembly name is `QuerySpace`. Its public namespaces are
+organized by reusable role:
 
 ```text
 QuerySpace
@@ -326,7 +332,9 @@ language.
 
 ## Optional System.Text.Json correspondence
 
-The core package supports three independent adoption states:
+The canonical payload codec may use the platform `System.Text.Json`
+implementation. Beyond that codec implementation detail, the core package
+supports three independent witness adoption states:
 
 1. a QuerySpace witness only;
 2. QuerySpace and System.Text.Json witnesses; or
@@ -393,13 +401,16 @@ owner defines the exact supported modes, fallback behavior, and diagnostics.
 
 ## Dependencies and platforms
 
-The target `QuerySpace` runtime library depends only on the platform. It has no
-product, CLI, Browser, Markout, Roslyn, or System.Text.Json dependency.
+The `QuerySpace` runtime library may depend on .NET platform libraries,
+including `System.Text.Json` for the canonical payload codec. It has no external
+package, product, CLI, Browser, Markout, or Roslyn dependency. STJ-generated
+witness and adapter integration remains outside the core library.
 
-Per the user's evidence choice for this design, that negative dependency claim
-has **no automated absence gate** and remains **unverified**. The implementation
-slice must report its actual project and package references, but this design
-does not require a project-graph or compiled-reference enforcement gate.
+Per the user's evidence choice for this design, the negative external-package
+and product dependency claim has **no automated absence gate** and remains
+**unverified**. The implementation slice must report its actual project,
+package, and platform assembly references, but this design does not require a
+project-graph or compiled-reference enforcement gate.
 
 The public runtime contract remains compatible with NativeAOT and
 single-threaded Browser/Wasm. Optional build-time generation may use Roslyn
@@ -488,7 +499,7 @@ does not reopen this document to absorb its adopting owner's semantics.
 | `GeneratedAndHandwrittenBindingsAreEquivalent` | When generation lands, both paths produce the same descriptor, plan, failure, and result for the covered declarations. |
 | `SpecializedRowExecutionMatchesReferenceEvaluator` | When compiler acceleration lands, every admitted specialized topology matches the reference evaluator over contract-defining and pathological inputs. |
 | Focused STJ integration gates | When integration lands, an explicitly supplied runtime witness or post-compilation evidence establishes exact context and root correspondence; direction respects effective generation mode, and an STJ property never creates query semantics implicitly. |
-| Dependency report | The implementation PR reports the core project's evaluated references; by explicit user choice, no automated absence gate is required and the negative dependency claim remains unverified. |
+| Dependency report | The implementation PR reports the core project's evaluated project, package, and platform assembly references; by explicit user choice, no automated absence gate is required and the negative external-package and product dependency claim remains unverified. |
 
 ## Non-claims
 

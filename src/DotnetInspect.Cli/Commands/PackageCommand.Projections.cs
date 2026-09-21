@@ -10,7 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -192,7 +192,6 @@ public partial class PackageCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                options.Bare,
                 PackagePayloadDestination(options),
                 row => PackagePayloadDestination(
                     options,

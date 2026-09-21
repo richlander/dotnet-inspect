@@ -1,5 +1,5 @@
 using DotnetInspector.PackageQueries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;
@@ -183,50 +183,51 @@ public static class DiffHistoryInspection
         DiffHistoryOutcome outcome,
         DiffHistoryCountRequest? request)
     {
-        if (request is null
-            || outcome is not DiffHistoryOutcome.Available available)
+        if (outcome is not DiffHistoryOutcome.Available available)
         {
             return outcome;
         }
 
         SectionCountOutcome<
             DiffHistoryCountCohort,
-            DiffHistoryChangedVersionCountEvidence> count =
-                available.Document switch
-                {
-                    DiffHistoryDocument.ApiMembers value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.ApiTypes value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.ApiAttributes value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.ExactApiMember value =>
-                        Count(
-                            value.Content.History
-                                .ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.Allocations value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.CallSites value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.Unsafety value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    _ => throw new InvalidOperationException(
-                        "Unknown Diff History document."),
-                };
-        return new DiffHistoryOutcome.Available(
+            DiffHistoryChangedVersionCountEvidence>? count =
+                request is null
+                    ? null
+                    : available.Document switch
+                    {
+                        DiffHistoryDocument.ApiMembers value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.ApiTypes value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.ApiAttributes value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.ExactApiMember value =>
+                            Count(
+                                value.Content.History
+                                    .ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.Allocations value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.CallSites value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.Unsafety value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        _ => throw new InvalidOperationException(
+                            "Unknown Diff History document."),
+                    };
+        return new DiffHistorySectionAvailable(
             available.Document,
             count);
     }
@@ -329,7 +330,10 @@ public static class DiffHistoryInspection
         foreach (InspectionDiagnostic diagnostic in evaluationDiagnostics)
             yield return diagnostic;
 
-        switch (available.Count)
+        if (outcome is not DiffHistorySectionAvailable counted)
+            yield break;
+
+        switch (counted.Count)
         {
             case SectionCountOutcome<
                     DiffHistoryCountCohort,

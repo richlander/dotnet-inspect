@@ -141,9 +141,13 @@ substrates, and inspection producers that will extend that space.
   projected from that exact retained content and selection intent. Package
   Dependency Traversal retains that complete context as a typed root source
   without moving its package-local asset or group selection, retains one
-  traversal target for compatible candidate-manifest selection, and leaves
-  Platform-pruned route composition to the Workspace operation that selected
-  the relevant ecosystem. The
+  traversal target for compatible candidate-manifest selection, and hands
+  each root-relative resolved edge to
+  [package dependency edge
+  realization](design/package-dependency-edge-realization.md). That query
+  prepares exact candidate-bound PackageHouse compile realization under the
+  traversal target and optionally retains exact Platform pruning before the
+  later Workspace route composition. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
@@ -451,10 +455,14 @@ substrates, and inspection producers that will extend that space.
   construction, and restoration. Its admission composer atomically transfers
   each session-backed child through ordinary Workspace admission, reports
   unsupported owner shapes, and issues historical contribution witnesses only
-  for accepted Focus Libraries. Navigation remains responsible for current
-  route validity. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
-  consumers; each composes its exact PlatformHouse family without exposing a
-  user-facing Platform component or merging focus and binding-support roles.
+  for accepted Focus Libraries. Its one-way adapter into Queries classifies
+  those witnesses against one current Workspace registration revision,
+  preserving exact current contribution evidence without Package ancestry.
+  Navigation remains responsible for subject construction, route issuance, and
+  reconciliation. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the
+  first consumers; each composes its exact PlatformHouse family without
+  exposing a user-facing Platform component or merging focus and
+  binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core

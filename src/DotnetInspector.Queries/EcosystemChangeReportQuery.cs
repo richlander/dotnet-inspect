@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Services;
 using NuGetFetch;
 

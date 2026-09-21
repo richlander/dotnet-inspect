@@ -461,6 +461,7 @@ public static class IrPasses
         // Decline any surviving unsafe-await statement rather than emit await
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
+        new PdbScopeEntryLocalPass(),
         new PdbLocalScopePass(),
         new CheckedIntegerOperandPass(),
         new CoercionInsertionPass(),
@@ -510,7 +511,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

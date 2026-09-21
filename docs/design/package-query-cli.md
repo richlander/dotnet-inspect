@@ -123,8 +123,8 @@ Related docs:
 
 ## Package Query term binding
 
-Every Package Query condition is a
-`DotnetInspector.PortableQueries.PortableQueryTerm`. The shared planner authors
+Every Package Query condition is a `QuerySpace.PortableQueryTerm`. The shared
+planner authors
 one complete `PortableQueryIntent` containing:
 
 - exactly one population term: `package=<id>` or

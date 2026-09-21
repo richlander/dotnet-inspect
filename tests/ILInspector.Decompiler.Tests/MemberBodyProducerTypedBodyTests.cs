@@ -217,6 +217,68 @@ public sealed class MemberBodyProducerTypedBodyTests
     }
 
     [Theory]
+    [InlineData("ConstructorGetterList`1", "Items", "items")]
+    [InlineData("ConstructorGetterCounter", "Value", "value")]
+    [InlineData("ConstructorGetterComputed", "Value", "value")]
+    [InlineData("ConstructorGetterParameterName", "Value", "Value")]
+    [InlineData("ConstructorGetterKeywordParameter", "Value", "@event")]
+    [InlineData("ConstructorGetterOptional", "Value", "value")]
+    [InlineData("ConstructorGetterPrivate", "Value", null)]
+    [InlineData("ConstructorGetterAttributed", "Value", null)]
+    [InlineData("ConstructorGetterImplementation", "Value", null)]
+    [InlineData("ConstructorGetterTypeName`1", "Items", null)]
+    [InlineData("ConstructorGetterTypeParameter`1", "Value", null)]
+    [InlineData("ConstructorGetterReturnAttributeCollision", "Value", null)]
+    [InlineData("ConstructorGetterReturnAttribute", "Value", "value")]
+    [InlineData("ConstructorGetterPropertyAttribute", "Value", "System")]
+    public void PropertyInitializerUsesProvenParameterWithoutWideningItsScope(
+        string typeName, string propertyName, string? expected)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+        var body = MemberBodyProducer.ProduceBody(
+            source, MetadataMethodAddress.Create(source.Reader, getter), property);
+        Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+        var constructor = Assert.IsType<SelectedPropertyAccessorSource.PropertyInitializationConstructor>(
+            property.FindInitializationConstructor(source));
+        var initializer = constructor.GetInitializerSource(body.Body!.Source);
+
+        Assert.Equal(expected, initializer?.Expression);
+        if (initializer is not null)
+        {
+            Assert.Equal(expected!.TrimStart('@'), initializer.Parameter.Name);
+            Assert.Equal(typeName == "ConstructorGetterOptional", initializer.Parameter.HasDefault);
+        }
+    }
+
+    [Theory]
+    [InlineData("ConstructorGetterComputed", "field + 1")]
+    [InlineData("ConstructorGetterExpressionAttribute", "field + 1")]
+    [InlineData("ConstructorGetterLogged", null)]
+    public void ProduceBody_CarriesSingleLineGetterExpressionWithoutChangingBlock(
+        string typeName, string? expression)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName, "get_Value");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+        var result = MemberBodyProducer.ProduceBody(
+            source, MetadataMethodAddress.Create(source.Reader, getter), property);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Equal(expression, result.SingleLineExpression);
+        Assert.Contains("return ", result.Body!.Source);
+        if (expression is null)
+            Assert.Contains("Console.WriteLine(field);", result.Body.Source);
+        else
+            Assert.Equal($"return {expression};", result.Body.Source);
+    }
+
+    [Theory]
     [InlineData("ConstructorGetterExplicitAutomatic")]
     [InlineData("ConstructorGetterExplicitComputed")]
     public void PropertyInitializationConstructorDeclinesExplicitInterface(string typeName)

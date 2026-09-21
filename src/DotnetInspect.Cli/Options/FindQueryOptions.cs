@@ -1,6 +1,6 @@
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;

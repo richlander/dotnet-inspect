@@ -1,9 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
-using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;

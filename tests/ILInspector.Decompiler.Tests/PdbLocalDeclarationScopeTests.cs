@@ -185,6 +185,23 @@ public sealed class PdbLocalDeclarationScopeTests
     }
 
     [Fact]
+    public void ScopeEntryPatternCarriers_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.ScopeEntryPatternLocals))!;
+
+        var result = CSharpPrinter.PrintRaised(
+            function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.True(result.Fidelity == DecompilationFidelity.Full,
+            $"{result.Output}\n{CSharpSpellability.InspectUnrepresentableMetadataName(function)}\n{IrPrinter.Dump(function)}");
+        Assert.Contains("ScopeEntryLocal same", result.Output);
+        Assert.Contains("ScopeEntryField same", result.Output);
+    }
+
+    [Fact]
     public void SequentialOutVariableScopes_PreserveBothExactNames()
     {
         using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);

@@ -10,7 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -124,6 +124,7 @@ public partial class PackageCommand
         string packageArg,
         string packageName,
         string version,
+        PackageExtractionResult extraction,
         InspectionOptions options)
     {
         var selected = ResolvePackageLibrary(extractPath, packageName, version, options);
@@ -136,10 +137,15 @@ public partial class PackageCommand
                 ? $"{packageName}@{version}"
                 : packageName;
 
-        return await LibraryCommand.ExecuteAsync(CreateLibraryOptions(
-            assemblyName: Path.GetRelativePath(extractPath, selected.Path).Replace('\\', '/'),
-            packageReference,
-            options));
+        return await LibraryCommand.ExecuteResolvedPackageAsync(
+            CreateLibraryOptions(
+                assemblyName: Path.GetRelativePath(
+                        extractPath,
+                        selected.Path)
+                    .Replace('\\', '/'),
+                packageReference,
+                options),
+            extraction).ConfigureAwait(false);
     }
 
     private static async Task<int> ExecutePackageAllLibrariesAsync(
@@ -152,6 +158,7 @@ public partial class PackageCommand
         PackageExtractionResult extraction,
         string? nuspecPackageId,
         string? nuspecVersion,
+        PackageRootBinding? admittedPackageRoot,
         InspectionOptions options)
     {
         PackageLibrarySelectionResult? selectionResult =
@@ -285,7 +292,13 @@ public partial class PackageCommand
         {
             PackageInspectionInput input;
             PackageRootBinding? packageRoot = null;
-            if (isLocalFile)
+            if (admittedPackageRoot is not null)
+            {
+                packageRoot = admittedPackageRoot;
+                input = PackageInspectionInput.CreateFromBinding(
+                    admittedPackageRoot);
+            }
+            else if (isLocalFile)
             {
                 input = PackageInspectionInput.CreateLocal(
                     new FileSystemPackageContent(
@@ -765,6 +778,7 @@ public partial class PackageCommand
             AssemblyName = assemblyName,
             IncludeMetadata = true,
             PackagePath = packageReference,
+            ReferenceHierarchyDepth = options.ReferenceHierarchyDepth,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = options.Tfm,
             TypeFilter = options.TypeFilter,
@@ -778,9 +792,12 @@ public partial class PackageCommand
             FormatExplicitlySet = options.FormatExplicitlySet,
             Format = options.Format,
             Verbose = options.Verbose,
+            Trace = options.Trace,
             Verbosity = options.Verbosity,
             IncludeSections = options.IncludeSections,
             Discover = options.Discover,
+            DiscoverDetails = options.DiscoverDetails,
+            Effective = options.Effective,
             Tree = options.Tree,
             Select = options.Select,
             SelectDefault = options.SelectDefault,
@@ -790,6 +807,7 @@ public partial class PackageCommand
             Schema = options.Schema,
             Count = options.Count,
             OutputPath = options.OutputPath,
+            Print = options.Print,
             Value = options.Value,
             Urls = options.Urls,
             Paths = options.Paths,
@@ -800,7 +818,17 @@ public partial class PackageCommand
                 : null,
             CloneCandidateRowSelection =
                 options.CloneCandidateRowSelection,
+            ReferenceRowSelection =
+                options.ReferenceRowSelection,
+            EcosystemDependencyRowSelection =
+                options.EcosystemDependencyRowSelection,
+            IntegrationQuery = options.IntegrationQuery,
+            MetadataRoot = options.MetadataRoot,
+            PerformanceTriage = options.PerformanceTriage,
+            BodyKindQuery = options.BodyKindQuery,
+            CloneCandidateQuery = options.CloneCandidateQuery,
             SourceOptions = options.SourceOptions,
+            ExtractResources = options.ExtractResources,
             NoHeader = options.NoHeader,
             UserVerbosityOverride = options.Verbosity
         };
@@ -815,24 +843,77 @@ public partial class PackageCommand
         if (requestedLibrary == null)
             return null;
         var packageId = PackageExtractor.ParsePackageReference(packageName).name;
-        var resolution = TfmSelector.SelectPackageLibrary(extractPath, packageId, requestedLibrary, options.Tfm);
+        if (!TryResolveWorkspaceLibraryPaths(
+                extractPath,
+                options,
+                out IReadOnlyList<string>? workspacePaths))
+        {
+            return null;
+        }
+        TfmSelector.PackageLibraryResolution resolution =
+            workspacePaths is null
+                ? TfmSelector.SelectPackageLibrary(
+                    extractPath,
+                    packageId,
+                    requestedLibrary,
+                    options.Tfm)
+                : TfmSelector.SelectPackageLibrary(
+                    workspacePaths,
+                    extractPath,
+                    packageId,
+                    requestedLibrary,
+                    options.Tfm);
         if (resolution.IsSelected)
             return new PackageLibrarySelection(resolution.Paths[0]);
 
+        ReportPackageLibraryResolutionFailure(
+            extractPath,
+            packageName,
+            version,
+            options,
+            requestedLibrary,
+            resolution);
+        return null;
+    }
+
+    private static void ReportPackageLibraryResolutionFailure(
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options,
+        string requestedLibrary,
+        TfmSelector.PackageLibraryResolution resolution)
+    {
         if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.RequestedLibraryNotFound)
             CommandError.Write($"Library '{requestedLibrary}' not found in package '{packageName}'.");
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
             CommandError.Write($"No DLLs found in package '{packageName}'.");
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
             CommandError.Write($"No library found for TFM '{options.Tfm}' in package '{packageName}'.");
+        else if (resolution.Status
+            == TfmSelector.PackageLibraryResolutionStatus
+                .NamesakeIdentityUnavailable)
+        {
+            CommandError.Write(
+                $"Namesake Library identity is unavailable in package "
+                    + $"'{packageName}'.");
+            foreach (string path in resolution.IdentityFailurePaths ?? [])
+            {
+                CommandError.WriteLine(
+                    $"  {Path.GetRelativePath(extractPath, path).Replace('\\', '/')}");
+            }
+        }
         else
             CommandError.Write(resolution.Tfm == null
                 ? $"Package '{packageName}' contains multiple libraries."
                 : $"Package '{packageName}' contains multiple libraries for {resolution.Tfm}.");
 
-        if (resolution.Status != TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
+        if (resolution.Status
+            is not (
+                TfmSelector.PackageLibraryResolutionStatus.NoAssemblies
+                or TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeIdentityUnavailable))
             WritePackageLibraryCandidates(extractPath, packageName, version, resolution.Tfm ?? options.Tfm, resolution.CandidatePaths.ToList());
-        return null;
     }
 
     private static PackageLibrarySelectionResult? ResolveAllPackageLibraries(
@@ -841,6 +922,23 @@ public partial class PackageCommand
         string version,
         InspectionOptions options)
     {
+        if (!TryResolveWorkspaceLibraryPaths(
+                extractPath,
+                options,
+                out IReadOnlyList<string>? workspacePaths))
+        {
+            return null;
+        }
+        if (workspacePaths is not null)
+        {
+            return new PackageLibrarySelectionResult(
+                [
+                    .. workspacePaths.Select(
+                        path => new PackageLibrarySelection(path)),
+                ],
+                options.Tfm);
+        }
+
         var resolution = TfmSelector.SelectPackageLibraries(extractPath, options.Tfm);
         if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoAssemblies)
         {
@@ -860,6 +958,51 @@ public partial class PackageCommand
                     path => new PackageLibrarySelection(path)),
             ],
             resolution.Tfm);
+    }
+
+    private static bool TryResolveWorkspaceLibraryPaths(
+        string extractPath,
+        InspectionOptions options,
+        out IReadOnlyList<string>? paths)
+    {
+        paths = null;
+        if (options.WorkspaceLibraryAssetPaths is null)
+            return true;
+
+        var resolved = new List<string>(
+            options.WorkspaceLibraryAssetPaths.Length);
+        try
+        {
+            foreach (string assetPath in options.WorkspaceLibraryAssetPaths)
+            {
+                string path = ResolveContainedEntry(
+                    extractPath,
+                    assetPath);
+                if (!File.Exists(path))
+                {
+                    CommandError.Write(
+                        $"The admitted Package Library '{assetPath}' is "
+                            + "missing from restored content.");
+                    return false;
+                }
+                resolved.Add(path);
+            }
+        }
+        catch (InvalidDataException exception)
+        {
+            CommandError.Write(exception.Message);
+            return false;
+        }
+
+        if (resolved.Count == 0)
+        {
+            CommandError.Write(
+                "The selected Package has no admitted compile Libraries.");
+            return false;
+        }
+
+        paths = resolved;
+        return true;
     }
 
     private sealed record PackageLibrarySelection(string Path);

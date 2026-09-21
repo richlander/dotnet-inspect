@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Sections;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using Analysis = ILInspector.Analysis;
 

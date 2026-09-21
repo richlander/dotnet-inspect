@@ -7,15 +7,14 @@ Focused component design proposal for
 It defines the intended replacement for the semantic-selection portion of the
 existing umbrella design. The
 [composition map](item-and-line-limits.md#composition) adopts this component
-and retires the umbrella assignment. The product implementation lives in
-`src/DotnetInspector.QueryEngine` under the existing
-`DotnetInspector.RowSelection` namespace.
-[QuerySpace Library Boundary](query-space-library.md) owns its target physical
-and namespace migration without changing this component's semantics.
+and retires the umbrella assignment. The implementation lives in
+`src/QuerySpace` under the `QuerySpace.Rows` namespace.
+[QuerySpace Library Boundary](query-space-library.md) owns that physical and
+namespace composition without changing this component's semantics.
 
 The executable Release gates in
 `tests/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
-`tests/DotnetInspector.RowSelection.Consumer` verify the implemented contract.
+`tests/QuerySpace.Consumer` verify the implemented contract.
 
 Related designs:
 
@@ -40,9 +39,8 @@ Related designs:
 
 ## Authority and scope
 
-This design is the authority for two distinct capabilities currently carried
-by the dependency-free `DotnetInspector.QueryEngine` assembly and targeted for
-the independent `QuerySpace` library:
+This design is the authority for two distinct capabilities carried by the
+independent, platform-only `QuerySpace` library:
 
 - the typed declaration language expressed by `RowSelectionStage` and
   `RowSelectionPlan`; and
@@ -244,7 +242,7 @@ resolver at entry even when no sequence would reach that stage.
 The supported typed-language surface is:
 
 ```csharp
-namespace DotnetInspector.RowSelection;
+namespace QuerySpace.Rows;
 
 public enum RowSelectionStageKind
 {
@@ -284,7 +282,7 @@ public sealed class RowSelectionPlan<TOrder>
 The supported reference-evaluator surface is:
 
 ```csharp
-namespace DotnetInspector.RowSelection;
+namespace QuerySpace.Rows;
 
 public sealed class RowSequenceKey : IEquatable<RowSequenceKey>
 {

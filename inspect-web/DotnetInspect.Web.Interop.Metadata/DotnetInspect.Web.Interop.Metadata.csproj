@@ -13,10 +13,10 @@
     <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.CSharp\ILInspector.CSharp.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />

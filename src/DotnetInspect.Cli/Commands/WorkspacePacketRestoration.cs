@@ -17,24 +17,31 @@ internal abstract record WorkspacePacketRestorationResult
         : WorkspacePacketRestorationResult;
 }
 
-internal sealed class WorkspacePacketRestoration : IAsyncDisposable
+internal sealed class WorkspacePacketRestoration
 {
-    readonly WorkspaceCommandRestorationHost _host;
-    readonly WorkspaceRealizationOperationLease _authority;
+    readonly InspectionWorkspace _workspace;
 
     WorkspacePacketRestoration(
-        WorkspaceCommandRestorationHost host,
-        WorkspaceRealizationOperationLease authority,
-        CompleteWorkspaceActivation workspace)
+        InspectionWorkspace workspace,
+        CompleteWorkspaceActivation activation)
     {
-        _host = host;
-        _authority = authority;
-        Workspace = workspace;
+        _workspace = workspace;
+        Activation = activation;
     }
 
-    internal WorkspaceRealizationOperationLease Authority => _authority;
+    internal InspectionWorkspace Workspace => _workspace;
 
-    internal CompleteWorkspaceActivation Workspace { get; }
+    internal CompleteWorkspaceActivation Activation { get; }
+
+    internal Task<TResult> ExecuteAsync<TResult>(
+        Func<WorkspacePacketRestoration, Task<TResult>> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        return WorkspacePacketRestorationLifetime.ExecuteAsync(
+            _workspace,
+            () => operation(this));
+    }
 
     internal static async Task<WorkspacePacketRestorationResult> RestoreAsync(
         string input,
@@ -66,7 +73,7 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot executableEntries =
             CurrentCatalogEntriesExecutable(registry);
-        CompleteRestorationResult<WorkspaceRealizationOperationLease> result =
+        CompleteRestorationResult<InspectionWorkspace> result =
             await CompleteRestorationCoordinator.RestoreAsync(
                 preparation,
                 intent,
@@ -81,25 +88,23 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         if (result
             is CompleteRestorationResult<
-                WorkspaceRealizationOperationLease>.Activated activated)
+                InspectionWorkspace>.Activated activated)
         {
             return new WorkspacePacketRestorationResult.Restored(
                 new WorkspacePacketRestoration(
-                    host,
                     activated.Activation,
                     activated.Workspace));
         }
 
-        await host.DisposeAsync().ConfigureAwait(false);
         return new WorkspacePacketRestorationResult.Failed(
             "The Workspace packet could not be restored.",
             result switch
             {
                 CompleteRestorationResult<
-                    WorkspaceRealizationOperationLease>.Failed failed =>
+                    InspectionWorkspace>.Failed failed =>
                     RestorationFailureDetails(failed.Failure),
                 CompleteRestorationResult<
-                    WorkspaceRealizationOperationLease>.Superseded =>
+                    InspectionWorkspace>.Superseded =>
                     ["The restoration request was superseded."],
                 _ => ["The restoration returned an unsupported result."],
             });
@@ -157,9 +162,61 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
                     descriptor.Id,
                     ViewFacetAvailability.Available.Instance)));
 
-    public async ValueTask DisposeAsync()
+}
+
+internal static class WorkspacePacketRestorationLifetime
+{
+    const string CleanupReportKey =
+        "DotnetInspect.Cli.WorkspaceCleanupReport";
+    const string CleanupFailureKey =
+        "DotnetInspect.Cli.WorkspaceCleanupFailure";
+
+    internal static async Task<TResult> ExecuteAsync<TResult>(
+        InspectionWorkspace workspace,
+        Func<Task<TResult>> operation)
     {
-        _authority.Dispose();
-        await _host.DisposeAsync().ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        TResult result;
+        try
+        {
+            result = await operation().ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            await CloseAfterFailureAsync(workspace, failure)
+                .ConfigureAwait(false);
+            throw;
+        }
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync().ConfigureAwait(false);
+        if (!report.Succeeded)
+        {
+            var failure = new InvalidOperationException(
+                "The restored Workspace could not release every participant.");
+            failure.Data[CleanupReportKey] = report;
+            throw failure;
+        }
+
+        return result;
+    }
+
+    static async Task CloseAfterFailureAsync(
+        InspectionWorkspace workspace,
+        Exception failure)
+    {
+        try
+        {
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.Succeeded)
+                failure.Data[CleanupReportKey] = report;
+        }
+        catch (Exception cleanupFailure)
+        {
+            failure.Data[CleanupFailureKey] = cleanupFailure;
+        }
     }
 }

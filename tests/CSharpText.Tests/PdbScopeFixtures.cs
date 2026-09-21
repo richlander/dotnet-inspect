@@ -283,6 +283,28 @@ public static class PdbScopeFixtures
         return 0;
     }
 
+    public static Type? ScopeEntryPatternLocals(ScopeEntryPointer pointer)
+    {
+        Type? type = pointer.Parent switch
+        {
+            ScopeEntryLocal same when ReferenceEquals(same.Value, pointer) => same.Type,
+            ScopeEntryField same when ReferenceEquals(same.Value, pointer) => same.Type,
+            ScopeEntryReturn result when ReferenceEquals(result.Value, pointer) => result.Type,
+            _ => null,
+        };
+        return type is null || type == typeof(void) ? null : type;
+    }
+
+    public abstract record ScopeEntryNode;
+
+    public sealed record ScopeEntryPointer(ScopeEntryNode Parent);
+
+    public sealed record ScopeEntryLocal(object Value, Type Type) : ScopeEntryNode;
+
+    public sealed record ScopeEntryField(object Value, Type Type) : ScopeEntryNode;
+
+    public sealed record ScopeEntryReturn(object Value, Type Type) : ScopeEntryNode;
+
     public static int SequentialOutVariables(string first, string second)
     {
         int total = 0;
