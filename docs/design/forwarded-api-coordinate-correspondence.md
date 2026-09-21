@@ -122,14 +122,14 @@ source evidence cannot be repaired by finding a destination lookalike.
 The entry pair carries the existing exact-Workspace endpoint, same-package-ID,
 same-producer and generation/selection obligations. Source and destination may
 belong to the same Workspace or to separately realized Workspaces; each
-observation must match the Workspace through which its Root is borrowed.
-Pairing refusal or failure stops at that boundary. Pairing absence or ambiguity
-remains native evidence, but the composition validates the requested source
-declaration before classifying the overall result; an unresolved source cannot
-become destination absence. This composition never scans for another entry.
-An already forwarded source view must first identify its real source
-declaration under its owning operation; this contract does not reinterpret a
-source `ExportedType` as a `TypeDef`.
+observation must match the explicit Workspace argument used to enter its Root
+operation. Pairing refusal or failure stops at that boundary. Pairing absence
+or ambiguity remains native evidence, but the composition validates the
+requested source declaration before classifying the overall result; an
+unresolved source cannot become destination absence. This composition never
+scans for another entry. An already forwarded source view must first identify
+its real source declaration under its owning operation; this contract does not
+reinterpret a source `ExportedType` as a `TypeDef`.
 
 ## Destination route and population
 
@@ -308,13 +308,26 @@ ApiCoordinateCorrespondenceResult memberResult =
 ApiCoordinateCorrespondenceEvidence retainedMember = memberResult.Detach();
 ```
 
+Per
+[cross-Workspace composition and sharing](artifact-acquisition-and-workspaces.md#cross-workspace-composition-and-sharing),
+this operation does not make the Workspaces share resolution state. The caller
+supplies the Workspace that owns the source declaration and the separately
+realized Workspace that owns the destination observation as explicit query
+arguments. The query binds the exact source inside a source Root operation and,
+while that access remains valid, resolves and matches the exact destination
+inside a destination Root operation. This operation-scoped use neither exposes
+a set of active Workspaces nor makes either Workspace available through the
+other. Destination resolution consumes only the destination realization. No
+Root, registration, binding context, resolution index, lease, or operation
+authority moves between the Workspaces.
+
 The one-Workspace overload remains a convenience that supplies the same
-Workspace for both endpoint roles. Source binding borrows only through the
-source Workspace. Destination resolution and strict correspondence borrow only
-through the destination Workspace. A source subject or endpoint observation
-that does not belong to its named Workspace is `Refused(ForeignWorkspace)`;
-the operation does not downgrade that association failure to Root
-unavailability.
+Workspace for both endpoint roles. Source binding executes only inside the
+source Workspace's Root operation. Destination resolution and strict
+correspondence execute only inside the destination Workspace's Root operation.
+A source subject or endpoint observation that does not belong to its named
+Workspace is `Refused(ForeignWorkspace)`; the operation does not downgrade that
+association failure to Root unavailability.
 
 The Member overload requires Metadata's declaration kind because
 `StructuralSubjectIdentity.MemberSubject` intentionally retains its
@@ -404,12 +417,12 @@ their shipped behavior. No new capability step or six-PR estimate is implied.
 Issue [#8024](https://github.com/richlander/dotnet-inspect/issues/8024) is step
 2 of #6751's five focused successor-realization slices. #8015 completed step 1
 by preserving separate Workspace identities through Library pairing. This step
-borrows correspondence content through those exact owners. Navigation then
-consumes the two realizations without Scope Replace; portable replacement
-adopts that operation and exercises the existing Avalonia CLI gate; Scope
-finally retires Replace. Issues #5510 and #5511 continue to track Browser
-installation. This step adds no host path, rendering, transport, or lifecycle
-policy.
+accesses correspondence content only through the caller-supplied source and
+destination Workspace arguments. Navigation then consumes the two realizations
+without Scope Replace; portable replacement adopts that operation and
+exercises the existing Avalonia CLI gate; Scope finally retires Replace.
+Issues #5510 and #5511 continue to track Browser installation. This step adds
+no host path, rendering, transport, or lifecycle policy.
 
 ## Required implementation evidence
 

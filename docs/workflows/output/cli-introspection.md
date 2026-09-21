@@ -1,7 +1,7 @@
 ---
 id: cli-introspection
-description: View CLI command structure as API listing for LLMs and documentation
-commands: [help]
+description: View CLI command structure and Diff History as API listing for LLMs and documentation
+commands: [help, diff]
 areas: [help, introspection, llm, documentation]
 ---
 
@@ -14,7 +14,7 @@ areas: [help, introspection, llm, documentation]
 > Goal: See every command and its relationship to other commands.
 
 ```prompt
-What commands does dotnet-inspect support?
+What commands does dotnet-inspect support, and how is History exposed?
 ```
 
 ```bash
@@ -24,7 +24,8 @@ dotnet-inspect -v:n
 ```expect
 cache  Manage the dotnet-inspect cache
 depends  Walk dependency graphs upward
-diff  Compare API surfaces
+diff  Compare API surfaces, analysis signals, or implementation evidence between versions
+--history
 extensions  Find extension methods for a type
 find  Search for types across packages and libraries
 implements  Find types implementing an interface
@@ -32,7 +33,6 @@ library  Inspect a .NET library file
 member  Inspect type members
 package  Inspect a NuGet package
 project  Inspect restored project package references
-timeline  Correlate API or member-body Findings
 type  Discover types in a package or library
 ```
 
