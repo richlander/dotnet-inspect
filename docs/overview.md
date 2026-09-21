@@ -564,7 +564,7 @@ substrates, and inspection producers that will extend that space.
   [Research Finding census projection](design/research-finding-census-projection.md)
   owns preservation of one producer-sealed body-fact receipt and its instance
   keys across those projections.
-  The proposed [Library Structural Report](design/library-structural-report.md)
+  The proposed [Library Metrics](design/library-structural-report.md)
   separately owns one exact library's qualified compiled-IL structural
   population document without assigning a score or source-level meaning.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer

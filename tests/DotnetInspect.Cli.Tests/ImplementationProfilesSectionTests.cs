@@ -10,7 +10,7 @@ using ILInspector.Metadata;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public class ImplementationProfilesSectionTests
+public class MetricSectionTests
 {
     [Fact]
     public async Task
@@ -22,13 +22,13 @@ public class ImplementationProfilesSectionTests
                 AssemblyName =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 Markdown = true,
             }));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains(
-            "## Implementation Profiles",
+            "## Member Metrics",
             result.Output);
         Assert.Contains("Analyze(int, int)", result.Output);
         Assert.Contains("AnalyzeAsync(int)", result.Output);
@@ -48,7 +48,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 IncludeAll = true,
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
@@ -58,7 +58,7 @@ public class ImplementationProfilesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains(
-            "## Implementation Profiles",
+            "## Type Metrics",
             result.Output);
         Assert.Contains("| Incoming Overloads |", result.Output);
         Assert.Contains("| Overload Targets |", result.Output);
@@ -88,7 +88,7 @@ public class ImplementationProfilesSectionTests
                     ["Analyze"],
                 IncludeAll = true,
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
@@ -100,6 +100,45 @@ public class ImplementationProfilesSectionTests
         Assert.Contains("Analyze(int, int)", result.Output);
         Assert.Contains("Analyze(string)", result.Output);
         Assert.DoesNotContain("Other(int)", result.Output);
+    }
+
+    [Fact]
+    public async Task TypeMetrics_DoesNotResolveInMemberCatalog()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                MemberFilter = ["Analyze"],
+                Select = [SectionNames.TypeMetrics],
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(SectionNames.TypeMetrics, result.Error);
+    }
+
+    [Fact]
+    public async Task MemberMetrics_DoesNotResolveInTypeCatalog()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(new TypeOptions
+            {
+                TypeName =
+                    "ILInspector.Analysis.ImplementationProfileFixtures."
+                    + "ImplementationProfileSample",
+                AssemblyPath =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                Select = [SectionNames.MemberMetrics],
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(SectionNames.MemberMetrics, result.Error);
     }
 
     [Fact]
@@ -123,7 +162,7 @@ public class ImplementationProfilesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(
-            "## Implementation Profiles",
+            "## Type Metrics",
             result.Output);
     }
 
@@ -146,7 +185,7 @@ public class ImplementationProfilesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(
-            "Implementation Profiles",
+            "Type Metrics",
             result.Error,
             StringComparison.Ordinal);
         using var json = JsonDocument.Parse(result.Output);
@@ -171,7 +210,7 @@ public class ImplementationProfilesSectionTests
                 OverloadIndex = 1,
                 IncludeAll = true,
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
@@ -240,7 +279,7 @@ public class ImplementationProfilesSectionTests
                 MemberFilter = ["Changed"],
                 IncludeAll = true,
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
                 MarkdownExplicitlySet = true,
@@ -265,7 +304,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 IncludeAll = true,
                 TipLevel = TipLevel.Quiet,
                 Verbosity = Verbosity.Minimal,
@@ -301,7 +340,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 IncludeAll = true,
                 Jsonl = true,
                 Tabular = true,
@@ -381,7 +420,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyPath =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.TypeMetrics],
                 JsonOutput = true,
                 TipLevel = TipLevel.Quiet,
             }));
@@ -389,7 +428,7 @@ public class ImplementationProfilesSectionTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --format json cannot represent Implementation Profiles analysis.",
+            "Document --format json cannot represent Type Metrics analysis.",
             result.Error);
     }
 
@@ -403,14 +442,14 @@ public class ImplementationProfilesSectionTests
                 AssemblyName =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 JsonOutput = true,
             }));
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Document --format json cannot represent Implementation Profiles analysis.",
+            "Document --format json cannot represent Member Metrics analysis.",
             result.Error);
     }
 
@@ -424,7 +463,7 @@ public class ImplementationProfilesSectionTests
                 AssemblyName =
                     FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
                 IncludeSections =
-                    [SectionNames.ImplementationProfiles],
+                    [SectionNames.MemberMetrics],
                 Count = true,
                 JsonOutput = true,
             }));

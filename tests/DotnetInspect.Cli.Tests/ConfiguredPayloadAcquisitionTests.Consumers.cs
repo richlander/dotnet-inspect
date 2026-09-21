@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Output;
@@ -52,7 +53,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     [Theory]
     [InlineData("type")]
-    [InlineData("timeline")]
+    [InlineData("history")]
     public async Task RangeConsumers_UnreadablePeerFailsBeforePayload(string command)
     {
         const string Id = "range.consumer.partial";
@@ -64,35 +65,46 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         string missing = Path.Combine(_root, "missing-peer");
         List<string> args = command == "type"
             ? ["type", RangeType]
-            : ["timeline", "--type", RangeType, "--finding", "api.type"];
+            : ["diff", "--history", "--type", RangeType, "--finding", "api.type"];
         args.AddRange(["--package", $"{Id}@1.0.0..3.0.0", "--at", "first",
             "--source", FirstFeed, "--source", missing, "--tips", "q"]);
 
         var result = await RunCommandAsync([.. args]);
 
         Assert.Equal(1, result.Exit);
-        Assert.Contains("complete discovery is required", result.Error);
-        Assert.Contains(missing, result.Error);
+        Assert.Contains(
+            "discovery",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        if (command == "type")
+            Assert.Contains(missing, result.Error);
         Assert.DoesNotContain(requests, request => request.EndsWith(".nupkg", StringComparison.Ordinal));
     }
 
     [Theory]
-    [InlineData("none", 0)]
-    [InlineData("sparse", 2)]
+    [InlineData("full", 3)]
+    [InlineData("checkpoints", 2)]
+    [InlineData("adaptive", 2)]
     [InlineData("all", 3)]
-    public async Task TimelineRange_OneDiscoveryAcquiresOnlyExplicitAddresses(string selection, int payloadCount)
+    [InlineData("endpoints", 2)]
+    [InlineData("midpoint", 1)]
+    public async Task DiffHistoryRange_OneDiscoveryAcquiresOnlyAuthorizedAddresses(string selection, int payloadCount)
     {
-        const string Id = "range.timeline.selection";
+        const string Id = "range.diff-history.selection";
         var requests = new ConcurrentQueue<string>();
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
             new SelectionFeedHandler(FirstFeed, Id, ["1.0.0", "2.0.0", "3.0.0"],
                 version => CreateApiPackage(Id, version), requests));
-        List<string> args = ["timeline", "--package", $"{Id}@1.0.0..3.0.0",
+        List<string> args = ["diff", "--history", "--package", $"{Id}@1.0.0..3.0.0",
             "--type", RangeType, "--finding", "api.type", "--source", FirstFeed, "--tips", "q"];
-        if (selection == "sparse")
+        if (selection == "checkpoints")
             args.AddRange(["--at", "first", "--at", "last"]);
+        else if (selection == "adaptive")
+            args.AddRange(["--max-probes", "2"]);
         else if (selection == "all")
             args.AddRange(["--at", "all"]);
+        else if (selection is "endpoints" or "midpoint")
+            args.AddRange(["--at", selection]);
 
         var result = await RunCommandAsync([.. args]);
 
@@ -102,25 +114,293 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             request.EndsWith($"/{Id}/index.json", StringComparison.Ordinal)));
         Assert.Equal(payloadCount, requests.Count(request =>
             request.EndsWith(".nupkg", StringComparison.Ordinal)));
-        if (selection == "all")
+        if (selection is "full" or "all")
         {
             Assert.DoesNotContain("Unevaluated", result.Output);
-            Assert.DoesNotContain("Recommendation", result.Output);
         }
-        else
-        {
-            Assert.Contains("Unevaluated", result.Output);
-            Assert.Contains($"--source {ShellCommandText.Quote(FirstFeed)}", result.Output);
-            Assert.Contains("--nugetconfig-directory", result.Output);
-        }
-        if (selection == "sparse")
-            Assert.Contains("Gap (1)", result.Output);
+        if (selection == "adaptive")
+            Assert.Contains("## Outcome", result.Output);
+    }
+
+    [Theory]
+    [InlineData("1.0.0..4.0.0", "2.0.0")]
+    [InlineData("4.0.0..1.0.0", "3.0.0")]
+    public async Task DiffHistoryRange_EvenMidpointUsesCallerDirectedPosition(
+        string range,
+        string expected)
+    {
+        const string Id = "range.diff-history.reverse-midpoint";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0", "4.0.0"],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@{range}",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--at", "midpoint",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        string request = Assert.Single(
+            requests,
+            static request => request.EndsWith(
+                ".nupkg",
+                StringComparison.Ordinal));
+        Assert.Contains($"/{expected}/", request);
     }
 
     [Fact]
-    public async Task TimelineRange_SemanticRowsComposeWithoutReducingExplicitAcquisition()
+    public async Task DiffHistoryRange_BlockedOutcomeKeepsUnresolvedAndBlockingEvidence()
     {
-        const string Id = "range.timeline.semantic-rows";
+        const string Id = "range.diff-history.blocked-outcome";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                [
+                    "1.0.0",
+                    "2.0.0",
+                    "3.0.0",
+                    "4.0.0",
+                    "5.0.0",
+                    "6.0.0",
+                    "7.0.0",
+                ],
+                version => version switch
+                {
+                    "1.0.0" => CreateApiPackage(
+                        Id,
+                        version,
+                        FixtureCatalog.DiffV1.AssemblyPath()),
+                    "2.0.0" => [1, 2, 3],
+                    "4.0.0" => CreateApiPackage(
+                        Id,
+                        version,
+                        FixtureCatalog.LibraryApiDiffV1.AssemblyPath()),
+                    "7.0.0" => CreateApiPackage(
+                        Id,
+                        version,
+                        FixtureCatalog.DiffV2.AssemblyPath()),
+                    _ => throw new InvalidOperationException(
+                        $"Unexpected History probe at {version}."),
+                },
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..7.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--max-probes", "8",
+                "--tips", "q",
+            ]);
+
+        Assert.Contains("Blocked by failure", result.Output);
+        Assert.Contains("4.0.0..7.0.0", result.Output);
+        Assert.Contains("#2 (2.0.0)", result.Output);
+        Assert.Contains("Blocked", result.Output);
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_JsonAndEnvelopeRetainTheSameCompleteContent()
+    {
+        const string Id = "range.diff-history.envelope";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0"],
+                version => CreateApiPackage(Id, version),
+                requests));
+        string[] common =
+        [
+            "diff",
+            "--history",
+            "--package",
+            $"{Id}@1.0.0..2.0.0",
+            "--type",
+            RangeType,
+            "--finding",
+            "api.type",
+            "--source",
+            FirstFeed,
+            "--at",
+            "all",
+            "--tips",
+            "q",
+        ];
+
+        var contentResult = await RunCommandAsync([.. common, "--format=json"]);
+        var envelopeResult = await RunCommandAsync(
+            [.. common, "--envelope"]);
+
+        Assert.True(contentResult.Exit == 0, contentResult.Error);
+        Assert.True(envelopeResult.Exit == 0, envelopeResult.Error);
+        Assert.Empty(contentResult.Error);
+        Assert.Empty(envelopeResult.Error);
+
+        using var content = JsonDocument.Parse(contentResult.Output);
+        using var envelope = JsonDocument.Parse(envelopeResult.Output);
+        Assert.True(JsonElement.DeepEquals(
+            content.RootElement,
+            envelope.RootElement.GetProperty("content")));
+        Assert.Equal(
+            "diff-history",
+            envelope.RootElement.GetProperty("result_kind").GetString());
+        JsonElement history = content.RootElement
+            .GetProperty("document")
+            .GetProperty("content");
+        Assert.Equal(
+            2,
+            history.GetProperty("evaluations").GetArrayLength());
+        Assert.Equal(
+            2,
+            history.GetProperty("probes").GetArrayLength());
+        Assert.Equal(
+            1,
+            history.GetProperty("transitions").GetArrayLength());
+        Assert.Equal(
+            "complete",
+            history.GetProperty("evaluations")[0]
+                .GetProperty("inspection")
+                .GetProperty("outcome")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_CountEnvelopeRetainsCompleteContent()
+    {
+        const string Id = "range.diff-history.count-envelope";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    version switch
+                    {
+                        "1.0.0" => FixtureCatalog.DiffV1.AssemblyPath(),
+                        "2.0.0" => FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
+                        _ => FixtureCatalog.DiffV2.AssemblyPath(),
+                    }),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--at", "all",
+                "--count",
+                "--rows", "1..1",
+                "--envelope",
+                "--compact",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain('\n', result.Output.TrimEnd());
+        using var envelope = JsonDocument.Parse(result.Output);
+        JsonElement content = envelope.RootElement.GetProperty("content");
+        Assert.Equal("available", content.GetProperty("outcome").GetString());
+        Assert.Equal(
+            "completed",
+            content.GetProperty("count").GetProperty("outcome").GetString());
+        Assert.Equal(
+            1,
+            content.GetProperty("count")
+                .GetProperty("counts")[0]
+                .GetProperty("value")
+                .GetInt32());
+        Assert.Equal(
+            3,
+            content.GetProperty("document")
+                .GetProperty("content")
+                .GetProperty("evaluations")
+                .GetArrayLength());
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_AnalysisJsonRetainsFindingEvidence()
+    {
+        const string Id = "range.diff-history.analysis-json";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    version == "2.0.0"
+                        ? FixtureCatalog.DiffV2.AssemblyPath()
+                        : FixtureCatalog.DiffV1.AssemblyPath()),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@2.0.0..1.0.0",
+                "--type", RangeType,
+                "--member", "BodyState",
+                "--finding", "analysis.unsafety",
+                "--source", FirstFeed,
+                "--at", "all",
+                "--format=json",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        using var content = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "unsafety",
+            content.RootElement
+                .GetProperty("document")
+                .GetProperty("document")
+                .GetString());
+        JsonElement history = content.RootElement
+            .GetProperty("document")
+            .GetProperty("content");
+        Assert.Equal(2, history.GetProperty("evaluations").GetArrayLength());
+        Assert.Equal(
+            "complete",
+            history.GetProperty("evaluations")[0]
+                .GetProperty("inspection")
+                .GetProperty("outcome")
+                .GetString());
+        Assert.Equal(
+            JsonValueKind.Object,
+            history.GetProperty("source_receipt").ValueKind);
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_SemanticRowsComposeWithoutReducingExplicitAcquisition()
+    {
+        const string Id = "range.diff-history.semantic-rows";
         var requests = new ConcurrentQueue<string>();
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
             new SelectionFeedHandler(FirstFeed, Id, ["1.0.0", "2.0.0", "3.0.0"],
@@ -128,17 +408,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             [
-                "timeline",
+                "diff",
+                "--history",
                 "--package", $"{Id}@1.0.0..3.0.0",
                 "--type", RangeType,
                 "--finding", "api.type",
                 "--source", FirstFeed,
                 "--at", "all",
                 "-S", "Evaluations",
-                "-2",
+                "-n", "2",
                 "--tail",
-                "--rows", "1..1",
-                "--columns", "Version",
                 "--format=tsv",
                 "--tips", "q"
             ]);
@@ -149,17 +428,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             3,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
-        Assert.Equal(
-            ["version", "2.0.0"],
-            result.Output.Split(
-                '\n',
-                StringSplitOptions.RemoveEmptyEntries));
+        Assert.DoesNotContain("1.0.0", result.Output);
+        Assert.Contains("2.0.0", result.Output);
+        Assert.Contains("3.0.0", result.Output);
     }
 
     [Fact]
-    public async Task TimelineRange_ExplicitLinesClipRenderedOutput()
+    public async Task DiffHistoryRange_ExplicitLinesClipRenderedOutput()
     {
-        const string Id = "range.timeline.lines";
+        const string Id = "range.diff-history.lines";
         var requests = new ConcurrentQueue<string>();
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
             new SelectionFeedHandler(
@@ -171,7 +448,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             [
-                "timeline",
+                "diff",
+                "--history",
                 "--package", $"{Id}@1.0.0..3.0.0",
                 "--type", RangeType,
                 "--finding", "api.type",
@@ -198,9 +476,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task TimelineRange_LinesRejectDocumentJsonBeforeAcquisition()
+    public async Task DiffHistoryRange_LinesRejectDocumentJsonBeforeAcquisition()
     {
-        const string Id = "range.timeline.lines-json";
+        const string Id = "range.diff-history.lines-json";
         var requests = new ConcurrentQueue<string>();
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
             new SelectionFeedHandler(
@@ -212,7 +490,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             [
-                "timeline",
+                "diff",
+                "--history",
                 "--package", $"{Id}@1.0.0..3.0.0",
                 "--type", RangeType,
                 "--finding", "api.type",
@@ -233,22 +512,31 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
-    public async Task TimelineRange_ProbeReplayRetainsWorkingDirectoryAndSelectionPolicy()
+    public async Task DiffHistoryRange_ProbeReplayRetainsWorkingDirectoryAndSelectionPolicy()
     {
-        const string Id = "range.timeline.replay";
-        string source = Path.Combine(_root, "timeline-feed");
-        foreach (string version in new[] { "1.0.0", "2.0.0-preview.1", "3.0.0" })
-            WriteApiPackage(source, Id, version);
+        const string Id = "range.diff-history.replay";
+        string source = Path.Combine(_root, "diff-history-feed");
+        WriteApiPackage(source, Id, "1.0.0");
+        WriteApiPackage(source, Id, "2.0.0-preview.1");
+        WriteApiPackage(
+            source,
+            Id,
+            "3.0.0",
+            FixtureCatalog.DiffV2.AssemblyPath());
         string originalDirectory = Directory.GetCurrentDirectory();
         string replayDirectory = Directory.CreateDirectory(Path.Combine(_root, "replay")).FullName;
 
         var result = await RunCommandAsync(
-            ["timeline", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
-                "--finding", "api.type", "--source", Path.GetRelativePath(originalDirectory, source),
-                "--preview", "--all", "--tfm", "net10.0", "--tips", "q"]);
+            ["diff", "--history", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
+                "--finding", "api.member", "--source", Path.GetRelativePath(originalDirectory, source),
+                "--preview", "--all", "--tfm", "net10.0",
+                "--at", "first", "--at", "last", "-S", "@History", "--tips", "q"]);
 
         Assert.True(result.Exit == 0, result.Error);
-        string recommendation = result.Output.Split('\n').Single(line => line.Contains("Probe #2", StringComparison.Ordinal));
+        string recommendation = result.Output.Split('\n').Single(
+            line => line.Contains(
+                "dotnet-inspect diff --history",
+                StringComparison.Ordinal));
         Assert.Contains("2.0.0-preview.1", recommendation);
         Assert.Contains($"--source {ShellCommandText.Quote(source)}", recommendation);
         Assert.Contains($"--nugetconfig-directory {ShellCommandText.Quote(originalDirectory)}", recommendation);
@@ -260,17 +548,58 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         {
             Directory.SetCurrentDirectory(replayDirectory);
             var replay = await RunCommandAsync(
-                ["timeline", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
+                ["diff", "--history", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                     "--finding", "api.type", "--source", source,
                     "--nugetconfig-directory", originalDirectory,
                     "--preview", "--all", "--tfm", "net10.0", "--at", "#2", "--tips", "q"]);
             Assert.True(replay.Exit == 0, replay.Error);
-            Assert.Contains("| #2 | 2.0.0-preview.1 | Present |", replay.Output);
+            Assert.Contains("2.0.0-preview.1", replay.Output);
+            Assert.Contains("Complete", replay.Output);
         }
         finally
         {
             Directory.SetCurrentDirectory(originalDirectory);
         }
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_ProbeReplayRetainsExplicitPrereleasePolicyWithoutObservedPrerelease()
+    {
+        const string Id = "range.diff-history.stable-preview-replay";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    version == "1.0.0"
+                        ? FixtureCatalog.DiffV1.AssemblyPath()
+                        : FixtureCatalog.DiffV2.AssemblyPath()),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.member",
+                "--source", FirstFeed,
+                "--at", "first",
+                "--at", "last",
+                "-S", "@History",
+                "--preview",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"diff --history --package '{Id}@1.0.0..3.0.0'",
+            result.Output);
+        Assert.Contains(" --preview", result.Output);
     }
 
     [Fact]
@@ -341,13 +670,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task TimelineRange_ConfigDirectoryErrorsPrecedeDiscovery(bool conflictingConfig)
+    public async Task DiffHistoryRange_ConfigDirectoryErrorsPrecedeDiscovery(bool conflictingConfig)
     {
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
             throw new InvalidOperationException("Invalid replay configuration reached discovery."));
         List<string> args =
         [
-            "timeline", "--package", "range.config.invalid@1.0.0..2.0.0",
+            "diff", "--history", "--package", "range.config.invalid@1.0.0..2.0.0",
             "--type", RangeType, "--source", FirstFeed,
             "--nugetconfig-directory", conflictingConfig ? _root : Path.Combine(_root, "missing"),
         ];
@@ -387,18 +716,29 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Empty(Directory.EnumerateDirectories(temporary, "inspect-api*", SearchOption.TopDirectoryOnly));
     }
 
-    private static void WriteApiPackage(string source, string id, string version)
+    private static void WriteApiPackage(
+        string source,
+        string id,
+        string version,
+        string? assemblyPath = null)
     {
         Directory.CreateDirectory(source);
-        File.WriteAllBytes(Path.Combine(source, $"{id}.{version}.nupkg"), CreateApiPackage(id, version));
+        File.WriteAllBytes(
+            Path.Combine(source, $"{id}.{version}.nupkg"),
+            CreateApiPackage(id, version, assemblyPath));
     }
 
-    private static byte[] CreateApiPackage(string id, string version)
+    private static byte[] CreateApiPackage(
+        string id,
+        string version,
+        string? assemblyPath = null)
     {
         using var buffer = new MemoryStream();
         buffer.Write(CreatePackage(id, version, version: version));
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Update, leaveOpen: true))
-            archive.CreateEntryFromFile(FixtureCatalog.DiffV1.AssemblyPath(), "lib/net10.0/RangeFixture.dll");
+            archive.CreateEntryFromFile(
+                assemblyPath ?? FixtureCatalog.DiffV1.AssemblyPath(),
+                "lib/net10.0/RangeFixture.dll");
         return buffer.ToArray();
     }
 }

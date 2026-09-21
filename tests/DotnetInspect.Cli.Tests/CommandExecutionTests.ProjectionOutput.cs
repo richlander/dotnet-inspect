@@ -444,7 +444,6 @@ public partial class CommandExecutionTests
                 "package activity",
                 "package query",
                 "project",
-                "timeline",
                 "type",
                 "vocabulary",
             },

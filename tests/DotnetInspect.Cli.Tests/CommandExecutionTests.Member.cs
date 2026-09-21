@@ -1166,7 +1166,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Cost Facts", output);
-        Assert.DoesNotContain("## Implementation Profiles", output);
+        Assert.DoesNotContain("## Member Metrics", output);
         Assert.DoesNotContain("## Clone Candidates", output);
     }
 
@@ -1194,7 +1194,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("Clone*", "Clone Candidates")]
-    [InlineData("Implementation*", "Implementation Profiles")]
+    [InlineData("Member*", "Member Metrics")]
     public async Task Member_SingleMatchGlob_DoesNotSelectExactOnlySection(
         string selector,
         string exactOnlySection)

@@ -5,6 +5,8 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using QuerySpace.Rows;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -25,6 +27,11 @@ public static class DiffOptionsParser
         Option<string?> FrameworkOption,
         Option<string?> TfmOption,
         Option<bool> AllOption,
+        Option<bool> HistoryOption,
+        Option<string[]> AtOption,
+        Option<int?> MaxProbesOption,
+        Option<bool> PrereleaseOption,
+        Option<bool> CountOption,
         Option<string[]> TypeFilterOption,
         Option<string[]> MemberFilterOption,
         Option<bool> NoHeaderOption,
@@ -51,6 +58,11 @@ public static class DiffOptionsParser
     public record VersionNumberError(string Value, string VersionRange) : DiffParseResult;
 
     /// <summary>
+    /// Indicates invalid command input that depends on the selected Diff mode.
+    /// </summary>
+    public record Invalid(string Message) : DiffParseResult;
+
+    /// <summary>
     /// Successfully parsed options ready for execution.
     /// </summary>
     public record Success(DiffOptions Options, Verbosity Verbosity, TipLevel TipLevel) : DiffParseResult;
@@ -61,13 +73,21 @@ public static class DiffOptionsParser
     public static DiffParseResult Parse(
         ParseResult parseResult,
         SharedOptions opts,
-        DiffCommandArgs args)
+        DiffCommandArgs args,
+        RowSelectionIntent<string>? semanticRowSelection = null)
     {
         var argsValue = parseResult.GetValue(args.ArgsArg) ?? [];
         var explicitPackage = parseResult.GetValue(args.PackageOption);
         var explicitPlatform = parseResult.GetValue(args.PlatformOption);
         var explicitLibrary = parseResult.GetValue(args.LibraryOption);
         bool hasExplicitSource = explicitPackage != null || explicitPlatform != null || explicitLibrary != null;
+        bool history = parseResult.GetValue(args.HistoryOption);
+        int maximumPositionals = hasExplicitSource ? 1 : 2;
+        if (history && argsValue.Length > maximumPositionals)
+        {
+            return new Invalid(
+                "Diff History accepts one package range and exactly one Type focus.");
+        }
 
         string? packageVersionRange = explicitPackage;
         string? platformVersionRange = explicitPlatform;
@@ -118,6 +138,12 @@ public static class DiffOptionsParser
             Framework = parseResult.GetValue(args.FrameworkOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
+            History = history,
+            At = parseResult.GetValue(args.AtOption) ?? [],
+            MaxProbes = parseResult.GetValue(args.MaxProbesOption),
+            IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
+            Count = parseResult.GetValue(args.CountOption),
+            SemanticRowSelection = semanticRowSelection,
             Verbose = parseResult.GetValue(opts.Verbose),
             TypeFilter = typeFilter,
             MemberFilter = memberFilter,

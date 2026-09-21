@@ -295,7 +295,7 @@ less than or equal to this change's own. This is deliberately the local,
 per-request population issue #7696 calls for in diff analysis ("local
 comparison populations"), not a corpus-wide distribution across a package or
 assembly family - that broader population belongs to the separate
-[Library Structural Report](library-structural-report.md) initiative and is
+[Library Metrics](library-structural-report.md) initiative and is
 intentionally out of scope here. A higher
 percentile means a greater proportion of the population has an absolute delta
 less than or equal to this change's own. It does not by itself identify an

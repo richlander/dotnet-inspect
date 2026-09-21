@@ -840,7 +840,7 @@ public class LibraryInspectionView
             { Profiles.IsEmpty: false };
 
     [MarkoutSection(
-        Name = SectionNames.ImplementationProfiles,
+        Name = SectionNames.MemberMetrics,
         ShowWhenProperty = nameof(HasImplementationProfiles))]
     [MarkoutIgnoreColumnWhen(
         nameof(ImplementationProfileUnsafeEmpty),

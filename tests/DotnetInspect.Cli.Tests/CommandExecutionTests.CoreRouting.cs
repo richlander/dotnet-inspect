@@ -4239,17 +4239,4 @@ public partial class CommandExecutionTests
         Assert.Contains(memberName, error);
     }
 
-    [Fact]
-    public async Task Timeline_BareSelect_IsRefusedWithoutLeakingTheMarker()
-    {
-        // Both timeline sections grow with the version range, so there is no fixed/bounded subset
-        // for bare -S to mean. The refusal is preserved from before #3547; what changes is that
-        // the message no longer spells an internal marker at the user.
-        var (exit, _, error) = await RunAppAsync(
-            "timeline", "Markout@0.29.0..0.33.0", "Markout.MarkoutWriter", "-S");
-
-        Assert.Equal(1, exit);
-        Assert.DoesNotContain("@Default", error, StringComparison.Ordinal);
-        Assert.Contains("Bare -S has no fixed sections for timeline", error, StringComparison.Ordinal);
-    }
 }

@@ -122,7 +122,7 @@ public partial class DependsAssetCommandTests
             source,
             "-S",
             "Licenses",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -201,7 +201,7 @@ public partial class DependsAssetCommandTests
             "1",
             "-S",
             "Dependency Hierarchy,Licenses",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -256,7 +256,7 @@ public partial class DependsAssetCommandTests
             source,
             "-S",
             "Licenses",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -328,7 +328,7 @@ public partial class DependsAssetCommandTests
             source,
             "-S",
             "Licenses",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 
@@ -375,7 +375,7 @@ public partial class DependsAssetCommandTests
             source,
             "-S",
             "Licenses,Failures",
-            "--json",
+            "--format=json",
             "--compact",
         ]);
 

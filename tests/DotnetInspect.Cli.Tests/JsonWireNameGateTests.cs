@@ -38,6 +38,7 @@ public class JsonWireNameGateTests
         .Select(static t => t.GetProperty("Default", BindingFlags.Public | BindingFlags.Static))
         .Where(static p => p is not null)
         .Select(static p => (JsonSerializerContext)p!.GetValue(null)!)
+        .DistinctBy(static c => c.GetType())
         .ToArray();
 
     [Fact]
@@ -85,30 +86,6 @@ public class JsonWireNameGateTests
     }
 
     /// <summary>
-    /// <c>TimelineJsonContext</c> declares no naming policy and its views carry no
-    /// <see cref="JsonPropertyNameAttribute"/>, so <c>timeline --format json</c> emits CLR PascalCase
-    /// spelling while every other command emits snake_case. This gate found that; it is a
-    /// pre-existing deviation from the output contract, not a sanctioned style. Correcting it
-    /// changes a shipped wire format, so it is tracked separately rather than folded into the
-    /// change that discovered it. <see cref="KnownPascalCaseDeviations_StillDeviate"/> fails if it
-    /// is fixed, forcing this entry to be removed with the fix.
-    /// </summary>
-    /// <remarks>
-    /// The value pins the exact wire names that deviate, not merely that some name deviates, so a
-    /// partial correction fails this gate instead of passing while the context is left in a mixed
-    /// state.
-    /// </remarks>
-    private static readonly Dictionary<string, string[]> KnownPascalCaseContexts = new()
-    {
-        ["TimelineJsonContext"] =
-        [
-            "Address", "Detail", "Evaluations", "Finding", "Findings", "From", "Member", "Range",
-            "Recommendation", "Span", "State", "Target", "Title", "To", "Transition", "Transitions",
-            "Type", "Version",
-        ],
-    };
-
-    /// <summary>
     /// Every wire name must match the shape its context declares. A context that omits
     /// <c>PropertyNamingPolicy</c> falls back to CLR PascalCase spelling and fails here.
     /// </summary>
@@ -120,11 +97,6 @@ public class JsonWireNameGateTests
         foreach (var context in Contexts)
         {
             var contextType = context.GetType();
-            if (KnownPascalCaseContexts.ContainsKey(contextType.Name))
-            {
-                continue;
-            }
-
             var policy = contextType
                 .GetCustomAttribute<JsonSourceGenerationOptionsAttribute>()?.PropertyNamingPolicy
                 ?? JsonKnownNamingPolicy.Unspecified;
@@ -145,40 +117,17 @@ public class JsonWireNameGateTests
     }
 
     /// <summary>
-    /// Pins the exemption above so it cannot outlive the deviation it describes.
-    /// </summary>
-    [Fact]
-    public void KnownPascalCaseDeviations_StillDeviate()
-    {
-        foreach (var (contextName, expectedDeviations) in KnownPascalCaseContexts)
-        {
-            var context = Assert.Single(Contexts, c => c.GetType().Name == contextName);
-
-            string[] deviating = WireNamesByType(context)
-                .SelectMany(static shape => shape.Names)
-                .Where(static name => !MatchesPolicy(name, JsonKnownNamingPolicy.Unspecified))
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(static name => name, StringComparer.Ordinal)
-                .ToArray();
-
-            Assert.True(
-                deviating.Length > 0,
-                $"{contextName} now matches the snake_case contract. Remove it from {nameof(KnownPascalCaseContexts)}.");
-
-            Assert.Equal(
-                expectedDeviations.OrderBy(static name => name, StringComparer.Ordinal).ToArray(),
-                deviating);
-        }
-    }
-
-    /// <summary>
     /// Contexts that emit a wire style other than the product's snake_case default are making a
     /// deliberate contract choice, so they are enumerated rather than inferred.
     /// </summary>
     [Fact]
     public void OnlyKnownContextsOptOutOfSnakeCase()
     {
-        string[] expectedCamelCase = ["CorpusManifestJsonContext", "DiscoveryJsonContext"];
+        string[] expectedCamelCase =
+        [
+            "CorpusManifestJsonContext",
+            "DiscoveryJsonContext",
+        ];
 
         var actual = Contexts
             .Select(static c => c.GetType())

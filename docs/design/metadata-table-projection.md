@@ -1640,7 +1640,7 @@ Resolved:
 
 - **Lens home.** A `@Metadata` section category, not a focused flag and not a
   dedicated command. Metadata tables introduce no new currency, so section
-  selection already addresses them. This also avoids a collision: `--table` is
+  selection already addresses them. This also avoids a collision: `--format table` is
   already taken as a presentation modifier ("render as a pretty table").
 - **Heap surfacing flags.** Per-heap listings are ordinary sections
   (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
