@@ -940,10 +940,10 @@ Move in reviewable slices.
    above the owner queries, and adopt the shared PE owner when that pending seam
    lands.
 
-The command-owned path-backed acquisitions for `diff` body-signal comparison,
-implementation comparison, and PDB-source target indexing, plus `timeline`
-analysis inspection, remain named compatibility consumers. They migrate after
-the library sections establish the service-execution and focused-result path.
+The command-owned path-backed acquisitions for pairwise `diff` body-signal
+comparison, implementation comparison, and PDB-source target indexing remain
+named compatibility consumers. Diff History Analysis uses shared PackageHouse
+cell inspection and the method-body session path.
 Separate `diff` phases may retain distinct executions and capability policies;
 `diff --finding analysis.*` still delegates path-backed acquisition to
 `ResearchDiff` until its focused migration.
