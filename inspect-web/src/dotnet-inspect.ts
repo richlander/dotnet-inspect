@@ -43,6 +43,7 @@ import {
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
   resolveRuntimeGraphTargetCandidate,
+  workspacePackageRemovalKey,
   runtimeGraphTargetAssemblyIsResident,
   runtimeGraphTargetNavigationDisposition,
   runtimePackForFramework,
@@ -3868,7 +3869,7 @@ function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {
     if (result.kind === "pkg-recent") {
       packageRemoval.forgetRecent(result.entry.id);
     } else {
-      packageRemoval.removeLoaded(packageIdentityKey({
+      packageRemoval.removeLoaded(workspacePackageRemovalKey({
         ...result.pkg,
         activeFramework: result.pkg.activeFramework ?? "",
       }));

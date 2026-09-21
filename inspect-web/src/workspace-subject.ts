@@ -1,6 +1,12 @@
 import type { PackageControlPackage } from "./package-controls.ts";
 import type { PlatformNavigationState } from "./platform-subject.ts";
-import { packageIdentityKey } from "./data.ts";
+import type {
+  NavigationPackagePresentationItem,
+} from "./navigation-descriptor-presentation.ts";
+import {
+  packageIdentityKey,
+  workspacePackageRemovalKey,
+} from "./data.ts";
 import { packageRemoveButton } from "./package-removal.ts";
 import type { SavedWorkspaceFocus } from "./saved-workspaces.ts";
 import {
@@ -34,6 +40,7 @@ export interface WorkspaceViewRenderOptions {
   canAddPackage?: boolean;
   savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
+  navigationPackages?: readonly NavigationPackagePresentationItem[];
   packages: readonly PackageControlPackage[];
   platform?: PlatformNavigationState | null;
   frameworkLibraries?: readonly {
@@ -138,13 +145,47 @@ export function renderWorkspaceView(
 ): string {
   const {
     occurrences,
+    navigationPackages,
     packages,
     loading,
     error,
     escapeHtml,
   } = options;
-  const packageRows = packages.filter(item => !item.isRuntimePack).map(item => {
-    const key = packageIdentityKey(item);
+  const packageRows = navigationPackages
+    ? navigationPackages.map(item => {
+      const framework = item.framework
+        ?? item.summary.selectedCompileFramework
+        ?? "";
+      const key = workspacePackageRemovalKey({
+        id: item.package,
+        version: item.version,
+        activeFramework: framework,
+        runtimeIdentifier: item.runtimeIdentifier,
+      });
+      const runtimeIdentifier = item.runtimeIdentifier
+        ? ` · ${item.runtimeIdentifier}`
+        : "";
+      const status = item.subject.state.toLowerCase() === "available"
+        ? ""
+        : ` · ${item.subject.state}`;
+      const evidence = item.subject.evidence ?? item.realizationFailure;
+      const label =
+        `${item.package} ${item.version} ${framework}${runtimeIdentifier}`;
+      const accessibleLabel = `Inspect ${label}`
+        + (item.subject.current ? ". Current" : "")
+        + (status ? `. ${item.subject.state}` : "")
+        + (evidence ? `. ${evidence}` : "");
+      return `<li class="workspace-occurrence-row" data-navigation-order="${item.order}">
+        <button class="workspace-occurrence${item.subject.current ? " active" : ""}" type="button" ${item.subject.action ? `data-product-navigation-action="${escapeHtml(item.subject.action)}"` : item.subject.current ? "" : "disabled"} data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}"${item.subject.current ? ' aria-current="page"' : ""} aria-label="${escapeHtml(accessibleLabel)}">
+          <span>NuGet package</span>
+          <strong>${escapeHtml(item.package)}</strong>
+          <small>${escapeHtml(item.version)} · ${escapeHtml(framework)}${escapeHtml(runtimeIdentifier)}${item.subject.current ? " · Current" : ""}${escapeHtml(status)}${evidence ? ` · ${escapeHtml(evidence)}` : ""}</small>
+        </button>
+        ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
+      </li>`;
+    }).join("")
+    : packages.filter(item => !item.isRuntimePack).map(item => {
+    const key = workspacePackageRemovalKey(item);
     const occurrence = !loading && !error
       ? occurrences.find(candidate => packageIdentityKey({
         id: candidate.package,
@@ -161,7 +202,7 @@ export function renderWorkspaceView(
       </button>
       ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
     </li>`;
-  }).join("");
+    }).join("");
   const platform = options.platform;
   const platformRows = platform ? `<li class="workspace-occurrence-row">
     <button class="workspace-occurrence" type="button" data-workspace-platform aria-label="Inspect Platform ${escapeHtml(platform.tfm)} ${escapeHtml(platform.version)}">
@@ -182,7 +223,8 @@ export function renderWorkspaceView(
       </button>
     </li>`).join("");
   const rows = packageRows;
-  const packageCount = packages.filter(item => !item.isRuntimePack).length;
+  const packageCount = navigationPackages?.length
+    ?? packages.filter(item => !item.isRuntimePack).length;
   const coordinateCount = packageCount + (platform ? 1 : 0)
     + (options.frameworkLibraries?.length ?? 0);
   const status = loading
