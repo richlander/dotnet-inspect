@@ -157,7 +157,9 @@ public static class MemberSourceDiffPresentationAdapter
             return new MemberSourceDiffPresentationResult.Failed(available, beforeFailure);
 
         BoundaryResult afterBoundary =
-            FindBoundary(decompiled.Result.Text!, admitted.Spelling);
+            FindBoundary(
+                decompiled.Result.MemberDeclarationText ?? decompiled.Result.Text!,
+                admitted.Spelling);
         if (afterBoundary.Failure is { } afterFailure)
             return new MemberSourceDiffPresentationResult.Failed(available, afterFailure);
 
