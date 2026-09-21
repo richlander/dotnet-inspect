@@ -225,14 +225,15 @@ export function createRetainedWorkspaceActivationController(
     retainedDefinitionId: string,
   ): Promise<BrowserWorkspacePackageSourceRequirementsResult> {
     const definition = find(retainedDefinitionId);
-    const describe = client.describeWorkspacePackageSources;
-    if (describe === undefined) {
+    if (client.describeWorkspacePackageSources === undefined) {
       throw new Error(
         "This engine does not support Workspace package-source descriptions.",
       );
     }
 
-    return await describe(definition.canonicalPacket);
+    return await client.describeWorkspacePackageSources(
+      definition.canonicalPacket,
+    );
   }
 
   function beginActivation(retainedDefinitionId: string): void {
@@ -532,15 +533,16 @@ export function createRetainedWorkspaceActivationController(
             definition.canonicalPacket,
           );
         } else {
-          const prepareWithCredentials =
-            client.prepareRetainedWorkspaceDefinitionWithCredentials;
-          if (prepareWithCredentials === undefined) {
+          if (
+            client.prepareRetainedWorkspaceDefinitionWithCredentials
+              === undefined
+          ) {
             throw new Error(
               "This engine does not support Workspace PAT bindings.",
             );
           }
-          preparation = await prepareWithCredentials.call(
-            client,
+          preparation =
+            await client.prepareRetainedWorkspaceDefinitionWithCredentials(
             definition.id,
             definition.label,
             definition.canonicalLocation,

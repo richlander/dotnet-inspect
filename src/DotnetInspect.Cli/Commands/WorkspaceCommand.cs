@@ -56,9 +56,14 @@ public static partial class WorkspaceCommand
                     cancellationToken);
                 packageSources = packet.PackageSources;
             }
-            catch (Exception ex) when (ex is
-                WorkspaceSharePacketException
-                or InvalidDataException)
+            catch (WorkspaceSharePacketException ex)
+            {
+                CommandError.Write(
+                    "The Workspace packet could not be restored.",
+                    [ex.Message]);
+                return 1;
+            }
+            catch (InvalidDataException ex)
             {
                 CommandError.Write(
                     "The Workspace packet input is invalid.",
