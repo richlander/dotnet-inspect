@@ -174,7 +174,8 @@ public sealed class InspectionDefinitionRegistry
         ValidateNavigationIds(records.Navigation);
         if (scenario.SchemaVersion is InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4)
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5)
         {
             CommittedScenarioDefinitionSet committed =
                 CreateCommittedScenario(
@@ -195,6 +196,9 @@ public sealed class InspectionDefinitionRegistry
                         committed),
                 InspectionDefinitionSchema.Version4 =>
                     new InspectionDefinitionScenarioPreparationResult.Version4(
+                        committed),
+                InspectionDefinitionSchema.Version5 =>
+                    new InspectionDefinitionScenarioPreparationResult.Version5(
                         committed),
                 _ => throw new UnreachableException(),
             };
@@ -429,7 +433,8 @@ public sealed class InspectionDefinitionRegistry
         else if (workspace.Contexts.Count == 0
             && workspace.SchemaVersion is (
                 InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4))
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5))
         {
             return;
         }
@@ -1719,6 +1724,10 @@ public abstract record InspectionDefinitionScenarioPreparationResult
         : InspectionDefinitionScenarioPreparationResult;
 
     public sealed record Version4(
+        CommittedScenarioDefinitionSet Definitions)
+        : InspectionDefinitionScenarioPreparationResult;
+
+    public sealed record Version5(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
 }
