@@ -566,6 +566,11 @@ rather than dropping registrations or manufacturing a private packet.
 An operation whose target is already in the active realization enters that
 realization instead of creating a replacement.
 
+Spotlight's current-subject adopter holds that exact admitted realization
+through ordinary Navigation or the complete Package membership-and-focus
+operation. Admission failure remains typed separately, and covered Package
+failure does not enter fresh-Workspace restoration.
+
 ### Platform selection
 
 Selecting a Platform target uses the same retained-definition and fresh
@@ -790,6 +795,10 @@ An operation carries the admitted realization identity through its result
 publication check. Results from a predecessor may finish, but the
 retained-realization owner rejects their realization association before
 Navigation Consumer or another presentation owner can post effects.
+
+`BrowserSpotlightRetainedCurrentActivation` is the focused Spotlight adopter:
+it admits the captured retained-definition identity once and holds the returned
+lease through the complete current-subject operation.
 
 Exact target identity determines whether an operation belongs to the active
 realization. Labels, coordinates, assembly names, Platform names, and content
