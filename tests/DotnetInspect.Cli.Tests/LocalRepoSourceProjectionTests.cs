@@ -265,6 +265,23 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    // PR-fast: one offline document request against the small member-slicing assembly.
+    [Fact]
+    public async Task MemberSourceLocationsPrint_ExplicitVerbosityFramesDocument()
+    {
+        var result = await RunCliAsync(
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--repo", FindRepositoryRoot(), "-S", "Source Locations",
+            "--print", "-v:q", "--tips", "q");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.StartsWith("# ", result.Output);
+        Assert.Contains("```csharp", result.Output);
+        Assert.Contains("public static class MemberTextSlicer", result.Output);
+    }
+
     // PR-fast: one bounded offline ordinary PDB Source request against the real repository asset.
     [Fact]
     public async Task MemberPdbSource_RendersTheVerifiedDeclarationWithoutAuthoredParts()
@@ -443,6 +460,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     // PR-fast: one offline part request; explicit flags override the environment format.
     [Theory]
     [InlineData(null)]
+    [InlineData("-v:q")]
     [InlineData("--plaintext")]
     [InlineData("--json")]
     [InlineData("--jsonl")]
@@ -465,7 +483,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
 
             Assert.True(result.Exit == 0, result.Error);
             Assert.Empty(result.Error);
-            if (format is null)
+            if (format is null or "-v:q")
             {
                 Assert.StartsWith("# ", result.Output);
                 Assert.Contains("```csharp", result.Output);
@@ -496,6 +514,51 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         finally
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    // PR-fast: one offline part request for each supported verbosity/format choice.
+    [Theory]
+    [InlineData("-v:q", null)]
+    [InlineData("-v:m", null)]
+    [InlineData("-v:n", null)]
+    [InlineData("-v:d", null)]
+    [InlineData("-v:q", "--plaintext")]
+    [InlineData("-v:q", "--json")]
+    public async Task MemberParts_ExplicitVerbosityHonorsResolvedFormat(
+        string verbosity,
+        string? format)
+    {
+        var result = await RunCliAsync(
+        [
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--repo", FindRepositoryRoot(), "--print", "--part", "signature",
+            verbosity, "--tips", "q",
+            .. format is not null ? new[] { format } : [],
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        if (format == "--json")
+        {
+            using var json = JsonDocument.Parse(result.Output);
+            Assert.Equal("signature", json.RootElement.GetProperty("part").GetString());
+            Assert.StartsWith("public static string? ExtractMemberText(",
+                json.RootElement.GetProperty("content").GetString());
+            Assert.False(json.RootElement.TryGetProperty("row", out _));
+        }
+        else if (format == "--plaintext")
+        {
+            Assert.StartsWith("    public static string? ExtractMemberText(", result.Output);
+            Assert.DoesNotContain("```", result.Output);
+        }
+        else
+        {
+            Assert.StartsWith("# ", result.Output);
+            Assert.Contains("(signature)", result.Output);
+            Assert.Contains("```csharp", result.Output);
+            Assert.Contains("    public static string? ExtractMemberText(", result.Output);
         }
     }
 

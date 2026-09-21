@@ -170,7 +170,9 @@ existing owner; missing or failed content is not fabricated or replaced by
 another source.
 
 An explicit format, including an environment format default, overrides this
-native default. `--markdown` requests Markdown presentation. JSON, row-oriented
+native default. `--markdown` and the existing `-v:*` Markdown selection request
+Markdown presentation. Explicit plaintext or JSON still takes precedence over
+verbosity according to the shared format resolver. JSON, row-oriented
 formats, Count, field/column projection, and discovery retain their existing
 contracts rather than falling through to text output. Normalized section
 selection decides whether the result is a single payload; matching a category

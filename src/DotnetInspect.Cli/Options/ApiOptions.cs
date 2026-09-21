@@ -286,8 +286,7 @@ public partial record ApiOptions : IProjectionOptions
 
     public bool UsesMarkdownPayloadFormat =>
         MarkdownExplicitlySet
-        || (!FormatFlagExplicitlySet
-            && FormatExplicitlySet
+        || (FormatExplicitlySet
             && Format == OutputFormat.Markdown);
 
     public bool UsesNativePayloadDefault =>
