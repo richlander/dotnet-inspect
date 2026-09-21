@@ -280,8 +280,12 @@ scope-operation results are owned by
 protected Navigation consumption is implemented by the shared producer in
 [Navigation Scope-operation consumption](navigation-scope-operation-consumption.md)
 under [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
-Source-retiring correspondence orchestration is implemented there; CLI and
-Browser adoption remain unverified follow-on slices.
+Source-retiring same-Workspace correspondence orchestration is implemented
+there. [Navigation coordinate successor
+preparation](navigation-coordinate-successor-preparation.md) applies the same
+retention policy to explicit source and destination Workspace arguments while
+preparing a fresh destination lineage. Portable, CLI, and Browser adoption
+remain follow-on slices.
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -1807,9 +1811,12 @@ current snapshot and surfaces failure. For a newly activated occurrence with
 no prior retained path, Navigation runs independent initial recommendation;
 correspondence is not invented. Failed lower levels remain failed.
 
-Correspondence never crosses a Workspace boundary. A different exact Workspace
-uses a different retained navigation session and independently selected or
-restored state.
+Navigation state and structural-subject identity never cross a Workspace
+boundary. A focused successor operation may compare exact source and
+destination evidence under
+[Navigation coordinate successor preparation](navigation-coordinate-successor-preparation.md),
+but it creates a fresh destination Navigation session with independently
+selected or restored state.
 
 Membership-changing effects are outside this structural claim and are owned by
 Workspace Scope and Expansion. #5584 owns their stale-work sequencing and
