@@ -41,11 +41,13 @@ dotnet-inspect L3 ---------+
   |                        |
   v                        v
 DotnetInspector.Sections -> DotnetInspector.QueryEngine
-  L2                       dependency-free physical carrier
+  L2                       current physical carrier
   |                        ^
   v                        |
 DotnetInspector.Queries ---+
   L1
+
+Target carrier: QuerySpace
   |
   v
 DotnetInspector.* / ILInspector.*
@@ -62,10 +64,14 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
-`DotnetInspector.QueryEngine` is an orthogonal, dependency-free physical
-carrier rather than a new layer or architectural owner. It carries the portable
-query intent and codec, generic row-vocabulary resolution and execution, and
-semantic row selection; their focused designs retain authority. L2 owns
+`DotnetInspector.QueryEngine` is the current orthogonal, dependency-free
+physical carrier rather than a new layer or architectural owner.
+[QuerySpace Library Boundary](query-space-library.md) replaces that
+product-named carrier with the target independent `QuerySpace` package and
+retains the same rule: physical composition does not transfer authority from
+the focused designs. The carrier includes portable query intent and codec,
+generic row-vocabulary resolution and execution, and semantic row selection.
+L2 owns
 resolution into the executable plan and typed source request. L1 or source
 owners may analyze that request for equivalent execution and return a typed
 result with completion evidence through the
@@ -338,8 +344,9 @@ that surface it, the disclosure ladder that decides when it appears, and the
 **shape ladder** that narrows a result to what was asked for. L2 is where results
 are integrated with Markout serialization.
 
-L2 binds declared typed row sets to the consumer-neutral
-semantic row-selection contract carried by `DotnetInspector.QueryEngine`.
+L2 binds declared typed row sets to the consumer-neutral semantic
+row-selection contract currently carried by `DotnetInspector.QueryEngine` and
+targeted for `QuerySpace`.
 [Semantic row selection](semantic-row-selection.md) defines that component's
 ordered stage plan, strictness, stage-local positions, and pure output. At this
 boundary, L3 supplies typed operation intent. L2 owns its resolution into the

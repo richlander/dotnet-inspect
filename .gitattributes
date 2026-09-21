@@ -13,6 +13,10 @@
 # interpreter path or argument, so they must stay LF regardless of the above.
 *.sh text eol=lf
 
+# The canonical facade generator deliberately emits a separating newline after
+# the final declaration; preserve its byte-exact output without flagging EOF.
+inspect-web/DotnetInspect.Web/facades/*.ts whitespace=-blank-at-eof
+
 # Binary payloads must never be line-ending converted. fixture.nettrace is the
 # only such file committed today; the rest are listed because this repository
 # reads assemblies and package artifacts, and a future fixture that Git guessed

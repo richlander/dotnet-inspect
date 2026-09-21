@@ -381,12 +381,14 @@ internal static class RenderAbSensor
         var changes = new List<RenderChange>();
         var unavailableChanges = new List<RenderChange>();
         var semanticRegressions = new List<(string Key, string Before, string After, ValidityCheck.RenderedBodyResult BeforeValidity, ValidityCheck.RenderedBodyResult AfterValidity)>();
-        var references = ValidityCheck.RuntimeReferences();
         var compileOptions = ValidityCheck.CompileOptions();
         var semanticContexts = new Dictionary<string, SemanticContext?>(StringComparer.Ordinal);
         var featureOptionsByAssembly =
             new Dictionary<string, CompilerFeatureOptions.Resolution>(
             StringComparer.Ordinal);
+        var referencesByAssembly =
+            new Dictionary<string, ImmutableArray<MetadataReference>>(
+                StringComparer.Ordinal);
 
         foreach (var kvp in current)
         {
@@ -436,6 +438,14 @@ internal static class RenderAbSensor
                         CompilerFeatureOptions.Resolve(sample.AssemblyPath);
                     featureOptionsByAssembly[sample.AssemblyPath] =
                         featureOptions;
+                }
+                if (!referencesByAssembly.TryGetValue(
+                    sample.AssemblyPath,
+                    out var references))
+                {
+                    references = TypeBindCheck.ReferencesFor(
+                        sample.AssemblyPath);
+                    referencesByAssembly[sample.AssemblyPath] = references;
                 }
                 var beforeValidity = CheckSemantic(
                     context,
