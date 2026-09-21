@@ -217,6 +217,16 @@ represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical
 candidate, the shape-compatible triage row carries the runtime evidence.
 The raw library row is marked `superseded-by-triage`, not workload-cold.
+Exact `string-materialization` rows intentionally have no static allocated
+type. RunFaster accepts only an observed `System.String` at their same-build
+nearest-preceding IL coordinate and lists the result under
+`Runtime-confirmed string materialization`. Those rows remain outside the
+automatic optimization verdict because runtime volume alone cannot distinguish
+required output from removable intermediate text; inspect the result consumer
+before choosing a rewrite. Supplied allocation-type fields, method-only heat,
+and aggregate `SupportingCallSite` coordinates cannot confirm string
+materialization: none identifies an observed `System.String` allocation at the
+exact string-producing operation.
 For a repeated-scan aggregate with a supporting call site, `runfaster` promotes
 an allocation observation only when the same build has a raw library allocation
 at that coordinate and exactly one aggregate support in that build claims it.

@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// The single byte spelling a <see cref="PortableQueryIntent"/> has.
