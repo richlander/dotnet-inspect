@@ -65,6 +65,16 @@ Integrity are `Fixed` aggregate field tables. Their source acquisition remains
 capability-gated, so their exact or `@SourceLink` selection still requires
 Detailed despite the fixed output shape.
 
+For `depends`, every asset and positional-Type section is an uncapped
+dependency row or edge population and is therefore `Verbose`. Dependency
+Hierarchy and Dependency Graph remain their routes' authored primary sections,
+so `-v:m` retains them, generic `-v:n` omits them, and `-v:d` restores them.
+For the asset route, Detailed also restores the bounded-cost Dependencies and
+Failures inventories; unbounded-cost Licenses and Pruning remain explicit.
+Exact section and explicit `@Dependencies` selection retain the complete
+requested evidence. A positional-Type `-v:n` request is consequently a valid
+empty automatic view rather than an unsupported-section error.
+
 For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
 Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
 the command's authored primary result and diagnostic context at `-v:m`, are
