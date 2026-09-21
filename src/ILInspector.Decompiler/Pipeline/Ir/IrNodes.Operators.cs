@@ -82,15 +82,22 @@ public sealed class LogicalBinary : IrExpression
     witness: "NullConditionalCoalescePassTests, corpus compile-back")]
 public sealed class Coalesce : IrExpression
 {
+    TypeRef? _assignmentType;
+
     public Coalesce(IrExpression left, IrExpression right)
     {
         AddChild(left);
         AddChild(right);
+        BindAssignmentType(ImmutableDictionary<TypeRef, TypeShape>.Empty);
     }
 
     public IrExpression Left => (IrExpression)Children[0];
     public IrExpression Right => (IrExpression)Children[1];
     public override TypeRef? ResultType => NullableValueCoalesceResult(Left.ResultType, Right.ResultType) ?? Left.ResultType ?? Right.ResultType;
+    public override TypeRef? AssignmentType => _assignmentType;
+
+    internal void BindAssignmentType(IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => _assignmentType = CoercionRendering.CoalesceAssignmentType(this, shapes);
 
     public override string Describe() => "Coalesce";
 
@@ -413,6 +420,8 @@ public sealed class IncrementDecrement : IrExpression
         => $"{(IsPrefix ? "Pre" : "Post")}{(IsIncrement ? "Increment" : "Decrement")}";
 }
 
+public enum CoercionKind { Value, ReferenceWitness }
+
 /// <summary>
 /// The C#-surface coercion of a value into a typed sink
 /// (docs/design/value-typed-emission.md): "render this value into a position
@@ -433,13 +442,15 @@ public sealed class IncrementDecrement : IrExpression
     witness: "CoerceChokePointTests, CoercionInvariantTests, corpus render-text A/B")]
 public sealed class Coerce : IrExpression
 {
-    public Coerce(TypeRef target, IrExpression operand)
+    public Coerce(TypeRef target, IrExpression operand, CoercionKind kind = CoercionKind.Value)
     {
         Target = target;
+        Kind = kind;
         AddChild(operand);
     }
 
     public TypeRef Target { get; }
+    public CoercionKind Kind { get; }
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType => Target;
     public override IEnumerable<TypeRef> DirectTypes => [Target];
