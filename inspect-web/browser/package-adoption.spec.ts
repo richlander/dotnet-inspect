@@ -2201,7 +2201,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel).not.toContainText("Inspection failed");
   });
 
-  test("renders the complete Library API Diff inventory and same-version empty neighbor", async ({
+  test("drills Library, Type, and Member through one Compare inspector with the mode retained", async ({
     page,
     context,
   }) => {
@@ -2233,12 +2233,17 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await selectFirstExactLibrary(page);
     await chooseInspector(page, "data-library-lens", "compare");
 
+    // Library Compare: one frame, Diff active, Package-owned target explained.
     const panel = page.locator("#inspector-panel");
-    await expect(panel.getByRole("heading", {
-      name: "Library API diff",
-      exact: true,
-    })).toBeVisible({ timeout: 60_000 });
-    await expect(panel.locator(".library-api-diff-status"))
+    const frame = panel.locator(".compare-surface");
+    await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
+    await expect(panel.locator('[data-compare-mode="diff"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(panel.locator('[data-compare-mode="clone"]'))
+      .toHaveAttribute("aria-selected", "false");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+    await expect(panel.locator(".compare-status"))
       .toContainText("Comparison complete", { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-type")).toHaveCount(7);
     await expect(panel).toContainText("LibraryApiDiffFixture.RemovedType");
@@ -2252,17 +2257,89 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(
       '[data-after-type-id="LibraryApiDiffFixture.AddedType"]',
     )).toHaveAttribute("data-before-type-id", "");
-    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(0);
+    // Every current-side Type row is a navigation item; the removed Type
+    // remains visible with Before-side evidence and is not activatable.
+    await expect(panel.locator(".library-api-diff-type button")).toHaveCount(6);
+    await expect(panel.locator(
+      '[data-before-type-id="LibraryApiDiffFixture.RemovedType"] [aria-disabled="true"]',
+    )).toHaveCount(1);
+    await expect(panel.locator(".library-api-diff-type button[data-compare-type-id]"))
+      .toHaveCount(6);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
 
-    await panel.locator("#library-api-diff-change-target").click();
+    // Library -> Type keeps Compare and Diff active with the same target.
+    await panel.locator(
+      '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
+    ).click();
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await expect(page.locator('[data-inspector-tab][data-lens="compare"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType");
+    await expect(panel.locator('[data-compare-mode="diff"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+    // The added Type carries its implicit constructor plus First and Second.
+    await expect(panel.locator(".compare-status"))
+      .toContainText("3 changed Members", { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
+    await expect(panel.locator(".library-api-diff-member button")).toHaveCount(3);
+    await expect(panel).not.toContainText("Whole type diff");
+    expect(registry.downloadCount(libraryDiffV1)).toBe(1);
+    expect(registry.downloadCount(libraryDiffV2)).toBe(1);
+
+    // Type -> Member is the detailed-result boundary.
+    await panel.locator(".library-api-diff-member button", { hasText: "First" })
+      .click();
+    await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await expect(page.locator('[data-inspector-tab][data-member-section="compare"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType.First");
+    await expect(panel.locator(".compare-status"))
+      .toContainText("Member added", { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(2);
+    await expect(panel.locator(".library-api-diff-absent")).toHaveCount(1);
+    await expect(panel).not.toContainText("Explore");
+
+    // Back restores the Type inventory with Compare and Diff still active.
+    await page.locator("#nav-back").click();
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
+    await expect(panel.locator('[data-compare-mode="diff"]'))
+      .toHaveAttribute("aria-selected", "true");
+
+    // Switching to Clone keeps the frame and runs the Type's own query.
+    await panel.locator('[data-compare-mode="clone"]').click();
+    await expect(panel.locator('[data-compare-mode="clone"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(panel.locator(".compare-target-label")).toHaveText("Clone scope");
+    await expect(panel.locator(".compare-status"))
+      .toContainText("Clone search", { timeout: 120_000 });
+    await expect(panel.locator(".compare-status"))
+      .not.toContainText("Searching", { timeout: 120_000 });
+    await expect(panel).not.toContainText("Whole type diff");
+    // Mode is retained through Type -> Library navigation and back to Diff.
+    await page.locator("#nav-back").click();
+    await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
+    await expect(panel.locator('[data-compare-mode="clone"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await panel.locator('[data-compare-mode="diff"]').click();
+    await expect(panel.locator(".library-api-diff-type")).toHaveCount(7, {
+      timeout: 60_000,
+    });
+
+    // Change target returns to Package Overview's Comparison targets area.
+    await panel.locator("#compare-change-target").click();
     const target = page.locator("#package-diff-target");
     await expect(target).toBeVisible();
+    await expect(target).toBeFocused();
     await target.selectOption("exact:2.0.0");
     await selectFirstExactLibrary(page);
     await chooseInspector(page, "data-library-lens", "compare");
-    await expect(panel.locator(".library-api-diff-status"))
+    await expect(panel.locator(".compare-status"))
       .toContainText("No changed Types", { timeout: 60_000 });
     await expect(panel).toContainText("No public API changes");
     await expect(panel.locator(".library-api-diff-type")).toHaveCount(0);
