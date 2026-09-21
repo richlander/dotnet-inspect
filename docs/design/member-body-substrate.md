@@ -537,8 +537,8 @@ isolated property must not acquire `= list` without a declaration binding
 equivalence remain outside this claim.
 
 Issue #8022 refines this native artifact with an expression-bodied accessor,
-retaining the existing multi-line property layout rather than compacting the
-entire declaration onto one line.
+following the shared
+[property expression-body and accessor-layout preference](../decompiler-taste.md#property-expression-bodies-and-accessor-layout).
 Typed body production supplies an optional single-line expression through the
 existing `CSharpExpressionBody` grammar over its own rendered statements; the
 original block-body projection remains unchanged. CSharp consumes an explicit
