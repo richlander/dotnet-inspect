@@ -311,6 +311,216 @@ public sealed class TypeRef : IEquatable<TypeRef>
         _ => ToDisplayString(),
     };
 
+    /// <summary>
+    /// Returns the recursively structured signature spelling retained for a
+    /// function-pointer type, including its calling convention.
+    /// </summary>
+    public bool TryGetFunctionPointerSignatureIdentity(out string identity)
+    {
+        TypeRef candidate = this;
+        while (candidate.FunctionPointerSignature is null
+            && candidate.UnmodifiedType is { } unmodified)
+        {
+            candidate = unmodified;
+        }
+
+        if (candidate.FunctionPointerSignature is null)
+        {
+            identity = "";
+            return false;
+        }
+
+        identity = SignatureTypeIdentity(this);
+        return true;
+    }
+
+    static string FunctionPointerSignatureIdentity(
+        MethodSignature<TypeRef> signature)
+    {
+        string convention = signature.Header.CallingConvention switch
+        {
+            SignatureCallingConvention.Default => "",
+            SignatureCallingConvention.CDecl => "unmanaged[Cdecl]",
+            SignatureCallingConvention.StdCall => "unmanaged[Stdcall]",
+            SignatureCallingConvention.ThisCall => "unmanaged[Thiscall]",
+            SignatureCallingConvention.FastCall => "unmanaged[Fastcall]",
+            _ => "unmanaged",
+        };
+        bool normalizedConvention =
+            TryApplyFunctionPointerConventionModifiers(
+            convention,
+            signature.ReturnType,
+            out convention,
+            out TypeRef unmodifiedReturnType);
+        IEnumerable<string> parameters = signature.ParameterTypes.Select(
+            SignatureTypeIdentity);
+        string conventionSuffix = convention.Length == 0
+            ? ""
+            : $" {convention}";
+        string signatureShape = FunctionPointerSignatureShape(signature);
+        return $"delegate*{conventionSuffix}{signatureShape}<"
+            + $"{string.Join(",", parameters.Append(
+                normalizedConvention
+                    ? SignatureTypeIdentity(unmodifiedReturnType)
+                    : SignatureTypeIdentity(signature.ReturnType)))}>";
+    }
+
+    static string FunctionPointerSignatureShape(
+        MethodSignature<TypeRef> signature)
+    {
+        byte callingConvention =
+            (byte)(signature.Header.RawValue & 0x0F);
+        byte attributes = (byte)(signature.Header.RawValue & 0xF0);
+        var parts = new List<string>(3);
+        if (callingConvention is not (0x00
+            or 0x01
+            or 0x02
+            or 0x03
+            or 0x04
+            or 0x09))
+        {
+            parts.Add($"calling=0x{callingConvention:X2}");
+        }
+        if (attributes != 0)
+            parts.Add($"flags=0x{attributes:X2}");
+        if (signature.GenericParameterCount != 0)
+            parts.Add($"generic={signature.GenericParameterCount}");
+        if (signature.RequiredParameterCount != signature.ParameterTypes.Length)
+            parts.Add($"required={signature.RequiredParameterCount}");
+        return parts.Count == 0
+            ? ""
+            : $"{{{string.Join(";", parts)}}}";
+    }
+
+    static bool TryApplyFunctionPointerConventionModifiers(
+        string callingConvention,
+        TypeRef returnType,
+        out string convention,
+        out TypeRef unmodifiedReturnType)
+    {
+        convention = callingConvention;
+        List<(bool IsRequired, string Name)> modifiers = [];
+        bool hasUnsupportedModifier = false;
+        TypeRef current = returnType;
+        while (current.ModifierType is { } modifier
+            && current.UnmodifiedType is { } unmodified)
+        {
+            if (IsRecognizedFunctionPointerConventionModifier(
+                modifier,
+                current.IsRequiredModifier))
+            {
+                modifiers.Add((
+                    current.IsRequiredModifier,
+                    modifier.Name["CallConv".Length..]));
+            }
+            else
+            {
+                hasUnsupportedModifier = true;
+            }
+            current = unmodified;
+        }
+        unmodifiedReturnType = current;
+
+        if (hasUnsupportedModifier
+            || modifiers.Any(modifier => modifier.IsRequired))
+            return false;
+        if (modifiers.Count == 0)
+            return true;
+        if (callingConvention.Length == 0)
+            return false;
+
+        var parts = new List<string>();
+        const string prefix = "unmanaged[";
+        if (callingConvention.StartsWith(prefix, StringComparison.Ordinal)
+            && callingConvention.EndsWith(']'))
+        {
+            parts.AddRange(callingConvention[prefix.Length..^1]
+                .Split(
+                    ',',
+                    StringSplitOptions.TrimEntries
+                        | StringSplitOptions.RemoveEmptyEntries));
+        }
+        else if (callingConvention != "unmanaged")
+        {
+            return false;
+        }
+
+        for (int i = modifiers.Count - 1; i >= 0; i--)
+        {
+            string modifier = modifiers[i].Name;
+            if (modifier is not ("Cdecl"
+                or "Stdcall"
+                or "Thiscall"
+                or "Fastcall"
+                or "SuppressGCTransition"
+                or "MemberFunction")
+                || parts.Contains(modifier, StringComparer.Ordinal))
+            {
+                return false;
+            }
+            parts.Add(modifier);
+        }
+        convention = parts.Count == 0
+            ? "unmanaged"
+            : $"unmanaged[{string.Join(", ", parts)}]";
+        return true;
+    }
+
+    static bool IsRecognizedFunctionPointerConventionModifier(
+        TypeRef modifier,
+        bool isRequired)
+        => !isRequired
+            && modifier.Assembly == CoreLibrary
+            && modifier.Namespace == "System.Runtime.CompilerServices"
+            && modifier.Name is
+                "CallConvCdecl"
+                or "CallConvStdcall"
+                or "CallConvThiscall"
+                or "CallConvFastcall"
+                or "CallConvSuppressGCTransition"
+                or "CallConvMemberFunction";
+
+    static string SignatureTypeIdentity(TypeRef type)
+    {
+        if (type.FunctionPointerSignature is { } functionPointer)
+            return FunctionPointerSignatureIdentity(functionPointer);
+        if (type.ModifierType is { } modifier
+            && type.UnmodifiedType is { } unmodified)
+        {
+            string modifierKind = type.IsRequiredModifier
+                ? "modreq"
+                : "modopt";
+            return $"{modifierKind}({SignatureTypeIdentity(modifier)})"
+                + SignatureTypeIdentity(unmodified);
+        }
+
+        return type.Kind switch
+        {
+            TypeRefKind.Definition => type.Resolution?.Type.ToEscapedFullName()
+                ?? type.QualifiedDisplayName(),
+            TypeRefKind.GenericInstance =>
+                $"{SignatureTypeIdentity(type.ElementType!)}"
+                + $"<{string.Join(",", type.TypeArguments.Select(
+                    SignatureTypeIdentity))}>",
+            TypeRefKind.SzArray =>
+                $"{SignatureTypeIdentity(type.ElementType!)}[]",
+            TypeRefKind.Array =>
+                $"{SignatureTypeIdentity(type.ElementType!)}"
+                + $"[{(type.Rank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.Rank))}]",
+            TypeRefKind.ByRef =>
+                $"{SignatureTypeIdentity(type.ElementType!)}&",
+            TypeRefKind.Pointer =>
+                $"{SignatureTypeIdentity(type.ElementType!)}*",
+            TypeRefKind.Pinned =>
+                $"pinned {SignatureTypeIdentity(type.ElementType!)}",
+            TypeRefKind.GenericParameter =>
+                $"!{type.GenericParameterIndex}",
+            TypeRefKind.MethodGenericParameter =>
+                $"!!{type.GenericParameterIndex}",
+            _ => type.ToQualifiedDisplayString(),
+        };
+    }
+
     public override string ToString() => ToDisplayString();
 
     /// <summary>

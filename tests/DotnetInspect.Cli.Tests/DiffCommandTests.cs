@@ -3058,6 +3058,79 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void AddResearchReturnTypeBodyIdentity_UsesPositionalGenericParameter()
+    {
+        var type = new ApiType { Namespace = "Sample", Name = "Widget" };
+        var member = DiffMember(
+            "Changed",
+            signature: "T Changed<T>(T value)",
+            genericArity: 1);
+        member.SignatureModel!.ReturnTypeShape =
+            ApiTypeShape.GenericParameter(
+                index: 0,
+                isMethodParameter: true);
+        var target = ResolvedTarget(type, member);
+        HashSet<string> identities = new(StringComparer.Ordinal);
+
+        Assert.True(
+            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
+                target,
+                identities));
+
+        const string canonical =
+            "M:Sample.Widget.Changed<T>(T)~!!0";
+        Assert.Equal(
+            $"Changed~{MemberAnchor.ComputeFingerprint(canonical)}",
+            Assert.Single(identities));
+    }
+
+    [Fact]
+    public void AddResearchReturnTypeBodyIdentity_PreservesNestedGenericArity()
+    {
+        var type = new ApiType { Namespace = "Sample", Name = "Widget" };
+        var member = DiffMember(
+            "Changed",
+            signature: "object Changed()");
+        var coreLibrary = new ApiAssemblyIdentity(
+            "System.Private.CoreLib",
+            version: null,
+            culture: null,
+            publicKeyToken: null);
+        member.SignatureModel!.ReturnTypeShape =
+            ApiTypeShape.GenericInstance(
+                new ApiTypeReferenceIdentity(
+                    coreLibrary,
+                    "System.Collections.Generic.Dictionary`2"),
+                [
+                    ApiTypeShape.PrimitiveType(ApiPrimitiveType.String),
+                    ApiTypeShape.GenericInstance(
+                        new ApiTypeReferenceIdentity(
+                            coreLibrary,
+                            "System.Collections.Generic.List`1"),
+                        [
+                            ApiTypeShape.PrimitiveType(
+                                ApiPrimitiveType.Int32),
+                        ]),
+                ]);
+        var target = ResolvedTarget(type, member);
+        HashSet<string> identities = new(StringComparer.Ordinal);
+
+        Assert.True(
+            ResearchMemberIdentity.TryAddReturnTypeTargetIdentity(
+                target,
+                identities));
+
+        const string canonical =
+            "M:Sample.Widget.Changed()"
+            + "~System.Collections.Generic.Dictionary`2"
+            + "<System.String,System.Collections.Generic.List`1"
+            + "<System.Int32>>";
+        Assert.Equal(
+            $"Changed~{MemberAnchor.ComputeFingerprint(canonical)}",
+            Assert.Single(identities));
+    }
+
+    [Fact]
     public void ResearchBodyIdentity_TargetAliasMatchesMethodSubjectCanonicalFormatter()
     {
         AssertTargetAliasMatchesMethodSubject(
