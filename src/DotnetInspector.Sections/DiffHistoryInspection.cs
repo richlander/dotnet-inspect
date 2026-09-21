@@ -509,10 +509,21 @@ public static class DiffHistoryInspection
                 switch (operation.Kind)
                 {
                     case RowSelectionStageKind.Head:
-                    case RowSelectionStageKind.Tail:
                         maximumLength = Math.Min(
                             maximumLength ?? operation.Count,
                             operation.Count);
+                        break;
+                    case RowSelectionStageKind.Tail:
+                        if (maximumLength is not long boundedTail)
+                            return null;
+                        required = Math.Max(
+                            required,
+                            offset + boundedTail);
+                        long retainedTail = Math.Min(
+                            boundedTail,
+                            operation.Count);
+                        offset += boundedTail - retainedTail;
+                        maximumLength = retainedTail;
                         break;
                     case RowSelectionStageKind.Window:
                         int start = operation.Start ?? 1;

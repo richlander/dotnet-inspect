@@ -1864,6 +1864,63 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
+        HistoryTailCountRequiresCompleteSparseSuffixEvidence()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[1], FixtureCatalog.DiffV2.AssemblyPath()));
+        RowSelectionIntent<string> tailOne =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Tail(1)]);
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        HistoryType,
+                        [
+                            population[0].Cell.Address,
+                            population[1].Cell.Address,
+                        ]),
+                    tailOne),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.Equal(
+            [
+                DiffHistoryChangedVersionState.Changed,
+                DiffHistoryChangedVersionState.Unevaluated,
+            ],
+            document.ChangedVersionAssessments
+                .Select(static assessment => assessment.State));
+        var failure = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+        DiffHistoryChangedVersionCountEvidence evidence =
+            Assert.Single(failure.Sources).Evidence;
+        Assert.Equal(1, evidence.EstablishedAssessmentCount);
+        Assert.Null(evidence.RequiredChangedVersionPrefix);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Unevaluated,
+            evidence.FirstUnestablishedAssessment!.State);
+    }
+
+    [Fact]
+    public async Task
         HistoryCountUsesProvenComposedPrefixesButNotEarlierUnknowns()
     {
         ImmutableArray<CellFixture> population =
@@ -1926,6 +1983,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         RowSelectionIntent<string> tailOne =
             RowSelectionIntent<string>.Create(
                 [RowSelectionIntentOperation<string>.Tail(1)]);
+        RowSelectionIntent<string> headTwoThenTailOne =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Head(2),
+                    RowSelectionIntentOperation<string>.Tail(1),
+                ]);
 
         foreach (RowSelectionIntent<string> selection
             in new[]
@@ -1935,7 +1998,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 identityThenHeadOne,
                 headTwoThenHeadOne,
                 suffixThenHeadOne,
-                tailOne,
+                headTwoThenTailOne,
             })
         {
             InspectionEnvelope<DiffHistoryOutcome> prefixEnvelope =
@@ -1981,22 +2044,26 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         RowSelectionIntent<string> unboundedSuffix =
             RowSelectionIntent<string>.Create(
                 [RowSelectionIntentOperation<string>.Window(2, null)]);
-        InspectionEnvelope<DiffHistoryOutcome> unboundedEnvelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
-                CountRequest(
-                    HistoryRequest(population, HistoryType),
-                    unboundedSuffix),
-                lateFailure,
-                TestContext.Current.CancellationToken);
-        var unbounded = Assert.IsType<
-            SectionCountOutcome<
-                DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
-                    Assert.IsType<DiffHistoryOutcome.Available>(
-                        unboundedEnvelope.Content).Count);
-        Assert.Null(
-            Assert.Single(unbounded.Sources)
-                .Evidence.RequiredChangedVersionPrefix);
+        foreach (RowSelectionIntent<string> selection
+            in new[] { unboundedSuffix, tailOne })
+        {
+            InspectionEnvelope<DiffHistoryOutcome> unboundedEnvelope =
+                await DiffHistoryInspection.InspectApiMembersAsync(
+                    CountRequest(
+                        HistoryRequest(population, HistoryType),
+                        selection),
+                    lateFailure,
+                    TestContext.Current.CancellationToken);
+            var unbounded = Assert.IsType<
+                SectionCountOutcome<
+                    DiffHistoryCountCohort,
+                    DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                        Assert.IsType<DiffHistoryOutcome.Available>(
+                            unboundedEnvelope.Content).Count);
+            Assert.Null(
+                Assert.Single(unbounded.Sources)
+                    .Evidence.RequiredChangedVersionPrefix);
+        }
 
         var earlyFailure = new SettlementExecutor(execution =>
         {
