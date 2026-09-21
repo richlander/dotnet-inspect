@@ -39,6 +39,6 @@ public sealed class ReleaseNotesTests
         Assert.Empty(await stderr);
         string output = await stdout;
         Assert.StartsWith("# Release Notes", output);
-        Assert.Contains("## Unreleased", output, StringComparison.Ordinal);
+        Assert.Contains("## v0.26.0", output, StringComparison.Ordinal);
     }
 }

@@ -917,6 +917,61 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_UnsafeTryFinallyDoesNotHoistFollowingPointerDeclaration()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intPointer = TypeRef.Pointer(int32);
+
+        var tryBlock = new Block(1);
+        tryBlock.Add(new ExpressionStatement(
+            new LoadIndirect(
+                int32,
+                new LoadArgument(0, "pointer", intPointer))));
+        var tryBody = new BlockContainer();
+        tryBody.Add(tryBlock);
+        var finallyBlock = new Block(2);
+        finallyBlock.Add(new EndFinally());
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(finallyBlock);
+
+        var store = new StoreLocal(
+            0,
+            intPointer,
+            new StackAllocArray(
+                int32,
+                new Constant(1, int32),
+                intPointer));
+        var block = new Block(0);
+        block.Add(new TryFinally(tryBody, finallyBody));
+        block.Add(store);
+        block.Add(new ExpressionStatement(
+            new LoadLocal(0, intPointer)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Holder", "Class1"),
+            new MethodSignature(
+                voidType,
+                [new Parameter("pointer", intPointer)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [intPointer],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        var plan = LocalDeclarationPlan.Create(function, 1);
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains(store, plan.DeclaringNodes);
+        Assert.Contains("int* V_0 = stackalloc int[1];", output);
+        Assert.DoesNotContain("int* V_0;", output);
+    }
+
+    [Fact]
     public void NewRulesModule_UnsafePointerLocalReadInLaterBlockDeclaresUpFront()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");
