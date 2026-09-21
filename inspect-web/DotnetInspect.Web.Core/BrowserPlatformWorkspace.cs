@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
@@ -8,6 +7,7 @@ using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
 using NuGet.Versioning;
@@ -481,114 +481,68 @@ internal static class BrowserPlatformWorkspace
         TimeSpan sourceTimeout =
             BrowserPackageWorkspace.SourceSettlementOperationTimeout(
                 deadline.Remaining);
-        var request = new PlatformHouseRequest(
-            PlatformHouseRequestIdentity.Create(
-                "browser-platform-documentation"),
-            new PlatformTargetDemand.Exact(target),
-            new PlatformHouseRequestOrigin.Standalone(
-                PlatformStandaloneOperationIdentity.Create(
-                    "browser-platform-documentation")),
-            new PlatformHouseOperation.Realize(
-                new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(
-                        assemblyIdentity)),
-                PlatformViewDemand.Reference,
-                PlatformLibraryContentDemand
-                    .CompiledXmlDocumentation),
-            new PlatformSourcePlan(
-                PlatformSourcePlanIdentity.Create(
-                    "browser-platform-documentation"),
-                PlatformSourcePolicyGeneration.Create(
-                    "browser-platform-documentation-v1"),
-                [
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.Reference,
-                        PlatformSourceSelectionMode.Precedence,
-                        [adapter.ReferenceRealization]),
-                ]),
-            new PlatformHouseWorkBudget(
-                maxSourceOperations: 1,
-                maxTargetCandidates: 0,
-                maxAssemblies: 1,
-                maxXmlDocuments: 1,
-                maxPortablePdbs: 0,
-                maxSourceDocuments: 0,
-                maxBytes:
-                    BrowserInspectionScope.MaxRetainedImageBytes
-                    + 8L * 1024 * 1024,
-                maxForwardingHops: 0,
-                maxDuration: sourceTimeout),
-            deadline.Token);
-
-        var stopwatch = Stopwatch.StartNew();
-        PackagePlatformHouseResult<
-            PackageReferenceRealization> sourceResult =
-                await adapter.RealizeReferenceAsync(
+        var work = new PlatformHouseWorkBudget(
+            maxSourceOperations: 1,
+            maxTargetCandidates: 0,
+            maxAssemblies: 1,
+            maxXmlDocuments: 1,
+            maxPortablePdbs: 0,
+            maxSourceDocuments: 0,
+            maxBytes:
+                BrowserInspectionScope.MaxRetainedImageBytes
+                + 8L * 1024 * 1024,
+            maxForwardingHops: 0,
+            maxDuration: sourceTimeout);
+        var request =
+            new PlatformCompiledDocumentationInspectionRequest(
+                target,
+                assemblyIdentity,
+                [documentationId],
+                PlatformCompiledDocumentationSubjectSelection.RequireAll);
+        InspectionEnvelope<
+            PlatformCompiledDocumentationInspectionOutcome> envelope =
+                await PlatformCompiledDocumentationInspection
+                    .ExecutePackageBackedAsync(
                         request,
+                        adapter,
                         sourceLease.IssueOperationLease(
                             deadline.Token,
                             sourceTimeout,
-                            sourceTimeout))
+                            sourceTimeout),
+                        work,
+                        new PlatformCompiledDocumentationQueryLimits
+                        {
+                            ApiSurface =
+                                BrowserApiSurfacePolicy.ExtractionBounds,
+                        },
+                        deadline.Token)
                     .ConfigureAwait(false);
-        if (sourceResult
-            is not PackagePlatformHouseResult<
-                PackageReferenceRealization>.Succeeded reference)
+        return envelope.Content switch
         {
-            var terminal =
-                (PackagePlatformHouseResult<
-                    PackageReferenceRealization>.NotSucceeded)
-                        sourceResult;
-            throw new InvalidOperationException(
-                "PlatformHouse could not realize the reference Library: "
-                    + $"{terminal.Diagnostic.Kind}: "
-                    + terminal.Diagnostic.Summary);
-        }
-
-        stopwatch.Stop();
-        var consumed = new PlatformHouseConsumedWork(
-            sourceOperations: 1,
-            targetCandidates: 0,
-            assemblies: reference.Value.Libraries.Length,
-            xmlDocuments: reference.Value.Libraries.Count(
-                static library => library.Documentation is not null),
-            portablePdbs: 0,
-            sourceDocuments: 0,
-            bytes: reference.Value.Libraries.Sum(
-                static library => library.TotalContentLength),
-            forwardingHops: 0,
-            targetComparisons: 0,
-            elapsed: stopwatch.Elapsed);
-        PackagePlatformLibraryMaterializationResult materialization =
-            await PackagePlatformLibraryMaterializer
-                .MaterializeReferenceAsync(
-                    request,
-                    reference,
-                    consumed)
-                .ConfigureAwait(false);
-        if (materialization
-            is not PackagePlatformLibraryMaterializationResult.Completed
-                completed)
-        {
-            throw new InvalidOperationException(
-                "PlatformHouse could not materialize the reference Library "
-                    + $"({materialization.Realization.Outcome.GetType().Name}).");
-        }
-
-        await using (completed.Artifacts.ConfigureAwait(false))
-        await using (completed.Library.Owner.ConfigureAwait(false))
-        {
-            return await PlatformCompiledDocumentationQuery.ExecuteAsync(
-                    completed.Library,
-                    documentationId,
-                    new PlatformCompiledDocumentationQueryLimits
-                    {
-                        ApiSurface =
-                            BrowserApiSurfacePolicy.ExtractionBounds,
-                    },
-                    deadline.Token)
-                .ConfigureAwait(false);
-        }
+            PlatformCompiledDocumentationInspectionOutcome.Completed
+                completed =>
+                GetSingleDocumentationOutcome(
+                    completed.Document),
+            PlatformCompiledDocumentationInspectionOutcome.NotAvailable
+                notAvailable =>
+                throw new InvalidOperationException(
+                    "Package-backed Platform compiled documentation could "
+                        + $"not be settled at "
+                        + $"{notAvailable.Failure.Stage}: "
+                        + notAvailable.Failure.Summary),
+            _ => throw new InvalidOperationException(
+                "Unknown Platform compiled-documentation inspection outcome."),
+        };
     }
+
+    private static CompiledDocumentationOutcome
+        GetSingleDocumentationOutcome(
+            PlatformCompiledDocumentationDocument document) =>
+        document.Outcomes.Length == 1
+            ? document.Outcomes[0]
+            : throw new InvalidOperationException(
+                "The single-subject Platform documentation inspection "
+                    + $"returned {document.Outcomes.Length} outcomes.");
 
     internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
         string targetFramework,
