@@ -700,7 +700,7 @@ public static partial class PackageExports
     }
 
     internal static async Task<string>
-        QueryMemberDocumentationWithCapabilities(
+        QueryMemberDocumentationWithCapabilitiesForTest(
             string packageId,
             string version,
             string framework,

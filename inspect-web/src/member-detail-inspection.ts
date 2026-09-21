@@ -468,6 +468,12 @@ function completedDocumentationError(
     return null;
   }
 
+  const authoredFailure = authoredDocumentationError(
+    outcome.authoredSource,
+    false,
+  );
+  if (authoredFailure) return authoredFailure;
+
   switch (outcome.compiledXml?.kind) {
     case "available":
     case "absent":
@@ -495,12 +501,24 @@ function completedDocumentationError(
       );
   }
 
-  switch (outcome.authoredSource?.kind) {
+  return authoredDocumentationError(outcome.authoredSource, true);
+}
+
+function authoredDocumentationError(
+  outcome: Extract<
+    DocumentationQueryOutcome,
+    { readonly kind: "completed" }
+  >["authoredSource"],
+  reportUnavailable: boolean,
+): string | null {
+  switch (outcome?.kind) {
     case "available":
     case "absent":
       return null;
     case "unavailable":
-      return "Authored documentation is unavailable.";
+      return reportUnavailable
+        ? "Authored documentation is unavailable."
+        : null;
     case "ambiguous":
       return "The authored documentation source is ambiguous.";
     case "rejected":
@@ -513,7 +531,7 @@ function completedDocumentationError(
       return null;
     default:
       return assertNever(
-        outcome.authoredSource,
+        outcome,
         "authored documentation outcome",
       );
   }

@@ -1042,7 +1042,7 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8130](https://github.com/richlander/dotnet-inspect/issues/8130).**
     Extend Queries with authored-source documentation evidence through a
     QuerySpace-backed operation;
-20. **Completed under
+20. **In progress under
     [#8155](https://github.com/richlander/dotnet-inspect/issues/8155).**
     Adopt authored-source documentation in Inspect Web;
 21. adopt authored-source documentation in the CLI and remove the remaining
@@ -1061,16 +1061,22 @@ Workspace publication and consumption of reusable documentation artifacts are
 not initial scope; adding them requires a separately counted production-
 consumer slice.
 
-### Inspect Web authored-documentation adoption
+### Inspect Web combined-documentation transport adoption
 
 Inspect Web package member documentation requests the unified QuerySpace
 `compiled-xml-and-authored-source` demand and returns the Queries-owned
 `DocumentationQueryOutcome` through the generated package facade. The browser
-host authorizes its existing bounded source-acquisition capabilities and may
-also supply an explicitly authorized SourceHouse physical-declaration
-capability. Absence of that stronger capability remains typed
-`PhysicalDeclarationUnavailable` evidence; the host does not infer physical
-correspondence from PDB, Source Link, paths, names, or source text.
+host authorizes its existing bounded source-acquisition capabilities but does
+not currently issue a SourceHouse physical-declaration capability. The public
+browser path therefore retains authored unavailability as typed evidence and
+does not infer physical correspondence from PDB, Source Link, paths, names, or
+source text.
+
+This slice adopts combined demand, transport, and presentation and proves the
+capability-aware lower composition through a build-attested test host. That
+harness is not evidence that the shipped browser can provision the capability.
+Issue #8155 remains open for a separately designed production authorization
+path before the overall Inspect Web authored-documentation slice is complete.
 
 The package member-detail consumer selects display values from the deterministic
 field settlement, preferring the first contribution in requested-channel order
@@ -1078,7 +1084,10 @@ while retaining the complete compiled attempt, authored attempt, contribution
 order, and conflict kind in the transported result. A field conflict therefore
 has a stable display value without becoming agreement or erasing either
 channel. Top-level rejection, failure, and incompleteness remain visible and
-retryable.
+retryable. When no field contribution exists, authored ambiguity, rejection,
+failure, or incompleteness also remains visible and retryable; compiled
+availability or authoritative absence can still settle cleanly with typed
+authored unavailability.
 
 The platform member-documentation export remains compiled-only in this slice.
 Its reference-pack Library has no authorized implementation-source or
@@ -1244,11 +1253,12 @@ executes the production package export over the real `System.Text.Json` 10.0.0
 package and requires compiled availability, independently typed authored
 unavailability without physical-declaration authority, and deterministic
 compiled field selection.
-`BrowserEngineBoundaryTests.QueryMemberDocumentation_BuildAttestedSourcePublishesConflict`
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_CapabilityHarnessPublishesConflict`
 packages a real build-attested assembly, matching portable PDB, source bytes,
 and deliberately differing compiled summary. It executes the capability-aware
-production package path and requires both channels to be available plus the
-ordered compiled-then-authored summary conflict.
+test host over the same package composition and serialization core and requires
+both channels to be available plus the ordered compiled-then-authored summary
+conflict. It does not claim production capability provisioning.
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
 gates the neighboring package-without-companion case as typed authoritative
 `absent` evidence rather than empty browser documentation.

@@ -332,6 +332,56 @@ function combinedDocumentation(): DocumentationQueryOutcome {
   };
 }
 
+function combinedDocumentationWithoutFields(
+  authoredSource: Extract<
+    DocumentationQueryOutcome,
+    { readonly kind: "completed" }
+  >["authoredSource"],
+): DocumentationQueryOutcome {
+  const outcome = combinedDocumentation();
+  assert.equal(outcome.kind, "completed");
+  return {
+    ...outcome,
+    compiledXml: absentDocumentation(),
+    authoredSource,
+    fields: {
+      summary: {
+        ...outcome.fields.summary,
+        kind: "Absent",
+        contributions: [],
+      },
+      remarks: {
+        ...outcome.fields.remarks,
+        kind: "Absent",
+        contributions: [],
+      },
+      returns: {
+        ...outcome.fields.returns,
+        kind: "Absent",
+        contributions: [],
+      },
+      parameters: outcome.fields.parameters.map(parameter => ({
+        ...parameter,
+        evidence: {
+          ...parameter.evidence,
+          kind: "Absent",
+          contributions: [],
+        },
+      })),
+      exceptions: {
+        ...outcome.fields.exceptions,
+        kind: "Absent",
+        contributions: [],
+      },
+      samples: {
+        ...outcome.fields.samples,
+        kind: "Absent",
+        contributions: [],
+      },
+    },
+  };
+}
+
 function declarationRequest(
   overrides: Partial<MemberDeclarationRequest> = {},
 ): MemberDeclarationRequest {
@@ -732,6 +782,39 @@ test("absent documentation settles without publishing content", async () => {
   assert.equal(overload.returns, null);
   assert.equal(overload.parameters[0]?.description, null);
   assert.deepEqual(overload.exceptions, []);
+  assert.equal(state.memberDocumentationError, "");
+});
+
+test("authored failure remains visible and retryable after compiled absence", async () => {
+  const overload = memberSurface();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => {
+        queries++;
+        return queries === 1
+          ? combinedDocumentationWithoutFields({
+              kind: "failed",
+              reason: "SourceFailed",
+              observation: null,
+            })
+          : combinedDocumentation();
+      },
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.documentationLoaded, undefined);
+  assert.equal(
+    state.memberDocumentationError,
+    "The authored documentation source failed.");
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(queries, 2);
+  assert.equal(overload.documentationLoaded, true);
+  assert.equal(overload.summary, "Compiled summary.");
   assert.equal(state.memberDocumentationError, "");
 });
 

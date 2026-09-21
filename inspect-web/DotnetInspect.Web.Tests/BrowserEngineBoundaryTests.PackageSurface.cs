@@ -498,7 +498,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
-        QueryMemberDocumentation_BuildAttestedSourcePublishesConflict()
+        QueryMemberDocumentation_CapabilityHarnessPublishesConflict()
     {
         SourceHouseBuildAttestation attestation =
             BuildBrowserDocumentationAttestation();
@@ -551,7 +551,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         string json =
             await PackageExports
-                .QueryMemberDocumentationWithCapabilities(
+                .QueryMemberDocumentationWithCapabilitiesForTest(
                     packageId,
                     "1.0.0",
                     "net11.0",
