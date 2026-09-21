@@ -41,11 +41,16 @@ public sealed class GraphLibrariesQueryTests
         Assert.Equal(
             [PortableQueryOperator.Equal],
             capability.Operators);
-        GraphLibrariesQueryRegisteredTerm registered =
-            Assert.Single(GraphLibrariesQuery.RegisteredTerms);
-        Assert.Equal(capability.Binding.Key, registered.Descriptor.Key);
-        Assert.Equal(capability.Operators, registered.Operators);
-        Assert.Equal("3", registered.Descriptor.ExampleValue);
+        Assert.Equal(
+            "direct-use cluster",
+            capability.Binding.Description.Label);
+        Assert.Equal(
+            "positive pair-wide direct-use cluster ordinal (exactly one)",
+            capability.Binding.Description.ValueKind);
+        Assert.Empty(capability.Binding.Description.Values);
+        Assert.Equal(
+            "Selects one observed pair-wide direct-use cluster ordinal.",
+            capability.Binding.Description.Summary);
     }
 
     [Fact]
@@ -63,12 +68,11 @@ public sealed class GraphLibrariesQueryTests
             Assert.Equal(
                 GraphLibrariesQuery.OperationProfileIdentity,
                 route.ProfileIdentity);
-            GraphLibrariesQueryRegisteredTerm registered =
-                Assert.Single(
-                    GraphLibrariesQuery.RegisteredTermsForRowSet(rowSet));
+            QueryOperationTermCapability registered =
+                Assert.Single(route.Capabilities.Terms);
             Assert.Equal(
                 GraphLibrariesQuery.ClusterTermKey,
-                registered.Descriptor.Key);
+                registered.Binding.Key);
             Assert.Equal(
                 [PortableQueryOperator.Equal],
                 registered.Operators);

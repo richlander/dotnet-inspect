@@ -8,21 +8,6 @@ using DotnetInspector.RowSelection;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>One Graph Libraries term owned by the executable vocabulary.</summary>
-public sealed record GraphLibrariesQueryTermDescriptor(
-    string Key,
-    string Label,
-    string Summary,
-    string ValueKind,
-    string ExampleValue);
-
-/// <summary>
-/// One Graph Libraries term projected from an effective operation route.
-/// </summary>
-public sealed record GraphLibrariesQueryRegisteredTerm(
-    GraphLibrariesQueryTermDescriptor Descriptor,
-    ImmutableArray<PortableQueryOperator> Operators);
-
 /// <summary>One validated Graph Libraries query plan.</summary>
 public sealed record GraphLibrariesQueryPlan(
     PortableQueryIntent Intent,
@@ -59,22 +44,12 @@ public static class GraphLibrariesQuery
     public const string CallSitesRowSet = "call-sites";
     public const string PublicRootPathsRowSet = "public-root-paths";
 
-    private static readonly GraphLibrariesQueryTermDescriptor ClusterTerm =
+    private static readonly QueryOperationTermDescription ClusterDescription =
         new(
-            ClusterTermKey,
             "direct-use cluster",
-            "Selects one observed pair-wide direct-use cluster ordinal.",
             "positive pair-wide direct-use cluster ordinal (exactly one)",
-            "3");
-
-    private static readonly IReadOnlyDictionary<
-        string,
-        GraphLibrariesQueryTermDescriptor> TermsByKey =
-            new Dictionary<string, GraphLibrariesQueryTermDescriptor>(
-                StringComparer.Ordinal)
-            {
-                [ClusterTerm.Key] = ClusterTerm,
-            };
+            [],
+            "Selects one observed pair-wide direct-use cluster ordinal.");
 
     /// <summary>The command-wide Graph Libraries operation route.</summary>
     public static IQueryOperationRoute OperationRoute =>
@@ -89,12 +64,6 @@ public static class GraphLibrariesQuery
         CallSitesRowSet,
         PublicRootPathsRowSet,
     ];
-
-    /// <summary>
-    /// The terms admitted by the command-wide effective operation route.
-    /// </summary>
-    public static ImmutableArray<GraphLibrariesQueryRegisteredTerm>
-        RegisteredTerms => OperationRegistration.RegisteredTerms;
 
     /// <summary>The effective route for one operation-backed row set.</summary>
     public static IQueryOperationRoute RouteForRowSet(string rowSet)
@@ -111,13 +80,6 @@ public static class GraphLibrariesQuery
                 rowSet,
                 "Graph Libraries declares no such row set.");
     }
-
-    /// <summary>
-    /// The terms admitted by one operation-backed row-set route.
-    /// </summary>
-    public static ImmutableArray<GraphLibrariesQueryRegisteredTerm>
-        RegisteredTermsForRowSet(string rowSet) =>
-        ProjectTerms(RouteForRowSet(rowSet));
 
     /// <summary>Creates the canonical intent for one optional cluster.</summary>
     public static PortableQueryIntent CreateIntent(int? cluster)
@@ -166,15 +128,6 @@ public static class GraphLibrariesQuery
             ? projection.ScopeToObservedCluster(cluster)
             : projection;
     }
-
-    private static ImmutableArray<GraphLibrariesQueryRegisteredTerm>
-        ProjectTerms(IQueryOperationRoute route) =>
-    [
-        .. route.Capabilities.Terms.Select(capability =>
-            new GraphLibrariesQueryRegisteredTerm(
-                TermsByKey[capability.Binding.Key],
-                [.. capability.Operators])),
-    ];
 
     private sealed record GraphLibrariesQueryPredicate(int Cluster);
 
@@ -313,10 +266,6 @@ public static class GraphLibrariesQuery
                             [rowSet]),
                         StringComparer.Ordinal);
 
-        internal static readonly ImmutableArray<
-            GraphLibrariesQueryRegisteredTerm> RegisteredTerms =
-                ProjectTerms(Route);
-
         private static QueryOperationDefinition<
             GraphLibrariesQueryPredicate,
             GraphLibrariesQueryPlan> CreateDefinition()
@@ -330,11 +279,7 @@ public static class GraphLibrariesQuery
                 ClusterTermKey,
                 QueryOperationTermRole.OperationSelector,
                 applicability,
-                new QueryOperationTermDescription(
-                    ClusterTerm.Label,
-                    ClusterTerm.ValueKind,
-                    [],
-                    ClusterTerm.Summary),
+                ClusterDescription,
                 []);
 
             return QueryOperationDefinition<

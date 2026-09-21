@@ -26,13 +26,14 @@ Current CLI query discovery remains partly maintained through command-specific
 catalogs. Package Query is the first production adopter: one effective route
 now supplies plan resolution, CLI discovery terms, and Browser control terms.
 Graph Libraries is the second adopter: one command route and five row-set
-routes supply its Cluster plan, CLI lowering, and section discovery. Dependency
-is the third adopter: its Type and hierarchy routes share one registered
-vocabulary and retain their existing lowering paths. Find is the fourth
-adopter: its Type and Member routes share one result-row profile. Library Query
-is the fifth adopter: one explicit-population route supplies its reference plan,
-CLI discovery, and Browser gesture. The remaining operations still bind their
-syntax through separate paths.
+routes supply its Cluster plan, while CLI lowering and section discovery
+consume those effective route capabilities directly. Dependency is the third
+adopter: its Type and hierarchy routes share one registered vocabulary and
+retain their existing lowering paths. Find is the fourth adopter: its Type and
+Member routes share one result-row profile. Library Query is the fifth adopter:
+one explicit-population route supplies its reference plan, CLI discovery, and
+Browser gesture. The remaining operations still bind their syntax through
+separate paths.
 
 [Query Space Composition](query-space-composition.md) now owns the target
 composition of one operation route with explicit row spaces, terminal
@@ -577,7 +578,8 @@ The migration begins from useful but separate systems:
   route.
 - Graph Libraries owns one executable Cluster selector, a command-wide route,
   and five operation-backed row-set routes. CLI parsing and each section's
-  `-Q` projection derive from those effective routes.
+  `-Q` projection consume those effective route capabilities directly, without
+  a parallel registered-term descriptor.
 - Dependency owns separate type-relationship and rooted-hierarchy profiles.
   The type route projects the existing Source, Target, Kind, Traversal, row
   selection, ranking, and depth semantics. Top-level and Package hierarchy
@@ -586,11 +588,12 @@ The migration begins from useful but separate systems:
   populations. Both routes share the executable Head, Tail, and Window result
   profile and intentionally expose no query-term or order inventory.
 
-The new registry is implemented, and Package Query has replaced its
-host-local term inventories with one route-backed projection. Remaining
-production adopters still need to replace their parallel route-local capability
-descriptions. The registry does not replace the implemented intent, row,
-producer, or operation plans.
+The new registry is implemented. Package Query uses one route-backed projection
+for CLI and Browser controls, and Graph Libraries now consumes effective route
+capabilities directly. Remaining production adopters still need to retire
+their parallel route-local capability descriptions and lowerers where those
+paths no longer carry owner-specific policy. The registry does not replace the
+implemented intent, row, producer, or operation plans.
 
 ## Counted production adoption
 

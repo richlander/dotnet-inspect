@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.QueryOperations;
 using DotnetInspector.Queries;
 using ILInspector.CSharp;
 
@@ -9,6 +10,8 @@ namespace DotnetInspect.Cli.Options;
 
 public sealed record LibraryCallUseQueryOptions
 {
+    private const string ClusterExampleValue = "3";
+
     private LibraryCallUseQueryOptions(GraphLibrariesQueryPlan plan)
     {
         Plan = plan;
@@ -17,19 +20,23 @@ public sealed record LibraryCallUseQueryOptions
     public GraphLibrariesQueryPlan Plan { get; }
 
     internal static ImmutableArray<SectionQueryKey> QueryKeys(
-        string section) =>
-    [
-        .. GraphLibrariesQuery.RegisteredTermsForRowSet(
-                RowSet(section))
-            .Select(term => new SectionQueryKey(
-                term.Descriptor.Key,
+        string section)
+    {
+        IQueryOperationRoute route =
+            GraphLibrariesQuery.RouteForRowSet(RowSet(section));
+        return
+        [
+            .. route.Capabilities.Terms.Select(capability =>
+                new SectionQueryKey(
+                capability.Binding.Key,
                 ["--where"],
-                [.. term.Operators.Select(Comparison)],
-                term.Descriptor.ValueKind,
-                [],
-                $"--where \"{term.Descriptor.Key}"
-                    + $"={term.Descriptor.ExampleValue}\"")),
-    ];
+                [.. capability.Operators.Select(Comparison)],
+                capability.Binding.Description.ValueKind,
+                [.. capability.Binding.Description.Values],
+                $"--where \"{capability.Binding.Key}"
+                    + $"={ClusterExampleValue}\"")),
+        ];
+    }
 
     public static bool TryParse(
         IReadOnlyList<string> expressions,
@@ -56,15 +63,15 @@ public sealed record LibraryCallUseQueryOptions
                 return false;
             }
 
-            GraphLibrariesQueryRegisteredTerm? term =
-                GraphLibrariesQuery.RegisteredTerms
+            QueryOperationTermCapability? capability =
+                GraphLibrariesQuery.OperationRoute.Capabilities.Terms
                     .SingleOrDefault(candidate =>
                         RowPredicateSyntaxParser.NormalizeFieldName(
                                 syntax.Field)
                             .Equals(
-                                candidate.Descriptor.Key,
+                                candidate.Binding.Key,
                                 StringComparison.OrdinalIgnoreCase));
-            if (term is null)
+            if (capability is null)
             {
                 string field =
                     CSharpIdentifier.ContainRenderedText(syntax.Field);
@@ -77,7 +84,7 @@ public sealed record LibraryCallUseQueryOptions
 
             terms.Add(
                 new(
-                    term.Descriptor.Key,
+                    capability.Binding.Key,
                     PortableOperator(syntax.Operator),
                     syntax.Value));
         }
