@@ -69,14 +69,14 @@ output. Prerelease resolution and explicit NuGet source policy are also
 rejected because they are acquisition settings that the portable definition
 cannot preserve.
 
-Without `--share`, the `workspace` command constructs one ephemeral
-`WorkspaceRealizationCoordinator` candidate from direct Package and
-registration inputs, or delegates current-format packet input to the
-Definitions-owned complete restoration transaction. Direct Package membership
-remains separate from the `WorkspacePlan`. Complete restoration owns packet
+Without `--share`, the `workspace` command directly owns one ephemeral
+`InspectionWorkspace` built from Package and registration inputs, or delegates
+current-format packet input to the Definitions-owned complete restoration
+transaction. Direct Package membership remains separate from the
+`WorkspacePlan`. Complete restoration owns packet
 decoding and version dispatch, complete context loading, Scope publication,
 retained Navigation restoration, projection, cancellation, and cleanup. Both
-routes activate and admit one realization before calling
+routes capture one exact Workspace operation snapshot before calling
 `WorkspaceTopLevelInventoryOperation`.
 
 The CLI does not read current Scope and registration collections separately.

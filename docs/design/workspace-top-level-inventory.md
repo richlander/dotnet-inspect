@@ -121,11 +121,10 @@ operation lease, and only then call the shared inventory operation. It must not
 infer top-level Package membership from `WorkspacePlan.Contexts`.
 
 The CLI and Inspect Web therefore share one semantic operation without
-pretending that their construction inputs are the same. The CLI adapts its
-explicit Package inputs and registrations into one ephemeral coordinator
-candidate. For packet input it supplies a CLI realization host to the
-Definitions-owned complete restoration transaction. Inspect Web uses its
-existing Definitions-owned restoration recipe and realization host.
+pretending that their construction inputs are the same. The CLI directly owns one ephemeral `InspectionWorkspace` for explicit Package
+inputs and registrations. For packet input it supplies a CLI realization host
+to the Definitions-owned complete restoration transaction. Inspect Web uses
+its existing Definitions-owned restoration recipe and realization host.
 Construction, acquisition, Scope publication, candidate completion, cutover,
 admission, cancellation, retirement, and settlement keep their existing
 owner-issued outcomes and cleanup contracts outside the inventory envelope.
@@ -536,14 +535,13 @@ Implementation proceeds as independently reviewable slices:
    query, Definitions-owned Share projection receipt, Share basis, and admitted
    L2 operation are implemented in `DotnetInspector.Queries` and
    `DotnetInspector.Sections`.
-2. **CLI inventory adoption (implemented, transitional).** Construct one
-   ephemeral realization through
-   `WorkspaceRealizationCoordinator` from explicit construction inputs, or
-   supply that coordinator as the host for Definitions-owned complete packet
-   restoration, keeping explicit Package membership separate from
+2. **CLI inventory adoption (implemented).** Directly own one ephemeral
+   `InspectionWorkspace` from explicit construction inputs, or supply that
+   Workspace lifetime to Definitions-owned complete packet restoration,
+   keeping explicit Package membership separate from
    `WorkspacePlan`; preserve every owner-issued packet, acquisition, Scope
-   publication, Navigation restoration, projection, activation, admission,
-   cancellation, retirement, and settlement outcome. Replace Package-only row
+   publication, Navigation restoration, projection, cancellation, and cleanup
+   outcome. Replace Package-only row
    reconstruction with the shared operation, add focused
    registration/filter/packet controls, render through Markout, and preserve
    exact Package occurrence drill-down through the receipt. The CLI spells the
