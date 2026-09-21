@@ -120,6 +120,7 @@ internal static class WorkspacePatCredentialResolver
                 sources,
                 DotnetInspector.Networking.HttpClientFactory
                     .CreateCredentialFreeClient(),
+                UnavailableWorkspaceCredentialSource.Instance,
                 credentialProvider: null);
         }
 
@@ -142,6 +143,7 @@ internal static class WorkspacePatCredentialResolver
             return new WorkspacePackageSourceRuntime(
                 sources,
                 client,
+                scopedProvider,
                 provider);
         }
         catch

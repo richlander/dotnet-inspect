@@ -123,7 +123,9 @@ public static partial class WorkspaceCommand
         if (options.MakePackageDependenciesExplicit)
         {
             await using var composition =
-                new DesktopPackageSourceComposition(
+                sourceRuntime?.CreatePackageSourceComposition(
+                    HttpClientFactory.Shared.Timeout)
+                ?? new DesktopPackageSourceComposition(
                     HttpClientFactory.Shared.Timeout);
             var candidateSource =
                 new DesktopPackageDependencyCandidateSource(
@@ -148,9 +150,14 @@ public static partial class WorkspaceCommand
                 cancellationToken).ConfigureAwait(false);
         }
 
+        DesktopPackageSourceComposition rootComposition =
+            sourceRuntime?.CreatePackageSourceComposition(
+                HttpClientFactory.Shared.Timeout)
+            ?? new DesktopPackageSourceComposition(
+                HttpClientFactory.Shared.Timeout);
         await using var payloadProvider =
             new ConfiguredPackageRootPayloadProvider(
-                HttpClientFactory.Shared.Timeout,
+                rootComposition,
                 runtimeSourceOptions);
         return await ExecuteCoreAsync(
             options,

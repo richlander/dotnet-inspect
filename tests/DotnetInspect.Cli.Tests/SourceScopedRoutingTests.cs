@@ -1802,6 +1802,47 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task WorkspaceAnonymousSource_ChallengeCannotQueryProvider()
+    {
+        const string AnonymousIndex =
+            "https://anonymous.example/v3/index.json";
+        const string Flat =
+            "https://anonymous.example/flat/";
+        const string PackageName = "anonymous-workspace-source";
+        var inner = new RecordingCredentialSource();
+        var credentialSource = new WorkspaceCredentialSource(
+            inner,
+            [new Uri("https://provider.example/v3/index.json")]);
+        var handler = new AuthenticationIsolationHandler(
+            AnonymousIndex,
+            Flat,
+            PackageName,
+            "1.0.0",
+            requireAuthentication: true);
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentialSource,
+            (_, isGallery) =>
+            {
+                Assert.False(isGallery);
+                return handler;
+            });
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                PackageName,
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { Sources = [AnonymousIndex] },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Versions);
+        Assert.Empty(inner.Queries);
+        Assert.False(handler.SawAuthorization);
+    }
+
+    [Fact]
     public async Task PackageVersionListing_CanonicalGalleryExcludesUnlistedWithoutPluginContext()
     {
         const string PackageName = "gallery-listing-contract";

@@ -245,6 +245,23 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
     }
 
+    /// <summary>
+    /// Creates a desktop composition with caller-owned credential policy.
+    /// </summary>
+    /// <remarks>
+    /// The composition does not own <paramref name="credentialSource"/>.
+    /// </remarks>
+    public DesktopPackageSourceComposition(
+        TimeSpan requestTimeout,
+        ICredentialSource credentialSource)
+    {
+        ArgumentNullException.ThrowIfNull(credentialSource);
+        _options = NuGetFetchOptions.FromRequestTimeout(requestTimeout);
+        _credentialSource = credentialSource;
+        _createTransport = CreateProductionTransport;
+        _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
+    }
+
     internal DesktopPackageSourceComposition(
         TimeSpan requestTimeout,
         ICredentialSource credentialSource,
