@@ -188,6 +188,10 @@ location obligation. Only then may the newer intent become current. If
 realignment fails, the failure remains visible and the newer intent is not
 admitted.
 
+Publication applies and settles the classified effect as one synchronous
+operation. Settlement is not a separate caller action and cannot be completed
+independently from the Browser history effect.
+
 Every location effect is produced by one pure classification from the current
 location-intent declaration, the typed semantic outcome and synchronization
 disposition, and the exact installed association:
@@ -695,6 +699,7 @@ this same test file are recorded in
   `publication claims its intent before writer reentry`,
   `successful current no-write consumes its location intent`, and
   `repair failure rejects reentrant intent admission`, and
+  `publication owns settlement across writer reentry`, and
   `post-cutover history failure keeps the installed successor unresolved`
   cover the typed declaration and pure push, replace, adopt, realign, or
   no-write classifier. They preserve exact installed association separately

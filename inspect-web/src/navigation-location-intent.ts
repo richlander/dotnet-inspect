@@ -88,7 +88,6 @@ export interface NavigationLocationIntentArbiter {
     result: LocationResult,
   ): LocationEffect;
   publish(effect: LocationEffect, history: BrowserHistoryWriter): boolean;
-  settle(effect: LocationEffect, succeeded: boolean): void;
 }
 
 interface BrowserHistoryWriter {
@@ -222,7 +221,10 @@ NavigationLocationIntentArbiter {
     return classifyLocationEffect(declaration, currentIntentId, result);
   }
 
-  function settle(effect: LocationEffect, succeeded: boolean): void {
+  function settlePublication(
+    effect: LocationEffect,
+    succeeded: boolean,
+  ): void {
     if (effect.intentId !== currentIntentId) return;
     if (effect.kind === "none") {
       if (effect.reason === "current-no-write" && succeeded) {
@@ -253,9 +255,9 @@ NavigationLocationIntentArbiter {
     publicationInProgress = true;
     try {
       applyLocationEffect(effect, history);
-      settle(effect, true);
+      settlePublication(effect, true);
     } catch (error) {
-      settle(effect, false);
+      settlePublication(effect, false);
       throw error;
     } finally {
       publicationInProgress = false;
@@ -274,7 +276,6 @@ NavigationLocationIntentArbiter {
     admitNonBrowser,
     classify,
     publish,
-    settle,
   };
 }
 

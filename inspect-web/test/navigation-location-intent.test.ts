@@ -190,7 +190,12 @@ test("failed traversal realigns only its current selected entry", () => {
     result(incumbent, { outcome: "failed" }),
   );
   assert.equal(effect.kind, "realign");
-  arbiter.settle(effect, true);
+  arbiter.publish(effect, {
+    pushState() {
+      assert.fail("A realignment effect cannot push history.");
+    },
+    replaceState() {},
+  });
   assert.equal(arbiter.unresolved, null);
 });
 
@@ -342,6 +347,39 @@ test("repair failure rejects reentrant intent admission", () => {
   assert.equal(arbiter.unresolved?.intentId, traversal.id);
 });
 
+test("publication owns settlement across writer reentry", () => {
+  const arbiter = createNavigationLocationIntentArbiter();
+  const incumbent = association("incumbent");
+  const traversal = arbiter.selectBrowserEntry({
+    url: "/?w=selected",
+    historyState: { workspace: "selected" },
+    retainedDefinitionId: "selected",
+    incumbent,
+  });
+  const effect = arbiter.classify(
+    traversal,
+    result(incumbent, { outcome: "failed" }),
+  );
+
+  assert.throws(
+    () => arbiter.publish(effect, {
+      pushState() {
+        assert.fail("A realignment effect cannot push history.");
+      },
+      replaceState() {
+        assert.equal("settle" in arbiter, false);
+        throw new Error("history failed after writer reentry");
+      },
+    }),
+    /history failed after writer reentry/);
+
+  assert.equal(arbiter.currentIntentId, traversal.id);
+  assert.equal(arbiter.unresolved?.intentId, traversal.id);
+  assert.throws(
+    () => arbiter.admitNonBrowser("push", null, null),
+    /cannot be admitted until the selected entry is aligned/);
+});
+
 test("post-cutover history failure keeps the installed successor unresolved", () => {
   const arbiter = createNavigationLocationIntentArbiter();
   const accepted = arbiter.admitNonBrowser("push", null, null);
@@ -349,7 +387,16 @@ test("post-cutover history failure keeps the installed successor unresolved", ()
   const effect = arbiter.classify(accepted, result(successor));
 
   assert.equal(effect.kind, "push");
-  arbiter.settle(effect, false);
+  assert.throws(
+    () => arbiter.publish(effect, {
+      pushState() {
+        throw new Error("history failed after cutover");
+      },
+      replaceState() {
+        assert.fail("A push effect cannot replace history.");
+      },
+    }),
+    /history failed after cutover/);
   assert.equal(
     arbiter.unresolved?.association?.identity.description,
     "workspace-b");
