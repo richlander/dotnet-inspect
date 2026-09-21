@@ -945,7 +945,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             if (marker < 0)
                 continue;
 
-            string node = line[(marker + 2)..].TrimEnd('\r');
+            string node = RemoveLibraryResourcePath(
+                line[(marker + 2)..].TrimEnd('\r'));
             if (marker == 1)
             {
                 currentCategory = node.EndsWith(
@@ -965,6 +966,17 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         return (
             categories.Order(StringComparer.Ordinal).ToArray(),
             edges.Order(StringComparer.Ordinal).ToArray());
+    }
+
+    private static string RemoveLibraryResourcePath(string node)
+    {
+        int marker = node.LastIndexOf(
+            " [library/",
+            StringComparison.Ordinal);
+        return marker >= 0
+            && node.EndsWith(']')
+                ? node[..marker]
+                : node;
     }
 
     private static string IdentifyCatalogFromRenderedSection(
