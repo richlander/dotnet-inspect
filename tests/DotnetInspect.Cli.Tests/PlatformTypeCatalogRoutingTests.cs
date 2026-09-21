@@ -11,6 +11,47 @@ public sealed class PlatformTypeCatalogRoutingTests
 {
     [Fact]
     public async Task
+        VersionlessFallbackUsesConfiguredPackageSources()
+    {
+        using var feed = new TemporaryTestDirectory(
+            "inspect-cli-platform-empty-feed");
+        int packageCompositionCount = 0;
+        using var client = new HttpClient();
+        var context = new CommandContext(
+            verbose: false,
+            client,
+            () =>
+            {
+                packageCompositionCount++;
+                return new DesktopPackageSourceComposition(
+                    TimeSpan.FromSeconds(5));
+            });
+
+        CliPlatformTypeCatalogOutcome.NotCompleted notCompleted =
+            Assert.IsType<CliPlatformTypeCatalogOutcome.NotCompleted>(
+                await PlatformTypeCatalogRouting.LoadAsync(
+                    dotnetRoot: null,
+                    context,
+                    new NuGetSourceOptions
+                    {
+                        Sources = [feed.FullName],
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, packageCompositionCount);
+        Assert.Equal(
+            CliPlatformTypeCatalogFailureKind.HouseUnavailable,
+            notCompleted.Kind);
+        Assert.NotNull(notCompleted.HouseReceipt);
+        Assert.Contains(
+            notCompleted.HouseReceipt.SourceSettlements,
+            settlement => settlement.Contribution.Capability.Name.Contains(
+                "package",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
         VersionlessInstalledCatalogRoutesAfterAuthoritiesRetire()
     {
         string dotnetRoot = Assert.IsType<string>(
