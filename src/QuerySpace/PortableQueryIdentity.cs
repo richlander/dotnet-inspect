@@ -1,4 +1,4 @@
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// What makes two shared queries the same query: one vocabulary identity paired

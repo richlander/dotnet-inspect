@@ -1,4 +1,4 @@
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.QueryOperations;
 using DotnetInspector.Queries;
 

@@ -1,6 +1,6 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// The eight comparison identities a term may carry.
