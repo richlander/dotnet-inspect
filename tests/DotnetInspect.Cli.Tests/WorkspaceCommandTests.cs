@@ -388,7 +388,8 @@ public sealed partial class WorkspaceCommandTests
             "--make-package-dependencies-explicit",
         ];
 
-        var result = CommandLineBuilder.CreateRootCommand().Parse(arguments);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            CommandLineBuilder.PreprocessArgs(arguments));
 
         Assert.Empty(result.Errors);
     }

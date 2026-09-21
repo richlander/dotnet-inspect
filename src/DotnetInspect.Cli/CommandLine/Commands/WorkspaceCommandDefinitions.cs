@@ -43,19 +43,6 @@ public static class WorkspaceCommandDefinitions
                 "Use one canonical Base64URL Workspace packet string",
             Arity = ArgumentArity.ExactlyOne,
         };
-        var replacePackageOption = new Option<int?>("--replace-package")
-        {
-            Description =
-                "Replace one direct Package by its one-based packet navigation-row order",
-        };
-        var replacementVersionOption = new Option<string?>("--to-version")
-        {
-            Description = "Exact destination Version for --replace-package",
-        };
-        var replacementTfmOption = new Option<string?>("--to-tfm")
-        {
-            Description = "Destination TFM for --replace-package (isolated context only)",
-        };
         var registerLibraryOption =
             new Option<string[]>("--register-library")
             {
@@ -162,9 +149,6 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(prereleaseOption);
         command.Options.Add(packetOption);
-        command.Options.Add(replacePackageOption);
-        command.Options.Add(replacementVersionOption);
-        command.Options.Add(replacementTfmOption);
         command.Options.Add(registerLibraryOption);
         command.Options.Add(registerPackagePrefixOption);
         command.Options.Add(registerEcosystemOption);
@@ -199,8 +183,7 @@ public static class WorkspaceCommandDefinitions
                     typeOption,
                     memberOption,
                     lensOption,
-                    shareOption,
-                    replacePackageOption));
+                    shareOption));
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
 
@@ -278,9 +261,6 @@ public static class WorkspaceCommandDefinitions
                     Packages = packages,
                     Tfm = tfm,
                     Packet = packet,
-                    ReplacePackage = parseResult.GetValue(replacePackageOption),
-                    ReplacementVersion = parseResult.GetValue(replacementVersionOption),
-                    ReplacementTfm = parseResult.GetValue(replacementTfmOption),
                     EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                     OrderedRegistrations = orderedRegistrations,
                     RegisteredLibraries =
@@ -342,13 +322,16 @@ public static class WorkspaceCommandDefinitions
                     typeOption,
                     memberOption,
                     lensOption,
-                    shareOption,
-                    replacePackageOption),
+                    shareOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
 
+        command.Subcommands.Add(
+            UtilityCommandDefinitions.CreateWorkspacePacketCommand());
+        command.Subcommands.Add(CreateWorkspaceComponentCommand());
+        command.Subcommands.Add(CreateWorkspacePackageCommand(opts));
         return command;
     }
 
@@ -360,16 +343,313 @@ public static class WorkspaceCommandDefinitions
         Option<string?> typeOption,
         Option<string?> memberOption,
         Option<string?> lensOption,
-        Option<string?> shareOption,
-        Option<int?> replacePackageOption) =>
+        Option<string?> shareOption) =>
         commandResult.GetValue(activePackageOption) is null
         && commandResult.GetValue(libraryOption) is null
         && !commandResult.GetValue(allLibrariesOption)
         && commandResult.GetValue(typeOption) is null
         && commandResult.GetValue(memberOption) is null
         && commandResult.GetValue(lensOption) is null
-        && commandResult.GetResult(shareOption) is null
-        && commandResult.GetValue(replacePackageOption) is null;
+        && commandResult.GetResult(shareOption) is null;
+
+    static Command CreateWorkspaceComponentCommand()
+    {
+        var command = new Command(
+            "component",
+            "Inspect stable components in a canonical Workspace packet");
+        command.SetAction(_ =>
+        {
+            HelpWriter.WriteHelp(command);
+            return 0;
+        });
+
+        var list = new Command(
+            "list",
+            "Emit typed Workspace components and canonical paths as JSON");
+        var packet = PacketOption();
+        list.Options.Add(packet);
+        list.SetAction((parseResult, cancellationToken) =>
+        {
+            string? value = parseResult.GetValue(packet);
+            if (value is null)
+            {
+                CommandError.Write(
+                    "'workspace component list' requires --packet.");
+                return Task.FromResult(1);
+            }
+            return Task.FromResult(
+                WorkspaceComponentCommand.List(value, cancellationToken));
+        });
+        command.Subcommands.Add(list);
+        return command;
+    }
+
+    static Command CreateWorkspacePackageCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            "package",
+            "Immutably add, update, or remove Package components");
+        command.SetAction(_ =>
+        {
+            HelpWriter.WriteHelp(command);
+            return 0;
+        });
+
+        Command add = CreatePackageAddCommand();
+        Command update = CreatePackageUpdateCommand(opts);
+        Command remove = CreatePackageRemoveCommand();
+        command.Subcommands.Add(add);
+        command.Subcommands.Add(update);
+        command.Subcommands.Add(remove);
+        return command;
+    }
+
+    static Command CreatePackageAddCommand()
+    {
+        var command = new Command(
+            "add",
+            "Add a direct Package component and emit a new Workspace packet");
+        var package = new Argument<string>("package")
+        {
+            Description = "Package ID or exact ID@Version",
+        };
+        var packet = PacketOption();
+        var framework = new Option<string?>("--tfm")
+        {
+            Description =
+                "Target framework; inherited from the selected context when omitted",
+        };
+        var runtimeIdentifier = new Option<string?>("--rid")
+        {
+            Description =
+                "Runtime identifier; inherited from the selected context when omitted",
+        };
+        var context = new Option<string?>("--context")
+        {
+            Description =
+                "Canonical contexts/gN path; defaults to the selected context",
+        };
+        Option<string?> share = WorkspaceShareOption.Create(
+            "Emit the derived Workspace as a canonical packet or URL");
+        command.Arguments.Add(package);
+        command.Options.Add(packet);
+        command.Options.Add(framework);
+        command.Options.Add(runtimeIdentifier);
+        command.Options.Add(context);
+        command.Options.Add(share);
+        command.SetAction((parseResult, cancellationToken) =>
+        {
+            string? packetValue = parseResult.GetValue(packet);
+            if (packetValue is null)
+            {
+                CommandError.Write("'workspace package add' requires --packet.");
+                return Task.FromResult(1);
+            }
+
+            WorkspaceContextComponentPath? contextPath = null;
+            string? contextValue = parseResult.GetValue(context);
+            if (contextValue is not null
+                && !WorkspaceContextComponentPath.TryCreate(
+                    contextValue,
+                    out contextPath,
+                    out string? error))
+            {
+                CommandError.Write(error!);
+                return Task.FromResult(1);
+            }
+
+            return Task.FromResult(
+                WorkspaceComponentCommand.AddPackage(
+                    packetValue,
+                    parseResult.GetValue(package)!,
+                    parseResult.GetValue(framework),
+                    parseResult.GetValue(runtimeIdentifier),
+                    contextPath,
+                    WorkspaceShareOption.Parse(parseResult, share)
+                        ?? WorkspaceShareFormat.Packet,
+                    cancellationToken));
+        });
+        return command;
+    }
+
+    static Command CreatePackageUpdateCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            "update",
+            "Update one exact Package component through a successor Workspace");
+        var component = new Argument<string>("component")
+        {
+            Description =
+                "Canonical packages/ID@VERSION/TFM/RID component path",
+        };
+        var packet = PacketOption();
+        var version = new Option<string?>("--version")
+        {
+            Description = "Exact destination Package version",
+        };
+        var framework = new Option<string?>("--tfm")
+        {
+            Description =
+                "Destination target framework (singleton context only)",
+        };
+        Option<string?> share = WorkspaceShareOption.Create(
+            "Emit the derived Workspace as a canonical packet or URL");
+        var patFor = new Option<string[]>("--pat-for")
+        {
+            Description =
+                "Bind an ephemeral Basic credential: HTTPS-ENDPOINT USERNAME env:NAME|stdin|file:PATH",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = true,
+        };
+        command.Arguments.Add(component);
+        command.Options.Add(packet);
+        command.Options.Add(version);
+        command.Options.Add(framework);
+        opts.AddEnvelopeOptionTo(command);
+        opts.AddFormatOptionTo(command);
+        command.Options.Add(share);
+        command.Options.Add(patFor);
+        command.SetAction(async (parseResult, cancellationToken) =>
+        {
+            string? packetValue = parseResult.GetValue(packet);
+            if (packetValue is null)
+            {
+                CommandError.Write(
+                    "'workspace package update' requires --packet.");
+                return 1;
+            }
+            if (!WorkspacePackageComponentPath.TryCreate(
+                    parseResult.GetValue(component),
+                    out WorkspacePackageComponentPath? componentPath,
+                    out string? error))
+            {
+                CommandError.Write(error!);
+                return 1;
+            }
+            if (!TryParsePackageEditBindings(
+                    parseResult,
+                    patFor,
+                    out WorkspacePatBindingInput[] patBindings))
+            {
+                return 1;
+            }
+
+            bool emitEnvelope = parseResult.GetValue(opts.Envelope);
+            WorkspaceShareFormat? shareFormat =
+                WorkspaceShareOption.Parse(parseResult, share);
+            if (!emitEnvelope)
+                shareFormat ??= WorkspaceShareFormat.Packet;
+            return await WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = packetValue,
+                    UpdatePackage = componentPath,
+                    ReplacementVersion = parseResult.GetValue(version),
+                    ReplacementTfm = parseResult.GetValue(framework),
+                    EnvelopeOutput = emitEnvelope,
+                    ShareFormat = shareFormat,
+                    PatBindings = patBindings,
+                    SourceOptions =
+                        opts.ParseNuGetSourceOptions(parseResult),
+                },
+                cancellationToken).ConfigureAwait(false);
+        });
+        return command;
+    }
+
+    static Command CreatePackageRemoveCommand()
+    {
+        var command = new Command(
+            "remove",
+            "Remove one exact Package component and emit a new Workspace packet");
+        var component = new Argument<string>("component")
+        {
+            Description =
+                "Canonical packages/ID@VERSION/TFM/RID component path",
+        };
+        var packet = PacketOption();
+        Option<string?> share = WorkspaceShareOption.Create(
+            "Emit the derived Workspace as a canonical packet or URL");
+        command.Arguments.Add(component);
+        command.Options.Add(packet);
+        command.Options.Add(share);
+        command.SetAction((parseResult, cancellationToken) =>
+        {
+            string? packetValue = parseResult.GetValue(packet);
+            if (packetValue is null)
+            {
+                CommandError.Write(
+                    "'workspace package remove' requires --packet.");
+                return Task.FromResult(1);
+            }
+            if (!WorkspacePackageComponentPath.TryCreate(
+                    parseResult.GetValue(component),
+                    out WorkspacePackageComponentPath? componentPath,
+                    out string? error))
+            {
+                CommandError.Write(error!);
+                return Task.FromResult(1);
+            }
+
+            return Task.FromResult(
+                WorkspaceComponentCommand.RemovePackage(
+                    packetValue,
+                    componentPath!,
+                    WorkspaceShareOption.Parse(parseResult, share)
+                        ?? WorkspaceShareFormat.Packet,
+                    cancellationToken));
+        });
+        return command;
+    }
+
+    static Option<string?> PacketOption() =>
+        new("--packet")
+        {
+            Description = "Canonical Base64URL Workspace packet string",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+
+    static bool TryParsePackageEditBindings(
+        ParseResult parseResult,
+        Option<string[]> patForOption,
+        out WorkspacePatBindingInput[] patBindings)
+    {
+        try
+        {
+            var bindings = new List<WorkspacePatBindingInput>();
+            var boundSources = new HashSet<string>(StringComparer.Ordinal);
+            int stdinBindings = 0;
+            foreach ((string endpoint, string username, string provider)
+                in ParsePatBindings(parseResult, patForOption))
+            {
+                WorkspacePatBindingInput binding =
+                    ParsePatBinding(endpoint, username, provider);
+                if (!boundSources.Add(binding.Endpoint))
+                {
+                    throw new ArgumentException(
+                        $"--pat-for binds endpoint '{binding.Endpoint}' more than once.");
+                }
+                if (binding.Kind == WorkspacePatInputKind.StandardInput
+                    && ++stdinBindings > 1)
+                {
+                    throw new ArgumentException(
+                        "At most one --pat-for binding may read from stdin.");
+                }
+                bindings.Add(binding);
+            }
+
+            patBindings = [.. bindings];
+            return true;
+        }
+        catch (ArgumentException error)
+        {
+            CommandError.Write(
+                "The Workspace package credentials are invalid.",
+                [error.Message]);
+            patBindings = [];
+            return false;
+        }
+    }
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,

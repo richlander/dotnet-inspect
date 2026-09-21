@@ -42,7 +42,7 @@ public static partial class WorkspaceCommand
         bool realizesWorkspace =
             options.ShareFormat is null
             || options.MakePackageDependenciesExplicit
-            || options.ReplacePackage is not null;
+            || options.UpdatePackage is not null;
         IReadOnlyList<WorkspacePackageSourceDefinition> packageSources =
             options.PackageSources;
         WorkspacePackageSourceRuntime? sourceRuntime = null;
@@ -205,7 +205,7 @@ public static partial class WorkspaceCommand
             return 1;
         }
 
-        if (options.ReplacePackage is not null)
+        if (options.UpdatePackage is not null)
         {
             return await ExecuteReplacementAsync(
                 options, loadOptions, cancellationToken).ConfigureAwait(false);
@@ -1682,14 +1682,14 @@ public static partial class WorkspaceCommand
 
     static string? NavigationOptionError(WorkspaceOptions options)
     {
-        if (options.ReplacePackage is not null
+        if (options.UpdatePackage is not null
             || options.ReplacementVersion is not null
             || options.ReplacementTfm is not null)
         {
             return ReplacementOptionError(options);
         }
         if (options.EnvelopeOutput)
-            return "--envelope currently requires --replace-package.";
+            return "--envelope is available on 'workspace package update'.";
 
         if (options.RootRequest is not null
             && (options.Packages.Length != 0 || options.Tfm is not null))
@@ -1853,4 +1853,7 @@ public static partial class WorkspaceCommand
     typeof(WorkspaceTopLevelEcosystemPopulation.PackagePrefix),
     TypeInfoPropertyName = "WorkspaceInventoryEcosystemPackagePrefix")]
 [JsonSerializable(typeof(WorkspaceNavigationView))]
+[JsonSerializable(typeof(WorkspaceComponentDocument))]
+[JsonSerializable(typeof(WorkspaceContextComponentDescriptor))]
+[JsonSerializable(typeof(WorkspacePackageComponentDescriptor))]
 internal partial class WorkspaceCommandJsonContext : JsonSerializerContext;
