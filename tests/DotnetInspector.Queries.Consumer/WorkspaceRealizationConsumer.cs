@@ -5,7 +5,7 @@ namespace DotnetInspector.QueriesConsumer;
 public static class WorkspaceRealizationConsumer
 {
     public static async ValueTask<WorkspaceRealizationCandidate> BeginAsync(
-        WorkspaceRealizationCoordinator coordinator,
+        WorkspaceReplacementCoordinator coordinator,
         WorkspacePlan plan)
     {
         WorkspaceRealizationCandidateStartResult result =
@@ -18,7 +18,7 @@ public static class WorkspaceRealizationConsumer
         candidate.EnterConstruction();
 
     public static async ValueTask<WorkspaceRealization> ActivateAsync(
-        WorkspaceRealizationCoordinator coordinator,
+        WorkspaceReplacementCoordinator coordinator,
         WorkspaceRealizationCandidate candidate)
     {
         WorkspaceRealizationCandidateCompletionResult completion =
@@ -38,7 +38,7 @@ public static class WorkspaceRealizationConsumer
     }
 
     public static async ValueTask<WorkspaceRealizationOperationLease>
-        EnterAsync(WorkspaceRealizationCoordinator coordinator)
+        EnterAsync(WorkspaceReplacementCoordinator coordinator)
     {
         WorkspaceRealizationOperationAdmission result =
             await coordinator.EnterOperationAsync();

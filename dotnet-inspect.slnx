@@ -138,6 +138,7 @@
     <Project Path="src/DotnetInspector.DocumentationHouse.Direct/DotnetInspector.DocumentationHouse.Direct.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Packages/DotnetInspector.DocumentationHouse.Packages.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Platform/DotnetInspector.DocumentationHouse.Platform.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse.Source/DotnetInspector.DocumentationHouse.Source.csproj" />
     <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />

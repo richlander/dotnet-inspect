@@ -7,9 +7,29 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class WorkspaceRealizationTests
 {
     [Fact]
+    public void ReplacementSurface_OmitsRedundantIdentityTypes()
+    {
+        var assembly = typeof(WorkspaceReplacementCoordinator).Assembly;
+
+        Assert.Null(assembly.GetType(
+            "DotnetInspector.Queries.WorkspaceDefinitionSnapshotIdentity"));
+        Assert.Null(assembly.GetType(
+            "DotnetInspector.Queries.WorkspaceRealizationCandidateIdentity"));
+        Assert.Null(assembly.GetType(
+            "DotnetInspector.Queries.WorkspaceRealizationReplacementAttemptIdentity"));
+        Assert.Null(assembly.GetType(
+            "DotnetInspector.Queries.WorkspaceRealizationCoordinator"));
+        Assert.Null(typeof(WorkspaceDefinitionSnapshot).GetProperty("Identity"));
+        Assert.Null(typeof(WorkspaceRealizationCandidate).GetProperty(
+            "Identity"));
+        Assert.Null(typeof(WorkspaceRealizationCandidate).GetProperty(
+            "Attempt"));
+    }
+
+    [Fact]
     public async Task Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate firstCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -75,7 +95,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task CandidateFailure_PreservesActiveRealization()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate firstCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -108,7 +128,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task SupersedeCandidate_RetiresWithoutStartingReplacement()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -137,7 +157,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task CancelledCandidateStartWait_DoesNotCreateReplacement()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -168,13 +188,13 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        Assert.NotSame(candidate.Identity, next.Identity);
+        Assert.NotSame(candidate.Realization, next.Realization);
     }
 
     [Fact]
     public async Task CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate firstCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -219,7 +239,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task Completion_WaitsForAdmittedConstructionAndClosesAdmission()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -253,7 +273,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task CancelledCompletion_ReleasesCaptureAndSettlesCandidate()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -300,7 +320,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task SupersededCompletion_ReportsStaleCandidate()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -347,7 +367,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task ClosedCoordinatorCompletion_ReportsCoordinatorClosed()
     {
-        var coordinator = new WorkspaceRealizationCoordinator();
+        var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -374,7 +394,7 @@ public sealed class WorkspaceRealizationTests
                 TestContext.Current.CancellationToken).AsTask();
         await Task.Yield();
         Assert.False(completion.IsCompleted);
-        Task<WorkspaceRealizationCoordinatorCloseReport> close =
+        Task<WorkspaceReplacementCoordinatorCloseReport> close =
             coordinator.CloseAsync();
 
         held.Dispose();
@@ -392,7 +412,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task NewCandidate_SupersedesAndSettlesPriorCandidate()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate prior =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -421,7 +441,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task SupersededCandidate_DrainsAdmittedConstruction()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate prior =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -454,7 +474,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task ConcurrentReplacement_NewestIntentCreatesTheCandidate()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate prior =
                 await WorkspaceRealizationConsumer.BeginAsync(
                     coordinator,
@@ -490,13 +510,13 @@ public sealed class WorkspaceRealizationTests
         var prepared = Assert.IsType<
                 WorkspaceRealizationCandidateStartResult.Prepared>(
                     await second);
-        Assert.NotSame(prior.Identity, prepared.Candidate.Identity);
+        Assert.NotSame(prior.Realization, prepared.Candidate.Realization);
     }
 
     [Fact]
     public async Task OperationAuthority_RetainsExactDefinitionAssociation()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -538,7 +558,7 @@ public sealed class WorkspaceRealizationTests
     public async Task EqualOriginPlan_SharesIntentButNotRealizationAuthority()
     {
         var plan = WorkspacePlan.Empty;
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate firstCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(coordinator, plan);
         WorkspaceRealization first =
@@ -578,7 +598,7 @@ public sealed class WorkspaceRealizationTests
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Shared.Realization.Content");
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate firstCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -628,7 +648,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task Cutover_RejectsCandidateUntilConstructionCompletes()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -649,7 +669,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task OperationLease_DoubleDisposeDoesNotEndAnotherLease()
     {
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate firstCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -685,7 +705,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task Settlement_PreservesWorkspaceCloseFailure()
     {
-        var coordinator = new WorkspaceRealizationCoordinator();
+        var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -710,7 +730,7 @@ public sealed class WorkspaceRealizationTests
             TestContext.Current.CancellationToken);
         _ = coordinator.CutOver(candidate);
 
-        WorkspaceRealizationCoordinatorCloseReport report =
+        WorkspaceReplacementCoordinatorCloseReport report =
             await coordinator.CloseAsync();
 
         WorkspaceRealizationSettlement settlement = Assert.Single(
@@ -736,7 +756,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task Close_WaitsForAdmittedOperationsAndReportsEverySettlement()
     {
-        var coordinator = new WorkspaceRealizationCoordinator();
+        var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -747,7 +767,7 @@ public sealed class WorkspaceRealizationTests
         WorkspaceRealizationOperationLease operation =
             await WorkspaceRealizationConsumer.EnterAsync(coordinator);
 
-        Task<WorkspaceRealizationCoordinatorCloseReport> close =
+        Task<WorkspaceReplacementCoordinatorCloseReport> close =
             coordinator.CloseAsync();
 
         Assert.False(close.IsCompleted);
@@ -756,7 +776,7 @@ public sealed class WorkspaceRealizationTests
                 TestContext.Current.CancellationToken));
 
         operation.Dispose();
-        WorkspaceRealizationCoordinatorCloseReport report = await close;
+        WorkspaceReplacementCoordinatorCloseReport report = await close;
         WorkspaceRealizationSettlement settlement = Assert.Single(
             report.Settlements);
         Assert.Equal(
@@ -771,7 +791,7 @@ public sealed class WorkspaceRealizationTests
     [Fact]
     public async Task Close_WaitsForInFlightUseAfterLeaseDisposal()
     {
-        var coordinator = new WorkspaceRealizationCoordinator();
+        var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
@@ -784,14 +804,14 @@ public sealed class WorkspaceRealizationTests
         WorkspaceRealizationOperationUse use =
             operation.EnterUse();
 
-        Task<WorkspaceRealizationCoordinatorCloseReport> close =
+        Task<WorkspaceReplacementCoordinatorCloseReport> close =
             coordinator.CloseAsync();
         operation.Dispose();
 
         Assert.False(close.IsCompleted);
 
         use.Dispose();
-        WorkspaceRealizationCoordinatorCloseReport report = await close;
+        WorkspaceReplacementCoordinatorCloseReport report = await close;
         Assert.True(Assert.Single(report.Settlements).Succeeded);
         await coordinator.DisposeAsync();
     }
