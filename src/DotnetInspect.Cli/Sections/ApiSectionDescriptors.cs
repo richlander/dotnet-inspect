@@ -503,6 +503,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.TypeMetrics;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool ProbeEffectiveness => false;
