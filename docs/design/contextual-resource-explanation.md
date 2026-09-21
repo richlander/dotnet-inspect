@@ -149,9 +149,11 @@ explains the registered Member command resource. It does not run Member
 inspection, choose a package or platform target, or infer a resource path from
 the parser command name.
 
-An adopting command without a registered command resource does not advertise
-command-level `--explain`. The host does not manufacture a generic help
-document as a success-shaped substitute.
+Contextual-explanation adoption is complete only when the command supplies both
+one registered command-level resource and its exact-subject explanation
+mapping. Until both are available, the command does not advertise
+`--explain`. The host does not expose a subject-only intermediate gesture or
+manufacture a generic help document as a success-shaped substitute.
 
 ### Exact resolved subject
 
@@ -342,7 +344,7 @@ Every unavailable boundary remains visible:
 
 | Condition | Result |
 | --- | --- |
-| Command has no registered command resource | Command-level `--explain` is unavailable; no generic help fallback |
+| Command has not completed paired command-level and exact-subject adoption | `--explain` is not advertised or admitted; no generic help fallback |
 | Subject resolution returns no subject | Preserve the command owner's not-found or unavailable result |
 | Subject resolution returns several subjects | Reject direct explanation and request refinement |
 | Exact subject has no explanation affordance | Return the owner-issued unavailable outcome |
@@ -402,7 +404,7 @@ The pathological neighboring cases are:
 | Property | Required gate |
 | --- | --- |
 | Command-level explanation consumes the exact owner-issued resource identity without deriving it from the parser token and performs no subject acquisition. | CLI composition test whose parser token deliberately differs from the registered canonical path, asserting the exact issued identity reaches Resource Explanation while all acquisition capabilities fail fast. |
-| A command without a registered command resource neither advertises nor executes command-level `--explain`, produces no generic-help substitute, and performs no acquisition or explanation work. | Non-adopter CLI help and invocation test with fail-fast acquisition and explanation collaborators, asserting the declared visible unsupported result. |
+| A command that has not completed paired command-level and exact-subject adoption neither advertises nor executes `--explain`, produces no generic-help substitute, and performs no acquisition or explanation work. | Non-adopter CLI help and invocation test with fail-fast acquisition and explanation collaborators, asserting the declared visible unsupported result. |
 | Exact-subject explanation preserves the command owner's resolved subject, parses and resolves once, acquires each required source at most once, and does not execute ordinary section producers. | First-adopter integration test with counting command-preprocessing, resolution, and acquisition collaborators, fail-fast ordinary producers, and a real `System.Text.Json` command. |
 | Direct explanation does not serialize and parse a reusable reference. | Host-neutral composition test whose reference serializer and parser fail if called. |
 | Zero, multiple, unavailable, and failed subject outcomes remain distinct and visible. | Cardinality and failure matrix over the first adopter. |
@@ -431,7 +433,9 @@ replacement, retry, or scheduling semantics.
 3. Have #7916 define the reusable reference and subject-affordance contracts,
    including shell-safe generic identity.
 4. Add the host-neutral contextual-explanation selection and handoff
-   substrate, with Member as the bounded first adopter.
+   substrate, with Member as the bounded first adopter. Advertise Member
+   `--explain` only when both its command-level resource and exact-subject
+   mapping are present.
 5. Add Member Index `--references` as the first row projection and demonstrate
    unchanged consumption by `explain`.
 6. Adopt the same composition one command owner at a time for Type, Library,
