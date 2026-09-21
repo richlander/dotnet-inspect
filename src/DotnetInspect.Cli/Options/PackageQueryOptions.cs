@@ -3,9 +3,9 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Ecosystems;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
@@ -55,7 +55,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
         .. CliTerms.Select(term => new SectionQueryKey(
             term.Descriptor.Key,
             ["--where"],
-            [.. term.Operators.Select(Comparison)],
+            [
+                .. term.Operators.Select(
+                    RowPredicateSyntaxParser.Comparison),
+            ],
             term.Descriptor.ValueKind,
             [.. term.Descriptor.Options.Select(option => option.Value)],
             $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
@@ -197,14 +200,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            PortableQueryOperator? @operator = syntax.Operator switch
-            {
-                RowPredicateOperator.Equals => PortableQueryOperator.Equal,
-                RowPredicateOperator.StartsWith =>
-                    PortableQueryOperator.StartsWith,
-                _ => null,
-            };
-            if (@operator is null)
+            PortableQueryOperator @operator =
+                RowPredicateSyntaxParser.PortableOperator(
+                    syntax.Operator);
+            if (!CliTerms.Any(term =>
+                    term.Operators.Contains(@operator)))
             {
                 error =
                     "Package Query terms currently support equality and "
@@ -221,7 +221,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             {
                 terms.Add(new PortableQueryTerm(
                     registeredTerm.Descriptor.Key,
-                    @operator.Value,
+                    @operator,
                     syntax.Value));
                 continue;
             }
@@ -309,16 +309,4 @@ public sealed record PackageQueryOptions : IProjectionOptions
             : null;
     }
 
-    private static string Comparison(
-        PortableQueryOperator @operator) =>
-        @operator switch
-        {
-            PortableQueryOperator.Equal => "=",
-            PortableQueryOperator.NotEqual => "!=",
-            PortableQueryOperator.StartsWith => "starts-with",
-            PortableQueryOperator.AtLeast => ">=",
-            PortableQueryOperator.AtMost => "<=",
-            _ => throw new InvalidOperationException(
-                "Package Query registered an unsupported CLI comparison."),
-        };
 }

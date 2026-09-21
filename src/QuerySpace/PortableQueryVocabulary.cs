@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// How the terms of one vocabulary-declared family compose with each other.
