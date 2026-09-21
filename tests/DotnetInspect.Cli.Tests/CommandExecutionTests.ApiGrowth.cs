@@ -133,7 +133,7 @@ public partial class CommandExecutionTests
     [InlineData("Cost Facts")]
     [InlineData("Performance Triage")]
     [InlineData("Top Leverage")]
-    [InlineData("Implementation Profiles")]
+    [InlineData("Type Metrics")]
     public async Task
         Type_PlatformMemberDomainSectionsExceedInformativeRange(
             string section)
@@ -155,6 +155,29 @@ public partial class CommandExecutionTests
         Assert.True(
             count > 24,
             $"Expected {section} to exceed the informative range; observed {count}.");
+    }
+
+    [Fact]
+    public async Task Member_PlatformMemberMetricsExceedInformativeRange()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Runtime.Intrinsics.Arm.AdvSimd",
+            "Store",
+            "--platform",
+            "System.Runtime.Intrinsics",
+            "-S",
+            "Member Metrics",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out int count));
+        Assert.True(
+            count > 24,
+            $"Expected Member Metrics to exceed the informative range; observed {count}.");
     }
 
     [Fact]
