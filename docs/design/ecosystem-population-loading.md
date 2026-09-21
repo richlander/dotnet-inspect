@@ -774,13 +774,14 @@ This shared capability has ten focused stages:
    only for accepted Focus Libraries; report unsupported owner shapes and
    preserve per-child dispositions without whole-load rollback.
 7. **Implemented:** project accepted Focus witnesses through a one-way adapter
-   into Navigation-owned point-in-time contribution evidence. Exact historical
-   admission remains available only while the same declaration object is
-   present in the caller-supplied current registration revision; a foreign
-   current revision is rejected, removal stays typed, and no Package ancestry
-   is inferred. The adapter consumes the inseparable owner-issued Focus witness
-   rather than accepting independently substitutable registration, admission,
-   and Library values.
+   into closed Navigation-consumable point-in-time contribution evidence. Exact
+   historical admission remains available only while the exact historical
+   Ecosystem occurrence and contribution relation remain present in the
+   caller-supplied current registration revision; a foreign current revision is
+   rejected, removal and removal/re-addition stay typed, and no Package ancestry
+   is inferred. The adapter consumes the inseparable owner-issued Focus witness,
+   and its internal result constructors do not accept independently
+   substitutable registration, admission, and Library values.
 8. Have Navigation issue and reconcile current `.NET Runtime` and ASP.NET Core
    subjects and routes from that contribution evidence.
 9. Adopt equivalent explicit loading in the CLI and Browser/Wasm; Browser uses
