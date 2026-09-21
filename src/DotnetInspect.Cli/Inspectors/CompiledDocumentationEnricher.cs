@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
@@ -306,17 +307,14 @@ internal static class CompiledDocumentationEnricher
             ApiOptions options,
             CancellationToken cancellationToken)
     {
-        using var stores = new PackageStoreScope();
-        await using DesktopPackageSourceComposition composition =
-            source.Context.CreatePackageSourceComposition();
-        var packageSource = new PackagePlatformSource(
-            new DesktopPackagePlatformAuthorization(
-                composition,
-                options.SourceOptions),
-            new PackagePayloadAcquisitionPlan(stores.Get));
-        var adapter = new PackagePlatformHouseAdapter(
-            packageSource,
-            "cli-platform-documentation");
+        await using var packageRuntime =
+            new DesktopPlatformPackageSourceRuntime(
+                source.Context.CreatePackageSourceComposition,
+                options.SourceOptions,
+                "inspect-cli-docs");
+        PackagePlatformHouseAdapter adapter =
+            packageRuntime.CreateAdapter(
+                "cli-platform-documentation");
         var request =
             new PlatformCompiledDocumentationInspectionRequest(
                 target,
@@ -330,7 +328,7 @@ internal static class CompiledDocumentationEnricher
                     .ExecutePackageBackedAsync(
                         request,
                         adapter,
-                        composition.IssueSettlementOperation(
+                        packageRuntime.IssueOperation(
                             cancellationToken),
                         CreatePlatformDocumentationWork(
                             TimeSpan.FromMinutes(10)),
@@ -627,7 +625,8 @@ internal static class CompiledDocumentationEnricher
             ApiOptions options,
             CancellationToken cancellationToken)
     {
-        using var stores = new PackageStoreScope();
+        using var stores = new DesktopPackageStoreScope(
+            "inspect-cli-docs");
         await using DesktopPackageSourceComposition composition =
             source.Context.CreatePackageSourceComposition();
         PackageHouseSettlement settlement =
@@ -1148,50 +1147,6 @@ internal static class CompiledDocumentationEnricher
                 apply(documentation);
             }
         }
-    }
-
-    private sealed class PackageStoreScope : IDisposable
-    {
-        private readonly Dictionary<
-            ConfiguredPackageAuthority,
-            IPackageStore> _stores = [];
-        private string? _temporaryRoot;
-
-        internal IPackageStore Get(
-            ConfiguredPackageAuthority authority,
-            PackageProducerIdentity producer)
-        {
-            if (!_stores.TryGetValue(
-                    authority,
-                    out IPackageStore? store))
-            {
-                store = new AuthorityScopedFileSystemPackageStore(
-                    authority,
-                    producer,
-                    () => _temporaryRoot ??=
-                        Directory.CreateTempSubdirectory(
-                            "inspect-cli-docs").FullName);
-                _stores.Add(authority, store);
-            }
-            return store;
-        }
-
-        public void Dispose()
-        {
-            _stores.Clear();
-            DotnetInspector.Packages.PackageExtractor.Cleanup(
-                _temporaryRoot);
-            _temporaryRoot = null;
-        }
-    }
-
-    private sealed class DesktopPackagePlatformAuthorization(
-        DesktopPackageSourceComposition composition,
-        NuGetSourceOptions? sourceOptions) : IPackageSourceAuthorization
-    {
-        public PackageSourceAuthorization AuthorizeSourcesFor(
-            string packageId) =>
-            composition.AuthorizeSourcesFor(packageId, sourceOptions);
     }
 
 }

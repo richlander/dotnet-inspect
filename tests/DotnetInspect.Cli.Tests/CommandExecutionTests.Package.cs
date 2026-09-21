@@ -3568,7 +3568,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "--tsv");
 
             Assert.Equal(1, library.Exit);
@@ -3579,7 +3579,7 @@ public partial class CommandExecutionTests
                 "Multiple package inspection cannot be combined with --library.",
                 library.Error);
             Assert.Contains(
-                "Multiple package inspection cannot be combined with --all-libraries.",
+                "Multiple package inspection cannot be combined with --library.",
                 allLibraries.Error);
         }
         finally
