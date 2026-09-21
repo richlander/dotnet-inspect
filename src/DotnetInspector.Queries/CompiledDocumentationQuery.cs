@@ -288,6 +288,24 @@ public static class CompiledDocumentationQuery
         };
     }
 
+    internal static CompiledDocumentationSubject ProjectSubject(
+        DocumentationSubjectReference subject) =>
+        Snapshot(subject);
+
+    internal static CompiledDocumentationOutcome ProjectAttempt(
+        CompiledDocumentationSubject subject,
+        DocumentationCompiledXmlAttempt attempt) =>
+        Content(subject, attempt);
+
+    internal static CompiledDocumentationSource ProjectSource(
+        CompiledXmlContribution contribution) =>
+        Snapshot(contribution);
+
+    internal static CompiledDocumentationIncompleteReason
+        ProjectIncompleteReason(
+            DocumentationIncompleteBoundary boundary) =>
+        Snapshot(boundary);
+
     private static CompiledDocumentationOutcome Content(
         CompiledDocumentationSubject subject,
         DocumentationCompiledXmlAttempt attempt) =>
@@ -485,23 +503,7 @@ public static class CompiledDocumentationQuery
 
     private static CompiledDocumentationEntry Snapshot(
         CSharpText.XmlDocumentationEntry documentation) =>
-        new(
-            documentation.Summary,
-            documentation.Remarks,
-            documentation.Returns,
-            [.. documentation.Parameters.Select(
-                static parameter => new CompiledDocumentationParameter(
-                    parameter.Key,
-                    parameter.Value))],
-            [.. documentation.Exceptions.Select(
-                static exception => new CompiledDocumentationException(
-                    exception.Cref,
-                    exception.Description))],
-            [.. documentation.Samples.Select(
-                static sample => new CompiledDocumentationSample(
-                    sample.Source,
-                    sample.Title,
-                    sample.Region))]);
+        DocumentationQueryProjection.Snapshot(documentation);
 
     private static CompiledDocumentationSourceKind Snapshot(
         DocumentationSourceKind kind) =>
