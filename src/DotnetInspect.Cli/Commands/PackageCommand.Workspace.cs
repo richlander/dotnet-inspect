@@ -193,6 +193,14 @@ public partial class PackageCommand
                     target.ContextTargetFramework
                     ?? target.Root.Root.RequestedTargetFramework
                     ?? target.Root.Root.AssetSelection.TargetFramework,
+                WorkspaceLibraryAssetPaths =
+                    options.WorkspaceLibrarySelection is null
+                        ? null
+                        :
+                        [
+                            .. target.Root.Root.AssetSelection.Assets.Select(
+                                static asset => asset.Path),
+                        ],
 #if DEBUG
                 EvidenceEnvelopePath = null,
 #endif
@@ -201,6 +209,7 @@ public partial class PackageCommand
                 ordinaryOptions,
                 context,
                 workspaceResolution.Resolution,
+                target.Root,
                 workspaceResolution.ManifestBytes,
                 () => PackageInfoMeasurementInspection.ProjectAdmittedRoot(
                     target.Root,
@@ -357,14 +366,17 @@ public partial class PackageCommand
                 "--workspace requires exactly one positional Package ID.");
             return false;
         }
+        bool libraryRoute =
+            options.WorkspaceLibrarySelection is not null;
         if (options.Tfm is not null
             || options.ListVersions
             || options.IncludePrerelease
             || options.ForceLatest
-            || options.Discover is not null
-            || options.Schema
-            || options.PackageLibrary is not null
-            || options.AllLibraries)
+            || (!libraryRoute
+                && (options.Discover is not null
+                    || options.Schema
+                    || options.PackageLibrary is not null
+                    || options.AllLibraries)))
         {
             CommandError.Write(
                 "--workspace supplies the Package location and target; it "

@@ -504,6 +504,12 @@ packet=$(dotnet-inspect workspace \
 dotnet-inspect package System.Text.Json --workspace "$packet"
 dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
+dotnet-inspect library --package System.Text.Json \
+  --workspace "$packet"
+dotnet-inspect library --package System.Text.Json \
+  --workspace "$packet" --namesake-library
+dotnet-inspect library System.Text.Json.dll \
+  --package System.Text.Json --workspace "$packet"
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
@@ -514,6 +520,14 @@ Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+`library --package ID[@VERSION] --workspace PACKET` reuses that same exact
+Package context and inspects its selected-framework Library aggregate by
+default. Add `--namesake-library` to select the unique Library whose managed
+assembly name matches the Package ID, or supply the existing positional Library
+selector to select one exact package asset. The packet supplies location and
+target-framework context, so these forms cannot combine it with platform,
+framework/version/TFM, or preview source selection.
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file

@@ -61,6 +61,16 @@ public record LibraryOptions : IProjectionOptions
     public string? PackagePath { get; init; }
 
     /// <summary>
+    /// Canonical Workspace packet supplying the selected Package context.
+    /// </summary>
+    public string? WorkspacePacket { get; init; }
+
+    /// <summary>
+    /// Select the Package namesake Library instead of its admitted Library aggregate.
+    /// </summary>
+    public bool NamesakeLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
