@@ -774,10 +774,17 @@ cluster order.
 Selection runs after pair inspection, complete cluster derivation, and optional
 `--where "Cluster=N"` scoping. The selected cluster identities feed Count,
 Markdown, plaintext, table, TSV, JSONL, and JSON without changing their
-retained call-site references. Repeated identical exact selectors activate all
-four exact-section declarations after case-insensitive deduplication.
-Incomplete pair evidence remains visible and nonzero after selected cluster
-output.
+retained call-site references. Repeated identical exact selectors resolve to
+the same declaration after case-insensitive deduplication. Incomplete pair
+evidence remains visible and nonzero after selected cluster output.
+
+Graph Libraries lowers these four exact semantic lenses through the
+Query-owned Graph Libraries QuerySpace and the Sections row executor. One
+section declaration supplies the stable row-set identity, typed QuerySpace
+scope, Sections schema, producer demand, and result binding. The same
+association reaches the Rows terminal for rendered output or the Count terminal
+for cardinality, so adding a section cannot silently fall through to Call
+Sites.
 
 Bare `-S`, Public Root Paths, wildcard or category selection, and every
 multi-section view remain outside these declarations because they expose

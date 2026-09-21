@@ -278,11 +278,10 @@ graph is built and before those formats; use `--lines` only for explicit
 rendered-line clipping. Row selection does not reduce package acquisition or
 hide retained graph failures. `graph libraries` remains a separate
 multi-section command: its default and exact `Call Sites` views apply the same
-semantic gestures to complete physical call sites. Exact `Consumer Use Sites`
-and `Provider API Types` apply them after summary grouping while retaining
-complete group counts and call-site receipts; exact `Direct Use Clusters`
-applies them to complete deterministic cluster rows. Bare summary, path,
-wildcard, category, and multi-section views retain rendered-line `-n`.
+semantic gestures to complete physical call sites, and exact
+`Direct Use Clusters` applies them to complete deterministic cluster rows.
+Its independent summary, path, wildcard, category, and multi-section views
+retain rendered-line `-n`.
 Missing `api.extension` or `integration.observed` endpoints whose assemblies are
 absent from the explicit package set remain outside the induced graph; add the
 owning package to admit those relationships. A missing

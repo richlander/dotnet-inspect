@@ -289,6 +289,15 @@ that window. Bare `-S`, `Public Root Paths`, wildcard, category, and
 multi-section selections retain rendered-line selection because they do not
 declare one row schema.
 
+`GraphLibrariesQuery` owns one QuerySpace descriptor covering all five stable
+row-set identities. The four semantic row sets expose executable Head, Tail,
+and Window scopes; `Public Root Paths` remains declared without semantic
+stages. Sections owns one typed binding per adopted row set. The CLI section
+catalog maps each exact semantic lens to that binding, so the same declaration
+controls activation, cluster-production demand, row schema, result rebinding,
+and Rows or Count execution. The command does not branch over independently
+maintained section-name and row-type inventories.
+
 If a later slice projects the result into `InspectionGraphDocument`, every
 rolled-up library edge must retain the member-level occurrence receipts behind
 it and use a relationship descriptor that explicitly admits that lens.

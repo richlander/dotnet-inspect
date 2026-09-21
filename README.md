@@ -1405,8 +1405,7 @@ those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
 or Count lowering; selection does not reduce package acquisition or hide
 retained graph failures. Add `--lines` only to clip rendered text explicitly.
 `graph libraries` retains independent section row sets; its adopted Call Sites
-Consumer Use Sites, Provider API Types, and Direct Use Clusters cohorts are
-described below.
+and Direct Use Clusters cohorts are described below.
 
 `graph calls` is the integration-style complement to the general
 `member -S "Call Graph"` view. It starts from one exact member in
@@ -1471,19 +1470,17 @@ its directed source and target. Omitting `-S` preserves the exact physical call
 sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
 `-N`, `--tail`, and strict `--rows` select complete physical call sites before
 Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Exact
-`-S "Consumer Use Sites"` and `-S "Provider API Types"` apply the same gestures
-after optional `--where "Cluster=N"` scoping and summary grouping. Selected
-summary rows retain their complete group counts and `Call Site Rows` receipts.
-Exact `-S "Direct Use Clusters"` applies the gestures to complete deterministic
-cluster rows after optional cluster scoping. Use `--lines` for explicit
-rendered-line clipping. Bare `-S` shows both summary sections: the local methods
-containing direct calls, and the provider declaring types selected by those
-calls. These are direct-use surfaces, not semantic feature clusters,
+`-S "Direct Use Clusters"` applies the same gestures to complete deterministic
+cluster rows after optional `--where "Cluster=N"` scoping. Use `--lines` for
+explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
+`Provider API Types`: the local
+methods containing direct calls, and the provider declaring types selected by
+those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
 Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category. Bare summary, path, wildcard,
+does not compose with the pair-wide category. Summary, path, wildcard,
 category, and multi-section views retain rendered-line `-n` because their
 independent row schemas do not form one semantic sequence.
 

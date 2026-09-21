@@ -1565,6 +1565,61 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public void LibrariesCommand_SemanticSectionsResolveOneTypedDeclaration()
+    {
+        (string Section, string RowSet)[] expected =
+        [
+            (
+                LibraryCallUseSections.ConsumerUseSites,
+                GraphLibrariesQuery.ConsumerUseSitesRowSet),
+            (
+                LibraryCallUseSections.ProviderApiTypes,
+                GraphLibrariesQuery.ProviderApiTypesRowSet),
+            (
+                LibraryCallUseSections.DirectUseClusters,
+                GraphLibrariesQuery.DirectUseClustersRowSet),
+            (
+                LibraryCallUseSections.CallSites,
+                GraphLibrariesQuery.CallSitesRowSet),
+        ];
+
+        Assert.Equal(
+            expected.Length,
+            LibraryCallUseSections.SemanticRowDeclarations.Count);
+        foreach ((string section, string rowSet) in expected)
+        {
+            Assert.True(
+                LibraryCallUseSections.TryGetSemanticRows(
+                    [section],
+                    out LibraryCallUseSections.SemanticRowDeclaration?
+                        declaration));
+            Assert.NotNull(declaration);
+            Assert.Equal(section, declaration.Section);
+            Assert.Equal(rowSet, declaration.Rows.RowSet);
+        }
+
+        Assert.True(
+            LibraryCallUseSections.TryGetSemanticRows(
+                selectedSections: null,
+                out LibraryCallUseSections.SemanticRowDeclaration?
+                    defaultDeclaration));
+        Assert.Same(
+            GraphLibrariesSectionRows.CallSites,
+            defaultDeclaration!.Rows);
+        Assert.False(
+            LibraryCallUseSections.TryGetSemanticRows(
+                [LibraryCallUseSections.PublicRootPaths],
+                out _));
+        Assert.False(
+            LibraryCallUseSections.TryGetSemanticRows(
+                [
+                    LibraryCallUseSections.CallSites,
+                    LibraryCallUseSections.ConsumerUseSites,
+                ],
+                out _));
+    }
+
+    [Fact]
     public async Task LibrariesCommand_SemanticTailSelectsTheSameClusterAcrossFormats()
     {
         string[] pair =
