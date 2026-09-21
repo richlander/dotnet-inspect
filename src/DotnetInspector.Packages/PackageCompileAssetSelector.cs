@@ -320,6 +320,48 @@ public static class PackageCompileAssetSelector
                     policy == PackageCompileAssetSelectionPolicy.ExplicitTarget));
     }
 
+    /// <summary>
+    /// Retains correspondence for an already-issued compile selection over the
+    /// same package content generation.
+    /// </summary>
+    public static PackageCompileAssetSelectionReceipt RetainSelection(
+        IPackageContent content,
+        string packageId,
+        PackageCompileAssetSelectionPolicy policy,
+        PackageCompileAssetSelection selection,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(selection);
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy), policy, null);
+        if (policy == PackageCompileAssetSelectionPolicy.HighestAvailable
+            && targetFramework is not null)
+        {
+            throw new ArgumentException(
+                "Highest-available compile selection does not accept an explicit target framework.",
+                nameof(targetFramework));
+        }
+        if (policy is PackageCompileAssetSelectionPolicy.ExplicitTarget
+                or PackageCompileAssetSelectionPolicy.ExactTarget
+            && targetFramework is null)
+        {
+            throw new ArgumentException(
+                "Explicit compile selection requires a target framework.",
+                nameof(targetFramework));
+        }
+
+        return new(
+            content.GenerationIdentity,
+            packageId,
+            policy,
+            targetFramework,
+            runtimeIdentifier,
+            selection);
+    }
+
     private static PackageCompileAssetSelection SelectCore(
         IPackageContent content,
         string packageId,

@@ -15,6 +15,7 @@
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/DotnetInspector.DocumentationHouse.Platform/DotnetInspector.DocumentationHouse.Platform.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />

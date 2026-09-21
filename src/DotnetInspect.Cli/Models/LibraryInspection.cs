@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -56,6 +57,27 @@ public class LibraryInspection
 
     [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
+
+    [JsonIgnore]
+    internal AssemblyReferencesResult? AssemblyReferencesQueryResult { get; set; }
+
+    [JsonIgnore]
+    public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
+        EcosystemDependencyRecognitionInspection { get; set; }
+
+    /// <summary>
+    /// Presentation-selected ecosystem-dependency pairs. Null retains the
+    /// complete recognized population from the recognition Document.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+        EcosystemDependencyRows { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
+        EcosystemDependencyRecognitionJson.Create(
+            EcosystemDependencyRecognitionInspection,
+            EcosystemDependencyRows);
 
     [JsonIgnore]
     public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }

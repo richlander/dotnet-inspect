@@ -8,6 +8,16 @@ namespace DotnetInspector.Ecosystems;
 
 internal static class ProductEcosystemPacks
 {
+    internal static PlatformLibraryPopulationDeclaration
+        RuntimePlatformPopulation
+    { get; } =
+        new(PlatformFamily.DotNetRuntime);
+
+    internal static PlatformLibraryPopulationDeclaration
+        AspNetCorePlatformPopulation
+    { get; } =
+        new(PlatformFamily.AspNetCore);
+
     internal static EcosystemPackRegistry Registry { get; } = new(
     [
         ProjectWorkspace(new(
@@ -27,7 +37,7 @@ internal static class ProductEcosystemPacks
         }, "ecosystem.runtime",
         [
             new WorkspaceEcosystemPopulationDeclaration.Platform(
-                new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime)),
+                RuntimePlatformPopulation),
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("System.")),
         ]),
@@ -75,7 +85,7 @@ internal static class ProductEcosystemPacks
         }, "ecosystem.aspnetcore",
         [
             new WorkspaceEcosystemPopulationDeclaration.Platform(
-                new PlatformLibraryPopulationDeclaration(PlatformFamily.AspNetCore)),
+                AspNetCorePlatformPopulation),
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Microsoft.AspNetCore.")),
         ]),

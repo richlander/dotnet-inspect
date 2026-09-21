@@ -350,6 +350,238 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task PreparedCandidateRequiresConsumerCommitBeforeCutover()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting incumbent =
+            await ActivateAsync(owner, "a", packet);
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        var prepared = Assert.IsType<
+            BrowserRetainedWorkspacePreparationResult.Prepared>(
+                await session.Preparation);
+
+        Assert.Equal("b", prepared.Posting.RetainedDefinitionId);
+        Assert.Same(incumbent, owner.Active);
+        Assert.False(session.Activation.IsCompleted);
+        Assert.True(session.Commit());
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await session.Activation);
+        Assert.Same(activated.Posting, owner.Active);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                session.Complete(succeeded: true, failure: null));
+    }
+
+    [Fact]
+    public async Task RejectedPreparedCandidatePreservesIncumbent()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting incumbent =
+            await ActivateAsync(owner, "a", packet);
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Cancel());
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Superseded>(
+            await session.Activation);
+
+        Assert.Same(incumbent, owner.Active);
+        Assert.Equal(1, owner.Capacity.Charged);
+        Assert.False(session.Commit());
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                session.Complete(succeeded: true, failure: null));
+    }
+
+    [Fact]
+    public async Task CommitCompletionKeepsTransitionOwned()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        using var cancellation = new CancellationTokenSource();
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("a", packet),
+                cancellation.Token);
+        Assert.False(session.Commit());
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Commit());
+        cancellation.Cancel();
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
+            await session.Activation);
+
+        BrowserRetainedWorkspaceActivationSession blocked =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        var failed = Assert.IsType<
+            BrowserRetainedWorkspacePreparationResult.Failed>(
+                await blocked.Preparation);
+        Assert.Contains(
+            "awaiting consumer completion",
+            failed.Failure.Message,
+            StringComparison.Ordinal);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                session.Complete(succeeded: true, failure: null));
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                session.Complete(succeeded: true, failure: null));
+
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateAsync(owner, "b", packet);
+        Assert.Equal("b", replacement.RetainedDefinitionId);
+    }
+
+    [Fact]
+    public async Task CompletionFailureCannotRestorePredecessor()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting incumbent =
+            await ActivateAsync(owner, "a", packet);
+        NavigationEffectAuthority incumbentAuthority =
+            Assert.IsType<NavigationEffectAuthority>(
+                incumbent.Navigation.Authority);
+
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("b", packet),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Commit());
+        var activated = Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await session.Activation);
+        NavigationEffectAuthority successorAuthority =
+            Assert.IsType<NavigationEffectAuthority>(
+                activated.Posting.Navigation.Authority);
+        var completed = Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                session.Complete(
+                    succeeded: false,
+                    failure: "Injected consumer failure."));
+
+        Assert.False(completed.Succeeded);
+        Assert.Equal("Injected consumer failure.", completed.Failure);
+        Assert.Same(activated.Posting, owner.Active);
+        Assert.Equal("b", owner.Active!.RetainedDefinitionId);
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                activated.Posting.RealizationId,
+                activated.Posting.PublicationOrdinal,
+                successorAuthority));
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                incumbent.RealizationId,
+                incumbent.PublicationOrdinal,
+                incumbentAuthority));
+        Assert.NotNull(activated.Posting.Predecessor);
+        Assert.IsType<BrowserRetainedWorkspaceSettlementResult.Settled>(
+            await owner.ObserveSettlementAsync(
+                activated.Posting.Predecessor.SettlementId,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DisposeClosesCommittedActivationAwaitingCompletion()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspaceActivationSession session =
+            owner.BeginActivation(
+                Request("a", packet),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<BrowserRetainedWorkspacePreparationResult.Prepared>(
+            await session.Preparation);
+        Assert.True(session.Commit());
+        Assert.IsType<BrowserRetainedWorkspaceActivationResult.Activated>(
+            await session.Activation);
+
+        await owner.DisposeAsync();
+
+        Assert.Null(owner.Active);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                session.Complete(succeeded: true, failure: null));
+    }
+
+    [Fact]
+    public async Task SoleActiveDeactivationRequiresMatchingConsumerCompletion()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        _ = await ActivateAsync(owner, "a", packet);
+
+        var deactivated = Assert.IsType<
+            BrowserRetainedWorkspaceDeactivationResult.Deactivated>(
+                await owner.BeginDeactivationAsync(
+                    "a",
+                    TestContext.Current.CancellationToken));
+        Assert.Null(owner.Active);
+
+        var blocked = Assert.IsType<
+            BrowserRetainedWorkspacePreparationResult.Failed>(
+                await owner.BeginActivation(
+                        Request("b", packet),
+                        TestContext.Current.CancellationToken)
+                    .Preparation);
+        Assert.Contains(
+            "still draining",
+            blocked.Failure.Message,
+            StringComparison.Ordinal);
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                owner.CompleteConsumerDeactivation(
+                    "workspace-deactivation-wrong",
+                    succeeded: true,
+                    failure: null));
+
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Completed>(
+                owner.CompleteConsumerDeactivation(
+                    deactivated.CompletionReceipt,
+                    succeeded: true,
+                    failure: null));
+        Assert.IsType<
+            BrowserRetainedWorkspaceConsumerCompletionResult.Unavailable>(
+                owner.CompleteConsumerDeactivation(
+                    deactivated.CompletionReceipt,
+                    succeeded: true,
+                    failure: null));
+
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateAsync(owner, "b", packet);
+        Assert.Equal("b", replacement.RetainedDefinitionId);
+    }
+
+    [Fact]
     public async Task SoleActiveDeactivation_ClosesAndReopensHost()
     {
         CompleteRestorationExecutionOptions options = await OptionsAsync();

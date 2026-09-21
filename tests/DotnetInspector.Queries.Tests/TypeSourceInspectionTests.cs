@@ -6,6 +6,7 @@ using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 using Inspector.Findings;
@@ -99,6 +100,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         var unavailable = Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(inspection.Content);
         Assert.Equal(AssemblySourceFailureKind.AuthoredDocumentUnavailable, unavailable.Failure.Kind);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Equal(
             checksumFailure
                 ? PdbTypeSourceOutcome.ChecksumMismatch
@@ -137,6 +139,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         var unavailable = Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(inspection.Content);
         Assert.Equal(AssemblySourceFailureKind.AuthoredDocumentUnavailable, unavailable.Failure.Kind);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Equal(PdbTypeSourceOutcome.SourceMappingUnavailable, unavailable.PdbAttempt!.Outcome);
         Assert.IsType<SourceHouseOutcome.Unavailable>(unavailable.HouseOutcome);
         Assert.Empty(host.SourceRequests);
@@ -172,6 +175,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         var unavailable = Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(inspection.Content);
         Assert.Equal(AssemblySourceFailureKind.AuthoredDocumentUnavailable, unavailable.Failure.Kind);
         Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Equal(PdbTypeSourceOutcome.SourceDeadlineExceeded, unavailable.PdbAttempt!.Outcome);
         Assert.Equal(SourceHouseIncompleteBoundary.Deadline,
             Assert.IsType<SourceHouseOutcome.Incomplete>(unavailable.HouseOutcome).Boundary);
@@ -262,6 +266,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
         var pdb = Assert.IsType<AssemblyTypeSource.Pdb>(available.Source);
         var house = Assert.IsType<SourceHouseOutcome.Available>(available.HouseOutcome);
+        Assert.Null(available.DecompilationHouseOutcome);
         Assert.Contains("public static class MemberTextSlicer", pdb.Text);
         Assert.Equal(pdb.Text, house.Source.Text);
         Assert.Equal(PdbTypeSourceOutcome.Complete, pdb.Inspection.Outcome);
@@ -303,7 +308,23 @@ public sealed partial class AssemblyContextSourceQueryTests
 
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
         var source = Assert.IsType<AssemblyTypeSource.Decompiled>(available.Source);
+        var decompilationHouse =
+            Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                available.DecompilationHouseOutcome);
         Assert.True(source.Decompilation.PdbSupplied);
+        Assert.Same(source.Decompilation, decompilationHouse.Attempt);
+        Assert.Equal(
+            assembly.TypeRequest(
+                checksumFailure ? "Counter" : "EmbeddedSourceFixture").Type,
+            decompilationHouse.Request.Target.Type);
+        Assert.Equal(
+            checksumFailure
+                ? SourceHousePdbContributionKind.SuppliedCompanion
+                : SourceHousePdbContributionKind.Embedded,
+            decompilationHouse.PdbContribution.Kind);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            decompilationHouse.LeaseSettlement.Consumer);
         Assert.Equal(
             checksumFailure
                 ? PdbTypeSourceOutcome.ChecksumMismatch
@@ -359,31 +380,66 @@ public sealed partial class AssemblyContextSourceQueryTests
                 group, assembly.Participant, assembly.TypeRequest("Counter"),
                 context, TestContext.Current.CancellationToken);
 
-        var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
-        var source = Assert.IsType<AssemblyTypeSource.Decompiled>(available.Source);
+        var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(
+            inspection.Content);
+        var source = Assert.IsType<AssemblyTypeSource.Decompiled>(
+            available.Source);
         Assert.True(source.Decompilation.PdbSupplied);
         Assert.Equal(
             boundary == "deadline"
                 ? PdbTypeSourceOutcome.SourceDeadlineExceeded
                 : PdbTypeSourceOutcome.SourceLimitExceeded,
             source.PdbAttempt.Outcome);
-        Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
-        if (boundary == "assembly")
+        Assert.IsType<FindingInspection<string>.Failed>(
+            source.PdbAttempt.Lines.Value);
+        Assert.Equal(
+            boundary == "deadline"
+                ? SourceHouseIncompleteBoundary.Deadline
+                : boundary == "source-bytes"
+                    ? SourceHouseIncompleteBoundary.SourceBytes
+                    : SourceHouseIncompleteBoundary.AssemblyBytes,
+            Assert.IsType<SourceHouseOutcome.Incomplete>(
+                available.HouseOutcome).Boundary);
+        Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+            available.DecompilationHouseOutcome);
+        Assert.Null(available.LibraryFailure);
+    }
+
+    [Fact]
+    public async Task TypeSourceInspection_LibraryAdmissionLimitCannotBecomeDecompilerFallback()
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath, SourcePairBytes(FixtureCatalog.SourceDiffV1));
+        SourceHouseLimits defaults = host.Context.TypeSourceLimits;
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
         {
-            Assert.IsType<AssemblyContextLibraryAdapterResult.Incomplete>(
-                available.LibraryFailure);
-            Assert.Null(available.HouseOutcome);
-        }
-        else
-        {
-            Assert.Equal(
-                boundary == "deadline"
-                    ? SourceHouseIncompleteBoundary.Deadline
-                    : SourceHouseIncompleteBoundary.SourceBytes,
-                Assert.IsType<SourceHouseOutcome.Incomplete>(
-                    available.HouseOutcome).Boundary);
-            Assert.Null(available.LibraryFailure);
-        }
+            TypeSourceLimits = new(
+                1, 1, defaults.TargetBounds, defaults.SourceLinkReadLimits,
+                defaults.MaximumDocuments, defaults.MaximumTargetMappings,
+                defaults.MaximumCandidateAttempts, defaults.MaximumSourceBytes,
+                defaults.MaximumSourceTextCharacters),
+            TypeDecompilationLimits = new(
+                1, 1, defaults.TargetBounds, defaults.SourceLinkReadLimits),
+        };
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([assembly.Participant]);
+
+        var inspection = await TypeSourceInspection.ExecuteAsync(
+            group, assembly.Participant, assembly.TypeRequest("Counter"),
+            context, TestContext.Current.CancellationToken);
+
+        var unavailable = Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(inspection.Content);
+        Assert.IsType<AssemblyContextLibraryAdapterResult.Incomplete>(unavailable.LibraryFailure);
+        Assert.Equal(AssemblySourceFailureKind.InspectionFailed, unavailable.Failure.Kind);
+        Assert.Contains("terminal Library admission", unavailable.Failure.Detail);
+        Assert.Null(unavailable.HouseOutcome);
+        Assert.Null(unavailable.DecompilationHouseOutcome);
+        Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Empty(host.SourceRequests);
     }
 
     [Fact]
@@ -413,9 +469,67 @@ public sealed partial class AssemblyContextSourceQueryTests
         var typeSource = Assert.IsType<AssemblyTypeSource.Decompiled>(
             Assert.IsType<AssemblyTypeSourceEntry.Available>(type.Content).Source);
         Assert.Equal(PdbTypeSourceOutcome.SourceDeadlineExceeded, typeSource.PdbAttempt.Outcome);
+        Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+            Assert.IsType<AssemblyTypeSourceEntry.Available>(type.Content)
+                .DecompilationHouseOutcome);
         Assert.IsType<AssemblyMemberSource.Pdb>(
             Assert.IsType<AssemblyMemberSourceEntry.Available>(member.Content).Source);
         Assert.Equal(AssemblyMemberSourcePairStatus.Compared, pair.Status);
+    }
+
+    [Fact]
+    public async Task
+        TypeSourceInspection_DecompilationBoundsAreIndependentFromMember()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb();
+        SourceHouseDecompilationLimits defaults =
+            host.Context.TypeDecompilationLimits;
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient,
+            host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization,
+            host.Context.SourceFetch)
+        {
+            TypeDecompilationLimits = new(
+                maximumAssemblyBytes: 1,
+                defaults.MaximumPortablePdbBytes,
+                defaults.TargetBounds,
+                defaults.EmbeddedPdbReadLimits),
+        };
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry> type =
+            await TypeSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(typeof(SourceFixture).Name),
+                context,
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<AssemblyMemberSourceEntry> member =
+            await MemberSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(nameof(SourceFixture.Describe)),
+                context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable = Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(
+            type.Content);
+        Assert.Equal(
+            CSharpDecompilationStatus.Incomplete,
+            unavailable.DecompiledAttempt!.Status);
+        Assert.Equal(
+            SourceHouseIncompleteBoundary.AssemblyBytes,
+            Assert.IsType<SourceHouseDecompilationOutcome.Incomplete>(
+                unavailable.DecompilationHouseOutcome)
+                .Boundary);
+        Assert.IsType<AssemblyMemberSource.Decompiled>(
+            Assert.IsType<AssemblyMemberSourceEntry.Available>(
+                member.Content)
+                .Source);
     }
 
     [Fact]
