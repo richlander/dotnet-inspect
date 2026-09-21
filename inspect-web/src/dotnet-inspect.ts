@@ -315,7 +315,6 @@ import {
   captureScopeBarFocus,
   createScopeBarState,
   focusRenderedElement,
-  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   type ScopeBarBinding,
@@ -421,7 +420,11 @@ import {
   type StyleOption,
   type StyleTier,
 } from "./settings-panel.ts";
-import { renderBrand } from "./brand.ts";
+import {
+  bindProductNavigation,
+  renderBrand,
+  type ProductDestination,
+} from "./brand.ts";
 import {
   DEFAULT_PLATFORM_FRAMEWORK, isExactPlatformPruningFramework,
   loadPlatformIndex, parsePlatformCatalogTarget,
@@ -2881,6 +2884,11 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
+bindProductNavigation(app, {
+  currentDestination: currentProductDestination,
+  onNavigate: navigateProductDestination,
+  workspaceAvailable: productWorkspaceAvailable,
+});
 const graphExplorer = createGraphExplorer(document);
 let graphExplorerNavigationFocusPending = false;
 let graphExplorerOriginKey: string | null = null;
@@ -5082,8 +5090,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
   contentFrameReplacementAuthority = null;
-  const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
+  const scopeBarOwnsFocus =
+    focusedElement?.closest("[data-scope-bar]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
@@ -5378,10 +5386,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        applicationScopeHtml: renderApplicationScopeBar(
-          activeScope === "workspace" ? "workspace" : null,
-          true,
-          escapeHtml),
         contextualActionsHtml: !loadingPackageContent && (annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface
@@ -5435,9 +5439,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
 
       <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
         ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
-        ${activeScope === "workspace"
-          ? 'role="tabpanel" aria-labelledby="application-scope-workspace"'
-          : ""}>
+        >
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane${contentFrameEnabled
@@ -5575,10 +5577,6 @@ function renderWorkspaceCatalogView() {
   app.innerHTML = `
     <div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
       ${workbenchShellHtml({
-        applicationScopeHtml: renderApplicationScopeBar(
-          "workspace",
-          true,
-          escapeHtml),
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             <span class="subject-icon" aria-hidden="true">W</span>
@@ -5594,7 +5592,7 @@ function renderWorkspaceCatalogView() {
       <div class="notice-stack">
         ${renderQueryNotice()}
       </div>
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">
+      <main id="subject-panel" class="workspace">
         ${renderWorkspaceNavPane()}
         <section class="detail-pane">
           <article id="inspector-panel" class="detail-scroll">
@@ -8602,20 +8600,6 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
-    onApplicationScopeSelect: applicationScope => {
-      if (applicationScope === "query") {
-        openPackageQueryRoute("", {
-          preserveState: true,
-          returnFocus: "application-query",
-        });
-      } else if (applicationScope === "activity") {
-        openPackageActivityRoute("application-activity");
-      } else if (scope() !== "workspace") {
-        observeAsync(
-          selectWorkspaceApplicationScope(),
-          "Opening the Workspace scope");
-      }
-    },
     onMemberSectionSelect: section => {
       contentFramePane = "detail";
       applyMemberSection(section);
@@ -9715,7 +9699,6 @@ function renderPlatformView() {
   const idle = { loading: false, error: "" };
   app.innerHTML = `<div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
     ${workbenchShellHtml({
-      applicationScopeHtml: renderApplicationScopeBar(null, true, escapeHtml),
       inspectedTargetHtml: `<div class="inspected-target"><span class="subject-icon" aria-hidden="true">.NET</span><div class="subject-path">${renderInspectedSubjectPath(currentInspectedSubjectPath())}</div></div>`,
       subjectInspectorHtml: renderScopeBar(["platform"]),
       titleNavigationHtml: renderTitleNavigation(navigationHistory.canBack(), navigationHistory.canForward()),
@@ -12397,6 +12380,52 @@ function goHome() {
   render();
 }
 
+function currentProductDestination(): ProductDestination | null {
+  if (state.packageQueryOpen) return "query";
+  if (state.packageActivityOpen) return "activity";
+  if (state.workspaceSubjectOpen && !state.home) return "workspace";
+  if (state.home && !state.credits) return "home";
+  return null;
+}
+
+function productWorkspaceAvailable(): boolean {
+  return state.package !== null
+    || state.platformSelection !== null
+    || state.workspaceSubjectOpen;
+}
+
+function focusProductNavigationButton(): void {
+  document.querySelector<HTMLElement>("[data-product-navigation-button]")
+    ?.focus({ preventScroll: true });
+}
+
+function navigateProductDestination(destination: ProductDestination): void {
+  if (destination === currentProductDestination()) {
+    focusProductNavigationButton();
+    return;
+  }
+  if (destination === "home") {
+    goHome();
+    afterCurrentNavigationFrame(() => focusLevelOneHeading());
+    return;
+  }
+  if (destination === "query") {
+    openPackageQueryRoute("", {
+      preserveState: true,
+      returnFocus: "application-query",
+    });
+    return;
+  }
+  if (destination === "activity") {
+    openPackageActivityRoute("application-activity");
+    return;
+  }
+  observeAsync(
+    openWorkspaceProductDestination().then(() =>
+      afterCurrentNavigationFrame(() => focusWorkspaceOrHeading())),
+    "Opening the Workspace destination");
+}
+
 function openCredits() {
   if (!clearWorkspaceRouteFailure()) {
     render();
@@ -12510,7 +12539,6 @@ function renderDiagnosticsPage() {
   }, value => escapeHtml(value));
   bindDiagnosticsView(document, {
     onBack: closeDiagnosticsRoute,
-    onHome: openDiagnosticsHome,
   });
   if (focusTargetId) {
     const focusGeneration = documentFocusGeneration;
@@ -12565,11 +12593,6 @@ function closeDiagnosticsRoute() {
     return;
   }
   replaceDiagnosticsWithHome();
-}
-
-function openDiagnosticsHome() {
-  diagnosticsDestinationFocusPending = true;
-  goHome();
 }
 
 function replaceDiagnosticsWithHome() {
@@ -12678,9 +12701,8 @@ function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending) return;
   if (state.packageQueryReturnFocus === "application-query") {
     afterCurrentNavigationFrame(() => {
-      const queryScope = document.querySelector<HTMLElement>(
-        '[data-application-scope="query"]');
-      if (focusRenderedElement(queryScope)) {
+      if (focusRenderedElement(document.querySelector<HTMLElement>(
+        "[data-product-navigation-button]"))) {
         state.packageQueryReturnFocus = null;
         state.packageQueryReturnFocusPending = false;
       } else if (focusLevelOneHeading()) {
@@ -12707,9 +12729,8 @@ function restorePackageActivityReturnFocus() {
   if (state.packageActivityReturnFocus === "application-activity") {
     afterCurrentNavigationFrame(() => {
       afterCurrentNavigationFrame(() => {
-        const activityScope = document.querySelector<HTMLElement>(
-          '[data-application-scope="activity"]');
-        if (focusRenderedElement(activityScope) || focusLevelOneHeading()) {
+        if (focusRenderedElement(document.querySelector<HTMLElement>(
+          "[data-product-navigation-button]")) || focusLevelOneHeading()) {
           state.packageActivityReturnFocus = null;
           state.packageActivityReturnFocusPending = false;
         }
@@ -12882,7 +12903,7 @@ function openPackageActivityRoute(
   focusPackageActivityInput();
 }
 
-async function selectWorkspaceApplicationScope() {
+async function openWorkspaceProductDestination() {
   const pkg = state.package;
   if (!pkg) {
     if (state.platformSelection) {

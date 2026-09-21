@@ -9,6 +9,7 @@ import {
   installFacades,
   releaseFacade,
   currentWorkspaceHistoryState,
+  openProductDestination,
   openInstalledPlatform,
   openPlatform,
 } from "./library-hierarchy.support.ts";
@@ -19,13 +20,13 @@ test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openPlatform(page);
   const platformLocation = page.url();
-  await page.locator("[data-application-scope='activity']").click();
+  await openProductDestination(page, "activity");
   await expect(page).toHaveURL(/\/activity$/);
 
   await page.goBack();
 
   await expect(page).toHaveURL(platformLocation);
-  await expect(page.locator("[data-application-scope='activity']")).toBeFocused();
+  await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
@@ -137,12 +138,12 @@ test("Spotlight offers NuGet and .NET Library System.Text.Json destinations with
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).toContainText("System.Text.Json");
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await expect(page.locator("[data-workspace-framework-library]")).toContainText("System.Text.Json");
   await page.locator("[data-workspace-framework-library]").click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.keyboard.press("Control+p");
   await page.locator("#spotlight-input").fill("System.Text.Json");
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
@@ -185,7 +186,7 @@ test("a direct Spotlight framework Library remains a Library after package activ
   await page.locator('[data-sl-framework-lib="System.Text.Json"]').click();
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.getByRole("button", { name: "Add package", exact: true }).click();
   const add = page.getByRole("dialog", { name: "Add package", exact: true });
   await add.getByRole("combobox", { name: "Add package", exact: true })
@@ -200,7 +201,7 @@ test("a direct Spotlight framework Library remains a Library after package activ
     { name: "Inspect Second.Package 1.0.0 net10.0", exact: true },
   ).click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await expect(page.locator("[data-workspace-framework-library]"))
     .toContainText("System.Text.Json");
@@ -229,7 +230,7 @@ test("Workspace retains an in-place framework Library selection", async ({ page 
   await picker.selectOption("System.Facade");
   await expect(picker).toHaveValue("System.Facade");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   const frameworkLibrary =
     page.locator("[data-workspace-framework-library]");
   await expect(frameworkLibrary).toContainText("System.Facade");
@@ -312,7 +313,7 @@ test("Catalog-only Platform is a Workspace coordinate and pending Library work c
   await openPlatform(page, { libraryPending: true, warmup: "pending" });
   await page.getByRole("button", { name: /System.Text.Json Implementation/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-platform-library-request");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page.locator("#inspector-panel")).toContainText(platformVersion);
   await releaseFacade(page, "finish-platform-library");
@@ -513,7 +514,7 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await page.reload();
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("#inspector-panel")).toContainText("2 loaded coordinates");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Package");
   await expect(page.locator("[data-workspace-platform]")).toContainText(platformVersion);
@@ -521,7 +522,7 @@ test("Package and catalog-only Platform remain distinct coordinates in the same 
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".library-overview-surface h1"))
     .toHaveText("All libraries");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-platform]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
@@ -535,7 +536,7 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-activate]").click();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
 
@@ -547,7 +548,7 @@ test("an unrelated Platform history entry does not parent a Spotlight Library", 
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
@@ -559,7 +560,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-type-nav-back]").click();
   await expect(subjectTab(page, "platform")).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-activate]").click();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
 
@@ -572,7 +573,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator("[data-type-nav-back]")).toHaveAttribute("title", "Back to library");
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
   await page.locator("[data-workspace-activate]").click();
   await expect(page.locator(".inspected-target")).toContainText("Example.Package");
@@ -585,7 +586,7 @@ test("an unrelated Platform history entry does not parent Spotlight Types or Mem
   await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
   await expect(subjectTab(page, "platform")).toHaveCount(0);
   await expect(page.locator(".inspected-target .subject-path")).not.toContainText("Platform");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-platform]")).toHaveCount(0);
 });
 
@@ -612,7 +613,7 @@ test("catalog-only Platform retains its Workspace identity and canonical URL acr
   await expect(page.locator("#platform-version")).toHaveValue(platformVersion);
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-library-request");
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-select]")).toContainText("1 loaded coordinate");
   await expect(page.locator("[data-workspace-switch]")).toHaveCount(1);
   await page.locator("[data-workspace-platform]").click();
@@ -655,7 +656,7 @@ test("Platform descendant history and retained switching preserve the real paren
   await page.keyboard.press("Control+p");
   await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await page.locator("[data-workspace-switch]").click();
 
   await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");

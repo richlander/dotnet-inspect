@@ -20,6 +20,15 @@ function subjectTab(page: Page, subject: string) {
   return page.locator(`[data-subject-tab][data-scope="${subject}"]`);
 }
 
+async function openProductDestination(
+  page: Page,
+  destination: "home" | "query" | "workspace" | "activity",
+): Promise<void> {
+  await page.locator("[data-product-navigation-button]").click();
+  await page.locator(
+    `[data-product-destination="${destination}"]`).click();
+}
+
 function inspectorTab(page: Page, attribute: string, inspector: string) {
   return page.locator(
     `[data-inspector-tab][${attribute}="${inspector}"]`,
@@ -1363,6 +1372,7 @@ async function installLibraryQueryFacades(
 }
 
 export {
+  openProductDestination,
   subjectTab,
   inspectorTab,
   chooseInspector,

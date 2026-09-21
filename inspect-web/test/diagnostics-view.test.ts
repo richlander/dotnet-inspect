@@ -206,11 +206,11 @@ test("Diagnostics renders explicit runtime and cache failures with escaped detai
   assert.doesNotMatch(html, /<script>/);
 });
 
-test("Diagnostics binds product Home and Back as distinct route actions", () => {
+test("Diagnostics binds Back as its route action", () => {
   const listeners = new Map<string, EventListener>();
   const root = {
     querySelector(selector: string) {
-      return selector === "#diagnostics-product" || selector === "#diagnostics-back"
+      return selector === "#diagnostics-back"
         ? {
             addEventListener(_type: string, listener: EventListener) {
               listeners.set(selector, listener);
@@ -223,11 +223,9 @@ test("Diagnostics binds product Home and Back as distinct route actions", () => 
 
   bindDiagnosticsView(fakeDom.parentNode(root), {
     onBack: () => calls.push("back"),
-    onHome: () => calls.push("home"),
   });
   const event = fakeDom.event({ preventDefault() {} });
-  listeners.get("#diagnostics-product")?.(event);
   listeners.get("#diagnostics-back")?.(event);
 
-  assert.deepEqual(calls, ["home", "back"]);
+  assert.deepEqual(calls, ["back"]);
 });

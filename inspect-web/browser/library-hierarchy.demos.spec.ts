@@ -10,6 +10,7 @@ import {
   other,
   surface,
   platformVersion,
+  openProductDestination,
   installFacades,
   type BrowserAssemblySurface,
   type BrowserPackageSurface,
@@ -284,7 +285,7 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-package-framework="netstandard2.0"]'))
     .toHaveAttribute("aria-current", "page");
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
     .toBeVisible();
   await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");

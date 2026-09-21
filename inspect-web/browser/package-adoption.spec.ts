@@ -1384,6 +1384,7 @@ test.describe("Package Query website over real Wasm", () => {
 
     await firstValue.fill("Microsoft.Extensions.Logging");
     await page.locator(".brand").click();
+    await page.locator('[data-product-destination="home"]').click();
     await expect(page.locator(".home-search")).toBeVisible();
     await page.goBack();
     await expect(firstValue)

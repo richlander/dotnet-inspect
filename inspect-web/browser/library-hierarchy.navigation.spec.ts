@@ -16,6 +16,7 @@ import {
   releaseFacade,
   root,
   currentWorkspaceHistoryState,
+  openProductDestination,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -203,7 +204,7 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
   const overview = page.locator(".package-overview-surface");
   await expect(overview.locator(".package-info-rows")).toBeVisible();
 
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   const occurrence = page.locator("[data-workspace-activate]");
   await expect(occurrence).toBeEnabled();
   await occurrence.click();
@@ -1020,7 +1021,7 @@ test("browser history from before reload reuses the active Workspace", async ({ 
   await expect(page.locator(".inspected-target")).toContainText("Second.Package");
   await expect.poll(() =>
     currentWorkspaceHistoryState(page)).toEqual(reloadedWorkspace);
-  await page.locator('[data-application-scope="workspace"]').click();
+  await openProductDestination(page, "workspace");
   await expect(page.locator(".workspace-card")).toHaveCount(1);
   await expect(page.locator(".query-notice-text", {
     hasText: "Workspace limit reached",

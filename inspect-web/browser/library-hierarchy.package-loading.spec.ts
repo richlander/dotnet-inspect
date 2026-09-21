@@ -386,6 +386,7 @@ for (const change of packageCoordinateChanges) {
     await selectPackageCoordinate(page, change, change.selected);
     await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
     await page.locator(".brand").click();
+    await page.locator('[data-product-destination="home"]').click();
     await expect(page.locator(".home-search")).toBeVisible();
     await releaseFacade(page, "finish-package-query");
     await expect(page.locator("html")).toHaveAttribute("data-package-query-settled");
