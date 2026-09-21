@@ -2,9 +2,12 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.RoundTripCompilation;
+using ILInspector.CSharp;
 using ILInspector.DecompilerHarness;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -97,6 +100,8 @@ public partial class ReturnToSenderPrototypeTests
     [InlineData("ConstructorGetterList`1", "Items")]
     [InlineData("ConstructorGetterCounter", "Value")]
     [InlineData("ConstructorGetterComputed", "Value")]
+    [InlineData("ConstructorGetterLogged", "Value")]
+    [InlineData("ConstructorGetterExpressionAttribute", "Value")]
     [InlineData("ConstructorGetterParameterName", "Value")]
     [InlineData("ConstructorGetterKeywordParameter", "Value")]
     [InlineData("ConstructorGetterOptional", "Value")]
@@ -112,12 +117,26 @@ public partial class ReturnToSenderPrototypeTests
             RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
 
         AssertNativeGetterStorage(path, typeName, propertyName, result);
-        AssertNativeConstructorStorage(path, typeName, propertyName, result);
+        AssertNativeConstructorStorage(path, typeName, propertyName, result.DonorPe!);
         Assert.Contains($"struct {typeName.Split('`')[0]}", result.Source);
         Assert.DoesNotContain($"public {typeName.Split('`')[0]}(", result.Source);
         Assert.Contains("} = ", result.Source);
         if (typeName == "ConstructorGetterOptional")
             Assert.Contains("(int value = 7)", result.Source);
+        if (typeName == "ConstructorGetterComputed")
+            Assert.Contains("get => field + 1;", result.Source);
+        if (typeName == "ConstructorGetterLogged")
+        {
+            Assert.Contains("Console.WriteLine(field);", result.Source);
+            Assert.Contains("return field;", result.Source);
+            Assert.DoesNotContain("get =>", result.Source);
+        }
+        if (typeName == "ConstructorGetterExpressionAttribute")
+        {
+            Assert.Contains("[return: ", result.Source);
+            Assert.Contains("MarshalAs(", result.Source);
+            Assert.Contains("get => field + 1;", result.Source);
+        }
     }
 
     [Fact]
@@ -130,11 +149,47 @@ public partial class ReturnToSenderPrototypeTests
             RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
 
         AssertNativeGetterStorage(path, "ReadOnlyList`1", "List", result);
-        AssertNativeConstructorStorage(path, "ReadOnlyList`1", "List", result);
+        AssertNativeConstructorStorage(path, "ReadOnlyList`1", "List", result.DonorPe!);
         Assert.Contains("struct ReadOnlyList<T>(IList<T> list)", result.Source);
-        Assert.Contains("} = list;", result.Source);
+        Assert.Contains(
+            "IList<T> List\n    {\n        get => field ?? Array.Empty<T>();\n    } = list;",
+            result.Source);
         Assert.DoesNotContain("this.List = list;", result.Source);
         Assert.DoesNotContain("public ReadOnlyList(", result.Source);
+    }
+
+    [Fact]
+    public async Task PublishedDocoptCompactGetterReplacementPreservesInitialization()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "FieldGetter", "DocoptNet.dll");
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget("DocoptNet.Internals.ReadOnlyList`1", "get_List", 0)],
+            RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
+        var attempt = Assert.IsType<RebuildCompilationAttempt>(result.CompilationAttempt);
+        var artifact = attempt.Artifact;
+        var range = Assert.IsType<CSharpSourceRange>(artifact.ReplaceableBodyRange);
+
+        Assert.Equal("=> field ?? Array.Empty<T>();", artifact.Source.Substring(range.Start, range.Length));
+        string replacement = artifact.ReplaceBody("return field ?? new T[1];");
+        Assert.StartsWith(artifact.Source[..range.Start], replacement);
+        Assert.EndsWith(artifact.Source[range.End..], replacement);
+        var compilation = CSharpCompilation.Create(
+            "compact-getter-replacement",
+            [CSharpSyntaxTree.ParseText(replacement, attempt.ParseOptions,
+                cancellationToken: TestContext.Current.CancellationToken)],
+            RoslynTestReferences.TrustedPlatform,
+            attempt.Options);
+        using var image = new MemoryStream();
+        var emitted = compilation.Emit(image, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+
+        byte[] donor = image.ToArray();
+        AssertNativeConstructorStorage(path, "ReadOnlyList`1", "List", donor);
+        using var rebuilt = new PEReader(new MemoryStream(donor));
+        var type = FindGetterType(rebuilt.GetMetadataReader(), "ReadOnlyList`1");
+        Assert.Contains(ReadGetterInstructions(rebuilt, type, "List"),
+            instruction => instruction.OpCode == ILOpCode.Newarr);
     }
 
     [Theory]
@@ -155,7 +210,7 @@ public partial class ReturnToSenderPrototypeTests
             RoundTripScope.Cluster, RoundTripBodyPolicy.Selected, applyCompileBackFloor: false));
 
         AssertNativeGetterStorage(path, typeName, propertyName, result);
-        AssertNativeConstructorStorage(path, typeName, propertyName, result);
+        AssertNativeConstructorStorage(path, typeName, propertyName, result.DonorPe!);
         Assert.Contains($"public {typeName.Split('`')[0]}(", result.Source);
         Assert.DoesNotContain("} = ", result.Source);
     }
@@ -205,10 +260,10 @@ public partial class ReturnToSenderPrototypeTests
     }
 
     static void AssertNativeConstructorStorage(
-        string path, string typeName, string propertyName, ReturnToSender.Result result)
+        string path, string typeName, string propertyName, byte[] donorPe)
     {
         using var original = new PEReader(File.OpenRead(path));
-        using var rebuilt = new PEReader(new MemoryStream(result.DonorPe!));
+        using var rebuilt = new PEReader(new MemoryStream(donorPe));
         var originalReader = original.GetMetadataReader();
         var rebuiltReader = rebuilt.GetMetadataReader();
         var originalType = FindGetterType(originalReader, typeName);

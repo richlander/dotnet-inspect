@@ -66,6 +66,7 @@ public enum PdbTypeSourceOutcome
     InspectionFailed,
     SourceDeadlineExceeded,
     SourceLimitExceeded,
+    AuthoredSourcePreferenceWindowElapsed,
 }
 
 public enum PdbTypeSourceUnitScope
