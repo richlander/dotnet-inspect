@@ -94,7 +94,8 @@ public sealed class DiffHistoryPackageReplayContext
         IEnumerable<string>? sources = null,
         IEnumerable<string>? additionalSources = null,
         string? configFile = null,
-        string? configDirectory = null)
+        string? configDirectory = null,
+        bool includePrerelease = false)
     {
         Sources = Copy(sources, nameof(sources));
         AdditionalSources = Copy(
@@ -104,6 +105,7 @@ public sealed class DiffHistoryPackageReplayContext
         ConfigDirectory = Optional(
             configDirectory,
             nameof(configDirectory));
+        IncludePrerelease = includePrerelease;
     }
 
     public ImmutableArray<string> Sources { get; }
@@ -113,6 +115,8 @@ public sealed class DiffHistoryPackageReplayContext
     public string? ConfigFile { get; }
 
     public string? ConfigDirectory { get; }
+
+    public bool IncludePrerelease { get; }
 
     static ImmutableArray<string> Copy(
         IEnumerable<string>? values,

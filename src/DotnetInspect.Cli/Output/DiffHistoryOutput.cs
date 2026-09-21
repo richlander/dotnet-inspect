@@ -481,32 +481,40 @@ internal static class DiffHistoryOutput
         DotnetInspector.Packages.PackageHouseTargetContext targetContext,
         DiffHistoryPackageReplayContext? replayContext)
     {
-        (string result, string? resolved, string? unresolved) =
+        (
+            string result,
+            string? resolved,
+            string? unresolved,
+            string? blocked) =
             terminal switch
             {
                 DiffHistoryTerminalOutcome.FullPopulationCompleted =>
-                    ("Full population completed", null, null),
+                    ("Full population completed", null, null, null),
                 DiffHistoryTerminalOutcome.ExplicitCheckpointsCompleted =>
-                    ("Explicit checkpoints completed", null, null),
+                    ("Explicit checkpoints completed", null, null, null),
                 DiffHistoryTerminalOutcome.BoundariesResolved value =>
                     (
                         "Boundaries resolved",
                         FormatIntervals(value.Boundaries),
+                        null,
                         null),
                 DiffHistoryTerminalOutcome.EqualEndpoints value =>
                     (
                         "Equal endpoints",
                         FormatInterval(value.Endpoints),
+                        null,
                         null),
                 DiffHistoryTerminalOutcome.BudgetExhausted value =>
                     (
                         "Probe budget exhausted",
                         FormatIntervals(value.ResolvedBoundaries),
-                        FormatIntervals(value.UnresolvedIntervals)),
+                        FormatIntervals(value.UnresolvedIntervals),
+                        null),
                 DiffHistoryTerminalOutcome.BlockedByFailure value =>
                     (
                         "Blocked by failure",
                         FormatIntervals(value.ResolvedBoundaries),
+                        FormatIntervals(value.UnresolvedIntervals),
                         FormatBlocked(value)),
                 _ => throw new InvalidOperationException(
                     "Unknown Diff History terminal outcome."),
@@ -518,6 +526,7 @@ internal static class DiffHistoryOutput
                 : usedProbes.ToString(),
             resolved,
             unresolved,
+            blocked,
             nextActions.IsEmpty
                 ? null
                 : string.Join(
@@ -635,8 +644,7 @@ internal static class DiffHistoryOutput
                 " --at "
                 + ShellCommandText.Quote(address.NormalizedVersion);
         }
-        if (population.Addresses.Any(
-                static address => address.Version.IsPrerelease))
+        if (replayContext?.IncludePrerelease is true)
         {
             command += " --preview";
         }

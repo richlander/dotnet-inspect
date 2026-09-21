@@ -53,7 +53,7 @@ public static class InspectionCommandDefinitions
         };
         var atOption = new Option<string[]>("--at")
         {
-            Description = "History checkpoint: exact version, #N, first, last, or all; repeat for sparse evaluation",
+            Description = "History checkpoint: exact version, #N, first, last, endpoints, midpoint, or all; repeat for sparse evaluation",
             AllowMultipleArgumentsPerToken = false,
         };
         var maxProbesOption = new Option<int?>("--max-probes")
@@ -131,12 +131,36 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
             diffCommand,
-            opts.Discover, opts.Select, opts.Verbosity, opts.Rows,
-            opts.Limit, opts.Head, opts.Tail,
+            opts.Discover, opts.Select, opts.Verbosity,
             nameOnlyOption,
             breakingOption, additiveOption, changedOption,
             allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
             repoOption, legendOption);
+        Option[] envelopeRowOptions =
+        [
+            opts.Rows,
+            opts.Limit,
+            opts.Head,
+            opts.Tail,
+        ];
+        diffCommand.Validators.Add(result =>
+        {
+            if (!result.GetValue(opts.Envelope)
+                || result.GetValue(historyOption)
+                    && result.GetValue(opts.Count))
+            {
+                return;
+            }
+
+            foreach (Option option in envelopeRowOptions)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {option.Name}.");
+                }
+            }
+        });
         diffCommand.Validators.Add(result =>
         {
             if (!result.GetValue(opts.Envelope)

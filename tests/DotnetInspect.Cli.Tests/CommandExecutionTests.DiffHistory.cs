@@ -104,6 +104,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task DiffHistory_EnvelopeRejectsSemanticRowsWithoutCountBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--history",
+            "--package",
+            "Definitely.Does.Not.Exist@1.0.0..2.0.0",
+            "--type",
+            "Example.Widget",
+            "--envelope",
+            "--rows",
+            "1..1");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--envelope cannot be combined with --rows", error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
+    [Fact]
     public async Task DiffHistory_RejectsNonReplayableSourceBeforeAcquisition()
     {
         const string Secret = "do-not-print";

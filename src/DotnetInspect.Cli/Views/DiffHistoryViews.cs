@@ -78,6 +78,7 @@ public sealed class DiffHistoryOutcomeRowView(
     string probes,
     string? resolved,
     string? unresolved,
+    string? blocked,
     string? nextActions)
 {
     public string Result { get; } =
@@ -88,6 +89,8 @@ public sealed class DiffHistoryOutcomeRowView(
         DiffHistoryViewText.Contain(resolved);
     public string? Unresolved { get; } =
         DiffHistoryViewText.Contain(unresolved);
+    public string? Blocked { get; } =
+        DiffHistoryViewText.Contain(blocked);
 
     [MarkoutPropertyName("Next actions")]
     public string? NextActions { get; } =

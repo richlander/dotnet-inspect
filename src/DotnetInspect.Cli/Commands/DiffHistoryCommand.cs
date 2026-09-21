@@ -95,6 +95,7 @@ internal static class DiffHistoryCommand
         }
         if (!TryCreateReplayContext(
                 options.SourceOptions,
+                options.IncludePrerelease,
                 out DiffHistoryPackageReplayContext? replayContext,
                 out error))
         {
@@ -267,8 +268,9 @@ internal static class DiffHistoryCommand
                 || options.Schema
                 || options.VerbosityExplicitlySet
                 || options.HasRenderedLineWindow
-                || options.SemanticRowSelection
-                    is { Operations.Count: > 0 }))
+                || !options.Count
+                    && options.SemanticRowSelection
+                        is { Operations.Count: > 0 }))
         {
             error =
                 "--envelope carries complete Diff History content and cannot be combined with presentation projections.";
@@ -579,6 +581,26 @@ internal static class DiffHistoryCommand
                 new Dictionary<int, PackageVersionAddress>();
             foreach (string selector in options.At)
             {
+                if (selector.Equals(
+                        "endpoints",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    selected[population.Addresses[0].Position] =
+                        population.Addresses[0];
+                    selected[population.Addresses[^1].Position] =
+                        population.Addresses[^1];
+                    continue;
+                }
+                if (selector.Equals(
+                        "midpoint",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    PackageVersionAddress midpoint =
+                        population.Addresses[
+                            (population.Addresses.Length - 1) / 2];
+                    selected[midpoint.Position] = midpoint;
+                    continue;
+                }
                 if (!population.TrySelect(
                         selector,
                         out PackageVersionAddress? address,
@@ -680,6 +702,7 @@ internal static class DiffHistoryCommand
 
     static bool TryCreateReplayContext(
         NuGetSourceOptions? options,
+        bool includePrerelease,
         out DiffHistoryPackageReplayContext? replayContext,
         out string? error)
     {
@@ -691,6 +714,9 @@ internal static class DiffHistoryCommand
                 && options.ConfigFile is null
                 && options.ConfigDirectory is null)
         {
+            replayContext = includePrerelease
+                ? new(includePrerelease: true)
+                : null;
             return true;
         }
 
@@ -718,7 +744,8 @@ internal static class DiffHistoryCommand
                 sources.Sources,
                 sources.AdditionalSources,
                 sources.ConfigFile,
-                sources.ConfigDirectory);
+                sources.ConfigDirectory,
+                includePrerelease);
         return true;
     }
 

@@ -86,6 +86,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [InlineData("checkpoints", 2)]
     [InlineData("adaptive", 2)]
     [InlineData("all", 3)]
+    [InlineData("endpoints", 2)]
+    [InlineData("midpoint", 1)]
     public async Task DiffHistoryRange_OneDiscoveryAcquiresOnlyAuthorizedAddresses(string selection, int payloadCount)
     {
         const string Id = "range.diff-history.selection";
@@ -101,6 +103,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             args.AddRange(["--max-probes", "2"]);
         else if (selection == "all")
             args.AddRange(["--at", "all"]);
+        else if (selection is "endpoints" or "midpoint")
+            args.AddRange(["--at", selection]);
 
         var result = await RunCommandAsync([.. args]);
 
@@ -116,6 +120,100 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
         if (selection == "adaptive")
             Assert.Contains("## Outcome", result.Output);
+    }
+
+    [Theory]
+    [InlineData("1.0.0..4.0.0", "2.0.0")]
+    [InlineData("4.0.0..1.0.0", "3.0.0")]
+    public async Task DiffHistoryRange_EvenMidpointUsesCallerDirectedPosition(
+        string range,
+        string expected)
+    {
+        const string Id = "range.diff-history.reverse-midpoint";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0", "4.0.0"],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@{range}",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--at", "midpoint",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        string request = Assert.Single(
+            requests,
+            static request => request.EndsWith(
+                ".nupkg",
+                StringComparison.Ordinal));
+        Assert.Contains($"/{expected}/", request);
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_BlockedOutcomeKeepsUnresolvedAndBlockingEvidence()
+    {
+        const string Id = "range.diff-history.blocked-outcome";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                [
+                    "1.0.0",
+                    "2.0.0",
+                    "3.0.0",
+                    "4.0.0",
+                    "5.0.0",
+                    "6.0.0",
+                    "7.0.0",
+                ],
+                version => version switch
+                {
+                    "1.0.0" => CreateApiPackage(
+                        Id,
+                        version,
+                        FixtureCatalog.DiffV1.AssemblyPath()),
+                    "2.0.0" => [1, 2, 3],
+                    "4.0.0" => CreateApiPackage(
+                        Id,
+                        version,
+                        FixtureCatalog.LibraryApiDiffV1.AssemblyPath()),
+                    "7.0.0" => CreateApiPackage(
+                        Id,
+                        version,
+                        FixtureCatalog.DiffV2.AssemblyPath()),
+                    _ => throw new InvalidOperationException(
+                        $"Unexpected History probe at {version}."),
+                },
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..7.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--max-probes", "8",
+                "--tips", "q",
+            ]);
+
+        Assert.Contains("Blocked by failure", result.Output);
+        Assert.Contains("4.0.0..7.0.0", result.Output);
+        Assert.Contains("#2 (2.0.0)", result.Output);
+        Assert.Contains("Blocked", result.Output);
     }
 
     [Fact]
@@ -193,20 +291,29 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             new SelectionFeedHandler(
                 FirstFeed,
                 Id,
-                ["1.0.0", "2.0.0"],
-                version => CreateApiPackage(Id, version),
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    version switch
+                    {
+                        "1.0.0" => FixtureCatalog.DiffV1.AssemblyPath(),
+                        "2.0.0" => FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
+                        _ => FixtureCatalog.DiffV2.AssemblyPath(),
+                    }),
                 new ConcurrentQueue<string>()));
 
         var result = await RunCommandAsync(
             [
                 "diff",
                 "--history",
-                "--package", $"{Id}@1.0.0..2.0.0",
+                "--package", $"{Id}@1.0.0..3.0.0",
                 "--type", RangeType,
                 "--finding", "api.type",
                 "--source", FirstFeed,
                 "--at", "all",
                 "--count",
+                "--rows", "1..1",
                 "--envelope",
                 "--tips", "q",
             ]);
@@ -220,7 +327,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "completed",
             content.GetProperty("count").GetProperty("outcome").GetString());
         Assert.Equal(
-            2,
+            1,
+            content.GetProperty("count")
+                .GetProperty("counts")[0]
+                .GetProperty("value")
+                .GetInt32());
+        Assert.Equal(
+            3,
             content.GetProperty("document")
                 .GetProperty("content")
                 .GetProperty("evaluations")
@@ -445,6 +558,46 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         {
             Directory.SetCurrentDirectory(originalDirectory);
         }
+    }
+
+    [Fact]
+    public async Task DiffHistoryRange_ProbeReplayRetainsExplicitPrereleasePolicyWithoutObservedPrerelease()
+    {
+        const string Id = "range.diff-history.stable-preview-replay";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    version == "1.0.0"
+                        ? FixtureCatalog.DiffV1.AssemblyPath()
+                        : FixtureCatalog.DiffV2.AssemblyPath()),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.member",
+                "--source", FirstFeed,
+                "--at", "first",
+                "--at", "last",
+                "-S", "@History",
+                "--preview",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"diff --history --package '{Id}@1.0.0..3.0.0'",
+            result.Output);
+        Assert.Contains(" --preview", result.Output);
     }
 
     [Fact]
