@@ -150,4 +150,3 @@ The Browser implementation uses deterministic package fixtures for request assoc
 - typed non-success rather than an empty successful projection when structural evidence is unavailable.
 
 No runtime behavior is implemented by this design/probe slice. The gate plan is **unverified** until the focused shared-terminal and Browser implementation slices land.
-
