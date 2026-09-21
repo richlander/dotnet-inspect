@@ -123,8 +123,10 @@ must continue to share one assigned local. `ReferenceConditionalBindingTests`
 pins that assembly and gates raised/lowered binding, nested alternatives,
 null/unknown/value boundaries, clone/refresh, and storage non-actions in
 Release. Its Slow native family belongs to Deep Inspect and the focused
-pre-merge gate. Fixed-input censuses and Render A/B measure population effects;
-the retirement does not promise fewer residual slots.
+pre-merge gate; the setter retains its measured temporary-induced `OpcodeDiff`
+rather than claiming exact fidelity. Fixed-input censuses and Render A/B
+measure population effects; the retirement does not promise fewer residual
+slots.
 
 ## Instance 1 — coercion: the missing member of the type system
 
