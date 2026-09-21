@@ -204,6 +204,60 @@ public class DiscoveryDocumentFactoryTests
                 && identity.ItemKind == "sortable");
     }
 
+    [Fact]
+    public void LibraryProjection_RegistersEveryStructuralResourcePath()
+    {
+        StructuralSchemaProjection projection = LibraryProjection();
+
+        DiscoveryDocumentFactory.Projection structural =
+            CreateProjection(projection);
+
+        Assert.Equal(
+            structural.Document.Resources.Length,
+            structural.ResourcePaths.Length);
+        Assert.Equal(
+            structural.ResourcePaths.Length,
+            structural.ResourcePaths
+                .Select(static registration => registration.Identity)
+                .Distinct()
+                .Count());
+        Assert.Equal(
+            structural.ResourcePaths.Length,
+            structural.ResourcePaths
+                .Select(static registration => registration.Path.Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+        Assert.All(
+            structural.ResourcePaths,
+            registration => Assert.All(
+                registration.Path.Value.Split('/'),
+                segment => Assert.True(
+                    segment[0] is >= 'a' and <= 'z'
+                    or >= '0' and <= '9',
+                    $"Path segment '{segment}' must start with a "
+                    + "lower-case ASCII letter or digit.")));
+        Assert.Contains(
+            structural.ResourcePaths,
+            registration =>
+                registration.Identity
+                    == Section(SectionNames.ReferenceHierarchy)
+                && registration.Path.Value
+                    == "library/sections/reference-hierarchy");
+        Assert.Contains(
+            structural.ResourcePaths,
+            registration =>
+                registration.Identity.Kind == DiscoveryResourceKind.Item
+                && registration.Identity.ItemKind == "filterable");
+        Assert.Contains(
+            structural.ResourcePaths,
+            registration =>
+                registration.Identity.Name == "Triage desc"
+                && registration.Identity.ItemKind == "default-order"
+                && registration.Path.Value.EndsWith(
+                    "/items/default-order/triage-desc",
+                    StringComparison.Ordinal));
+    }
+
     private static StructuralSchemaProjection LibraryProjection() =>
         StructuralViewRegistry.Project(
             StructuralViewRegistry.Route(
@@ -225,6 +279,21 @@ public class DiscoveryDocumentFactoryTests
             projection.OutputCapabilities!)
         ?? throw new InvalidOperationException(
             "Expected Library discovery construction to succeed.");
+
+    private static DiscoveryDocumentFactory.Projection CreateProjection(
+        StructuralSchemaProjection projection) =>
+        DiscoveryDocumentFactory.CreateProjection(
+            "library",
+            discover: null,
+            projection.Schema,
+            projection.SectionCategories,
+            projection.CatalogHiddenSections,
+            projection.ListedCategoryDoors,
+            projection.SectionCostAnnotations,
+            projection.ExactOnlySections,
+            projection.OutputCapabilities!)
+        ?? throw new InvalidOperationException(
+            "Expected Library discovery projection to succeed.");
 
     private static DiscoveryDocument CreateSynthetic(
         DocumentSchema schema,

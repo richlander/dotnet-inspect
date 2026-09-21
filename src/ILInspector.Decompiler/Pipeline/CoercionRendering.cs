@@ -7,6 +7,51 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class CoercionRendering
 {
+    internal static TypeRef? CoalesceAssignmentType(
+        Coalesce coalesce, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (!IsReferenceLike(coalesce.ResultType, shapes))
+            return coalesce.ResultType;
+
+        bool leftNull = coalesce.Left is Constant { Value: null };
+        bool rightNull = coalesce.Right is Constant { Value: null };
+        var left = coalesce.Left.AssignmentType;
+        var right = coalesce.Right.AssignmentType;
+        if (leftNull && rightNull)
+            return null;
+        if (leftNull)
+            return IsProvenReference(right, shapes) ? right : null;
+        if (rightNull)
+            return IsProvenReference(left, shapes) ? left : null;
+        if (!IsProvenReference(left, shapes) || !IsProvenReference(right, shapes))
+            return null;
+        if (left!.Equals(right) || IsObject(left))
+            return left;
+        return IsObject(right!) ? right : null;
+
+        static bool IsObject(TypeRef type)
+            => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Object" };
+    }
+
+    internal static bool IsProvenReference(TypeRef? type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => type is not null
+            && type.Kind is not (TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
+            && (TypeFamilies.Of(type) == StackFamily.O
+                || type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
+                || shapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference);
+
+    internal static bool IsReferenceLike(TypeRef? type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (type is null || type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
+            return false;
+        if (IsProvenReference(type, shapes))
+            return true;
+        return type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
+            && shapes.GetValueOrDefault(NamedDefinition(type)) is not (TypeShape.ValueType or TypeShape.Enum)
+            && !TypeFamilies.IsNumericPrimitive(type);
+    }
+
     public static bool TryCharConstantValue(IrExpression expression, out char value)
     {
         switch (expression)
