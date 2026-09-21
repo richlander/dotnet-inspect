@@ -210,6 +210,51 @@ public sealed class RowQueryContractTests
     }
 
     [Fact]
+    public void PredicateFreeUnorderedSelectionPreservesSnapshots()
+    {
+        VocabularyFixture fixture = Vocabulary();
+        ResolvedRowQueryPlan<QueryRow> plan =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Tail(2)
+                        ])));
+        QueryRow[] rows =
+        [
+            new("A", 1, 1, "x"),
+            new("B", 2, 1, "x"),
+            new("C", 3, 1, "x")
+        ];
+        NamedRowSequence<QueryRow>[] named =
+        [
+            NamedRowSequence<QueryRow>.Create(
+                RowSequenceKey.Create(1),
+                rows),
+        ];
+
+        RowSelectionResult<QueryRow> result =
+            RowQueryExecutor.Apply(rows, plan);
+        NamedRowSelectionResult<QueryRow> namedResult =
+            RowQueryExecutor.ApplyNamed(named, plan);
+        rows[1] = new("Changed", 4, 1, "x");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            ["B", "C"],
+            result.Values.Select(row => row.Name));
+        Assert.True(namedResult.IsSuccess);
+        Assert.Equal(
+            ["B", "C"],
+            Assert.Single(namedResult.Sequences)
+                .Values
+                .Select(row => row.Name));
+    }
+
+    [Fact]
     public void EffectiveBaselineOrderFollowsPrecedence()
     {
         QueryRow[] rows =

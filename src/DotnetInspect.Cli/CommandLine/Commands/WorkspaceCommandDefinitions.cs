@@ -4,7 +4,9 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -134,6 +136,27 @@ public static class WorkspaceCommandDefinitions
                     + "dependencies to the portable Workspace definition; "
                     + "requires --share",
             };
+        var anonymousNuGetSourceOption =
+            new Option<string[]>("--nuget-source-anonymous")
+        {
+            Description =
+                "Register one exact portable anonymous NuGet source endpoint",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var authenticationRequiredNuGetSourceOption =
+            new Option<string[]>("--nuget-source-auth-required")
+            {
+                Description =
+                    "Register one exact portable NuGet source endpoint that requires authentication",
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var patForOption = new Option<string[]>("--pat-for")
+            {
+                Description =
+                    "Bind an ephemeral Basic credential: HTTPS-ENDPOINT USERNAME env:NAME|stdin|file:PATH",
+                Arity = ArgumentArity.OneOrMore,
+                AllowMultipleArgumentsPerToken = true,
+            };
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
@@ -155,6 +178,9 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(lensOption);
         command.Options.Add(shareOption);
         command.Options.Add(makePackageDependenciesExplicitOption);
+        command.Options.Add(anonymousNuGetSourceOption);
+        command.Options.Add(authenticationRequiredNuGetSourceOption);
+        command.Options.Add(patForOption);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
@@ -212,6 +238,18 @@ public static class WorkspaceCommandDefinitions
             string? type = parseResult.GetValue(typeOption);
             string? member = parseResult.GetValue(memberOption);
             string? lens = parseResult.GetValue(lensOption);
+            if (!TryParsePackageSources(
+                    parseResult,
+                    opts,
+                    anonymousNuGetSourceOption,
+                    authenticationRequiredNuGetSourceOption,
+                    patForOption,
+                    out WorkspacePackageSourceDefinition[] packageSources,
+                    out WorkspacePatBindingInput[] patBindings,
+                    out NuGetSourceOptions sourceOptions))
+            {
+                return 1;
+            }
             if (rootRequest is not null
                 && (packages.Length > 0
                     || !string.IsNullOrWhiteSpace(tfm)))
@@ -272,8 +310,9 @@ public static class WorkspaceCommandDefinitions
                     MakePackageDependenciesExplicit =
                         parseResult.GetValue(
                             makePackageDependenciesExplicitOption),
-                    SourceOptions =
-                        opts.ParseNuGetSourceOptions(parseResult),
+                    PackageSources = packageSources,
+                    PatBindings = patBindings,
+                    SourceOptions = sourceOptions,
                 },
                 cancellationToken);
         });
@@ -383,4 +422,215 @@ public static class WorkspaceCommandDefinitions
             _ => throw new InvalidOperationException(
                 "System.CommandLine admitted an unsupported Workspace inventory kind."),
         };
+
+    static bool TryParsePackageSources(
+        ParseResult parseResult,
+        SharedOptions options,
+        Option<string[]> anonymousNuGetSourceOption,
+        Option<string[]> authenticationRequiredNuGetSourceOption,
+        Option<string[]> patForOption,
+        out WorkspacePackageSourceDefinition[] packageSources,
+        out WorkspacePatBindingInput[] patBindings,
+        out NuGetSourceOptions sourceOptions)
+    {
+        NuGetSourceOptions parsedSourceOptions =
+            options.ParseNuGetSourceOptions(parseResult);
+        sourceOptions = parsedSourceOptions;
+        packageSources = [];
+        patBindings = [];
+
+        try
+        {
+            (WorkspacePackageSourceAuthentication Authentication, string Value)[]
+                declarations = ParseOrderedPackageSourceDeclarations(
+                    parseResult,
+                    anonymousNuGetSourceOption,
+                    authenticationRequiredNuGetSourceOption);
+            if (declarations.Length > 0
+                && (parsedSourceOptions.Sources.Length > 0
+                    || parsedSourceOptions.AdditionalSources.Length > 0
+                    || parsedSourceOptions.ConfigFile is not null))
+            {
+                throw new ArgumentException(
+                    "Portable Workspace NuGet source registrations cannot be "
+                        + "combined with --source, --add-source, or --nugetconfig.");
+            }
+            if (declarations.Length > WorkspaceSharePacketCodec.MaxPackageSources)
+            {
+                throw new ArgumentException(
+                    $"A portable Workspace permits at most "
+                        + $"{WorkspaceSharePacketCodec.MaxPackageSources} package sources.");
+            }
+
+            var sources =
+                new List<WorkspacePackageSourceDefinition>(declarations.Length);
+            foreach ((
+                WorkspacePackageSourceAuthentication authentication,
+                string endpoint) in declarations)
+            {
+                sources.Add(new WorkspacePackageSourceDefinition(
+                    endpoint,
+                    authentication));
+            }
+            WorkspacePackageSourceDefinition.ValidateSet(sources);
+            packageSources = [.. sources];
+
+            var bindings = new List<WorkspacePatBindingInput>();
+            var boundSources = new HashSet<string>(StringComparer.Ordinal);
+            int stdinBindings = 0;
+            foreach ((string endpoint, string username, string provider)
+                in ParsePatBindings(parseResult, patForOption))
+            {
+                WorkspacePatBindingInput binding =
+                    ParsePatBinding(endpoint, username, provider);
+                if (!boundSources.Add(binding.Endpoint))
+                {
+                    throw new ArgumentException(
+                        $"--pat-for binds endpoint '{binding.Endpoint}' more than once.");
+                }
+
+                if (binding.Kind == WorkspacePatInputKind.StandardInput
+                    && ++stdinBindings > 1)
+                {
+                    throw new ArgumentException(
+                        "At most one --pat-for binding may read from stdin.");
+                }
+                bindings.Add(binding);
+            }
+            patBindings = [.. bindings];
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.Write(
+                "The Workspace package source options are invalid.",
+                [ex.Message]);
+            return false;
+        }
+    }
+
+    static (
+        WorkspacePackageSourceAuthentication Authentication,
+        string Value)[] ParseOrderedPackageSourceDeclarations(
+            ParseResult parseResult,
+            Option<string[]> anonymousNuGetSourceOption,
+            Option<string[]> authenticationRequiredNuGetSourceOption)
+    {
+        var modes =
+            new Dictionary<string, WorkspacePackageSourceAuthentication>(
+                StringComparer.Ordinal)
+            {
+                [anonymousNuGetSourceOption.Name] =
+                    WorkspacePackageSourceAuthentication.Anonymous,
+                [authenticationRequiredNuGetSourceOption.Name] =
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired,
+            };
+        var declarations = new List<(
+            WorkspacePackageSourceAuthentication Authentication,
+            string Value)>();
+        for (int index = 0; index < parseResult.Tokens.Count; index++)
+        {
+            Token token = parseResult.Tokens[index];
+            if (token.Type != TokenType.Option
+                || !modes.TryGetValue(
+                    token.Value,
+                    out WorkspacePackageSourceAuthentication mode)
+                || index + 1 >= parseResult.Tokens.Count
+                || parseResult.Tokens[index + 1].Type == TokenType.Option)
+            {
+                continue;
+            }
+
+            declarations.Add((mode, parseResult.Tokens[++index].Value));
+        }
+
+        return [.. declarations];
+    }
+
+    static (string Endpoint, string Username, string Provider)[]
+        ParsePatBindings(
+        ParseResult parseResult,
+        Option<string[]> patForOption)
+    {
+        var bindings = new List<(
+            string Endpoint,
+            string Username,
+            string Provider)>();
+        for (int index = 0; index < parseResult.Tokens.Count; index++)
+        {
+            Token token = parseResult.Tokens[index];
+            if (token.Type != TokenType.Option
+                || !string.Equals(
+                    token.Value,
+                    patForOption.Name,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            int firstValue = index + 1;
+            int valueCount = 0;
+            while (firstValue + valueCount < parseResult.Tokens.Count
+                && parseResult.Tokens[firstValue + valueCount].Type
+                    != TokenType.Option)
+            {
+                valueCount++;
+            }
+            if (valueCount != 3)
+            {
+                throw new ArgumentException(
+                    "--pat-for requires exactly three values: "
+                        + "HTTPS-ENDPOINT USERNAME env:NAME|stdin|file:PATH.");
+            }
+
+            bindings.Add((
+                parseResult.Tokens[firstValue].Value,
+                parseResult.Tokens[firstValue + 1].Value,
+                parseResult.Tokens[firstValue + 2].Value));
+            index += valueCount;
+        }
+        return [.. bindings];
+    }
+
+    static WorkspacePatBindingInput ParsePatBinding(
+        string endpoint,
+        string username,
+        string provider)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        string canonicalEndpoint = new WorkspacePackageSourceDefinition(
+            endpoint,
+            WorkspacePackageSourceAuthentication.AuthenticationRequired)
+            .Endpoint;
+        if (string.Equals(provider, "stdin", StringComparison.Ordinal))
+        {
+            return new WorkspacePatBindingInput(
+                canonicalEndpoint,
+                username,
+                WorkspacePatInputKind.StandardInput,
+                null);
+        }
+        if (provider.StartsWith("env:", StringComparison.Ordinal)
+            && provider.Length > "env:".Length)
+        {
+            return new WorkspacePatBindingInput(
+                canonicalEndpoint,
+                username,
+                WorkspacePatInputKind.Environment,
+                provider["env:".Length..]);
+        }
+        if (provider.StartsWith("file:", StringComparison.Ordinal)
+            && provider.Length > "file:".Length)
+        {
+            return new WorkspacePatBindingInput(
+                canonicalEndpoint,
+                username,
+                WorkspacePatInputKind.File,
+                provider["file:".Length..]);
+        }
+
+        throw new ArgumentException(
+            $"--pat-for endpoint '{endpoint}' must use env:NAME, stdin, or file:PATH.");
+    }
 }
