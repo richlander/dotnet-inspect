@@ -57,3 +57,11 @@ public partial class ExactTypeInspectionJsonContext
 [JsonSerializable(typeof(ExactLibraryApiInspectionResult))]
 public partial class ExactLibraryApiInspectionJsonContext
     : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(TypeApiDeclarationResult))]
+[JsonSerializable(typeof(InspectionEnvelope<TypeApiDeclarationResult>))]
+public partial class TypeApiDeclarationInspectionJsonContext
+    : JsonSerializerContext;

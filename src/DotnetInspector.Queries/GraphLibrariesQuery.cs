@@ -45,7 +45,7 @@ public abstract record GraphLibrariesQueryPlanResult
 /// <summary>
 /// Portable query registration for the pair-wide Graph Libraries selector.
 /// </summary>
-public static class GraphLibrariesQuery
+public static partial class GraphLibrariesQuery
 {
     public const string OperationIdentity = "graph-libraries";
     public const string OperationRouteIdentity = "graph-libraries/default";

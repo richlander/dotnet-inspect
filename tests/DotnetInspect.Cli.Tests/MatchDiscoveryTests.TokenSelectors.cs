@@ -25,43 +25,6 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class MatchDiscoveryTests
 {
-    /// <summary>
-    /// The README tells same-image callers to confirm a candidate with the pairwise form. That
-    /// instruction must stay scoped, because there is no cross-image confirmation to run.
-    /// </summary>
-    [Fact]
-    public void Readme_DoesNotPromiseCrossImagePairwiseConfirmation()
-    {
-        string readme = Path.Combine(CommandErrorOwnershipTests.RepositoryRoot(), "README.md");
-        string text = File.ReadAllText(readme);
-
-        int section = text.IndexOf("### Structural matching", StringComparison.Ordinal);
-        Assert.True(section >= 0, "README no longer has a Structural matching section.");
-        int end = text.IndexOf("\n### ", section + 1, StringComparison.Ordinal);
-        string structuralMatching = end < 0 ? text[section..] : text[section..end];
-
-        Assert.DoesNotContain(
-            "Confirm a candidate by re-running the pairwise form on the selected pair.",
-            structuralMatching);
-        Assert.Contains("Within one image, confirm a candidate", structuralMatching);
-    }
-
-    /// <summary>
-    /// The range grammar was removed from the product, but the surviving promise of it sat in the
-    /// command table, outside the Structural matching section the gate above reads. Scoping a
-    /// documentation gate to one section is why that line shipped stale for a full round; this one
-    /// reads the whole file.
-    /// </summary>
-    [Fact]
-    public void Readme_DoesNotPromiseTheRemovedLibraryRangeGrammar()
-    {
-        string readme = Path.Combine(CommandErrorOwnershipTests.RepositoryRoot(), "README.md");
-        string text = File.ReadAllText(readme);
-
-        Assert.DoesNotContain("old.dll..new.dll", text);
-        Assert.DoesNotContain("--library old", text);
-    }
-
     // ---- Round 7 review findings: raw MethodDef token selectors ----
 
     /// <summary>

@@ -9,7 +9,7 @@ import {
   type OperationProducerAdapter,
 } from "./operation-authority.ts";
 import type {
-  BrowserSource,
+  BrowserTypeCodeView,
   BrowserTypeSourceResult,
 } from "./facades/inspect-web-source.d.ts";
 import type {
@@ -18,7 +18,7 @@ import type {
   BrowserPackageQueryEvent,
   BrowserPackageQueryResult,
 } from "./facades/inspect-web-package.d.ts";
-import type { TypeSourceLoadRequest } from "./source-inspection.ts";
+import { typeSourceView, type TypeSourceLoadRequest } from "./source-inspection.ts";
 import { createBrowserWorkerRuntimeHost } from "./worker-runtime-browser.ts";
 import {
   createEngineWorkerProducerClasses,
@@ -113,7 +113,7 @@ export function createSharedEngineOperationAuthority(): SharedEngineOperationAut
 
 export type EngineWorkerTypeSourceAdapter = OperationProducerAdapter<
   TypeSourceLoadRequest,
-  BrowserSource,
+  BrowserTypeCodeView,
   EngineWorkerTypeSourceFailure,
   never,
   WorkerRuntimePreparationError
@@ -317,12 +317,12 @@ export function bindTypeSourceFacade(
 > & { readonly dispose: () => void } {
   interface ActiveTypeSource {
     readonly handle: OperationHandle<
-      BrowserSource,
+      BrowserTypeCodeView,
       EngineWorkerTypeSourceFailure
     >;
     readonly session: OperationSession<
       TypeSourceLoadRequest,
-      BrowserSource,
+      BrowserTypeCodeView,
       EngineWorkerTypeSourceFailure,
       never,
       WorkerRuntimePreparationError
@@ -338,12 +338,16 @@ export function bindTypeSourceFacade(
       assembly,
       type,
       taste,
+      view,
     ): Promise<BrowserTypeSourceResult> {
       if (active.has(operationId))
         throw new Error(`Type Source operation '${operationId}' is already active.`);
+      const selectedView = typeSourceView(view);
+      if (selectedView === null)
+        throw new Error(`Unknown Type Source view '${view}'.`);
       const session = authority.page.createSession<
         TypeSourceLoadRequest,
-        BrowserSource,
+        BrowserTypeCodeView,
         EngineWorkerTypeSourceFailure,
         never,
         WorkerRuntimePreparationError
@@ -358,7 +362,8 @@ export function bindTypeSourceFacade(
           assembly,
           type,
           taste,
-          signature: `${packageId}/${version}/${framework}/${assembly}/${type}`,
+          view: selectedView,
+          signature: `${packageId}/${version}/${framework}/${assembly}/${type}/${view}`,
           isVisible: () => true,
         }, adapter));
       if (started.kind === "rejected") {
@@ -734,7 +739,7 @@ export function createEngineWorkerProbe(options: EngineWorkerProbeOptions) {
   });
   const typeSourceSession = page.createSession<
     TypeSourceLoadRequest,
-    BrowserSource,
+    BrowserTypeCodeView,
     EngineWorkerTypeSourceFailure,
     never,
     WorkerRuntimePreparationError

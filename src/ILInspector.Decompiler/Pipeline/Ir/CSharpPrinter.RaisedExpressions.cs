@@ -310,6 +310,7 @@ public sealed partial class CSharpPrinter
                 SynthesizedLocalNames = lambda.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = lambda.LocalDeclaredInNestedScope,
                 LocalDeclarationBindings = lambda.LocalDeclarationBindings,
+                PdbLocalNameCandidates = lambda.PdbLocalNameCandidates,
                 LocalNameImportCauses = lambda.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
@@ -320,7 +321,9 @@ public sealed partial class CSharpPrinter
                 _options,
                 CurrentScopeNames(),
                 _stackSlotTelemetry,
-                stackSlotTelemetryScope: lambda)
+                stackSlotTelemetryScope: lambda,
+                decisions: _decisions,
+                decisionKeys: _decisionKeys)
             {
                 _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
             };

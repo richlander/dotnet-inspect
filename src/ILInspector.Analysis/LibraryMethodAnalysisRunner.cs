@@ -665,6 +665,11 @@ internal sealed class LibraryMethodAnalysisRunner(
         {
             var methodDefinition =
                 reader.GetMethodDefinition(methodHandle);
+            result.Token = MetadataTokens.GetToken(methodHandle);
+            result.HasBody =
+                methodDefinition.RelativeVirtualAddress != 0
+                && HasManagedIlBody(
+                    methodDefinition.ImplAttributes);
             var scope = _infrastructure.CreateScope(
                 typeDefinition,
                 methodDefinition);
@@ -704,9 +709,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 result.IsLeverage = true;
             }
-            if (methodDefinition.RelativeVirtualAddress == 0
-                || !HasManagedIlBody(
-                    methodDefinition.ImplAttributes))
+            if (!result.HasBody)
             {
                 SetLocalThrowUnavailable(LocalThrowUnavailableReason.NoManagedBody);
                 result.RequiresCompleteFieldAccessCensus =
@@ -727,7 +730,6 @@ internal sealed class LibraryMethodAnalysisRunner(
                 return result;
             }
 
-            result.HasBody = true;
             // Allocation evidence can survive a later recoverable failure,
             // so classification below replaces this pessimistic state only
             // after its metadata and scope checks complete.
