@@ -4127,20 +4127,37 @@ The drainage records are settlement evidence, not a live-Workspace registry.
 There is no rollback or switch-back authority. Reusing an earlier retained
 definition constructs a fresh realization.
 
-##### Shared immutable resources
+##### Cross-Workspace composition and sharing
 
-Candidate, active, and draining realizations may hold independently releasable
-lower-owner references to the same immutable package payload, content
-generation, source cache entry, or validated derivation. Each realization
-still owns distinct Roots, occurrence identities, binding contexts, query
-leases, reservations, and operation authority.
+Workspace composition distinguishes logical authority from lower-owner
+physical reuse. “Shared” never means that one Workspace grants another its
+resolution state or live access:
 
-Closing a predecessor releases only its ownership. It cannot invalidate a
-successor's reference, relabel one content generation as another, or transfer a
-Root or live lease to the successor. Coordinates and equal definitions never
-prove shared content identity. Deduplication, cache validity, aggregate
-reference counting, and final reclamation remain with their existing lower
-owners.
+| Surface | Cross-Workspace contract | Availability |
+| --- | --- | --- |
+| Roots, occurrence identities, registrations, binding contexts, query leases, reservations, and operation authority | Each realization owns distinct values. They are never transferred, relabeled, or inferred from equal coordinates or definitions. | Structurally isolated. |
+| Resource-free observations and detached evidence | An owner-defined operation may accept them as explicit inputs. They carry association or outcome evidence, never an opener or live authority. | Structurally composable after successful production; production itself may fail. |
+| Retained immutable package-content snapshots, source-cache entries, and validated derivations | Realizations may hold independently releasable lower-owner references to the same snapshot or backing content when that owner validates identity, authorization, freshness, and lifetime. | Optional reuse, never promised. |
+| Persistent-cache evidence | A cache-category owner may admit a validated result under its complete semantic key and current authorization contract. A hit never supplies Workspace identity or operation authority. | Optional reuse; a miss or invalid entry takes the ordinary typed path. |
+
+A focused owner-defined operation may take a caller-selected source Workspace
+and destination Workspace as explicit arguments. It accesses the named source
+only under the source Workspace's authority and, while that access remains
+valid, accesses the named destination only under the destination Workspace's
+authority. These are operation-scoped accesses to the two supplied endpoints,
+not a facility for discovering or borrowing from a set of active Workspaces.
+Either access may fail visibly, and accessed content remains inside both
+owners' lifetimes. The operation may compare the inputs or detach resource-free
+evidence; it does not install one Workspace's Root, registration, binding
+context, resolution index, lease, or authority in the other.
+
+Candidate, active, and draining realizations may therefore reuse lower-owner
+immutable backing without depending on that reuse. Closing a predecessor
+releases only its ownership. It cannot invalidate a successor's reference,
+relabel one retained snapshot as another, or transfer a Root or live lease to
+the successor. Coordinates and equal definitions never prove shared content
+identity. Deduplication, cache validity, aggregate reference counting, and
+final reclamation remain with their existing lower owners.
 
 ##### Settlement and host progress
 
