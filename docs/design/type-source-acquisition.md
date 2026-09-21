@@ -11,10 +11,12 @@ same operation under #7679.
 > Settle authored source for one independently resolved retained type through
 > SourceHouse, retain its selected-document mapping and native evidence, and
 > publish only after owned cleanup and query-currency checks complete.
-> Ordinary Type Source retains one admitted Library across authored and
-> SourceHouse decompilation operations, with a fresh lease for each; an
-> explicitly selected authored document never substitutes another document or
-> decompilation.
+> Serial Type Source retains one admitted Library across authored and
+> SourceHouse decompilation operations, with a fresh lease for each. The
+> opt-in latency hedge may instead admit independent immutable Libraries so
+> authored acquisition and decompilation have independent settlement
+> lifetimes. An explicitly selected authored document never substitutes
+> another document or decompilation.
 
 This adopts the existing SourceHouse type target; it does not extend the
 House's supported source-policy matrix. SourceLink owns mapping and checksum
@@ -40,9 +42,12 @@ Artifact session. Cleanup failure prevents publication. Caller cancellation
 and binding-policy invalidation retain their existing terminal precedence.
 The borrowed assembly-context group remains caller-owned.
 
-Published results retain native authored and decompilation House outcomes or
-terminal Library-admission evidence. Fallback does not erase an unsuccessful
-authored attempt. The projection preserves the selected type's document scope,
+Published results retain the projected PDB/authored inspection and any native
+authored and decompilation House outcomes or terminal Library-admission
+evidence. Fallback does not erase an unsuccessful PDB/authored attempt. When
+hedged PDB preparation settles unavailable, the query may skip SourceHouse
+admission; the typed PDB outcome remains the evidence and the authored House
+outcome is absent. The projection preserves the selected type's document scope,
 mapping strength, partiality, and additional-document references. The native
 mapping's resolved type and homogeneous document collection, including each
 browse URL, resolution method, and checksum facts, survive unchanged; the
@@ -57,6 +62,71 @@ five minutes after upstream PDB acquisition. `TypeDecompilationLimits`
 independently bounds the fallback's detached assembly/PDB snapshots and exact
 target surface; `MaxDecompilerBodyProjections` bounds its native body work.
 These are not upstream transport or process-memory bounds.
+
+## Latency hedge
+
+`TypeSourceInspection.ExecuteWithLatencyHedgeAsync` is the completed
+host-neutral opt-in operation for #8016. It composes existing PDB acquisition,
+authored SourceHouse, and decompiled SourceHouse contracts without changing
+their internal policies:
+
+1. Start Portable PDB acquisition immediately. Completion means any successful
+   external PDB has been published to the operation-scoped `IPdbStore`; it does
+   not mean authored source is available.
+2. Wait the configured Portable PDB preference window. If the PDB settles
+   successfully, start authored settlement from the warmed store, yield once
+   so an already-completed authored operation can publish, then start
+   decompilation with the prepared companion. If the window elapses first,
+   start decompilation without a supplied companion while PDB acquisition
+   remains live.
+3. After decompilation settles, prefer completed verified authored source.
+   When decompilation is available, wait only the configured authored-source
+   preference window for remaining PDB/authored work. When decompilation is
+   unavailable, do not truncate the only remaining source path: await authored
+   settlement under its existing independent timeout and limits.
+4. Publish verified authored source when it settles inside those rules.
+   Otherwise publish available decompilation. An elapsed preference window is
+   represented by
+   `PdbTypeSourceOutcome.AuthoredSourcePreferenceWindowElapsed`; it is not
+   reported as PDB, mapping, checksum, or source unavailability.
+5. Cancel and await unfinished PDB/authored work before publication. Cleanup,
+   caller cancellation, and binding-policy invalidation retain terminal
+   precedence. The operation does not leave a producer running for a later
+   request and therefore makes no cross-operation cache-lifetime claim.
+
+The operation returns `TypeSourceLatencyHedgeEvidence`: whether the PDB was
+ready when decompilation began, whether decompilation ran and observed a PDB,
+and which authored/decompiled selection path published. It also distinguishes
+terminal authored and decompilation Library admissions when the independent
+hedged operations both fail before reaching their Houses. This is execution
+evidence for deterministic gates and Browser timing work, not a rendering
+section or a claim that one timing sample establishes a universal policy.
+
+The hedge does not use `Task.Run` and does not require managed parallelism.
+Network transport may progress while synchronous decompilation owns a
+single-threaded Browser/Wasm worker, but managed continuations are observed
+only when decompilation yields or returns. Consequently the contract promises
+bounded preference and overlap, not preemption or literal first-completion
+publication on every host.
+
+The first delivery keeps existing CLI and Browser product behavior unchanged.
+It proves the completed operation in the desktop query-test executable with
+one-second PDB and 250-millisecond authored preference windows. A following
+stacked slice will measure those initial values in the published
+single-threaded Browser/Wasm application before adopting the operation there.
+Browser cache lifetime remains separately owned by the Browser host and PDB
+acquisition design.
+
+The motivating production asset is
+`System.Text.Json@11.0.0-preview.7.26381.103`,
+`lib/netstandard2.0/System.Text.Json.dll`, type
+`System.HexConverter+Casing`. Its external Portable PDB is available from MSDL,
+and its SourceLink document is
+`src/runtime/src/libraries/Common/src/System/HexConverter.cs` at dotnet/dotnet
+commit `e2c1e00b3d0f96afb892fb261d5921565b400246`. The desktop gates use the
+compiler-produced source fixtures to control each scheduling boundary
+deterministically; the Browser adoption slice preserves this real package as
+the published timing scenario.
 
 ## Explicit authored document
 
@@ -151,6 +221,7 @@ The following PR-fast Release gates define the delivery:
 | Gate | Claim |
 | --- | --- |
 | `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Authored preference, native authored/decompilation House and Library evidence, one retained Library with fresh leases, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
+| `TypeSourceLatencyHedge_*` | Deterministic desktop scheduling with an injected clock: PDB-ready decompilation receives symbols, a source stall selects decompilation after the authored grace and cancels the loser, and PDB acquisition that exceeds the initial window overlaps no-PDB decompilation while authored source can still win the grace window. |
 | `TypeDecompilationInspection_*` | Decompiled-only exact type identity, complete-type behavior despite a filtered request model, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
 | `TypeSourceInspection_Explicit*` | Exact primary/additional selection, ordinal membership, selected checksums, detached evidence, package/Platform authority and fallback coordinates, and unavailable/checksum/deadline results without decompiler substitution. |
 | CLI `Type_DecompiledSource_*`, `TypeWholeTypeDecompilerAcquisition_*`, and bodyless memory-safety cases | Ordinary whole-type SourceHouse adoption preserves complete source across default and `--all`, selected suppliers, symbol names, exact diagnostics, enum/bodyless distinctions, Markout/bare rendering, and lazy non-source paths; neighboring listing and exact-member cases retain their independent accessibility and target boundaries. |
