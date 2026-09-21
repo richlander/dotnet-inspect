@@ -294,14 +294,35 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             signature.ReturnType,
             signature.ParameterTypes,
             ConventionText(signature.Header.CallingConvention),
-            IsExactFunctionPointerSignature(signature));
+            IsExactFunctionPointerSignature(signature),
+            signatureDiscriminator:
+                FunctionPointerSignatureDiscriminator(signature.Header),
+            signature.GenericParameterCount,
+            signature.RequiredParameterCount);
+
+    static byte FunctionPointerSignatureDiscriminator(
+        SignatureHeader header)
+    {
+        byte callingConvention = (byte)(header.RawValue & 0x0F);
+        byte attributes = (byte)(header.RawValue & 0xF0);
+        return callingConvention is 0x00
+            or 0x01
+            or 0x02
+            or 0x03
+            or 0x04
+            or 0x09
+                ? attributes
+                : (byte)(attributes | callingConvention);
+    }
 
     static bool IsExactFunctionPointerSignature(MethodSignature<TypeRef> signature)
         => IsExactFunctionPointerConvention(signature.Header.CallingConvention)
             && signature.Header.Kind == SignatureKind.Method
             && signature.Header.RawValue
                 == (byte)signature.Header.CallingConvention
-            && signature.GenericParameterCount == 0;
+            && signature.GenericParameterCount == 0
+            && signature.RequiredParameterCount
+                == signature.ParameterTypes.Length;
 
     /// <summary>The C# calling-convention spelling for a function pointer: empty for a managed pointer, the <c>unmanaged</c> keyword (with the specific convention in brackets) otherwise.</summary>
     public static string ConventionText(SignatureCallingConvention convention) => convention switch
