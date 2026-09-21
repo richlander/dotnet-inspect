@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -247,7 +248,7 @@ public class ExtensionMethodCallTests
         var select = Assert.Single(
             function.Descendants.OfType<Call>(),
             call => call.Callee.Name == "Select");
-        var output = Assert.Single(select.Callee.TypeArgumentElisionLambdaOutputs);
+        var output = Assert.Single(select.Callee.TypeArgumentElisionOutputInferences);
         Assert.Equal(1, output.TypeArgumentIndex);
         Assert.Equal(1, output.ArgumentIndex);
         Assert.True(select.Callee.CanOmitTypeArguments);
@@ -363,14 +364,94 @@ public class ExtensionMethodCallTests
     }
 
     [Fact]
-    public void OutputInferredMethodGroup_KeepsGenericArguments()
+    public void OutputInferredMethodGroup_OmitsGenericArgumentsAndDelegateCast()
     {
         string output = PrintRaised(
             typeof(OutputInferenceMethodGroupSamples),
             nameof(OutputInferenceMethodGroupSamples.Call));
 
+        Assert.Contains("values.Select(int.Parse)", output);
+        Assert.DoesNotContain("Select<string, int>", output);
+        Assert.DoesNotContain("(Func<string, int>)", output);
+    }
+
+    [Fact]
+    public void SameAssemblyOutputInferredMethodGroup_OmitsGenericArgumentsAndDelegateCast()
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            nameof(OutputInferenceMethodGroupSamples.CallSameAssembly));
+
+        Assert.Contains(
+            "values.Select(OutputInferenceMethodGroupSamples.ParseExact)",
+            output);
+        Assert.DoesNotContain("Select<string, int>", output);
+        Assert.DoesNotContain("(Func<string, int>)", output);
+    }
+
+    [Fact]
+    public void MethodGroupWhoseInputWouldReselectOverload_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            nameof(OutputInferenceMethodGroupSamples.CallReselectionRisk));
+
         Assert.Contains("values.Select<string, int>", output);
-        Assert.Contains("int.Parse", output);
+        Assert.Contains(
+            "(Func<string, int>)OutputInferenceMethodGroupSamples.ParseOverload",
+            output);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(OutputInferenceMethodGroupSamples.CallPriorityRisk),
+        "PriorityParse",
+        "int")]
+    [InlineData(
+        nameof(OutputInferenceMethodGroupSamples.CallDynamicReturnRisk),
+        "ParseDynamic",
+        "object")]
+    [InlineData(
+        nameof(OutputInferenceMethodGroupSamples.CallConstructedGenericRisk),
+        "GenericOutputInferenceParser<string>.Parse",
+        "int")]
+    public void UnprovenMethodGroupOutputInference_KeepsGenericArguments(
+        string method,
+        string methodGroup,
+        string outputType)
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            method);
+
+        Assert.Contains($"Select<string, {outputType}>", output);
+        Assert.Contains(methodGroup, output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void OutputInferredMethodGroups_CompileBackExactly()
+    {
+        string assembly = typeof(OutputInferenceMethodGroupSamples).Assembly.Location;
+        string typeName = typeof(OutputInferenceMethodGroupSamples).FullName!;
+        string[] methods =
+        [
+            nameof(OutputInferenceMethodGroupSamples.Call),
+            nameof(OutputInferenceMethodGroupSamples.CallSameAssembly),
+            nameof(OutputInferenceMethodGroupSamples.CallReselectionRisk),
+            nameof(OutputInferenceMethodGroupSamples.CallPriorityRisk),
+            nameof(OutputInferenceMethodGroupSamples.CallDynamicReturnRisk),
+            nameof(OutputInferenceMethodGroupSamples.CallConstructedGenericRisk),
+        ];
+        var results = FidelityCheck.Evaluate(
+            assembly,
+            type => type == typeName,
+            method => methods.Contains(method.Method));
+
+        Assert.Equal(methods.Length, results.Count);
+        Assert.All(results, result => Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}"));
     }
 
     [Fact]

@@ -708,8 +708,11 @@ public sealed partial class CSharpPrinter
     string CallText(Call call)
     {
         var arguments = call.Arguments;
+        bool omitTypeArguments = !call.Callee.TypeArguments.IsEmpty
+            && call.Callee.CanOmitTypeArguments
+            && PrintedArgumentsPreserveGenericInference(call);
         string typeArguments = call.Callee.TypeArguments.IsEmpty
-            || call.Callee.CanOmitTypeArguments && PrintedArgumentsPreserveGenericInference(call)
+            || omitTypeArguments
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
         if (!call.Callee.HasThis)
@@ -731,7 +734,11 @@ public sealed partial class CSharpPrinter
                 var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty
                     ? call.Callee.ParameterRefKinds
                     : [.. call.Callee.ParameterRefKinds.Skip(1)];
-                string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
+                string extensionArgs = Arguments(
+                    arguments.Skip(1),
+                    restTypes,
+                    restRefKinds,
+                    inferMethodGroups: omitTypeArguments);
                 if (PointerRefExtensionReceiver(call.Callee, arguments[0]) is { } extensionReceiver)
                     return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({extensionArgs})";
                 if (arguments[0].ResultType is { Kind: TypeRefKind.Pointer })
@@ -880,8 +887,23 @@ public sealed partial class CSharpPrinter
                 continue;
             }
 
-            if (call.Callee.TypeArgumentElisionLambdaOutputs.Any(
-                output => output.ArgumentIndex == i))
+            bool requiresOutputInference =
+                call.Callee.TypeArgumentElisionOutputInferences.Any(
+                    output => output.ArgumentIndex == i);
+            if (argument is DelegateCreation methodGroup
+                && requiresOutputInference)
+            {
+                if (!MethodGroupOutputPreservesGenericInference(
+                    parameter,
+                    methodGroup,
+                    call.Callee.TypeArguments))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (requiresOutputInference)
             {
                 return false;
             }
@@ -1034,6 +1056,88 @@ public sealed partial class CSharpPrinter
             && lambda.ExpressionBody is { } expression
             && VarInfersDeclaredType(typeArguments[index], expression);
     }
+
+    static bool MethodGroupOutputPreservesGenericInference(
+        TypeRef parameter,
+        DelegateCreation creation,
+        ImmutableArray<TypeRef> typeArguments)
+    {
+        if (parameter is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                } definition,
+            }
+            || definition.Name != $"Func`{parameter.TypeArguments.Length}"
+            || parameter.TypeArguments.IsEmpty)
+        {
+            return false;
+        }
+
+        TypeRef output = parameter.TypeArguments[^1];
+        int outputIndex = output.GenericParameterIndex;
+        if (output.Kind != TypeRefKind.MethodGenericParameter
+            || (uint)outputIndex >= (uint)typeArguments.Length)
+        {
+            return false;
+        }
+
+        TypeRef constructedDelegate = parameter.Instantiate([], typeArguments);
+        return constructedDelegate.Equals(creation.DelegateType)
+            && MethodGroupTargetPreservesConstructedDelegate(
+                creation,
+                constructedDelegate);
+    }
+
+    static bool MethodGroupTargetPreservesConstructedDelegate(
+        DelegateCreation creation,
+        TypeRef delegateType)
+    {
+        if (!creation.HasCollapsedCompilerCache
+            || creation.Target is not Constant { Value: null }
+            || creation.IsVirtual
+            || creation.Method.HasThis
+            || !creation.Method.TypeArguments.IsEmpty
+            || ContainsPotentialDynamicType(creation.Method.ReturnType)
+            || creation.Method.MethodGroupInferenceTargetSafety
+                != MetadataFactState.Yes
+            || delegateType is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                } definition,
+            }
+            || definition.Name
+                != $"Func`{delegateType.TypeArguments.Length}"
+            || delegateType.TypeArguments.IsEmpty)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<TypeRef> delegateInputs =
+            delegateType.TypeArguments.AsSpan(0, delegateType.TypeArguments.Length - 1);
+        return creation.Method.ParameterTypes.AsSpan().SequenceEqual(
+                delegateInputs)
+            && creation.Method.ReturnType.Equals(
+                delegateType.TypeArguments[^1]);
+    }
+
+    static bool ContainsPotentialDynamicType(TypeRef type)
+        => type is
+            {
+                Kind: TypeRefKind.Definition,
+                Namespace: "System",
+                Name: "Object",
+            }
+            || type.ElementType is { } element
+                && ContainsPotentialDynamicType(element)
+            || type.TypeArguments.Any(ContainsPotentialDynamicType);
 
     static bool ContainsMethodGenericParameter(TypeRef type)
         => type.Kind == TypeRefKind.MethodGenericParameter
@@ -1379,7 +1483,8 @@ public sealed partial class CSharpPrinter
         bool explicitIn = false,
         bool chainFidelityCasts = false,
         bool coerceValues = true,
-        bool unsafeExpressions = false)
+        bool unsafeExpressions = false,
+        bool inferMethodGroups = false)
     {
         var parts = new List<string>();
         int i = 0;
@@ -1398,7 +1503,11 @@ public sealed partial class CSharpPrinter
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
                 text = fidelityCast;
             else if (parameter is not null
-                && CachedStaticMethodGroupArgumentText(argument, parameter, refKind) is { } methodGroup)
+                && CachedStaticMethodGroupArgumentText(
+                    argument,
+                    parameter,
+                    refKind,
+                    inferMethodGroups) is { } methodGroup)
                 text = WithNodeKind(argument, methodGroup, "ConversionExpression");
             else
                 text = coerceValues && parameter is not null
@@ -1422,7 +1531,8 @@ public sealed partial class CSharpPrinter
     string? CachedStaticMethodGroupArgumentText(
         IrExpression argument,
         TypeRef parameter,
-        ArgumentRefKind refKind)
+        ArgumentRefKind refKind,
+        bool inferMethodGroup = false)
     {
         if (refKind != ArgumentRefKind.Value
             || argument is not DelegateCreation
@@ -1434,6 +1544,17 @@ public sealed partial class CSharpPrinter
             || !parameter.Equals(creation.DelegateType))
         {
             return null;
+        }
+
+        if (inferMethodGroup
+            && MethodGroupTargetPreservesConstructedDelegate(
+                creation,
+                parameter))
+        {
+            return MethodGroupText(
+                creation.Method,
+                creation.Target,
+                creation.IsVirtual);
         }
 
         return $"({TypeText(creation.DelegateType)})"

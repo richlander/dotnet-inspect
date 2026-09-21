@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace ILInspector.Decompiler.Tests;
 
 // Same-assembly samples for extension-method rendering: one genuine [Extension]
@@ -14,6 +16,53 @@ public static class OutputInferenceMethodGroupSamples
 {
     public static IEnumerable<int> Call(IEnumerable<string> values)
         => values.Select<string, int>(int.Parse);
+
+    public static IEnumerable<int> CallSameAssembly(
+        IEnumerable<string> values)
+        => values.Select<string, int>(ParseExact);
+
+    public static IEnumerable<int> CallReselectionRisk(
+        IEnumerable<string> values)
+        => values.Select<string, int>(ParseOverload);
+
+    public static IEnumerable<int> CallPriorityRisk(
+        IEnumerable<string> values)
+        => values.Select<string, int>(PriorityParse);
+
+    public static IEnumerable<int> CallDynamicReturnRisk(
+        IEnumerable<string> values)
+        => values
+            .Select<string, object>(ParseDynamic)
+            .Select(value => Consume(value));
+
+    public static IEnumerable<int> CallConstructedGenericRisk(
+        IEnumerable<string> values)
+        => values.Select<string, int>(
+            GenericOutputInferenceParser<string>.Parse);
+
+    static int ParseExact(string value) => int.Parse(value);
+
+    static int ParseOverload(object value) => value.GetHashCode();
+
+    static string ParseOverload(string value) => value;
+
+    static int PriorityParse(string value) => value.Length;
+
+    [OverloadResolutionPriority(1)]
+    static string PriorityParse(object value) => value.ToString()!;
+
+    static dynamic ParseDynamic(string value) => value;
+
+    static int Consume(object value) => value.GetHashCode();
+
+    static int Consume(string value) => value.Length;
+}
+
+public static class GenericOutputInferenceParser<T>
+{
+    public static int Parse(T value) => value?.GetHashCode() ?? 0;
+
+    public static string Parse(string value) => value;
 }
 
 public interface IGenericReceiver<T>;

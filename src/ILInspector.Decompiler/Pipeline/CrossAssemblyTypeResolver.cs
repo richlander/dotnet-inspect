@@ -40,7 +40,13 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _inlineArrayCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
-    readonly ConcurrentDictionary<(MethodFactCacheIdentity Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
+    readonly ConcurrentDictionary<
+        (
+            MethodFactCacheIdentity Method,
+            TypeResolutionCoordinates Type,
+            bool MethodGroupInferenceSafety
+        ),
+        ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface, AssemblyReferenceIdentity? InterfaceAssembly), MetadataFactState> _interfaceCache = new();
     readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
 
@@ -188,7 +194,10 @@ internal sealed class CrossAssemblyTypeResolver
     /// when metadata is unreachable; absence of evidence is never reported as
     /// false.
     /// </summary>
-    public MethodRef Upgrade(MethodRef callee, bool resolveRequiresUnsafe)
+    public MethodRef Upgrade(
+        MethodRef callee,
+        bool resolveRequiresUnsafe,
+        bool resolveMethodGroupInferenceSafety = false)
     {
         callee = UpgradeTypeReferences(callee);
         bool needsRefKinds = NeedsParameterRefKinds(callee);
@@ -208,10 +217,14 @@ internal sealed class CrossAssemblyTypeResolver
         bool needsTypeArgumentElisionSafety =
             !callee.TypeArguments.IsEmpty
             && callee.TypeArgumentElisionOverloadSafety == MetadataFactState.Unknown;
+        bool needsMethodGroupInferenceSafety =
+            resolveMethodGroupInferenceSafety
+            && callee.MethodGroupInferenceTargetSafety == MetadataFactState.Unknown;
         if (!needsRefKinds && !needsGenerated && !needsUnsafe && !needsMemorySafety
             && !needsExtension && !needsDelegate
             && !needsOperator && !needsAccessor && !needsReturnDynamic
-            && !needsReturnArrayElementDynamic && !needsTypeArgumentElisionSafety)
+            && !needsReturnArrayElementDynamic && !needsTypeArgumentElisionSafety
+            && !needsMethodGroupInferenceSafety)
             return callee;
 
         var type = NamedDefinition(callee.DeclaringType);
@@ -224,8 +237,15 @@ internal sealed class CrossAssemblyTypeResolver
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
             return callee;
         var facts = _methodFactCache.GetOrAdd(
-            (new MethodFactCacheIdentity(callee), coordinates),
-            entry => ResolveMethodFacts(entry.Method.Method, type));
+            (
+                new MethodFactCacheIdentity(callee),
+                coordinates,
+                needsMethodGroupInferenceSafety
+            ),
+            entry => ResolveMethodFacts(
+                entry.Method.Method,
+                type,
+                entry.MethodGroupInferenceSafety));
 
         if (facts is not { } resolved)
             return callee;
@@ -272,6 +292,9 @@ internal sealed class CrossAssemblyTypeResolver
             TypeArgumentElisionSiblingParameters = needsTypeArgumentElisionSafety
                 ? resolved.TypeArgumentElisionSiblingParameters
                 : callee.TypeArgumentElisionSiblingParameters,
+            MethodGroupInferenceTargetSafety = needsMethodGroupInferenceSafety
+                ? resolved.MethodGroupInferenceTargetSafety
+                : callee.MethodGroupInferenceTargetSafety,
         };
     }
 
@@ -858,9 +881,9 @@ internal sealed class CrossAssemblyTypeResolver
     internal bool TryProveExtensionTypeArgumentInference(
         MethodRef method,
         IReadOnlyList<IrExpression> arguments,
-        out ImmutableArray<LambdaOutputInference> lambdaOutputs)
+        out ImmutableArray<OutputInferenceSource> outputInferences)
     {
-        lambdaOutputs = [];
+        outputInferences = [];
         if (method.IsExtension != MetadataFactState.Yes
             || method.TypeArgumentElisionOverloadSafety != MetadataFactState.Yes
             || arguments.Count != method.DefinitionParameterTypes.Length)
@@ -892,7 +915,7 @@ internal sealed class CrossAssemblyTypeResolver
             }
         }
 
-        lambdaOutputs = selectedLambdaOutputs;
+        outputInferences = selectedLambdaOutputs;
         return true;
     }
 
@@ -900,15 +923,15 @@ internal sealed class CrossAssemblyTypeResolver
         ImmutableArray<TypeRef> parameterTemplates,
         ImmutableArray<TypeRef> typeArguments,
         IReadOnlyList<IrExpression> arguments,
-        out ImmutableArray<LambdaOutputInference> lambdaOutputs)
+        out ImmutableArray<OutputInferenceSource> outputInferences)
     {
-        lambdaOutputs = [];
+        outputInferences = [];
         if (typeArguments.IsEmpty
             || parameterTemplates.Length != arguments.Count
             || !TryIdentifyInferenceSources(
                 parameterTemplates,
                 typeArguments.Length,
-                out lambdaOutputs))
+                out outputInferences))
         {
             return GenericInferenceOutcome.Unsafe;
         }
@@ -970,9 +993,9 @@ internal sealed class CrossAssemblyTypeResolver
     static bool TryIdentifyInferenceSources(
         ImmutableArray<TypeRef> parameterTemplates,
         int typeArgumentCount,
-        out ImmutableArray<LambdaOutputInference> lambdaOutputs)
+        out ImmutableArray<OutputInferenceSource> outputInferences)
     {
-        lambdaOutputs = [];
+        outputInferences = [];
         var receiverInferred = new bool[typeArgumentCount];
         if (parameterTemplates.IsEmpty
             || parameterTemplates[0].Kind == TypeRefKind.MethodGenericParameter
@@ -985,7 +1008,7 @@ internal sealed class CrossAssemblyTypeResolver
             return true;
 
         var outputInferred = (bool[])receiverInferred.Clone();
-        var outputs = ImmutableArray.CreateBuilder<LambdaOutputInference>();
+        var outputs = ImmutableArray.CreateBuilder<OutputInferenceSource>();
         for (int argumentIndex = 1; argumentIndex < parameterTemplates.Length; argumentIndex++)
         {
             TypeRef parameter = parameterTemplates[argumentIndex];
@@ -1008,7 +1031,7 @@ internal sealed class CrossAssemblyTypeResolver
             }
 
             outputInferred[typeArgumentIndex] = true;
-            outputs.Add(new LambdaOutputInference(
+            outputs.Add(new OutputInferenceSource(
                 typeArgumentIndex,
                 argumentIndex));
         }
@@ -1016,7 +1039,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (outputInferred.Any(static value => !value))
             return false;
 
-        lambdaOutputs = outputs.ToImmutable();
+        outputInferences = outputs.ToImmutable();
         return true;
     }
 
@@ -1473,7 +1496,10 @@ internal sealed class CrossAssemblyTypeResolver
             _ => null,
         };
 
-    ResolvedMethodFacts? ResolveMethodFacts(MethodRef callee, TypeRef type)
+    ResolvedMethodFacts? ResolveMethodFacts(
+        MethodRef callee,
+        TypeRef type,
+        bool resolveMethodGroupInferenceSafety)
     {
         try
         {
@@ -1532,6 +1558,13 @@ internal sealed class CrossAssemblyTypeResolver
                         reader,
                         typeDef,
                         methodHandle);
+                MetadataFactState methodGroupInferenceTargetSafety =
+                    resolveMethodGroupInferenceSafety
+                        ? MethodDefinitionFacts.MethodGroupInferenceTargetSafety(
+                            reader,
+                            typeDef,
+                            methodHandle)
+                        : MetadataFactState.Unknown;
                 match = new ResolvedMethodFacts(
                     parameterRefKinds,
                     requiresUnsafe,
@@ -1556,7 +1589,8 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(MethodDefinitionFacts.IsOperator(method, callee.Name, callee.HasThis)),
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle),
                     overloadFacts.State,
-                    overloadFacts.SameReceiverSiblingParameters);
+                    overloadFacts.SameReceiverSiblingParameters,
+                    methodGroupInferenceTargetSafety);
             }
 
             return match;
@@ -2619,7 +2653,8 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataFactState IsOperator,
         AccessorKind AccessorKind,
         MetadataFactState TypeArgumentElisionOverloadSafety,
-        ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters);
+        ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters,
+        MetadataFactState MethodGroupInferenceTargetSafety);
 
     readonly record struct ResolvedFieldFacts(
         bool HasNormalizedMemorySafetyContract,

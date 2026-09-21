@@ -1497,7 +1497,7 @@ public static class IrImporter
                         callee = callee with
                         {
                             CanOmitTypeArguments = true,
-                            TypeArgumentElisionLambdaOutputs = lambdaOutputs,
+                            TypeArgumentElisionOutputInferences = lambdaOutputs,
                         };
                     }
 
@@ -1954,10 +1954,12 @@ public static class IrImporter
                         source.Reader,
                         MetadataTokens.EntityHandle(reader.ReadILToken()),
                         callerScope,
-                        source.MemorySafety);
+                        source.MemorySafety,
+                        resolveMethodGroupInferenceSafety: true);
                     target = source.CrossAssembly.Upgrade(
                         target,
-                        resolveRequiresUnsafe: true);
+                        resolveRequiresUnsafe: true,
+                        resolveMethodGroupInferenceSafety: true);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
                     break;
                 }
@@ -1968,10 +1970,12 @@ public static class IrImporter
                         source.Reader,
                         MetadataTokens.EntityHandle(reader.ReadILToken()),
                         callerScope,
-                        source.MemorySafety);
+                        source.MemorySafety,
+                        resolveMethodGroupInferenceSafety: true);
                     target = source.CrossAssembly.Upgrade(
                         target,
-                        resolveRequiresUnsafe: true);
+                        resolveRequiresUnsafe: true,
+                        resolveMethodGroupInferenceSafety: true);
                     var instance = Pop(stack);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
                     break;
@@ -2533,7 +2537,8 @@ public static class IrImporter
         MetadataReader reader,
         EntityHandle handle,
         GenericScope callerScope,
-        MemorySafetyMetadataIndex? memorySafety)
+        MemorySafetyMetadataIndex? memorySafety,
+        bool resolveMethodGroupInferenceSafety = false)
     {
         switch (handle.Kind)
         {
@@ -2601,6 +2606,12 @@ public static class IrImporter
                     TypeArgumentElisionOverloadSafety = overloadFacts.State,
                     TypeArgumentElisionSiblingParameters =
                         overloadFacts.SameReceiverSiblingParameters,
+                    MethodGroupInferenceTargetSafety = resolveMethodGroupInferenceSafety
+                        ? MethodDefinitionFacts.MethodGroupInferenceTargetSafety(
+                              reader,
+                              declaringType,
+                              (MethodDefinitionHandle)handle)
+                        : MetadataFactState.Unknown,
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
                     IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),
@@ -2685,7 +2696,8 @@ public static class IrImporter
                     reader,
                     spec.Method,
                     callerScope,
-                    memorySafety);
+                    memorySafety,
+                    resolveMethodGroupInferenceSafety);
                 var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
                 var returnType = generic.ReturnType.Instantiate([], methodArguments);
                 return generic with

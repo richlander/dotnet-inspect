@@ -62,7 +62,7 @@ public enum LocalFunctionRaiseState
     Declined,
 }
 
-internal readonly record struct LambdaOutputInference(
+internal readonly record struct OutputInferenceSource(
     int TypeArgumentIndex,
     int ArgumentIndex);
 
@@ -305,9 +305,9 @@ public sealed record MethodRef(
     /// <summary>
     /// True only when metadata and the imported call prove that C# can infer
     /// every method type argument from the extension receiver and supported
-    /// lambda outputs without changing overload selection. Lambda-output
-    /// obligations are revalidated against final raised expressions by the
-    /// printer.
+    /// lambda or method-group outputs without changing overload selection.
+    /// Output-inference obligations are revalidated against final raised
+    /// expressions by the printer.
     /// </summary>
     internal bool CanOmitTypeArguments { get; init; }
 
@@ -316,7 +316,7 @@ public sealed record MethodRef(
     /// <c>Func</c> argument whose direct result position must infer it. Empty
     /// when the receiver fixes every type argument.
     /// </summary>
-    internal ImmutableArray<LambdaOutputInference> TypeArgumentElisionLambdaOutputs { get; init; } = [];
+    internal ImmutableArray<OutputInferenceSource> TypeArgumentElisionOutputInferences { get; init; } = [];
 
     /// <summary>
     /// Whether the exact declaring type has no competing same-name overload
@@ -332,6 +332,14 @@ public sealed record MethodRef(
     /// elision is safe.
     /// </summary>
     internal ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters { get; init; } = [];
+
+    /// <summary>
+    /// Whether method-group output inference can distinguish this target from
+    /// every same-name method with the same input signature. The printer also
+    /// requires exact delegate-input and return-type correspondence before
+    /// removing a target-pinning delegate cast.
+    /// </summary>
+    internal MetadataFactState MethodGroupInferenceTargetSafety { get; init; }
 
     /// <summary>
     /// Metadata PInvokeImpl / <c>[DllImport]</c> evidence on this method. Taking

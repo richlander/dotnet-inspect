@@ -450,6 +450,82 @@ internal static class MethodDefinitionFacts
         }
     }
 
+    /// <summary>
+    /// Proves the metadata half of target-free method-group output inference.
+    /// Generic declaring types require call-site substitution and remain
+    /// conservative; overload priorities and return-only signature duplicates
+    /// can otherwise change the target once its delegate return type is absent.
+    /// </summary>
+    internal static MetadataFactState MethodGroupInferenceTargetSafety(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        MethodDefinitionHandle targetHandle)
+    {
+        try
+        {
+            var target = reader.GetMethodDefinition(targetHandle);
+            if (declaringType.GetGenericParameters().Count != 0
+                || target.GetGenericParameters().Count != 0
+                || HasOverloadResolutionPriorityAttribute(reader, target))
+            {
+                return MetadataFactState.No;
+            }
+
+            var targetScope = new GenericScope(
+                GenericParameterNames(reader, declaringType.GetGenericParameters()),
+                []);
+            var targetSignature = GuardedDecode.MethodSignature(
+                reader,
+                target,
+                targetScope);
+            if (HasUnsupportedType(targetSignature))
+                return MetadataFactState.Unknown;
+
+            string targetName = reader.GetString(target.Name);
+            foreach (var candidateHandle in declaringType.GetMethods())
+            {
+                if (candidateHandle == targetHandle)
+                    continue;
+
+                var candidate = reader.GetMethodDefinition(candidateHandle);
+                if (reader.GetString(candidate.Name) != targetName)
+                    continue;
+                if (HasOverloadResolutionPriorityAttribute(reader, candidate))
+                    return MetadataFactState.No;
+                if (candidate.GetGenericParameters().Count != 0)
+                    continue;
+
+                var candidateScope = new GenericScope(
+                    GenericParameterNames(reader, declaringType.GetGenericParameters()),
+                    []);
+                var candidateSignature = GuardedDecode.MethodSignature(
+                    reader,
+                    candidate,
+                    candidateScope);
+                if (HasUnsupportedType(candidateSignature))
+                    return MetadataFactState.Unknown;
+
+                if (candidateSignature.Header.IsInstance
+                        == targetSignature.Header.IsInstance
+                    && candidateSignature.ParameterTypes.SequenceEqual(
+                        targetSignature.ParameterTypes))
+                {
+                    return MetadataFactState.No;
+                }
+            }
+
+            return MetadataFactState.Yes;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException
+            or IndexOutOfRangeException
+            or OverflowException)
+        {
+            return MetadataFactState.Unknown;
+        }
+    }
+
     static bool HasUnsupportedType(MethodSignature<TypeRef> signature)
         => signature.ReturnType.ContainsUnsupported
             || signature.ParameterTypes.Any(static type => type.ContainsUnsupported);
