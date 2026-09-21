@@ -997,7 +997,8 @@ public static class MemberBodyProducer
                     typeHandle,
                     printerOptions,
                     MemberRenderAttributeMode.All,
-                    tracker);
+                    tracker,
+                    includeContainingContext: true);
             tracker.ObserveSymbols(source.Symbols);
             return new CSharpServiceCompositionResult(
                 rendered.Status,
@@ -1025,7 +1026,8 @@ public static class MemberBodyProducer
         TypeDefinitionHandle typeHandle,
         Pipeline.PrinterOptions? printerOptions,
         MemberRenderAttributeMode attributeMode,
-        CSharpCompositionTracker? tracker)
+        CSharpCompositionTracker? tracker,
+        bool includeContainingContext = false)
     {
         if (type.Kind is "delegate")
         {
@@ -1055,7 +1057,8 @@ public static class MemberBodyProducer
             only: member,
             printerOptions: printerOptions,
             attributeMode: attributeMode,
-            tracker: tracker);
+            tracker: tracker,
+            includeContainingContext: includeContainingContext);
 
         if (!any)
         {
@@ -1413,7 +1416,8 @@ public static class MemberBodyProducer
         SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null,
         Pipeline.PrinterOptions? printerOptions = null,
         MemberRenderAttributeMode attributeMode = MemberRenderAttributeMode.All,
-        CSharpCompositionTracker? tracker = null)
+        CSharpCompositionTracker? tracker = null,
+        bool includeContainingContext = false)
     {
         // Per-name running overload index — the same positional pairing the
         // member command uses for Name:N — used only when a member carries no
@@ -1575,6 +1579,8 @@ public static class MemberBodyProducer
                     var propertySource = memberHandle is { } accessorHandle
                         ? SelectedPropertyAccessorSource.Create(pipelineSource, accessorHandle, member)
                         : null;
+                    if (includeContainingContext)
+                        propertySource?.IncludeContainingContext(pipelineSource, tracker);
                     string? body = member.IsAbstract
                         ? null
                         : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null, tracker, propertySource);
@@ -3063,6 +3069,7 @@ public static class MemberBodyProducer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        propertySource?.BindInitializationContext(result);
         if (projection is not null)
         {
             tracker!.Complete(
@@ -3134,7 +3141,7 @@ public static class MemberBodyProducer
     /// Over-collection is harmless; an unused using is only a style nit, while
     /// a missing one would not compile.
     /// </summary>
-    static void CollectNamespaces(Pipeline.IrFunction function, SortedSet<string> namespaces)
+    internal static void CollectNamespaces(Pipeline.IrFunction function, SortedSet<string> namespaces)
     {
         void Add(Pipeline.TypeRef? type)
         {

@@ -12,7 +12,7 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Area", "Source")]
-public sealed class SelectedPropertySourceTests
+public sealed partial class SelectedPropertySourceTests
 {
     const string FixtureType = "ILInspector.Decompiler.Fixtures.SelectedPropertySamples";
     const string FieldHelperQualifier = "global::ILInspector.Decompiler.Fixtures.FieldKeyword.";
@@ -301,7 +301,9 @@ public sealed class SelectedPropertySourceTests
         }
     }
 
-    static void AssertGetterInstructionsMatch(CSharpCompilation compilation, string path, ApiMember accessor)
+    static void AssertGetterInstructionsMatch(
+        CSharpCompilation compilation, string path, ApiMember accessor,
+        bool normalizeFrameworkFacades = false)
     {
         using var original = new PEReader(File.OpenRead(path));
         var originalReader = original.GetMetadataReader();
@@ -331,6 +333,14 @@ public sealed class SelectedPropertySourceTests
                 .Select(instruction => instruction.OperandValue));
         // The unchanged projection references helpers that were local to the input assembly.
         string inputAssembly = $"[{originalReader.GetString(originalReader.GetAssemblyDefinition().Name)}]";
+        string Normalize(string operand)
+        {
+            operand = operand.Replace(inputAssembly, "", StringComparison.Ordinal);
+            return normalizeFrameworkFacades
+                ? operand.Replace("['netstandard']", "[System.Private.CoreLib]", StringComparison.Ordinal)
+                    .Replace("[System.Runtime]", "[System.Private.CoreLib]", StringComparison.Ordinal)
+                : operand;
+        }
         Assert.Equal(originalInstructions.Instructions
                 .Where(instruction => instruction.Operand == OperandKind.InlineType)
                 .Select(instruction => CanonicalIL.ResolveType(originalReader, (int)instruction.OperandValue)
@@ -341,12 +351,10 @@ public sealed class SelectedPropertySourceTests
                     .Replace(inputAssembly, "", StringComparison.Ordinal)));
         Assert.Equal(originalInstructions.Instructions
                 .Where(instruction => instruction.Operand == OperandKind.InlineMethod)
-                .Select(instruction => CanonicalIL.ResolveMethod(originalReader, (int)instruction.OperandValue)
-                    .Replace(inputAssembly, "", StringComparison.Ordinal)),
+                .Select(instruction => Normalize(CanonicalIL.ResolveMethod(originalReader, (int)instruction.OperandValue))),
             projectedInstructions.Instructions
                 .Where(instruction => instruction.Operand == OperandKind.InlineMethod)
-                .Select(instruction => CanonicalIL.ResolveMethod(projectedReader, (int)instruction.OperandValue)
-                    .Replace(inputAssembly, "", StringComparison.Ordinal)));
+                .Select(instruction => Normalize(CanonicalIL.ResolveMethod(projectedReader, (int)instruction.OperandValue))));
     }
 
     [Theory]

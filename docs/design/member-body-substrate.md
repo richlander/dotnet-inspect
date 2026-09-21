@@ -529,12 +529,11 @@ source form, and `NativeGetterRetainsExplicitConstructorWhenInitializerFormDecli
 checks actual donor PE storage and the unchanged explicit-companion choice.
 These native rows remain Slow; no inspected or donor code is executed.
 
-This is step one of the approved two-step source-form plan. Issue #7971 owns
-shared selected-member containing-context adoption through both CLI source
-views and Browser/Wasm Source. Those consumers remain unchanged here; an
-isolated property must not acquire `= list` without a declaration binding
-`list`. Full reconstruction, exact original type declarations and whole-object
-equivalence remain outside this claim.
+This is step one of the approved two-step source-form plan. The shared
+selected-member adoption below is step two: an isolated property must not
+acquire `= list` without a declaration binding `list`. Full reconstruction,
+exact original type declarations and whole-object equivalence remain outside
+this claim.
 
 Issue #8022 refines this native artifact with an expression-bodied accessor,
 following the shared
@@ -560,8 +559,64 @@ these neighboring forms, then inspect their actual donor PE; this is not a
 whole-type fidelity claim.
 `PublishedDocoptCompactGetterReplacementPreservesInitialization` compiles a
 replacement through the frozen product artifact, checks that its getter changed
-and that the constructor still stores into the getter's field. Shared
-CLI/Browser initializer-context adoption remains #7971.
+and that the constructor still stores into the getter's field.
+
+#### Shared selected-member initializer context
+
+Issue #7971 adopts the same proof for standalone selected-source views in the
+CLI and Browser/Wasm Source. An admitted initializer travels with its containing
+primary-constructor declaration, namespace and required imports. The containing
+declaration preserves the selected type's name, generic parameters and constraints,
+accessibility, readonly and ref-like modifiers. It supplies lexical and
+construction context for the selected property, not a complete type: unrelated
+members, implemented interfaces and type attributes are not reconstructed.
+This slice admits top-level types only; nested types retain their existing
+selected-property output rather than invent an outer declaration.
+
+Admission uses the ordinary getter projection before annotations or overlays
+add presentation text. For example, an IL comment containing `ldarg.0` must not
+veto a constructor parameter named `arg`. A failed required getter projection
+remains a visible formatting failure, not a successful context-free fallback.
+Unsupported constructor shapes and name-capture declines retain the previous
+selected property without an initializer. The shared service accounts for the
+constructor proof within its body-projection budget as a noncontributing probe;
+the selected getter remains the sole contributing body and selection identity.
+
+Standalone `CSharpDecompilerService.ProduceMember` supplies this context to the
+shared Source operation. The CLI uses the same composition for Decompiled
+Source, Annotated Source, Cost Overlay and Semantics Overlay, including
+single-view requests. No host adds a second initializer recognizer or type
+formatter. `MemberBodyProducer.ProduceMember` remains a member-fragment API,
+and whole-type composition retains its explicit constructor: neither acquires
+a second containing declaration or duplicate initializer. Independent
+body-only documents retain their existing text and evidence scope.
+
+`SelectedPropertySourceTests.SelectedInitializerCarriesCompilableContainingContext`
+and `PublishedDocoptSelectedInitializerPreservesConstructorAndGetter` compile
+unchanged product-owned standalone source and inspect its emitted constructor,
+getter and storage flags. Getter method-reference comparisons normalize the
+`netstandard` and `System.Runtime` framework facades to the compiler's
+`System.Private.CoreLib` reference; they do not claim byte-identical metadata
+or whole-type fidelity. Neighboring tests gate unsupported construction,
+nested-context decline, budget exhaustion, visible projection failure and
+unchanged fragment/whole-type composition.
+
+`MemberCallGraphSectionTests.SelectedProperty_InitializerContextAgreesAcrossCSharpViews`
+gates joint and separate CLI views, with an independent body-document control.
+`MemberSourceInspection_SelectedInitializerCarriesItsScope` gates the completed
+shared Source query and its body accounting.
+`BrowserSourceComparisonOperationTests.MemberSourceExport_PreservesProvenInitializerContext`
+gates the actual managed export for admitted and calculated-initializer
+neighbors. The published-Wasm `cataloged Source-only` scenario in
+`source-comparison-production.spec.ts`, run by
+`eng/test-inspect-web-source-comparison-gate.sh`, obtains both through the real
+generated TypeScript Source facade. These bounded cases are PR-fast.
+
+An unbound initializer parameter, changed getter operation or constructor
+store, altered storage flags, or duplicate constructor/initializer falsifies
+this adoption claim. Body-only structural correspondence and native Selected
+compile-back remain separate evidence lenses; neither establishes the new
+standalone declaration context by itself.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32
