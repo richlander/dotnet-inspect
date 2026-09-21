@@ -206,6 +206,9 @@ operation may reuse a string or return `string.Empty`. RunFaster nevertheless
 accepts that row at the same-build nearest-preceding IL coordinate when a GC
 allocation tick reports `System.String`. The trace, rather than static
 analysis, supplies the realized-allocation claim and sampled byte volume.
+Aggregate `SupportingCallSite` coordinates do not qualify: they project raw
+allocation evidence to a composite judgment without preserving the exact
+string-producing operation required by this contract.
 
 This compatibility is intentionally narrower than the construction strategy.
 `System.Char[]`, `System.Text.StringBuilder`, and other helper allocations do
@@ -224,6 +227,8 @@ and output contract.
 
 `AllocationTypeMatch_StringMaterializationAcceptsOnlyRuntimeString` pins the
 shape/type boundary, while
+`Correlate_StringMaterializationSupportCannotClaimRawObjectAllocation` rejects
+the aggregate-coordinate bypass and preserves the raw allocation row, and
 `OptimizationVerdict_StringMaterializationRequiresConsumerInspection` keeps
 runtime heat separate from profitability. The C# printer calibration workload
 provides the non-synthetic check: its pre-change trace must move exact string

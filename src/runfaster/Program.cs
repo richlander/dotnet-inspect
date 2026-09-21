@@ -3395,6 +3395,13 @@ internal static class ProgramSupport
             coordinateCandidates,
         string allocatedType)
     {
+        if (candidate.RequiresConsumerInspection)
+        {
+            return !candidate.SupportingCallSite
+                && candidate.MatchesAllocatedType(
+                    allocatedType);
+        }
+
         if (!candidate.SupportingCallSite)
         {
             return candidate.MatchesAllocatedType(

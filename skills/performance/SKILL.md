@@ -223,7 +223,9 @@ nearest-preceding IL coordinate and lists the result under
 `Runtime-confirmed string materialization`. Those rows remain outside the
 automatic optimization verdict because runtime volume alone cannot distinguish
 required output from removable intermediate text; inspect the result consumer
-before choosing a rewrite.
+before choosing a rewrite. An aggregate `SupportingCallSite` coordinate cannot
+confirm string materialization because it does not identify the exact
+string-producing operation.
 For a repeated-scan aggregate with a supporting call site, `runfaster` promotes
 an allocation observation only when the same build has a raw library allocation
 at that coordinate and exactly one aggregate support in that build claims it.
