@@ -391,6 +391,8 @@ public sealed class EcosystemPopulationLoadingTests
                             workspace.Declaration),
                         new WorkspaceRegistration.Ecosystem(neighboring),
                     ]));
+        WorkspaceEcosystemContributionRelation currentRelation =
+            Assert.Single(workspace.Revision.EcosystemContributions);
 
         EcosystemPopulationNavigationContribution projected =
             Assert.Single(
@@ -416,10 +418,13 @@ public sealed class EcosystemPopulationLoadingTests
         Assert.Same(
             workspace.Revision,
             contribution.HistoricalRevision);
-        Assert.Same(changed.Revision, contribution.Ecosystem.Revision);
+        Assert.Same(changed.Revision, contribution.CurrentRevision);
+        Assert.Same(
+            currentRelation,
+            contribution.EcosystemRelation);
         Assert.Same(
             workspace.Declaration,
-            contribution.Ecosystem.Registration);
+            contribution.Ecosystem.Declaration);
         Assert.Same(
             projected.Source.Correspondence.Admission,
             contribution.Admission);

@@ -74,9 +74,11 @@ public static class EcosystemPopulationNavigationProjection
                 NavigationEcosystemContributionRejection.ForeignWorkspace);
         }
 
-        if (!ContainsExactRegistration(
+        WorkspaceEcosystemContributionRelation? ecosystemRelation =
+            FindExactContribution(
                 currentRevision,
-                registration))
+                registration);
+        if (ecosystemRelation is null)
         {
             return new NavigationEcosystemContributionOutcome.Unavailable(
                 currentRevision,
@@ -84,25 +86,30 @@ public static class EcosystemPopulationNavigationProjection
                     .RegistrationNotCurrent);
         }
 
-        var ecosystem =
-            new NavigationEcosystemRegistrationReference(
-                currentRevision,
-                registration);
         return new NavigationEcosystemContributionOutcome.Available(
             new NavigationEcosystemLibraryContribution(
                 historicalRevision,
-                ecosystem,
+                currentRevision,
+                ecosystemRelation,
                 correspondence.Admission,
                 correspondence.Occurrence));
     }
 
-    static bool ContainsExactRegistration(
+    static WorkspaceEcosystemContributionRelation? FindExactContribution(
         WorkspaceRegistrationRevision revision,
-        WorkspaceEcosystemRegistrationDeclaration registration) =>
-        revision.Registrations.Any(
-            candidate =>
-                candidate is WorkspaceRegistration.Ecosystem ecosystem
-                && ReferenceEquals(
-                    ecosystem.Declaration,
-                    registration));
+        WorkspaceEcosystemRegistrationDeclaration registration)
+    {
+        foreach (WorkspaceEcosystemContributionRelation contribution
+            in revision.EcosystemContributions)
+        {
+            if (ReferenceEquals(
+                    contribution.Ecosystem.Declaration,
+                    registration))
+            {
+                return contribution;
+            }
+        }
+
+        return null;
+    }
 }

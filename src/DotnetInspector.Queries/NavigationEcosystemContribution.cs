@@ -19,49 +19,35 @@ public enum NavigationEcosystemContributionRejection
 }
 
 /// <summary>
-/// One exact Ecosystem declaration retained by one current Workspace
-/// registration revision.
-/// </summary>
-public sealed class NavigationEcosystemRegistrationReference
-{
-    public NavigationEcosystemRegistrationReference(
-        WorkspaceRegistrationRevision revision,
-        WorkspaceEcosystemRegistrationDeclaration registration)
-    {
-        Revision = revision;
-        Registration = registration;
-    }
-
-    public InspectionWorkspaceIdentity Workspace => Revision.Workspace;
-
-    public WorkspaceRegistrationRevision Revision { get; }
-
-    public WorkspaceEcosystemRegistrationDeclaration Registration { get; }
-}
-
-/// <summary>
 /// Current resource-free projection of one admitted Library under one exact
-/// Ecosystem declaration.
+/// Ecosystem registration occurrence.
 /// </summary>
 public sealed class NavigationEcosystemLibraryContribution
 {
     public NavigationEcosystemLibraryContribution(
         WorkspaceRegistrationRevision historicalRevision,
-        NavigationEcosystemRegistrationReference ecosystem,
+        WorkspaceRegistrationRevision currentRevision,
+        WorkspaceEcosystemContributionRelation ecosystemRelation,
         WorkspaceLibraryAdmissionReceipt admission,
         WorkspaceLibraryOccurrence library)
     {
         HistoricalRevision = historicalRevision;
-        Ecosystem = ecosystem;
+        CurrentRevision = currentRevision;
+        EcosystemRelation = ecosystemRelation;
         Admission = admission;
         Library = library;
     }
 
-    public InspectionWorkspaceIdentity Workspace => Ecosystem.Workspace;
+    public InspectionWorkspaceIdentity Workspace => CurrentRevision.Workspace;
 
     public WorkspaceRegistrationRevision HistoricalRevision { get; }
 
-    public NavigationEcosystemRegistrationReference Ecosystem { get; }
+    public WorkspaceRegistrationRevision CurrentRevision { get; }
+
+    public WorkspaceEcosystemContributionRelation EcosystemRelation { get; }
+
+    public WorkspaceEcosystemRegistrationOccurrence Ecosystem =>
+        EcosystemRelation.Ecosystem;
 
     public WorkspaceLibraryAdmissionReceipt Admission { get; }
 

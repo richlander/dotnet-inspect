@@ -111,7 +111,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                         contribution.Outcome);
                 Assert.Same(
                     registration,
-                    available.Contribution.Ecosystem.Registration);
+                    available.Contribution.Ecosystem.Declaration);
                 Assert.Same(
                     contribution.Source.Correspondence.Occurrence,
                     available.Contribution.Library);
