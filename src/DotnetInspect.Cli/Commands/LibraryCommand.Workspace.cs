@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
@@ -7,8 +8,9 @@ namespace DotnetInspect.Cli.Commands;
 
 public partial class LibraryCommand
 {
-    static async Task<int> ExecuteWorkspacePackageAsync(
+    static async Task<int> ExecutePackageAsync(
         LibraryOptions options,
+        PackageReferenceTarget? declaredPackageTarget,
         WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
         if (string.IsNullOrWhiteSpace(options.PackagePath))
@@ -18,11 +20,12 @@ public partial class LibraryCommand
                     + "Package in the selected Workspace context.");
             return 1;
         }
-        if (options.PlatformAssembly is not null
-            || options.PlatformFramework is not null
-            || options.PlatformVersion is not null
-            || options.Tfm is not null
-            || options.IncludePrerelease)
+        if (options.WorkspacePacket is not null
+            && (options.PlatformAssembly is not null
+                || options.PlatformFramework is not null
+                || options.PlatformVersion is not null
+                || options.Tfm is not null
+                || options.IncludePrerelease))
         {
             CommandError.Write(
                 "--workspace supplies the Package location and target; it "
@@ -38,28 +41,19 @@ public partial class LibraryCommand
                     + "Library source.");
             return 1;
         }
-        WorkspaceLibrarySelection selection =
+        PackageLibraryTarget selection =
             options.NamesakeLibrary
-                ? new WorkspaceLibrarySelection.Namesake()
+                ? new PackageLibraryTarget.Namesake()
                 : string.IsNullOrWhiteSpace(options.AssemblyName)
-                    ? new WorkspaceLibrarySelection.Aggregate()
-                    : new WorkspaceLibrarySelection.Exact(
+                    ? new PackageLibraryTarget.Aggregate()
+                    : new PackageLibraryTarget.Exact(
                         options.AssemblyName);
-        if (selection is WorkspaceLibrarySelection.Aggregate
-            && (options.Trace
-                || options.MetadataRoot != MetadataRootKind.Cli
-                || options.ExtractResources is not null
-                || options.ReferenceHierarchyDepth is not null))
-        {
-            CommandError.Write(
-                "--trace, --metadata-root, --extract-resources, and --depth "
-                    + "require one exact Library. Narrow with an exact "
-                    + "Library source or --namesake-library.");
-            return 1;
-        }
 
         InspectionOptions packageOptions =
-            CreateWorkspacePackageOptions(options, selection);
+            CreatePackageOptions(
+                options,
+                selection,
+                declaredPackageTarget);
         var context = new CommandContext(options.Verbose);
         return workspaceLoadOptions is null
             ? await PackageCommand.ExecuteAsync(
@@ -71,22 +65,44 @@ public partial class LibraryCommand
                 workspaceLoadOptions).ConfigureAwait(false);
     }
 
-    static InspectionOptions CreateWorkspacePackageOptions(
+    static InspectionOptions CreatePackageOptions(
         LibraryOptions options,
-        WorkspaceLibrarySelection selection) =>
+        PackageLibraryTarget selection,
+        PackageReferenceTarget? declaredPackageTarget) =>
         new()
         {
             PackageArgs = [options.PackagePath!],
+            DeclaredPackageTarget =
+                options.WorkspacePacket is null
+                    ? declaredPackageTarget
+                    : null,
             WorkspacePacket = options.WorkspacePacket,
-            WorkspaceLibrarySelection = selection,
+            WorkspaceLibrarySelection =
+                options.WorkspacePacket is null
+                    ? null
+                    : selection switch
+                    {
+                        PackageLibraryTarget.Aggregate =>
+                            new WorkspaceLibrarySelection.Aggregate(),
+                        PackageLibraryTarget.Namesake =>
+                            new WorkspaceLibrarySelection.Namesake(),
+                        PackageLibraryTarget.Exact exact =>
+                            new WorkspaceLibrarySelection.Exact(
+                                exact.Library),
+                        _ => null,
+                    },
             AllLibraries =
-                selection is WorkspaceLibrarySelection.Aggregate,
+                selection is PackageLibraryTarget.Aggregate,
+            NamesakeLibrary =
+                selection is PackageLibraryTarget.Namesake,
             PackageLibrary = selection switch
             {
-                WorkspaceLibrarySelection.Namesake => "",
-                WorkspaceLibrarySelection.Exact exact => exact.Library,
+                PackageLibraryTarget.Namesake => "",
+                PackageLibraryTarget.Exact exact => exact.Library,
                 _ => null,
             },
+            Tfm = options.Tfm,
+            IncludePrerelease = options.IncludePrerelease,
             ShowDependencies = options.IncludeDependencies,
             ReferenceHierarchyDepth = options.ReferenceHierarchyDepth,
             TypeFilter = options.TypeFilter,
@@ -138,4 +154,17 @@ public partial class LibraryCommand
             NoHeader = options.NoHeader,
             OutputPath = options.OutputPath,
         };
+
+    private abstract record PackageLibraryTarget
+    {
+        private PackageLibraryTarget()
+        {
+        }
+
+        internal sealed record Aggregate : PackageLibraryTarget;
+
+        internal sealed record Namesake : PackageLibraryTarget;
+
+        internal sealed record Exact(string Library) : PackageLibraryTarget;
+    }
 }
