@@ -121,8 +121,8 @@ public sealed record ResourcePath
             or '-');
 
     private static bool IsCanonical(string value) =>
-        !value.StartsWith('/', StringComparison.Ordinal)
-        && !value.EndsWith('/', StringComparison.Ordinal)
+        value[0] != '/'
+        && value[^1] != '/'
         && value.Split('/').All(IsCanonicalSegment);
 }
 
