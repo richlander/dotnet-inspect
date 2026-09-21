@@ -342,6 +342,19 @@ public sealed record MethodRef(
     internal MetadataFactState MethodGroupInferenceTargetSafety { get; init; }
 
     /// <summary>
+    /// Input arities of every same-name method-group candidate with the selected
+    /// target's staticness. The printer uses this complete metadata set to prove
+    /// that a bare method group cannot activate a competing outer delegate shape.
+    /// </summary>
+    internal ImmutableArray<int> MethodGroupInferenceCandidateArities { get; init; } = [];
+
+    /// <summary>
+    /// Whether any same-name target candidate has optional, defaulted, or
+    /// parameter-array inputs and therefore cannot be excluded by exact arity.
+    /// </summary>
+    internal bool MethodGroupInferenceHasFlexibleArityCandidate { get; init; }
+
+    /// <summary>
     /// Metadata PInvokeImpl / <c>[DllImport]</c> evidence on this method. Taking
     /// such a target as <c>&amp;Method</c> is not a source-equivalent
     /// UnmanagedCallersOnly callback address, so method-address raising declines

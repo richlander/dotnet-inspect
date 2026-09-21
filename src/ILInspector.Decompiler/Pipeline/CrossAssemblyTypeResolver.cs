@@ -295,6 +295,13 @@ internal sealed class CrossAssemblyTypeResolver
             MethodGroupInferenceTargetSafety = needsMethodGroupInferenceSafety
                 ? resolved.MethodGroupInferenceTargetSafety
                 : callee.MethodGroupInferenceTargetSafety,
+            MethodGroupInferenceCandidateArities = needsMethodGroupInferenceSafety
+                ? resolved.MethodGroupInferenceCandidateArities
+                : callee.MethodGroupInferenceCandidateArities,
+            MethodGroupInferenceHasFlexibleArityCandidate =
+                needsMethodGroupInferenceSafety
+                    ? resolved.MethodGroupInferenceHasFlexibleArityCandidate
+                    : callee.MethodGroupInferenceHasFlexibleArityCandidate,
         };
     }
 
@@ -1558,13 +1565,13 @@ internal sealed class CrossAssemblyTypeResolver
                         reader,
                         typeDef,
                         methodHandle);
-                MetadataFactState methodGroupInferenceTargetSafety =
+                MethodGroupInferenceTargetResult methodGroupInferenceFacts =
                     resolveMethodGroupInferenceSafety
                         ? MethodDefinitionFacts.MethodGroupInferenceTargetSafety(
                             reader,
                             typeDef,
                             methodHandle)
-                        : MetadataFactState.Unknown;
+                        : new(MetadataFactState.Unknown, [], false);
                 match = new ResolvedMethodFacts(
                     parameterRefKinds,
                     requiresUnsafe,
@@ -1590,7 +1597,9 @@ internal sealed class CrossAssemblyTypeResolver
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle),
                     overloadFacts.State,
                     overloadFacts.SameReceiverSiblingParameters,
-                    methodGroupInferenceTargetSafety);
+                    methodGroupInferenceFacts.State,
+                    methodGroupInferenceFacts.CandidateArities,
+                    methodGroupInferenceFacts.HasFlexibleArityCandidate);
             }
 
             return match;
@@ -2654,7 +2663,9 @@ internal sealed class CrossAssemblyTypeResolver
         AccessorKind AccessorKind,
         MetadataFactState TypeArgumentElisionOverloadSafety,
         ImmutableArray<ImmutableArray<TypeRef>> TypeArgumentElisionSiblingParameters,
-        MetadataFactState MethodGroupInferenceTargetSafety);
+        MetadataFactState MethodGroupInferenceTargetSafety,
+        ImmutableArray<int> MethodGroupInferenceCandidateArities,
+        bool MethodGroupInferenceHasFlexibleArityCandidate);
 
     readonly record struct ResolvedFieldFacts(
         bool HasNormalizedMemorySafetyContract,

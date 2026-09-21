@@ -2573,6 +2573,13 @@ public static class IrImporter
                             declaringType,
                             (MethodDefinitionHandle)handle)
                         : new(MetadataFactState.Unknown, []);
+                MethodGroupInferenceTargetResult methodGroupInferenceFacts =
+                    resolveMethodGroupInferenceSafety
+                        ? MethodDefinitionFacts.MethodGroupInferenceTargetSafety(
+                            reader,
+                            declaringType,
+                            (MethodDefinitionHandle)handle)
+                        : new(MetadataFactState.Unknown, [], false);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
@@ -2606,12 +2613,12 @@ public static class IrImporter
                     TypeArgumentElisionOverloadSafety = overloadFacts.State,
                     TypeArgumentElisionSiblingParameters =
                         overloadFacts.SameReceiverSiblingParameters,
-                    MethodGroupInferenceTargetSafety = resolveMethodGroupInferenceSafety
-                        ? MethodDefinitionFacts.MethodGroupInferenceTargetSafety(
-                              reader,
-                              declaringType,
-                              (MethodDefinitionHandle)handle)
-                        : MetadataFactState.Unknown,
+                    MethodGroupInferenceTargetSafety =
+                        methodGroupInferenceFacts.State,
+                    MethodGroupInferenceCandidateArities =
+                        methodGroupInferenceFacts.CandidateArities,
+                    MethodGroupInferenceHasFlexibleArityCandidate =
+                        methodGroupInferenceFacts.HasFlexibleArityCandidate,
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
                     IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),

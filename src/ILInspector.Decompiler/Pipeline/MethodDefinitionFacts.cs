@@ -21,6 +21,11 @@ internal readonly record struct TypeArgumentElisionOverloadResult(
     MetadataFactState State,
     ImmutableArray<ImmutableArray<TypeRef>> SameReceiverSiblingParameters);
 
+internal readonly record struct MethodGroupInferenceTargetResult(
+    MetadataFactState State,
+    ImmutableArray<int> CandidateArities,
+    bool HasFlexibleArityCandidate);
+
 internal static class MethodDefinitionFacts
 {
     internal static RequiresUnsafeContractResult RequiresUnsafeContract(
@@ -456,7 +461,7 @@ internal static class MethodDefinitionFacts
     /// conservative; overload priorities and return-only signature duplicates
     /// can otherwise change the target once its delegate return type is absent.
     /// </summary>
-    internal static MetadataFactState MethodGroupInferenceTargetSafety(
+    internal static MethodGroupInferenceTargetResult MethodGroupInferenceTargetSafety(
         MetadataReader reader,
         TypeDefinition declaringType,
         MethodDefinitionHandle targetHandle)
@@ -468,7 +473,7 @@ internal static class MethodDefinitionFacts
                 || target.GetGenericParameters().Count != 0
                 || HasOverloadResolutionPriorityAttribute(reader, target))
             {
-                return MetadataFactState.No;
+                return new(MetadataFactState.No, [], false);
             }
 
             var targetScope = new GenericScope(
@@ -479,9 +484,13 @@ internal static class MethodDefinitionFacts
                 target,
                 targetScope);
             if (HasUnsupportedType(targetSignature))
-                return MetadataFactState.Unknown;
+                return new(MetadataFactState.Unknown, [], false);
 
             string targetName = reader.GetString(target.Name);
+            var candidateArities = ImmutableArray.CreateBuilder<int>();
+            candidateArities.Add(targetSignature.ParameterTypes.Length);
+            bool hasFlexibleArityCandidate =
+                HasFlexibleArityParameter(reader, target);
             foreach (var candidateHandle in declaringType.GetMethods())
             {
                 if (candidateHandle == targetHandle)
@@ -491,30 +500,41 @@ internal static class MethodDefinitionFacts
                 if (reader.GetString(candidate.Name) != targetName)
                     continue;
                 if (HasOverloadResolutionPriorityAttribute(reader, candidate))
-                    return MetadataFactState.No;
-                if (candidate.GetGenericParameters().Count != 0)
-                    continue;
+                    return new(MetadataFactState.No, [], false);
 
                 var candidateScope = new GenericScope(
                     GenericParameterNames(reader, declaringType.GetGenericParameters()),
-                    []);
+                    GenericParameterNames(reader, candidate.GetGenericParameters()));
                 var candidateSignature = GuardedDecode.MethodSignature(
                     reader,
                     candidate,
                     candidateScope);
                 if (HasUnsupportedType(candidateSignature))
-                    return MetadataFactState.Unknown;
+                    return new(MetadataFactState.Unknown, [], false);
 
                 if (candidateSignature.Header.IsInstance
-                        == targetSignature.Header.IsInstance
-                    && candidateSignature.ParameterTypes.SequenceEqual(
-                        targetSignature.ParameterTypes))
+                    != targetSignature.Header.IsInstance)
                 {
-                    return MetadataFactState.No;
+                    continue;
+                }
+
+                candidateArities.Add(candidateSignature.ParameterTypes.Length);
+                hasFlexibleArityCandidate |=
+                    HasFlexibleArityParameter(reader, candidate);
+                if (candidate.GetGenericParameters().Count != 0)
+                    return new(MetadataFactState.No, [], false);
+
+                if (candidateSignature.ParameterTypes.SequenceEqual(
+                    targetSignature.ParameterTypes))
+                {
+                    return new(MetadataFactState.No, [], false);
                 }
             }
 
-            return MetadataFactState.Yes;
+            return new(
+                MetadataFactState.Yes,
+                candidateArities.ToImmutable(),
+                hasFlexibleArityCandidate);
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -522,7 +542,7 @@ internal static class MethodDefinitionFacts
             or IndexOutOfRangeException
             or OverflowException)
         {
-            return MetadataFactState.Unknown;
+            return new(MetadataFactState.Unknown, [], false);
         }
     }
 

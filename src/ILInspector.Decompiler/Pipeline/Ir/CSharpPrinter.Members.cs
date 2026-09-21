@@ -711,6 +711,8 @@ public sealed partial class CSharpPrinter
         bool omitTypeArguments = !call.Callee.TypeArguments.IsEmpty
             && call.Callee.CanOmitTypeArguments
             && PrintedArgumentsPreserveGenericInference(call);
+        bool inferMethodGroups = omitTypeArguments
+            && BareMethodGroupArgumentsPreserveOverloadSelection(call);
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             || omitTypeArguments
             ? ""
@@ -738,7 +740,7 @@ public sealed partial class CSharpPrinter
                     arguments.Skip(1),
                     restTypes,
                     restRefKinds,
-                    inferMethodGroups: omitTypeArguments);
+                    inferMethodGroups: inferMethodGroups);
                 if (PointerRefExtensionReceiver(call.Callee, arguments[0]) is { } extensionReceiver)
                     return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({extensionArgs})";
                 if (arguments[0].ResultType is { Kind: TypeRefKind.Pointer })
@@ -950,6 +952,76 @@ public sealed partial class CSharpPrinter
         }
 
         return true;
+    }
+
+    static bool BareMethodGroupArgumentsPreserveOverloadSelection(Call call)
+    {
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            if (call.Arguments[i] is not DelegateCreation creation
+                || (uint)i >= (uint)call.Callee.ParameterTypes.Length
+                || !MethodGroupTargetPreservesConstructedDelegate(
+                    creation,
+                    call.Callee.ParameterTypes[i]))
+            {
+                continue;
+            }
+
+            foreach (ImmutableArray<TypeRef> sibling
+                in call.Callee.TypeArgumentElisionSiblingParameters)
+            {
+                if ((uint)i >= (uint)sibling.Length
+                    || sibling[i].Equals(
+                        call.Callee.DefinitionParameterTypes[i]))
+                {
+                    continue;
+                }
+
+                TypeRef constructedSibling =
+                    sibling[i].Instantiate([], call.Callee.TypeArguments);
+                if (!MethodGroupCannotConvertByInputArity(
+                    creation,
+                    constructedSibling))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    static bool MethodGroupCannotConvertByInputArity(
+        DelegateCreation creation,
+        TypeRef delegateType)
+    {
+        if (creation.Method.MethodGroupInferenceHasFlexibleArityCandidate
+            || creation.Method.MethodGroupInferenceCandidateArities.IsEmpty
+            || delegateType is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                } definition,
+            })
+        {
+            return false;
+        }
+
+        int inputCount = definition.Name.StartsWith(
+                "Func`",
+                StringComparison.Ordinal)
+            ? delegateType.TypeArguments.Length - 1
+            : definition.Name.StartsWith(
+                "Action`",
+                StringComparison.Ordinal)
+                ? delegateType.TypeArguments.Length
+                : -1;
+        return inputCount >= 0
+            && !creation.Method.MethodGroupInferenceCandidateArities.Contains(
+                inputCount);
     }
 
     static bool PrintedArgumentHasStableNaturalType(IrExpression argument)

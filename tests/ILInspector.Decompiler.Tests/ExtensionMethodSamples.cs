@@ -21,6 +21,11 @@ public static class OutputInferenceMethodGroupSamples
         IEnumerable<string> values)
         => values.Select<string, int>(ParseExact);
 
+    public static IEnumerable<int> CallOuterOverloadRisk(
+        IEnumerable<string> values)
+        => values.Select<string, int>(
+            (Func<string, int>)Convert.ToInt32);
+
     public static IEnumerable<int> CallReselectionRisk(
         IEnumerable<string> values)
         => values.Select<string, int>(ParseOverload);

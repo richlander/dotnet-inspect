@@ -364,15 +364,14 @@ public class ExtensionMethodCallTests
     }
 
     [Fact]
-    public void OutputInferredMethodGroup_OmitsGenericArgumentsAndDelegateCast()
+    public void OverloadedOutputInferredMethodGroup_KeepsDelegateCast()
     {
         string output = PrintRaised(
             typeof(OutputInferenceMethodGroupSamples),
             nameof(OutputInferenceMethodGroupSamples.Call));
 
-        Assert.Contains("values.Select(int.Parse)", output);
+        Assert.Contains("values.Select((Func<string, int>)int.Parse)", output);
         Assert.DoesNotContain("Select<string, int>", output);
-        Assert.DoesNotContain("(Func<string, int>)", output);
     }
 
     [Fact]
@@ -387,6 +386,19 @@ public class ExtensionMethodCallTests
             output);
         Assert.DoesNotContain("Select<string, int>", output);
         Assert.DoesNotContain("(Func<string, int>)", output);
+    }
+
+    [Fact]
+    public void MethodGroupApplicableToOuterSibling_KeepsDelegateCast()
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            nameof(OutputInferenceMethodGroupSamples.CallOuterOverloadRisk));
+
+        Assert.Contains(
+            "values.Select((Func<string, int>)Convert.ToInt32)",
+            output);
+        Assert.DoesNotContain("Select<string, int>", output);
     }
 
     [Fact]
@@ -439,6 +451,7 @@ public class ExtensionMethodCallTests
         [
             nameof(OutputInferenceMethodGroupSamples.Call),
             nameof(OutputInferenceMethodGroupSamples.CallSameAssembly),
+            nameof(OutputInferenceMethodGroupSamples.CallOuterOverloadRisk),
             nameof(OutputInferenceMethodGroupSamples.CallReselectionRisk),
             nameof(OutputInferenceMethodGroupSamples.CallPriorityRisk),
             nameof(OutputInferenceMethodGroupSamples.CallDynamicReturnRisk),
