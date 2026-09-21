@@ -4017,6 +4017,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_DecompiledSource_WithEmptySibling_RemainsMarkdownDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonNamingPolicy", "--platform", "System.Text.Json",
+            "-S", "Decompiled Source,Fields", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: section 'Fields' has no data", error);
+        Assert.StartsWith("# System.Text.Json.JsonNamingPolicy", output);
+        Assert.DoesNotContain("## Fields", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("```csharp", output);
+    }
+
+    [Fact]
     public async Task Type_Bare_IsRetired()
     {
         var (exit, output, error) = await RunAppAsync(

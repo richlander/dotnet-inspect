@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CSharpText;
 using DotnetInspect.Cli.Models;
 using Markout;
 using Markout.Formatting;
@@ -230,8 +231,12 @@ public static class PrintProjectionOutput
     AutoFields = false,
     TitleProperty = nameof(Title))]
 internal sealed record PrintProjectionMarkdownView(
-    [property: MarkoutIgnore] string Title,
-    [property: MarkoutSection(Headless = true)] CodeSection Content);
+    string Title,
+    [property: MarkoutSection(Headless = true)] CodeSection Content)
+{
+    [MarkoutIgnore]
+    public string Title { get; init; } = CSharpIdentifier.ContainRenderedText(Title);
+}
 
 [MarkoutContext(typeof(PrintProjectionMarkdownView))]
 internal partial class PrintProjectionMarkdownViewContext : MarkoutSerializerContext;
