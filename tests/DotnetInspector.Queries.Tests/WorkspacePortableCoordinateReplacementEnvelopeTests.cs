@@ -20,7 +20,9 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             library ? "library.references" : "type.metadata");
 
         var result = await WorkspacePortableCoordinateReplacementOperation.ExecuteAsync(
-            input, new("avalonia", version: "12.1.2"), Options(store),
+            input,
+            new(AvaloniaComponentPath, version: "12.1.2"),
+            Options(store),
             TestContext.Current.CancellationToken);
 
         Assert.True(result.Content.Succeeded, result.Content.Failure?.Detail);
@@ -77,7 +79,9 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             new PortableSubjectRequest.Member(), "member.overview",
             memberSignature: "P:Avalonia.Data.MultiBinding.Converter");
         var result = await WorkspacePortableCoordinateReplacementOperation.ExecuteAsync(
-            input, new("avalonia", version: "12.1.2"), options,
+            input,
+            new(AvaloniaComponentPath, version: "12.1.2"),
+            options,
             TestContext.Current.CancellationToken);
 
         Assert.True(result.Content.Succeeded, result.Content.Failure?.Detail);
@@ -115,7 +119,10 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
     {
         var input = PackageOnlyDefinitions(InspectionDefinitionSchema.Version4);
         var result = await WorkspacePortableCoordinateReplacementOperation.ExecuteAsync(
-            input, new("not-a-navigation-row", version: "12.1.2"),
+            input,
+            new(
+                "packages/missing@1.0.0/net8.0/~",
+                version: "12.1.2"),
             Options(new InMemoryPackageStore()), TestContext.Current.CancellationToken);
 
         Assert.False(result.Content.Succeeded);

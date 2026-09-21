@@ -569,10 +569,10 @@ slice 8. Its outcome tests must establish:
   the total width;
 - bounded work and allocation before retention on oversized tables; and
 - the same supported ECMA-335 result under Browser/Wasm and
-  NativeAOT-compatible hosts, gated by
-  `LayeringTests.MetadataPrimitives_MethodSemanticsPlatformProbesAreWired` and
-  `eng/run-method-semantics-platform-probe.sh`; unsupported-format
-  classification and its direct leaf close-negative belong to `MDP017`.
+  NativeAOT-compatible hosts, gated by successful executions of
+  `eng/run-method-semantics-platform-probe.sh` in the Browser/Wasm platform
+  probe and NativeAOT host-policy jobs; unsupported-format classification and
+  its direct leaf close-negative belong to `MDP017`.
 
 ## Why `TypeRef` remains local
 
@@ -805,9 +805,11 @@ The current boundary is protected by:
 - `MethodSemanticsRowReaderTests` for lossless physical rows, raw bits, index
   widths, malformed bounds, independent IL-oracle parity, and retained-row
   budgeting;
-- `LayeringTests.MetadataPrimitives_MethodSemanticsReaderIsIsolated` and
-  `LayeringTests.MetadataPrimitives_MethodSemanticsPlatformProbesAreWired` for
-  raw-layout/API closure and executable NativeAOT/Browser wiring;
+- `LayeringTests.MetadataPrimitives_MethodSemanticsReaderIsIsolated` for
+  raw-layout and API closure;
+- `eng/run-method-semantics-platform-probe.sh`, executed by the NativeAOT
+  host-policy and Browser/Wasm platform-probe jobs, for cross-host executable
+  evidence;
 - `LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` for the
   MetadataPrimitives owner of neutral name matching.
 

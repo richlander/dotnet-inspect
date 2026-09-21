@@ -61,6 +61,7 @@ type MetadataOperations =
   | "queryTypeProjection";
 
 type AnalysisOperations =
+  | "queryCloneCandidates"
   | "queryMemberFacts"
   | "queryPackageIntegrations"
   | "queryPackageOpportunities"

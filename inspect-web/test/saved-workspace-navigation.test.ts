@@ -615,6 +615,9 @@ function harness() {
     libraryApiDiff: {
       cancelCurrentRequest: () => {},
     },
+    compareClone: {
+      cancelCurrentRequest: () => {},
+    },
     cancelFindingCensusRequest: () => {},
     memberDetailInspection: { invalidate: () => {} },
     persistRecentPackages: () => {},
@@ -1421,7 +1424,7 @@ test("successful saved Open retires comparison settings with the discarded Packa
 
   assert.ok(h.state.package);
   assert.deepEqual(h.packageComparisonTargets.get(h.state.package), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" },
+    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
   });
   assert.deepEqual(h.packageComparisonTargets.get(sourcePackage).diff, { kind: "previous" });
   assert.deepEqual(h.catalogRequests.packageVersions(sourcePackage), { status: "idle" });

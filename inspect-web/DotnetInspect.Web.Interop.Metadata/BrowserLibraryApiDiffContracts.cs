@@ -118,7 +118,8 @@ public sealed record BrowserLibraryApiDiffType(
     int PotentiallyBreakingCount,
     BrowserLibraryApiDiffTypeIdentity? Before,
     BrowserLibraryApiDiffTypeIdentity? After,
-    BrowserLibraryApiDiffMember[] Members);
+    BrowserLibraryApiDiffMember[] Members,
+    BrowserLibraryApiDiffChange[] Changes);
 
 public sealed record BrowserLibraryApiDiffTypeIdentity(
     string Identifier,
@@ -131,7 +132,21 @@ public sealed record BrowserLibraryApiDiffMember(
     BrowserLibraryApiDiffMemberPairKind PairKind,
     BrowserLibraryApiDiffMemberRelationRole Role,
     BrowserLibraryApiDiffMemberIdentity? Before,
-    BrowserLibraryApiDiffMemberIdentity? After);
+    BrowserLibraryApiDiffMemberIdentity? After,
+    BrowserLibraryApiDiffChange[] Changes);
+
+/// <summary>
+/// One Metadata-issued compatibility change placed on the Type or Member it
+/// describes. Text is the producer's inert message and values; the Browser
+/// renders it and never re-derives classification from it.
+/// </summary>
+public sealed record BrowserLibraryApiDiffChange(
+    BrowserLibraryApiDiffChangeKind Kind,
+    BrowserLibraryApiDiffChangeClassification Classification,
+    BrowserLibraryApiDiffChangeCategory Category,
+    string Message,
+    string? OldValue,
+    string? NewValue);
 
 public sealed record BrowserLibraryApiDiffMemberIdentity(
     string DeclaringTypeIdentifier,
@@ -281,4 +296,49 @@ public enum BrowserLibraryApiDiffMetadataRootMalformedReason
     InvalidVersionLength,
     TruncatedVersionField,
     MissingVersionTerminator,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffChangeKind>))]
+public enum BrowserLibraryApiDiffChangeKind
+{
+    TypeAdded,
+    TypeRemoved,
+    TypeKindChanged,
+    SealedAdded,
+    SealedRemoved,
+    AbstractAdded,
+    AbstractRemoved,
+    BaseTypeChanged,
+    InterfaceAdded,
+    InterfaceRemoved,
+    TypeParameterCountChanged,
+    TypeParameterVarianceChanged,
+    TypeParameterConstraintTightened,
+    TypeParameterConstraintLoosened,
+    MemberAdded,
+    MemberRemoved,
+    MemberSignatureChanged,
+    VirtualRemoved,
+    AbstractMemberAdded,
+    EnumValueChanged,
+    TypeAttributeAdded,
+    TypeAttributeRemoved,
+    MemberAttributeAdded,
+    MemberAttributeRemoved,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserLibraryApiDiffChangeClassification>))]
+public enum BrowserLibraryApiDiffChangeClassification
+{
+    Additive,
+    Breaking,
+    PotentiallyBreaking,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffChangeCategory>))]
+public enum BrowserLibraryApiDiffChangeCategory
+{
+    Signature,
+    Attribute,
 }

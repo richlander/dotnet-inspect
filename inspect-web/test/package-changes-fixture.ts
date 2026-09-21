@@ -4,12 +4,13 @@ import type {
   BrowserPackageChangesProgress,
   BrowserPackageChangesRow,
 } from "../src/facades/inspect-web-package.d.ts";
+import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 
 export const progress: BrowserPackageChangesProgress = {
   phase: "Catalog",
   completed: 1,
   total: null,
-  capturedHorizon: "2026-04-01T00:00:00.0000000Z",
+  capturedHorizon: dateTimeOffsetString("2026-04-01T00:00:00+00:00"),
   catalogPagesAcquired: 1,
   catalogHttpAttempts: 1,
   catalogDecodedBytes: 2048,
@@ -29,8 +30,8 @@ export function changeRow(
     cveId: "CVE-2026-1234",
     severity: "High",
     advisoryUrl: options.advisoryUrl ?? "https://github.com/advisories/GHSA-1234-5678-9012",
-    publishedAt: "2026-03-01T00:00:00.0000000Z",
-    updatedAt: "2026-03-02T00:00:00.0000000Z",
+    publishedAt: dateTimeOffsetString("2026-03-01T00:00:00+00:00"),
+    updatedAt: dateTimeOffsetString("2026-03-02T00:00:00+00:00"),
   };
   const securityRelease = options.securityRelease === true;
   return {
@@ -41,7 +42,8 @@ export function changeRow(
       normalizedVersion: "1.2.3",
       leafUrl: "https://api.nuget.org/v3/catalog0/page/leaf.json",
       commitId: "0123456789abcdef",
-      commitTimestamp: "2026-03-31T00:00:00.0000000Z",
+      commitTimestamp: dateTimeOffsetString(
+        "2026-03-31T00:00:00+00:00"),
       catalogKind: "Details",
       activity: "SnapshotObserved",
     },
@@ -55,7 +57,8 @@ export function changeRow(
     },
     packageReceipt: securityRelease
       ? {
-          receivedAt: "2026-03-31T00:00:00.0000000Z",
+          receivedAt: dateTimeOffsetString(
+            "2026-03-31T00:00:00+00:00"),
           basis: "PackageMetadata",
         }
       : null,
@@ -65,7 +68,8 @@ export function changeRow(
     securityRelease: securityRelease
       ? {
           receipt: {
-            receivedAt: "2026-03-31T00:00:00.0000000Z",
+            receivedAt: dateTimeOffsetString(
+              "2026-03-31T00:00:00+00:00"),
             basis: "PackageMetadata",
           },
           advisories: [advisory],
@@ -91,9 +95,12 @@ export function inspection(
     content: {
       schemaVersion: 1,
       request: {
-        referenceTime: "2026-04-01T00:00:00.0000000Z",
-        fromExclusive: "2026-03-01T00:00:00.0000000Z",
-        throughInclusive: "2026-04-01T00:00:00.0000000Z",
+        referenceTime: dateTimeOffsetString(
+          "2026-04-01T00:00:00+00:00"),
+        fromExclusive: dateTimeOffsetString(
+          "2026-03-01T00:00:00+00:00"),
+        throughInclusive: dateTimeOffsetString(
+          "2026-04-01T00:00:00+00:00"),
         usedDefaultInterval: true,
         packageScope: {
           kind: "PackageSet",
@@ -115,7 +122,8 @@ export function inspection(
       rows,
       failures,
       summary: {
-        capturedHorizon: "2026-04-01T00:00:00.0000000Z",
+        capturedHorizon: dateTimeOffsetString(
+          "2026-04-01T00:00:00+00:00"),
         catalogCompletion: "WindowExhausted",
         catalogFailure: null,
         catalogPagesAcquired: 1,
@@ -128,7 +136,8 @@ export function inspection(
         advisoryEvidence: {
           packageProducerKey: "nuget.org",
           advisoryProducer: "GitHub Advisory Database",
-          observedAt: "2026-04-01T00:00:00.0000000Z",
+          observedAt: dateTimeOffsetString(
+            "2026-04-01T00:00:00+00:00"),
           apiRequests: 1,
           responseBytes: 1024,
           complete: completion === "Complete",

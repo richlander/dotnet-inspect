@@ -63,7 +63,8 @@ internal static class TypeScriptFacadeEmitter
                     function,
                     diagnostics,
                     names.TypeNames,
-                    names.InertStringName);
+                    names.InertStringName,
+                    names.DateTimeOffsetName);
             signatures.Add(
                 function,
                 names.Apply(function, signature));
@@ -78,7 +79,9 @@ internal static class TypeScriptFacadeEmitter
             diagnostics,
             names.TypeNames,
             names.InertStringName,
-            names.InertStringBrandName));
+            names.InertStringBrandName,
+            names.DateTimeOffsetName,
+            names.DateTimeOffsetBrandName));
 
         ExportPathNode exportTree = BuildExportTree(functions);
         EmitManagedExportsType(sb, exportTree, signatures);
@@ -477,6 +480,8 @@ internal static class TypeScriptFacadeEmitter
         private readonly Dictionary<JsExportFunction, string[]> _parameterNames;
         private readonly string? _inertStringName;
         private readonly string? _inertStringBrandName;
+        private readonly string? _dateTimeOffsetName;
+        private readonly string? _dateTimeOffsetBrandName;
 
         private TypeScriptNameAllocator(
             HashSet<string> moduleBindings,
@@ -484,7 +489,9 @@ internal static class TypeScriptFacadeEmitter
             Dictionary<JsExportFunction, string> operationNames,
             Dictionary<JsExportFunction, string[]> parameterNames,
             string? inertStringName,
-            string? inertStringBrandName)
+            string? inertStringBrandName,
+            string? dateTimeOffsetName,
+            string? dateTimeOffsetBrandName)
         {
             _moduleBindings = moduleBindings;
             _typeNames = typeNames;
@@ -492,6 +499,8 @@ internal static class TypeScriptFacadeEmitter
             _parameterNames = parameterNames;
             _inertStringName = inertStringName;
             _inertStringBrandName = inertStringBrandName;
+            _dateTimeOffsetName = dateTimeOffsetName;
+            _dateTimeOffsetBrandName = dateTimeOffsetBrandName;
         }
 
         public static TypeScriptNameAllocator Create(
@@ -511,7 +520,7 @@ internal static class TypeScriptFacadeEmitter
                     moduleBindings,
                     "InertString",
                     "type",
-                    CanonicalInertStringIdentity(inertStringIdentity),
+                    CanonicalExternalTypeIdentity(inertStringIdentity),
                     TypeScriptIdentifier.IsTypeDeclarationIdentifier);
             string? inertStringBrandName = inertStringIdentity is null
                 ? null
@@ -519,8 +528,35 @@ internal static class TypeScriptFacadeEmitter
                     moduleBindings,
                     "inertStringBrand",
                     "brand",
-                    CanonicalInertStringIdentity(inertStringIdentity) + "#brand",
+                    CanonicalExternalTypeIdentity(inertStringIdentity) + "#brand",
                     TypeScriptIdentifier.IsStrictModeBindingIdentifier);
+            IReadOnlyList<ApiTypeReferenceIdentity> dateTimeOffsetIdentities =
+                DtsEmitter.FindDateTimeOffsetIdentities(surface);
+            bool usesDateTimeOffset =
+                DtsEmitter.UsesDateTimeOffset(surface);
+            string dateTimeOffsetIdentity =
+                dateTimeOffsetIdentities.Count == 0
+                    ? TsTypeMapper.DateTimeOffsetFullName
+                    : CanonicalDateTimeOffsetIdentity(
+                        dateTimeOffsetIdentities);
+            string? dateTimeOffsetName =
+                !usesDateTimeOffset
+                    ? null
+                    : Allocate(
+                        moduleBindings,
+                        TsTypeMapper.DateTimeOffsetJsonStringName,
+                        "type",
+                        dateTimeOffsetIdentity,
+                        TypeScriptIdentifier.IsTypeDeclarationIdentifier);
+            string? dateTimeOffsetBrandName =
+                !usesDateTimeOffset
+                    ? null
+                    : Allocate(
+                        moduleBindings,
+                        "dateTimeOffsetStringBrand",
+                        "brand",
+                        dateTimeOffsetIdentity + "#brand",
+                        TypeScriptIdentifier.IsStrictModeBindingIdentifier);
             var typeNames = new Dictionary<ApiType, string>();
             foreach (ApiType type in surface.Records
                 .Concat(surface.Enums)
@@ -611,7 +647,9 @@ internal static class TypeScriptFacadeEmitter
                 operationNames,
                 parameterNames,
                 inertStringName,
-                inertStringBrandName);
+                inertStringBrandName,
+                dateTimeOffsetName,
+                dateTimeOffsetBrandName);
         }
 
         static string StripMetadataArity(string name)
@@ -626,6 +664,11 @@ internal static class TypeScriptFacadeEmitter
         public string? InertStringName => _inertStringName;
 
         public string? InertStringBrandName => _inertStringBrandName;
+
+        public string? DateTimeOffsetName => _dateTimeOffsetName;
+
+        public string? DateTimeOffsetBrandName =>
+            _dateTimeOffsetBrandName;
 
         public TypeScriptFunctionSignature Apply(
             JsExportFunction function,
@@ -684,7 +727,7 @@ internal static class TypeScriptFacadeEmitter
             + "|"
             + type.Kind;
 
-        static string CanonicalInertStringIdentity(
+        static string CanonicalExternalTypeIdentity(
             ApiTypeReferenceIdentity identity) =>
             identity.Assembly.Name
             + "|"
@@ -697,5 +740,11 @@ internal static class TypeScriptFacadeEmitter
             + identity.FullName
             + "|"
             + identity.DefinitionName;
+
+        static string CanonicalDateTimeOffsetIdentity(
+            IReadOnlyList<ApiTypeReferenceIdentity> identities) =>
+            string.Join(
+                "\n",
+                identities.Select(CanonicalExternalTypeIdentity));
     }
 }

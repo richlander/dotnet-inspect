@@ -222,9 +222,9 @@ internal static class BrowserPackageChangesWireProjection
         new(
             value.SchemaVersion,
             new(
-                Timestamp(value.Request.ReferenceTime),
-                Timestamp(value.Request.FromExclusive),
-                Timestamp(value.Request.ThroughInclusive),
+                value.Request.ReferenceTime.ToUniversalTime(),
+                value.Request.FromExclusive.ToUniversalTime(),
+                value.Request.ThroughInclusive.ToUniversalTime(),
                 value.Request.UsedDefaultInterval,
                 new(
                     value.Request.PackageScope.Kind.ToString(),
@@ -253,7 +253,7 @@ internal static class BrowserPackageChangesWireProjection
             value.NormalizedVersion,
             value.LeafUrl,
             value.CommitId,
-            Timestamp(value.CommitTimestamp),
+            value.CommitTimestamp.ToUniversalTime(),
             value.CatalogKind.ToString(),
             value.Activity.ToString());
 
@@ -264,8 +264,8 @@ internal static class BrowserPackageChangesWireProjection
             value.CveId,
             value.Severity.ToString(),
             value.AdvisoryUrl,
-            Timestamp(value.PublishedAt),
-            Timestamp(value.UpdatedAt));
+            value.PublishedAt.ToUniversalTime(),
+            value.UpdatedAt.ToUniversalTime());
 
     static BrowserPackageChangesAdvisoryEvidence Project(
         EcosystemChangeAdvisoryEvidencePresentation value) =>
@@ -275,7 +275,7 @@ internal static class BrowserPackageChangesWireProjection
 
     static BrowserPackageChangesPackageReceipt Project(
         EcosystemChangePackageReceiptPresentation value) =>
-        new(Timestamp(value.ReceivedAt), value.Basis.ToString());
+        new(value.ReceivedAt.ToUniversalTime(), value.Basis.ToString());
 
     static BrowserPackageChangesSecurityRelease Project(
         EcosystemChangeSecurityReleasePresentation value) =>
@@ -324,7 +324,7 @@ internal static class BrowserPackageChangesWireProjection
         new(
             value.PackageProducerKey,
             value.AdvisoryProducer,
-            Timestamp(value.ObservedAt),
+            value.ObservedAt.ToUniversalTime(),
             value.ApiRequests,
             value.ResponseBytes,
             value.Complete,
@@ -338,7 +338,7 @@ internal static class BrowserPackageChangesWireProjection
             value.Completed,
             value.Total,
             value.CapturedHorizon is { } horizon
-                ? Timestamp(horizon)
+                ? horizon.ToUniversalTime()
                 : null,
             value.CatalogPagesAcquired,
             value.CatalogHttpAttempts,
@@ -360,7 +360,7 @@ internal static class BrowserPackageChangesWireProjection
         EcosystemChangeReportSummaryPresentation value) =>
         new(
             value.CapturedHorizon is { } horizon
-                ? Timestamp(horizon)
+                ? horizon.ToUniversalTime()
                 : null,
             value.CatalogCompletion?.ToString(),
             value.CatalogFailure is null
@@ -386,10 +386,6 @@ internal static class BrowserPackageChangesWireProjection
             value.ResultLimitReached,
             value.Completion.ToString());
 
-    static string Timestamp(DateTimeOffset value) =>
-        value.ToUniversalTime().ToString(
-            "O",
-            CultureInfo.InvariantCulture);
 }
 
 [SupportedOSPlatform("browser")]

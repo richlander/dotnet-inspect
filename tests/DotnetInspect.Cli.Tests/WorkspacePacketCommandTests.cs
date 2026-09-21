@@ -6,7 +6,7 @@ using DotnetInspector.Queries.Definitions;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class WorkspaceStateCommandTests
+public sealed class WorkspacePacketCommandTests
 {
     private const string CanonicalVector =
         "eyJmIjoxLCJ0IjpbWyI6UGxhdGZvcm0iLCIxMC4wLjEwIiwibmV0MTAuMCIsbnVsbF0s"
@@ -42,7 +42,7 @@ public sealed class WorkspaceStateCommandTests
     public async Task DecodeThenEncode_RoundTripsCanonicalPacket()
     {
         var decoded = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "decode",
             CanonicalVector);
 
@@ -56,7 +56,7 @@ public sealed class WorkspaceStateCommandTests
             decoded.Output.TrimEnd());
 
         var encoded = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "encode",
             decoded.Output);
 
@@ -72,7 +72,7 @@ public sealed class WorkspaceStateCommandTests
         string json = CurrentWorkspaceJson(
             ExpectedPackageSets.MicrosoftExtensions);
 
-        var encoded = await RunCliAsync("workspace-state", "encode", json);
+        var encoded = await RunCliAsync("workspace", "packet", "encode", json);
 
         Assert.Equal(0, encoded.ExitCode);
         Assert.Empty(encoded.Error);
@@ -85,7 +85,7 @@ public sealed class WorkspaceStateCommandTests
             decodedPacket.Tabs.Select(tab => tab.Source));
 
         var decoded = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "decode",
             packet);
 
@@ -103,7 +103,7 @@ public sealed class WorkspaceStateCommandTests
             encoded,
             TestContext.Current.CancellationToken);
         var result = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "encode",
             WorkspaceSharePacketCodec.SerializeJson(packet),
             "--url");
@@ -121,7 +121,7 @@ public sealed class WorkspaceStateCommandTests
     {
         string path = Path.Combine(
             Path.GetTempPath(),
-            $"dotnet-inspect-workspace-state-{Guid.NewGuid():N}.json");
+            $"dotnet-inspect-workspace-packet-{Guid.NewGuid():N}.json");
         try
         {
             await File.WriteAllTextAsync(
@@ -130,7 +130,7 @@ public sealed class WorkspaceStateCommandTests
                 TestContext.Current.CancellationToken);
 
             var result = await RunCliAsync(
-                "workspace-state",
+                "workspace", "packet",
                 "encode",
                 "--file",
                 path);
@@ -140,7 +140,7 @@ public sealed class WorkspaceStateCommandTests
             Assert.Equal(CanonicalVector, result.Output.TrimEnd());
 
             var url = await RunCliAsync(
-                "workspace-state",
+                "workspace", "packet",
                 "encode",
                 "--file",
                 path,
@@ -163,7 +163,7 @@ public sealed class WorkspaceStateCommandTests
     {
         string path = Path.Combine(
             Path.GetTempPath(),
-            $"dotnet-inspect-workspace-state-{Guid.NewGuid():N}.json");
+            $"dotnet-inspect-workspace-packet-{Guid.NewGuid():N}.json");
         try
         {
             await File.WriteAllTextAsync(
@@ -173,7 +173,7 @@ public sealed class WorkspaceStateCommandTests
                 TestContext.Current.CancellationToken);
 
             var result = await RunCliAsync(
-                "workspace-state",
+                "workspace", "packet",
                 "encode",
                 "--file",
                 path);
@@ -192,7 +192,7 @@ public sealed class WorkspaceStateCommandTests
     public async Task Encode_RejectsEmptyFilePathWithoutStackTrace()
     {
         var result = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "encode",
             "--file",
             "");
@@ -211,7 +211,7 @@ public sealed class WorkspaceStateCommandTests
     public async Task Encode_InvalidFilePathDoesNotPrintStackTrace(string path)
     {
         var result = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "encode",
             "--file",
             path);
@@ -228,7 +228,7 @@ public sealed class WorkspaceStateCommandTests
     {
         using var encodeInput = Utf8Stream(EquivalentJson);
         var encoded = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.EncodeAsync(
+            () => WorkspacePacketCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -241,7 +241,7 @@ public sealed class WorkspaceStateCommandTests
         using var decodeInput = Utf8Stream(
             CanonicalVector + Environment.NewLine);
         var decoded = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.DecodeAsync(
+            () => WorkspacePacketCommand.DecodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -262,7 +262,7 @@ public sealed class WorkspaceStateCommandTests
     {
         using var input = Utf8Stream(EquivalentJson + "\r\n");
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.EncodeAsync(
+            () => WorkspacePacketCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -284,14 +284,14 @@ public sealed class WorkspaceStateCommandTests
             WorkspaceSharePacketCodec.MaxDecodedUtf8Length,
             Encoding.UTF8.GetByteCount(json));
 
-        var encoded = await RunCliAsync("workspace-state", "encode", json);
+        var encoded = await RunCliAsync("workspace", "packet", "encode", json);
         Assert.Equal(0, encoded.ExitCode);
         Assert.Empty(encoded.Error);
         string packet = encoded.Output.TrimEnd();
         Assert.Equal(WorkspaceSharePacketCodec.MaxEncodedLength, packet.Length);
 
         var decoded = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "decode",
             packet);
         Assert.Equal(0, decoded.ExitCode);
@@ -300,7 +300,7 @@ public sealed class WorkspaceStateCommandTests
 
         using var replayInput = Utf8Stream(decoded.Output);
         var replayed = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.EncodeAsync(
+            () => WorkspacePacketCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -310,7 +310,7 @@ public sealed class WorkspaceStateCommandTests
         Assert.Equal(packet, replayed.Output.TrimEnd());
 
         var url = await RunCliAsync(
-            "workspace-state", "encode", json, "--url");
+            "workspace", "packet", "encode", json, "--url");
         Assert.Equal(0, url.ExitCode);
         Assert.Empty(url.Error);
         Assert.Equal(
@@ -326,7 +326,7 @@ public sealed class WorkspaceStateCommandTests
     {
         using var jsonInput = Utf8Stream(CreateMaximumJson() + lineEndings);
         var encoded = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.EncodeAsync(
+            () => WorkspacePacketCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -339,7 +339,7 @@ public sealed class WorkspaceStateCommandTests
 
         using var packetInput = Utf8Stream(CanonicalVector + lineEndings);
         var decoded = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.DecodeAsync(
+            () => WorkspacePacketCommand.DecodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -359,7 +359,7 @@ public sealed class WorkspaceStateCommandTests
         using var standardInput = new MemoryStream(input);
 
         var result = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.EncodeAsync(
+            () => WorkspacePacketCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -391,7 +391,7 @@ public sealed class WorkspaceStateCommandTests
             """
             @echo off
             chcp 437 >nul || exit /b 91
-            "%~1" workspace-state decode "%~2" | "%~1" workspace-state encode -
+            "%~1" workspace packet decode "%~2" | "%~1" workspace packet encode -
             """;
         await File.WriteAllTextAsync(
             scriptPath,
@@ -439,14 +439,14 @@ public sealed class WorkspaceStateCommandTests
     [Fact]
     public async Task Commands_RequireExactlyOneInputSource()
     {
-        var missing = await RunCliAsync("workspace-state", "encode");
+        var missing = await RunCliAsync("workspace", "packet", "encode");
         Assert.Equal(1, missing.ExitCode);
         Assert.Contains(
             "Provide <json>, '-' for stdin, or --file <path>.",
             missing.Error);
 
         var conflicting = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "decode",
             CanonicalVector,
             "--file",
@@ -457,14 +457,14 @@ public sealed class WorkspaceStateCommandTests
             conflicting.Error);
 
         var missingUrl = await RunCliAsync(
-            "workspace-state", "encode", "--url");
+            "workspace", "packet", "encode", "--url");
         Assert.Equal(1, missingUrl.ExitCode);
         Assert.Empty(missingUrl.Output);
         Assert.Contains("Provide <json>", missingUrl.Error);
 
         var conflictingUrl = await RunCliAsync(
-            "workspace-state", "encode", EquivalentJson,
-            "--file", "workspace-state.json", "--url");
+            "workspace", "packet", "encode", EquivalentJson,
+            "--file", "workspace-packet.json", "--url");
         Assert.Equal(1, conflictingUrl.ExitCode);
         Assert.Empty(conflictingUrl.Output);
         Assert.Contains(
@@ -476,7 +476,7 @@ public sealed class WorkspaceStateCommandTests
     public async Task EncodeHelp_DoesNotRequireInput()
     {
         var result = await RunCliAsync(
-            "workspace-state",
+            "workspace", "packet",
             "encode",
             "--help");
 
@@ -490,7 +490,7 @@ public sealed class WorkspaceStateCommandTests
     public async Task Decode_DoesNotAcceptUrlOption()
     {
         var result = await RunCliAsync(
-            "workspace-state", "decode", CanonicalVector, "--url");
+            "workspace", "packet", "decode", CanonicalVector, "--url");
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("--url", result.Error);
@@ -502,7 +502,7 @@ public sealed class WorkspaceStateCommandTests
     public async Task InvalidAndOversizedInput_FailsWithoutOutput(bool url)
     {
         var invalid = await RunCliAsync(
-            "workspace-state", "encode", "{}", $"--url={url}");
+            "workspace", "packet", "encode", "{}", $"--url={url}");
         Assert.Equal(1, invalid.ExitCode);
         Assert.Empty(invalid.Output);
         Assert.Contains("Error: Workspace share state requires", invalid.Error);
@@ -511,7 +511,7 @@ public sealed class WorkspaceStateCommandTests
             ' ',
             WorkspaceSharePacketCodec.MaxDecodedUtf8Length + 3));
         var oversized = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.EncodeAsync(
+            () => WorkspacePacketCommand.EncodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -527,7 +527,7 @@ public sealed class WorkspaceStateCommandTests
             'A',
             WorkspaceSharePacketCodec.MaxEncodedLength + 1));
         var oversizedPacket = await ConsoleCapture.RunAsync(
-            () => WorkspaceStateCommand.DecodeAsync(
+            () => WorkspacePacketCommand.DecodeAsync(
                 "-",
                 file: null,
                 TestContext.Current.CancellationToken,
@@ -540,7 +540,7 @@ public sealed class WorkspaceStateCommandTests
     }
 
     [Fact]
-    public void WorkspaceState_IsReservedForExplicitRouting()
+    public void RemovedWorkspaceState_IsReservedForExplicitRouting()
     {
         Assert.Contains(
             "workspace-state",

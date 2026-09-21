@@ -29,7 +29,7 @@ test("new Packages default to the previous version and live Workspace including 
   const current = pkg();
   const targets = createPackageComparisonTargets(() => [current]);
   assert.deepEqual(targets.get(current), {
-    diff: { kind: "previous" }, clone: { kind: "workspace" },
+    diff: { kind: "previous" }, clone: { kind: "workspace" }, mode: "diff",
   });
   assert.equal(diffTargetDescription(targets.get(current).diff, versions),
     "Previous listed release");
@@ -214,4 +214,28 @@ test("bindings dispatch exact versions and captured Package objects without eage
     { kind: "package", package: current },
     "retry",
   ]);
+});
+
+test("Compare mode is retained per Package model and discarded with it", () => {
+  const current = pkg();
+  const other = pkg("Other.Package");
+  const targets = createPackageComparisonTargets(() => [current, other]);
+  assert.equal(targets.get(current).mode, "diff");
+  targets.selectMode(current, "clone");
+  assert.equal(targets.get(current).mode, "clone");
+  // Mode is Package-scoped presentation state, not a shared or portable choice.
+  assert.equal(targets.get(other).mode, "diff");
+  // Changing a target never resets the retained mode.
+  targets.selectDiff(current, { kind: "exact", version: "2.0.0" }, versions);
+  targets.selectClone(current, { kind: "package", package: other });
+  assert.equal(targets.get(current).mode, "clone");
+  // Rollback copies carry the mode with the other settings.
+  const copy = pkg();
+  targets.copyPackages(new Map([[current, copy]]));
+  assert.equal(targets.get(copy).mode, "clone");
+  // A removed or replaced Package model discards its mode; Diff is the default.
+  targets.forget(current);
+  assert.equal(targets.get(current).mode, "diff");
+  const stranger = pkg("Stranger");
+  assert.throws(() => targets.selectMode(stranger, "clone"), /no longer in this Workspace/);
 });

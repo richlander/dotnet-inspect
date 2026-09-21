@@ -429,8 +429,82 @@ internal static class BrowserLibraryApiDiffWireProjection
             type.PotentiallyBreakingCount,
             type.Before is null ? null : Project(type.Before),
             type.After is null ? null : Project(type.After),
-            [.. type.Members.Select(Project)]);
+            [.. type.Members.Select(member => Project(member, type))],
+            [
+                .. type.CompatibilityChanges
+                    .Where(change =>
+                        change.Subject.Kind == ApiChangeSubjectKind.Type)
+                    .Select(Project),
+            ]);
     }
+
+    // A member-level change belongs to the relation whose Before or After
+    // endpoint is the change subject's endpoint: exact declaring-Type identity
+    // plus anchor, never display text.
+    static bool Describes(
+        LibraryApiCompatibilityChange change,
+        LibraryApiMemberRelation relation)
+    {
+        if (change.Subject.Kind != ApiChangeSubjectKind.Member)
+            return false;
+        return SameEndpoint(change.Subject.BeforeMember, relation.Before)
+            || SameEndpoint(change.Subject.AfterMember, relation.After);
+    }
+
+    static bool SameEndpoint(
+        LibraryApiMemberIdentity? left,
+        LibraryApiMemberIdentity? right) =>
+        left is not null
+        && right is not null
+        && StringComparer.Ordinal.Equals(
+            left.DeclaringType.Identifier,
+            right.DeclaringType.Identifier)
+        && left.Anchor == right.Anchor;
+
+    static BrowserLibraryApiDiffChange Project(
+        LibraryApiCompatibilityChange change) =>
+        new(
+            Project(change.Kind),
+            change.Classification switch
+            {
+                ChangeClassification.Additive =>
+                    BrowserLibraryApiDiffChangeClassification.Additive,
+                ChangeClassification.Breaking =>
+                    BrowserLibraryApiDiffChangeClassification.Breaking,
+                ChangeClassification.PotentiallyBreaking =>
+                    BrowserLibraryApiDiffChangeClassification
+                        .PotentiallyBreaking,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(change),
+                    change.Classification,
+                    "Unknown Library API change classification."),
+            },
+            change.Category switch
+            {
+                ApiChangeCategory.Signature =>
+                    BrowserLibraryApiDiffChangeCategory.Signature,
+                ApiChangeCategory.Attribute =>
+                    BrowserLibraryApiDiffChangeCategory.Attribute,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(change),
+                    change.Category,
+                    "Unknown Library API change category."),
+            },
+            change.Message.ToString(),
+            change.OldValue?.ToString(),
+            change.NewValue?.ToString());
+
+    static BrowserLibraryApiDiffChangeKind Project(ChangeKind kind) =>
+        Enum.IsDefined(kind)
+            && Enum.TryParse(
+                kind.ToString(),
+                ignoreCase: false,
+                out BrowserLibraryApiDiffChangeKind projected)
+            ? projected
+            : throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown Library API change kind.");
 
     static BrowserLibraryApiDiffTypeIdentity Project(
         LibraryApiTypeIdentity identity) =>
@@ -441,7 +515,8 @@ internal static class BrowserLibraryApiDiffWireProjection
             identity.Display);
 
     static BrowserLibraryApiDiffMember Project(
-        LibraryApiMemberDiff member) =>
+        LibraryApiMemberDiff member,
+        LibraryApiTypeDiff type) =>
         new(
             member.Relation.Identifier,
             member.Relation.PairKind switch
@@ -475,7 +550,12 @@ internal static class BrowserLibraryApiDiffWireProjection
                 : Project(member.Relation.Before),
             member.Relation.After is null
                 ? null
-                : Project(member.Relation.After));
+                : Project(member.Relation.After),
+            [
+                .. type.CompatibilityChanges
+                    .Where(change => Describes(change, member.Relation))
+                    .Select(Project),
+            ]);
 
     static BrowserLibraryApiDiffMemberIdentity Project(
         LibraryApiMemberIdentity identity) =>
@@ -499,6 +579,13 @@ internal static class BrowserLibraryApiDiffWireProjection
             count += member.Relation.Identifier.Length;
             AddMemberIdentity(member.Relation.Before);
             AddMemberIdentity(member.Relation.After);
+        }
+        foreach (LibraryApiCompatibilityChange change
+            in subject.Comparison.CompatibilityChanges)
+        {
+            count += change.Message.Length;
+            count += change.OldValue?.Length ?? 0;
+            count += change.NewValue?.Length ?? 0;
         }
         return count;
 
