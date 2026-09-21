@@ -42,6 +42,11 @@ public partial class CommandExecutionTests
         "Interfaces",
         31)]
     [InlineData(
+        "System.String",
+        "System.Runtime",
+        "Constructors",
+        9)]
+    [InlineData(
         "System.Reflection.Emit.OpCodes",
         "System.Reflection.Primitives",
         "Fields",

@@ -388,7 +388,7 @@ The broad exact-type route has these measured and structural bounds:
 | Type Parameters | 17 rows on the largest `Func` type | `Informative` |
 | Interfaces | 31 rows on `Decimal`; one row per implemented interface | `Verbose` |
 | Baseclass | Zero or one non-trivial base-class row | `Fixed` |
-| Constructors | One `.ctor` summary row with an overload count | `Fixed` |
+| Constructors | Nine `System.String` overload rows at Detailed/exact selection; Minimal groups them into one authored summary row | `Verbose` |
 | Finalizer | Zero or one grouped finalizer row in supported valid metadata | `Fixed` |
 | Fields | 226 rows on `OpCodes` | `Verbose` |
 | Properties | 70 rows on `System.Type` | `Verbose` |

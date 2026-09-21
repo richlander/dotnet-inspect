@@ -275,7 +275,7 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Constructors";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
     }

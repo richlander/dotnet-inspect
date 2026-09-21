@@ -331,7 +331,7 @@ public partial class SectionPipelineTests
             SectionSizeClass.Fixed,
             ApiMemberSectionDescriptors.Baseclass.SizeClass);
         Assert.Equal(
-            SectionSizeClass.Fixed,
+            SectionSizeClass.Verbose,
             ApiMemberSectionDescriptors.Constructors.SizeClass);
         Assert.Equal(
             SectionSizeClass.Fixed,
@@ -407,6 +407,7 @@ public partial class SectionPipelineTests
     [Theory]
     [InlineData(SectionNames.Values)]
     [InlineData(SectionNames.TypeInterfaces)]
+    [InlineData(SectionNames.Constructors)]
     [InlineData(SectionNames.Fields)]
     [InlineData(SectionNames.Properties)]
     [InlineData(SectionNames.MethodGroups)]
@@ -447,7 +448,6 @@ public partial class SectionPipelineTests
         {
             SectionNames.TypeParameters,
             SectionNames.Baseclass,
-            SectionNames.Constructors,
             SectionNames.Finalizer,
         })
         {
@@ -517,6 +517,7 @@ public partial class SectionPipelineTests
             Members =
             [
                 new ApiMember { Name = "Field", Kind = "field" },
+                new ApiMember { Name = ".ctor", Kind = "constructor" },
                 new ApiMember { Name = "Property", Kind = "property" },
                 new ApiMember { Name = "Method", Kind = "method" },
                 new ApiMember { Name = "op_Addition", Kind = "operator" },
@@ -536,6 +537,7 @@ public partial class SectionPipelineTests
         string[] sections =
         [
             SectionNames.TypeInterfaces,
+            SectionNames.Constructors,
             SectionNames.Fields,
             SectionNames.Properties,
             SectionNames.MethodGroups,
@@ -758,7 +760,7 @@ public partial class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        Assert.Contains("Constructors", effective);
+        Assert.DoesNotContain("Constructors", effective);
         Assert.DoesNotContain("Properties", effective);
         Assert.DoesNotContain("Method Groups", effective);
         Assert.DoesNotContain("Methods", effective);
@@ -787,14 +789,12 @@ public partial class SectionPipelineTests
             [
                 SectionNames.TypeInfo,
                 SectionNames.Baseclass,
-                SectionNames.Constructors,
                 SectionNames.Finalizer,
             ],
             pipeline.FixedOverviewSectionNames);
         Assert.Equal(
             [
                 SectionNames.Baseclass,
-                SectionNames.Constructors,
                 SectionNames.Finalizer,
             ],
             pipeline.BareSelectSectionNames);
@@ -802,7 +802,6 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.Baseclass,
-                SectionNames.Constructors,
                 SectionNames.Finalizer,
             ],
             pipeline.GetEffectiveSections(

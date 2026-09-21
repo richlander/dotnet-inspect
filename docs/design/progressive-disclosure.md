@@ -57,12 +57,12 @@ inventories.
 
 For broad exact-type `@Member` output, the authored `Info` inventories remain
 visible at `-v:m` even when their measured size is `Verbose`: Values,
-Interfaces, Fields, Properties, Method Groups, Operators, Explicit Interface
-Implementations, Extension Methods, and Events. Generic `-v:n` omits those
-inventories and the non-`Info` Methods inventory, while `-v:d` restores them.
-Type Parameters remains at `-v:n` as `Informative`. Baseclass, Constructors,
-and Finalizer are `Fixed`; when applicable they participate in the broad fixed
-overview, while Type Info remains exact-selection-only.
+Interfaces, Constructors, Fields, Properties, Method Groups, Operators,
+Explicit Interface Implementations, Extension Methods, and Events. Generic
+`-v:n` omits those inventories and the non-`Info` Methods inventory, while
+`-v:d` restores them. Type Parameters remains at `-v:n` as `Informative`.
+Baseclass and Finalizer are `Fixed`; when applicable they participate in the
+broad fixed overview, while Type Info remains exact-selection-only.
 
 For the named-member overload route, Methods remains the authored `-v:m`
 inventory, is omitted from generic `-v:n`, and returns at `-v:d`. The shared
