@@ -27,6 +27,15 @@ public sealed record PrinterOptions
     public bool ReadableLocalNames { get; init; }
 
     /// <summary>
+    /// When set, a retained local whose exact Portable PDB row/scope identity
+    /// cannot be emitted may use a deterministic, collision-resolved name from
+    /// that physical slot's PDB declarations. The underlying fidelity loss
+    /// remains visible; this option changes only the displayed identifier.
+    /// Off by default.
+    /// </summary>
+    public bool ApproximatePdbLocalNames { get; init; }
+
+    /// <summary>
     /// When set, an expression-bodied member or accessor wraps the <c>=&gt;</c>
     /// arrow onto the next line (indented one level deeper than the declaration
     /// head) instead of keeping <c>head =&gt; expr;</c> on one line. Off by
@@ -218,8 +227,10 @@ public sealed record PrinterOptions
     /// <para>The fold is byte-neutral for every accepted shape and declines a
     /// genuine <c>ldc.i8</c>, which arrives as a bare <c>Int64</c>
     /// <c>Constant</c> with no <c>Convert</c>. The user-facing catalog enables the
-    /// terse suffix by default; the low-level fidelity/harness default leaves this
-    /// option off so conversion structure remains explicit.</para>
+    /// terse suffix by default, or omits the marker where an adjacent binary
+    /// operand independently fixes long promotion; the low-level
+    /// fidelity/harness default leaves this option off so conversion structure
+    /// remains explicit.</para>
     /// </summary>
     public bool PreferLongLiteralSuffix { get; init; }
 

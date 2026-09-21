@@ -221,7 +221,7 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.AuditIdentifierConfusion;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         // Alternate-package IDs require bounded registry metadata acquisition.
         public static SectionCost Cost => SectionCost.Moderated;
         public static bool CanRender(InspectionResult model)
@@ -300,7 +300,7 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkAvailability;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(InspectionResult model)
             => model.SourceAvailability != null;
     }
@@ -310,7 +310,7 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkIntegrity;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(InspectionResult model)
             => model.SourceIntegrity != null;
     }
@@ -320,7 +320,7 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkMissingFiles;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.SourceAvailability is { } availability
                && (availability.MissingFiles is { Count: > 0 }
@@ -355,7 +355,7 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.DependencyHierarchy;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(InspectionResult model) =>
             model.DependencyHierarchyProjection is not null;

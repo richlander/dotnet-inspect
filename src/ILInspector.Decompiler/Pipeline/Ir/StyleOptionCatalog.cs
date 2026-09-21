@@ -430,8 +430,8 @@ public static class StyleOptionCatalog
         new StyleOptionTierDescriptor
         {
             Id = StyleOptionTier.Synthesis,
-            Title = "Name synthesis",
-            Summary = "Readable invented names for locals that have none of their own. Compiles to identical IL, but these names no longer match the ones the IL uses.",
+            Title = "Local naming",
+            Summary = "Readable or approximate display names for locals. Compiles to identical IL, but the selected names may not represent exact source identity.",
             Order = 3,
             ByteDivergent = false,
         },
@@ -480,6 +480,16 @@ public static class StyleOptionCatalog
             configKey: "dotnet_inspect_style_slot_local_names",
             get: static o => !o.ReadableLocalNames,
             with: static (o, v) => o with { ReadableLocalNames = !v }),
+        Boolean(
+            id: "approximate-pdb-local-names",
+            title: "Prefer approximate PDB local names",
+            summary: "When exact scoped identity cannot be represented, use a deterministic collision-resolved name associated with the physical PDB slot; fidelity remains Partial.",
+            tier: StyleOptionTier.Synthesis,
+            byteDivergent: false,
+            oracleEndorsed: false,
+            configKey: "dotnet_inspect_style_approximate_pdb_local_names",
+            get: static o => o.ApproximatePdbLocalNames,
+            with: static (o, v) => o with { ApproximatePdbLocalNames = v }),
         Boolean(
             id: "wrap-splittable-expressions",
             title: "Wrap long boolean chains",
@@ -1006,7 +1016,7 @@ public static class StyleOptionCatalog
         {
             Id = LongLiteralStyleId,
             Title = "Use explicit long literal casts",
-            Summary = "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse NL suffix; genuine ldc.i8 sources keep their current spelling.",
+            Summary = "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse spelling: NL when a marker is required, or bare N when a binary sibling fixes long promotion. Genuine ldc.i8 sources keep their current spelling.",
             Tier = StyleOptionTier.Spelling,
             ByteDivergent = false,
             DefaultValue = "true",
@@ -1025,7 +1035,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = "true",
-                    Title = "NL suffix (default)",
+                    Title = "Terse long spelling (default)",
                     ConfigKey = "dotnet_inspect_style_prefer_long_literal_suffix",
                     IsSelected = static o => o.PreferLongLiteralSuffix,
                     SetSelected = static (o, on) =>

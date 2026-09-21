@@ -2953,6 +2953,75 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Fact]
+    public async Task
+        TypeApiDeclarations_UsesSelectedSupplierInsteadOfRuntimeImage()
+    {
+        int opens = 0;
+        byte[] image =
+            File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-api-declarations"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture));
+        fixture.Type.SourceAssemblyPath = null;
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source =
+                CreateApiSource(
+                    fixture.AssemblyPath,
+                    SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                    RuntimeAssemblyPath =
+                        typeof(object).Assembly.Location,
+                    Context = new CommandContext(
+                        verbose: false,
+                        client),
+                };
+
+            var (exit, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => TypeCommand.ExecuteResolvedAsync(
+                        new TypeOptions
+                        {
+                            TypeName = fixture.Type.FullName,
+                            Select =
+                                [SectionNames.ApiDeclarations],
+                            DocsExplicitlySet = true,
+                            TipLevel = TipLevel.Quiet,
+                            Verbosity = Verbosity.Minimal,
+                        },
+                        source,
+                        fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "class BodyShapeFixture",
+                output);
+            Assert.Contains(
+                "PublicSmallArray",
+                output);
+            Assert.Equal(1, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixture.Directory,
+                recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
@@ -3200,7 +3269,6 @@ public class SourceForwarderResolutionTests
                             Print = print,
                             SourcePart = parts ? MemberSourcePartKind.Signature : null,
                             PrintRow = print ? RowSelector.First : null,
-                            Bare = print,
                         },
                         source,
                         fixture.Loaded)
@@ -3213,7 +3281,6 @@ public class SourceForwarderResolutionTests
                             ShowDocs = false,
                             Print = print,
                             PrintRow = print ? RowSelector.First : null,
-                            Bare = print,
                         },
                         source,
                         fixture.Loaded));

@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using QuerySpace;
 using QuerySpace.Rows;
-using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using InertText;
@@ -137,7 +136,7 @@ public static partial class LibraryQuery
         PortableQueryIntent intent = PortableQueryIntent.Create(
             request.Terms is null ? [] : [.. request.Terms],
             bounds,
-            ToPortableStages(request.RowSelection),
+            PortableQueryRowSelection.ToStages(request.RowSelection),
             []);
         return ResolveIntent(intent);
     }
@@ -518,27 +517,4 @@ public static partial class LibraryQuery
     private static InertString? OptionalField(string? value) =>
         string.IsNullOrEmpty(value) ? null : Field(value);
 
-    private static IReadOnlyList<PortableQueryStage> ToPortableStages(
-        RowSelectionIntent<string>? rowSelection) =>
-        rowSelection is null
-            ? []
-            :
-            [
-                .. rowSelection.Operations.Select(operation =>
-                    operation.Kind switch
-                    {
-                        RowSelectionStageKind.Head =>
-                            PortableQueryStage.Head(operation.Count),
-                        RowSelectionStageKind.Tail =>
-                            PortableQueryStage.Tail(operation.Count),
-                        RowSelectionStageKind.Window =>
-                            PortableQueryStage.Window(
-                                operation.Start,
-                                operation.End),
-                        RowSelectionStageKind.Top =>
-                            PortableQueryStage.Top(operation.Count),
-                        _ => throw new InvalidOperationException(
-                            "Unknown row-selection stage."),
-                    }),
-            ];
 }

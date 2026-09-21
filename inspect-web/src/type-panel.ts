@@ -3,7 +3,11 @@ import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
-import type { SourceResultState } from "./source-inspection.ts";
+import {
+  typeSourceView,
+  type SourceResultState,
+  type TypeSourceView,
+} from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
@@ -26,6 +30,7 @@ import type {
   BrowserMemberSourcePart,
   BrowserMemberSourcePartKind,
   BrowserSource,
+  BrowserTypeCodeView,
 } from "./facades/inspect-web-source.d.ts";
 
 export interface TypeSummary {
@@ -131,6 +136,7 @@ export interface TypePanelBindingActions {
   onMemberSourcePartSelect: (part: MemberSourcePartSelection) => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
+  onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
   onKindSelect: (kind: string) => void;
   onTypeNavBack: () => void;
@@ -266,6 +272,12 @@ export function bindTypePanel(
   root.querySelector("#copy-type-source")?.addEventListener(
     "click",
     actions.onCopyTypeSource);
+  const typeSourcePicker =
+    root.querySelector<HTMLSelectElement>("#type-source-view");
+  typeSourcePicker?.addEventListener("change", () => {
+    const view = typeSourceView(typeSourcePicker.value);
+    if (view !== null) actions.onTypeSourceViewSelect(view);
+  });
   root.querySelector("#explore-source")?.addEventListener(
     "click",
     actions.onExploreSource);
@@ -761,6 +773,7 @@ export function typeSourceSignature(
   packageContext: TypePanelPackageContext,
   taste: readonly string[],
   memberRequestKey: (parts: readonly string[], taste: readonly string[]) => string,
+  view: TypeSourceView = "source",
 ): string {
   return memberRequestKey([
     packageContext.id,
@@ -768,15 +781,29 @@ export function typeSourceSignature(
     packageContext.activeFramework,
     item.assembly,
     item.definitionId ?? item.id,
-  ], taste);
+    view,
+  ], view === "source" ? taste : []);
 }
 
-export type TypeSourceStateSlice = SourceResultState;
+export type TypeSourceStateSlice = SourceResultState<BrowserTypeCodeView>;
+
+export function typeCodeViewText(view: BrowserTypeCodeView | null): string | null {
+  if (view === null) return null;
+  switch (view.kind) {
+    case "source":
+      return view.value.text;
+    case "apiDeclarations":
+      return view.inspection.content.text;
+    default:
+      return assertNever(view, "type code view");
+  }
+}
 
 export interface RenderTypeSourceOptions {
   item: TypeSummary;
   currentSignature: string;
   sourceState: TypeSourceStateSlice;
+  view?: TypeSourceView;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
 }
@@ -791,13 +818,19 @@ export interface RenderSourceResultOptions {
 export function renderSourceResult(options: RenderSourceResultOptions): string {
   const { source, text = source.text, escapeHtml, highlightCSharp } = options;
   return `<section class="source-result" aria-label="Source">
-      <pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(text)}</code></pre>
+      ${renderSourceCode(text, highlightCSharp)}
       <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }
 
+function renderSourceCode(text: string, highlightCSharp: (value: string) => string): string {
+  return `<pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(text)}</code></pre>`;
+}
+
 export interface RenderSourcePageActionsOptions {
   source: TypeSourceResult | null;
+  typeCodeView?: BrowserTypeCodeView | null;
+  typeView?: TypeSourceView;
   memberSource?: BrowserMemberSource | null;
   selectedMemberPart?: MemberSourcePartSelection;
   copyButtonId: "copy-source" | "copy-type-source";
@@ -809,6 +842,8 @@ export function renderSourcePageActions(
 ): string {
   const {
     source,
+    typeCodeView = null,
+    typeView = "source",
     memberSource = null,
     selectedMemberPart = "Member",
     copyButtonId,
@@ -818,6 +853,16 @@ export function renderSourcePageActions(
     ? []
     : availableMemberSourceParts(memberSource.parts);
   return `
+    ${copyButtonId === "copy-type-source"
+      ? `<label class="source-part-picker">
+          <span>View</span>
+          <select id="type-source-view" aria-label="Select type code view">
+            <option value="source"${typeView === "source" ? " selected" : ""}>Source</option>
+            <option value="api-declarations"${typeView === "api-declarations" ? " selected" : ""}>API Declarations</option>
+            <option value="all-declarations"${typeView === "all-declarations" ? " selected" : ""}>All Declarations</option>
+          </select>
+        </label>`
+      : ""}
     ${selectableParts.length > 1
       ? `<label class="source-part-picker">
           <span>View</span>
@@ -827,12 +872,14 @@ export function renderSourcePageActions(
           </select>
         </label>`
       : ""}
-    <button id="${copyButtonId}" type="button"${source ? "" : " disabled"}>Copy</button>
+    <button id="${copyButtonId}" type="button"${source || typeCodeViewText(typeCodeView) !== null ? "" : " disabled"}>Copy</button>
     ${source?.url
       ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
       : ""}
-    <button id="explore-source" class="primary-action" type="button"
-      title="Explore source options">Explore</button>`;
+    ${copyButtonId !== "copy-type-source" || typeView === "source"
+      ? `<button id="explore-source" class="primary-action" type="button"
+          title="Explore source options">Explore</button>`
+      : ""}`;
 }
 
 export function memberSourceText(
@@ -917,19 +964,36 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   const {
     currentSignature,
     sourceState,
+    view = "source",
     escapeHtml,
     highlightCSharp,
   } = options;
+  const loading = view === "source"
+    ? `<h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p>`
+    : `<h2>Reading API declarations…</h2><p>Projecting bodyless declarations from the selected library metadata.</p>`;
   if (sourceState.status === "idle"
     || sourceState.signature !== currentSignature) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+    return `<section class="document-section source-progress"><span class="loader"></span>${loading}</section>`;
   }
   switch (sourceState.status) {
     case "loading":
-      return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+      return `<section class="document-section source-progress"><span class="loader"></span>${loading}</section>`;
     case "ready":
+      if (sourceState.source.kind === "apiDeclarations") {
+        const { content, diagnostics } = sourceState.source.inspection;
+        const diagnosticHtml = diagnostics.length > 0
+          ? `<ul>${diagnostics.map(item => `<li>${escapeHtml(item.summary)}</li>`).join("")}</ul>`
+          : "";
+        if (content.outcome !== "Available" || content.text === null) {
+          return `<section class="document-section empty-document"><h2>API Declarations unavailable</h2>${diagnosticHtml}</section>`;
+        }
+        return `<section class="source-result" aria-label="API Declarations">
+          ${renderSourceCode(content.text, highlightCSharp)}
+          <footer class="source-provenance"><strong>API Declarations</strong><span>${content.scope === "All" ? "All declarations" : "Public and protected API"} · metadata, without implementation bodies</span>${diagnosticHtml}</footer>
+        </section>`;
+      }
       return renderSourceResult({
-        source: sourceState.source,
+        source: sourceState.source.value,
         escapeHtml,
         highlightCSharp,
       });

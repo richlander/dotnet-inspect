@@ -255,7 +255,6 @@ public class RowSelectionNumberingTests
             JsonOutput: false,
             Jsonl: false,
             JsonArray: false,
-            Bare: false,
             Destination: new ProjectionDestination(OutputPath: null));
 
     [Fact]

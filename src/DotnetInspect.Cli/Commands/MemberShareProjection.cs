@@ -44,7 +44,6 @@ internal static class MemberShareProjection
             || options.MarkdownExplicitlySet
             || options.MermaidOutput
             || options.EmbeddedMermaid
-            || options.Bare
             || options.NoHeader
             || options.Print
             || options.Value

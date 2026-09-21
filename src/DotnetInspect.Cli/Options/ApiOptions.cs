@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -148,10 +149,6 @@ public partial record ApiOptions : IProjectionOptions
     /// </summary>
     public bool EmbeddedMermaid { get; init; }
 
-    /// <summary>Print only the selected payload with no heading,
-    /// fence, separator, or tips.</summary>
-    public bool Bare { get; init; }
-
     public bool Print { get; init; }
 
     public RowSelector? PrintRow { get; init; }
@@ -287,10 +284,45 @@ public partial record ApiOptions : IProjectionOptions
             : new MarkdownFormatter(
                 EmbeddedMermaid ? MarkdownGraphMode.Mermaid : MarkdownGraphMode.EdgeTable);
 
+    public bool UsesMarkdownPayloadFormat =>
+        MarkdownExplicitlySet
+        || (!FormatFlagExplicitlySet
+            && FormatExplicitlySet
+            && Format == OutputFormat.Markdown);
+
+    public bool UsesNativePayloadDefault =>
+        !FormatExplicitlySet
+        && !JsonOutput
+        && !Tabular
+        && !Jsonl
+        && !PlainText
+        && !MermaidOutput
+        && !EmbeddedMermaid
+        && !NoHeader
+        && !Print
+        && !Value
+        && !Urls
+        && !Paths
+        && !Count
+        && Discover is null
+        && Columns is not { Length: > 0 }
+        && Fields is not { Length: > 0 }
+        && IncludeSections is { Count: 1 } sections
+        && sections.First() is
+            SectionNames.ApiDeclarations
+            or SectionNames.DecompiledSource
+            or SectionNames.AnnotatedSource
+            or SectionNames.PdbSource
+            or SectionNames.SourceDiff
+            or SectionNames.IL
+            or SectionNames.CostOverlay
+            or SectionNames.SemanticsOverlay
+            or SectionNames.FindingCensus;
+
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Bare || Print || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => UsesNativePayloadDefault || Print || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
 }
 
 /// <summary>
@@ -325,6 +357,12 @@ public record TypeOptions : ApiOptions
         get;
         init;
     }
+    public InspectionEnvelope<TypeApiDeclarationResult>?
+        TypeApiDeclarationInspection
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
@@ -334,7 +372,15 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || EnvelopeOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput =>
+        UsesNativePayloadDefault
+        || JsonOutput
+        || EnvelopeOutput
+        || Tabular
+        || Jsonl
+        || NoHeader
+        || ShapeOutput
+        || Count;
 }
 
 /// <summary>

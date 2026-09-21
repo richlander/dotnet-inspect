@@ -39,6 +39,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
     {
         var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
+        var failedMethodBodies =
+            ImmutableArray.CreateBuilder<FailedMethodBodyAnalysis>();
         var declaredMethodsByBody =
             new Dictionary<MethodIdentity, MethodIdentity>();
         var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
@@ -122,6 +124,14 @@ internal sealed class LibraryBodyAnalysisAccumulator
             }
             if (!r.HasCaller)
             {
+                if (r.HasBody
+                    && r.Diagnostic is { } failedBodyDiagnostic)
+                {
+                    failedMethodBodies.Add(
+                        new FailedMethodBodyAnalysis(
+                            r.Token,
+                            failedBodyDiagnostic));
+                }
                 if (r.Diagnostic is not null)
                     diagnostics.Add(r.Diagnostic);
                 continue;
@@ -310,6 +320,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             Methods: new(
                 DeclaredMethods: declaredMethods.ToImmutable(),
                 Methods: methodArray,
+                FailedMethodBodies: failedMethodBodies.ToImmutable(),
                 DirectCalls: directCalls,
                 ResultSinks: resultSinks.ToImmutable(),
                 FieldStores: fieldStores.ToImmutable(),

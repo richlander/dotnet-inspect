@@ -201,6 +201,73 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void LocalBearingLambdas_ApproximatePdbDecisionsReachOuterResult()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoAddressTakenLocalBodyLambdas));
+        Assert.NotNull(function);
+        int planted = 0;
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method =>
+            {
+                var imported = IrImporter.Import(source, method);
+                if (imported is null
+                    || !method.Name.Contains(
+                        nameof(CfgSampleClass.TwoAddressTakenLocalBodyLambdas),
+                        StringComparison.Ordinal)
+                    || imported.Locals.IsEmpty)
+                {
+                    return imported;
+                }
+
+                const int local = 0;
+                imported.LocalNames = imported.LocalNames.SetItem(local, null);
+                imported.PdbLocalNameCandidates =
+                    Enumerable.Repeat<string?>(null, imported.Locals.Length)
+                        .ToImmutableArray()
+                        .SetItem(local, "x");
+                imported.LocalNameImportCauses = imported.LocalNameImportCauses.Add(
+                    new DecompilerFidelityCause(
+                        DiagnosticIds.UnrepresentableMetadataName,
+                        DecompilerFidelityLocation.AtLocal(local),
+                        nameof(PdbLocalDeclaration),
+                        "test PDB local",
+                        "test scoped local name is unavailable",
+                        DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable));
+                planted++;
+                return imported;
+            },
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+
+        Assert.Equal(2, planted);
+        string output = Assert.IsType<string>(result.Output);
+        Assert.Contains("int x_1 = x + 1;", output);
+        Assert.Contains("int x_1 = x + 2;", output);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Lambda[] lambdas = function.Descendants.OfType<Lambda>().ToArray();
+        Assert.Equal(2, lambdas.Length);
+        Assert.All(
+            lambdas,
+            lambda => Assert.Contains(
+                lambda.LocalNameImportCauses,
+                cause => cause.Discriminator
+                    == DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable));
+        DecompilerDecision[] decisions = result.Metadata.Decisions
+            .Where(decision => decision.RuleId == "approximate-pdb-local-name")
+            .ToArray();
+        Assert.Equal(2, decisions.Length);
+        Assert.All(decisions, decision => Assert.Equal("x_1", decision.NewValue));
+        Assert.All(
+            decisions,
+            decision => Assert.Contains("fidelity is unchanged", decision.Detail));
+    }
+
+    [Fact]
     public void BodyOnlyInterfaceFact_ReachesInlineLambdaPrinter()
     {
         string output = PrintRaised(nameof(CfgSampleClass.InterfaceCastLambda));

@@ -747,7 +747,7 @@ public static class MemberCommand
 
             if (effectiveOptions.OverloadIndex is null
                 && effectiveOptions.IncludeSections?
-                    .Contains(SectionNames.ImplementationProfiles) == true
+                    .Contains(SectionNames.MemberMetrics) == true
                 && (apiType.SourceAssemblyPath
                     ?? runtimeAssemblyPath
                     ?? apiDllPath) is { } profileDllPath)

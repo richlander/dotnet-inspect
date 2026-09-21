@@ -6,7 +6,7 @@ the baseline required by
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) before Diff
 routes move to shared operations and subject sections.
 
-This document answers one adoption question: which current `diff` and
+This document answers one adoption question: which `diff` and predecessor
 `timeline` entrances, carriers, acquisition paths, renderers, row units,
 failure outcomes, and Release gates must a focused migration preserve, replace,
 or explicitly retire?
@@ -54,13 +54,13 @@ failure. This is recorded behavior, not a cleanup contract introduced here.
 | --- | --- | --- | --- |
 | Diff discovery and schema | `-D/--discover` after section selection and before tabular section, source, or acquisition validation | `DiffSectionCatalog` and `SectionPipeline<DiffDiscoveryModel>` lowered by `DiscoverOutput.ExecuteEffective` | **Command-owned route.** Authored `@Diff` discovery omits computed category poles and hides exact-only Finding Transitions from glob and category discovery. Unknown selectors and invalid standalone `--schema` fail before acquisition. |
 | Selected-Library API Changes | Exactly one acquired Library per endpoint; no Member filter, Analysis Diff, Implementation Diff, or Finding Transitions; no selected section other than Changes | `InspectionEnvelope<LibraryApiDiffOutcome>` from `LibraryApiDiffRunner` and `LibraryApiDiffInspection` | **Shared terminal.** One ephemeral `InspectionWorkspace` owns separate before/after `AssemblyContextGroup` values. Different logical Libraries are a typed rejection, not a legacy fallback. This is the first #7703 pairwise adoption substrate. |
-| Shared Diff History API | Direct host-neutral call over one already-settled package-version population; no current CLI or Browser entrance | `InspectionEnvelope<DiffHistoryOutcome>` from `DiffHistoryInspection`, carrying one resource-free `DiffHistoryDocument` and optional Changed Versions Count outcome | **Shared terminal substrate.** Full-population, explicit-checkpoint, and bounded adaptive policies retain chronological receipts, population-ordered evidence, terminal knowledge, and typed next actions. Its existence does not retire or redirect `timeline`. |
+| Shared Diff History API | Direct host-neutral call over one already-settled package-version population; consumed by `diff --history`, with Browser adoption still pending | `InspectionEnvelope<DiffHistoryOutcome>` from `DiffHistoryInspection`, carrying one resource-free `DiffHistoryDocument` and optional Changed Versions Count outcome | **Shared terminal.** Full-population, explicit-checkpoint, and bounded adaptive policies retain chronological receipts, population-ordered evidence, terminal knowledge, typed next actions, and complete JSON/envelope transport. |
 | General API Changes | Multi-Library endpoints, Member filtering, mixed sections, or another route outside the selected-Library boundary | Command-owned API comparison and `DiffDocumentView` composition | **Command-owned route.** Preserve multi-Library population, Type/Member filter, classification, inspection-failure, and mixed-section behavior until a focused operation owns them. |
 | Analysis Diff | `Analysis Diff`, including `--changed` and `--alloc-regressions` implications | `BodySignalComparisonQuery`, `AnalysisDiffRow`, and command-owned summaries | **Command-owned route.** Allocation-focused planning may omit unused Changes work, but the CLI still owns result composition and presentation. |
 | Focused package Implementation Diff | Package source, Implementation Diff, exactly one Type and one Member, no PDB source, and one package-root assembly on each side | `WorkspaceImplementationComparisonRunner` over `WorkspaceImplementationComparisonQuery`; lowered into the existing Implementation Diff view | Workspace-backed shipping slice. Direct and forwarded targets run in one ephemeral Workspace with typed identity and closed-world binding evidence. Forwarded target acquisition still uses `PackageExtractor.ExtractPinnedPackageAsync`, a **compatibility bridge**. |
 | General Implementation Diff | Any broader package, platform, local, untargeted, or PDB-source comparison outside the focused Workspace route | `ImplementationComparisonQuery`, paired structural-profile complexity comparison, and optional selected-source evidence lowered by `DiffOutputFormatter` into `ImplementationDiffView` | **Command-owned route.** The general path retains full old/new implementation profiles and local-population rank behind typed complexity changes beside C#, IL, and optional PDB-source evidence. One exact selected MethodDef source pair uses the shared SourceHouse-backed pair inspection; broader selections retain legacy PDB enrichment. |
 | Finding Transitions | Selected alone with the focus required by the Finding descriptor | Command-built `FindingTransitionRow` values; no query is declared in `DiffSections` | **Command-owned route.** API Type, Member, attribute, allocation, call-site, unsafety, C# line, and IL-op transitions retain missing, present, changed, removed, and failed evidence. |
-| Timeline | Package range, one Type focus, optional Member focus, one Finding census, and selected Evaluations and/or Transitions | `TimelineDocumentView` with typed Evaluation and Transition rows | Shipping predecessor to shared History. `timeline` remains until the [History owner](diff-history.md#cli-cutover-dependency) and #7703 establish full population, evaluation, sparse/failure, Count, output, discovery, and Share parity. |
+| Diff History CLI | `diff --history` over a package range, one Type focus, optional exact Member focus, and one Finding census | One `InspectionEnvelope<DiffHistoryOutcome>` projected as Outcome, Probe Trace, Evaluations, Transitions, or Changed Versions | **Shared terminal consumer.** `@History` composes Outcome and Probe Trace; Count admits only Changed Versions; complete JSON and envelope transport retain the entire semantic Document. The standalone `timeline` command is retired without compatibility. |
 
 Current `--type` and `--member` values filter a Library comparison. They do not
 establish exact Type or Member identity. Exact operation-first requests and
@@ -92,7 +92,7 @@ through those owners.
 | --- | --- | --- | --- |
 | Diff discovery and schema | `DiscoverOutput.ExecuteEffective` lowers the source-free `DiffSectionCatalog` through shared discovery rendering | Markdown, table, TSV, and JSONL are selected before acquisition; `--schema` includes declared fields and `--tree` is forwarded to the shared discovery renderer. The current Implementation schema advertises `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`, but omits the row carrier's `Kind` facet. | No envelope, Count, or endpoint failure exists. Invalid schema or selection fails before acquisition; field-level schema, TSV, JSONL, and tree characterization is **unverified**. |
 | Envelope JSON | Native `InspectionEnvelope<LibraryApiDiffOutcome>` through `InspectionEnvelopeOutput`, `result_kind` `library-api-diff`, schema 1 | No display-row window; serializes the completed service value | Supported only by the selected-Library API terminal. Share is currently `NonProjectable` at `comparison/endpoints`. Unavailable and Rejected Content serialize before nonzero exit; acquisition failure fabricates no envelope. |
-| Shared History envelope | Native `InspectionEnvelope<DiffHistoryOutcome>` exists at the shared API boundary | The complete resource-free Document retains policy, evaluations, chronological probes, transitions, Changed Versions, terminal outcome, actions, and optional Count | No CLI/public serialization registration, Markout projection, Browser consumer, or canonical Share exists yet. It is not a shipping `diff` or `timeline` output route. |
+| Shared History envelope | `diff --history --envelope` writes the native `InspectionEnvelope<DiffHistoryOutcome>`; unprojected `--json` writes the same Content | The complete resource-free Document retains policy, evaluations, chronological probes, transitions, Changed Versions, terminal outcome, actions, and optional Count | Browser consumption and a projectable Share remain pending; the CLI currently carries the owner-issued non-projectable Share and diagnostics without fabricating a display-only substitute. |
 | Unprojected Content JSON | Native `LibraryApiDiffOutcome` through `LibraryApiDiffJsonContext` | No display-row window | Omits envelope framing but preserves typed Available, Unavailable, and Rejected cases. |
 | Projected document JSON | CLI `DiffDocumentView`, including section arrays and inspection failures | The selected-Library display-JSON lowerer receives no `RowWindow`; positive row-window behavior is **unverified** | Not an envelope or Count projection. Non-success retains a reason and available failure rows before nonzero exit. |
 | Markdown document | `DiffFullView` or command-owned `DiffDocumentView`; ordinary selected-Library output uses generated Markout while general multi-section output includes manual document composition | Selected-Library Markout receives `RowWindow`; exact grouped-list window behavior is **unverified** | No Diff Count integration. Empty selected-Library success is visibly “No API changes”; non-success remains visible. |
@@ -194,8 +194,8 @@ When a focused owner or shipping route changes:
    route.
 4. Mark a missing characterization `unverified`; do not manufacture a contract
    or transfer a gate from another route.
-5. Keep top-level `diff` permanent and retain `timeline` until the normative
-   adoption owner records complete History parity.
+5. Keep top-level `diff` permanent; History is its `--history` mode, and the
+   standalone predecessor is retired without compatibility.
 
 The census may close while executable adoption remains open. It is the
 current-state baseline for those later slices, not their implementation
@@ -247,8 +247,7 @@ source cases in Release.
 - New comparison, correspondence, History, Count, Share, or subject-identity
   semantics.
 - Runtime changes or early advertisement of future subject sections.
-- Retirement of `timeline`, a source route, an output mode, or a compatibility
-  bridge.
+- Retirement of another source route, output mode, or compatibility bridge.
 - Treating Type or Member filters, display rows, or rendered text as exact
   subject identity.
 - Duplicating every focused test method or owner algorithm.

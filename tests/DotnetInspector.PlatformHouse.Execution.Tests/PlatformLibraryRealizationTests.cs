@@ -12,7 +12,7 @@ using Inspector.Resources;
 
 namespace DotnetInspector.PlatformHouse.Tests;
 
-public class PlatformLibraryRealizationTests
+public partial class PlatformLibraryRealizationTests
 {
     [Fact]
     public async Task
@@ -1757,7 +1757,7 @@ public class PlatformLibraryRealizationTests
         public static async Task<ArtifactFixture> CreateAsync(
             params PlatformSourceContribution.Realization[] contributions)
             =>
-            await CreateCoreAsync(
+            await CreatePopulationAsync(
                     contributions.Select(
                             contribution => (
                                 contribution,
@@ -1768,13 +1768,33 @@ public class PlatformLibraryRealizationTests
         public static async Task<ArtifactFixture> CreatePopulationAsync(
             params (
                 PlatformSourceContribution.Realization Contribution,
-                string Path)[] inputs) =>
+                string Path)[] inputs)
+        {
+            var contents = new (
+                PlatformSourceContribution.Realization Contribution,
+                byte[] Content)[inputs.Length];
+            for (int index = 0; index < inputs.Length; index++)
+            {
+                contents[index] = (
+                    inputs[index].Contribution,
+                    await File.ReadAllBytesAsync(
+                        inputs[index].Path,
+                        TestContext.Current.CancellationToken));
+            }
+            return await CreateCoreAsync(contents).ConfigureAwait(false);
+        }
+
+        public static async Task<ArtifactFixture>
+            CreatePopulationImagesAsync(
+                params (
+                    PlatformSourceContribution.Realization Contribution,
+                    byte[] Content)[] inputs) =>
             await CreateCoreAsync(inputs).ConfigureAwait(false);
 
         static async Task<ArtifactFixture> CreateCoreAsync(
             IReadOnlyList<(
                 PlatformSourceContribution.Realization Contribution,
-                string Path)> inputs)
+                byte[] Content)> inputs)
         {
             CancellationToken cancellationToken =
                 TestContext.Current.CancellationToken;
@@ -1784,10 +1804,7 @@ public class PlatformLibraryRealizationTests
                 for (int index = 0; index < inputs.Count; index++)
                 {
                     int ordinal = index;
-                    byte[] content =
-                        await File.ReadAllBytesAsync(
-                            inputs[index].Path,
-                            cancellationToken);
+                    byte[] content = inputs[index].Content;
                     await session.AddRequiredAcquisitionAsync(
                         (scope, _) =>
                         {

@@ -353,7 +353,7 @@ This slice locks only the CSharpText contract. The remaining
 DocumentationHouse plan is:
 
 1. use the implemented owner-issued CSharpText operation from slice 16;
-2. add the SourceHouse-to-DocumentationHouse deferred provider in slice 17;
+2. add the SourceHouse-to-DocumentationHouse deferred operation in slice 17;
 3. add the authored channel and field settlement in slice 18;
 4. publish authored evidence through Queries in slice 19;
 5. adopt it in Inspect Web and the CLI in slices 20 and 21; and

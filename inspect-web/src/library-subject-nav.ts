@@ -23,6 +23,37 @@ export interface LibrarySubjectNavActions {
 
 const aggregateValue = "all";
 
+type LibrarySubjectIdentity = Pick<
+  LibrarySubjectNavItem,
+  "id" | "name" | "asset"
+>;
+
+export function alphabetizeLibrarySubjects<T extends LibrarySubjectIdentity>(
+  libraries: readonly T[],
+): T[] {
+  return [...libraries].sort((left, right) =>
+    left.name.localeCompare(
+      right.name,
+      undefined,
+      { sensitivity: "base" },
+    )
+    || left.name.localeCompare(right.name)
+    || left.asset.localeCompare(right.asset)
+    || left.id.localeCompare(right.id));
+}
+
+export function preferredLibrarySubjectId(
+  libraries: readonly LibrarySubjectIdentity[],
+  packageId: string,
+): string | null {
+  const ordered = alphabetizeLibrarySubjects(libraries);
+  const normalizedPackageId = packageId.toLocaleLowerCase();
+  return ordered.find(library =>
+    library.name.toLocaleLowerCase() === normalizedPackageId)?.id
+    ?? ordered[0]?.id
+    ?? null;
+}
+
 export function librarySubjectDisplayLabels(
   libraries: readonly LibrarySubjectNavItem[],
 ): ReadonlyMap<string, string> {
