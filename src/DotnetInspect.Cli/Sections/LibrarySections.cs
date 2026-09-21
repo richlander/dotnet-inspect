@@ -650,6 +650,7 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model) => true;
     }
@@ -677,6 +678,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ILOffset;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset != null;
     }
 
@@ -685,6 +687,7 @@ public static class LibrarySections
         public static string Name => SectionNames.MemberContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.MemberContext != null;
     }
 
@@ -693,6 +696,7 @@ public static class LibrarySections
         public static string Name => SectionNames.InstructionContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.InstructionContext != null;
     }
 
@@ -701,6 +705,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ExceptionContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.ExceptionContext is { Count: > 0 };
     }
 
@@ -709,6 +714,7 @@ public static class LibrarySections
         public static string Name => SectionNames.CallsiteContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.CallsiteContext != null;
     }
 
@@ -717,6 +723,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ReturnAddressContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.ReturnAddressContext != null;
     }
 
@@ -725,6 +732,7 @@ public static class LibrarySections
         public static string Name => SectionNames.AllocationContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.AllocationContext is { Count: > 0 };
     }
 
@@ -733,6 +741,7 @@ public static class LibrarySections
         public static string Name => SectionNames.SafetyContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.SafetyContext is { Count: > 0 };
     }
 
@@ -741,6 +750,7 @@ public static class LibrarySections
         public static string Name => SectionNames.CostContext;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.ILOffset?.CostContext is { Count: > 0 };
     }
 
@@ -778,7 +788,7 @@ public static class LibrarySections
         public static string Name => SectionNames.IdentifierConfusion;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model)
             => IdentifierConfusionAudit.InspectLibrary(model).Count > 0;
@@ -797,7 +807,7 @@ public static class LibrarySections
     {
         public static string Name => IntegrationSectionNames.Integrations;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => LibraryIntegrationCatalog.CanRenderAny(model);
     }
@@ -806,7 +816,8 @@ public static class LibrarySections
     {
         public static string Name => IntegrationSectionNames.Opportunities;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        // The scanner retains at most one row per product-owned concept and opportunity kind.
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
     }
@@ -847,6 +858,7 @@ public static class LibrarySections
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
         // slow to render as a full default section. Signals may still summarize this high-value audit.
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model)
             => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
     }
@@ -857,6 +869,7 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         // Opt-in only: derived from the same per-file HEAD pass as SourceLink: Availability.
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.MissingSourceFiles is { Count: > 0 };
     }
@@ -866,6 +879,7 @@ public static class LibrarySections
         public static string Name => SectionNames.SourceLinkIntegrity;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
@@ -886,7 +900,7 @@ public static class LibrarySections
         public static string Name => SectionNames.EcosystemDependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass =>
-            SectionSizeClass.Informative;
+            SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model) =>
             model.EcosystemDependencyRecognitionInspection?.Content
                 is EcosystemDependencyRecognitionOutcome.Complete
@@ -905,7 +919,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ReferenceHierarchy;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryInspection model)
             => model.ReferenceHierarchyProjection is not null;
@@ -1022,6 +1036,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceEnumerators;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators);
     }
@@ -1030,6 +1045,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceStrings;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceStrings);
     }
@@ -1038,6 +1054,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceLoops;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceLoops);
     }
@@ -1046,6 +1063,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceHotspots;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceHotspots);
     }
@@ -1054,6 +1072,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceAsync;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync);
     }
@@ -1062,6 +1081,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceOther;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceOther);
     }
@@ -1070,6 +1090,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.ArrayPoolEscapes;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceTriageAssessments.Length > 0
                 || model.ResourceTriage is { Count: > 0 };
@@ -1134,6 +1155,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.NonNormalizedPaths;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
     }
 
