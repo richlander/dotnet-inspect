@@ -4,8 +4,8 @@ using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Cli.Commands;
 
-/// <summary>Converts canonical workspace share packets and their JSON shape.</summary>
-public static class WorkspaceStateCommand
+/// <summary>Converts canonical Workspace packets and their JSON shape.</summary>
+public static class WorkspacePacketCommand
 {
     private static readonly UTF8Encoding s_utf8Strict = new(
         encoderShouldEmitUTF8Identifier: false,
