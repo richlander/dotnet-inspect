@@ -29,7 +29,7 @@ below.
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
 column projection under `--json`. `project` also rejects projection, while
-`library`, `package`, `timeline`, `implements`, and `extensions` reject
+`library`, `package`, `diff --history`, `implements`, and `extensions` reject
 otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
 serializer boundary. Discovery owns projected JSON for its `Name`/`Kind` row
 schema under the lens contract; unadopted lens routes such as
@@ -531,7 +531,7 @@ Replacing a genuinely fail-closed `--json --fields/--columns` combination with
 this output is additive. That applies to routes such as current `type` and
 `member`, which reject rather than return a document.
 
-Before the routing audit, `library`, `package`, `timeline`, `implements`, and
+Before the routing audit, `library`, `package`, the predecessor History route, `implements`, and
 `extensions`, plus early-return discovery, IL-offset, and nested package-search
 routes, succeeded after silently dropping the projection. Establishing visible
 routing was therefore an explicit compatibility change: discovery now honors

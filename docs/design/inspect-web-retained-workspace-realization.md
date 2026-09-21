@@ -71,7 +71,7 @@ not search dormant definitions, candidates, predecessors, or past realizations
 for a compatible realization to revive.
 
 The enforcing product gates are the Browser realization host's exclusive use
-of `WorkspaceRealizationCoordinator` for construction, cutover, operation
+of `WorkspaceReplacementCoordinator` for construction, cutover, operation
 admission, and settlement, plus the host's bounded aggregate realization
 admission described in [Backpressure](#backpressure). Until every production
 path listed in
@@ -520,7 +520,7 @@ A settled successful realization record is resource-free and does not remain
 charged.
 
 The host reserves capacity before calling
-`WorkspaceRealizationCoordinator.BeginCandidateAsync`. If all four slots are
+`WorkspaceReplacementCoordinator.BeginCandidateAsync`. If all four slots are
 charged by nonterminal drainage, the latest activation intent waits
 asynchronously for settlement and remains supersedable or cancellable. If
 terminal failed settlements consume the remaining capacity, activation fails
@@ -775,7 +775,7 @@ interpretation or saved-storage behavior.
 ## Operation admission
 
 Every operation that reads realization-bound state must enter the exact active
-realization through `WorkspaceRealizationCoordinator.EnterOperationAsync`.
+realization through `WorkspaceReplacementCoordinator.EnterOperationAsync`.
 
 This includes:
 
@@ -838,7 +838,7 @@ tracks the sequence and [#6749](https://github.com/richlander/dotnet-inspect/iss
 tracks the end-to-end architecture retirement.
 
 1. **Browser realization host seam.** Add one managed Browser owner around
-   `WorkspaceRealizationCoordinator`, with exact candidate construction,
+   `WorkspaceReplacementCoordinator`, with exact candidate construction,
    cutover, operation admission, predecessor settlement, the four-realization
    aggregate admission bound, and visible failure.
 2. **Retained definitions and activation transaction.** Supply the TypeScript
@@ -1076,7 +1076,7 @@ hosts. No new platform exception is introduced by this design.
 This design does not:
 
 - change Workspace definition lowering or complete restoration,
-- redefine `WorkspaceRealizationCoordinator`,
+- redefine `WorkspaceReplacementCoordinator`,
 - permit multiple simultaneously selectable Workspaces,
 - design simultaneous multi-Workspace tabs,
 - define package or Platform cache policy,

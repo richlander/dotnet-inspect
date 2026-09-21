@@ -138,6 +138,7 @@
     <Project Path="src/DotnetInspector.DocumentationHouse.Direct/DotnetInspector.DocumentationHouse.Direct.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Packages/DotnetInspector.DocumentationHouse.Packages.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Platform/DotnetInspector.DocumentationHouse.Platform.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse.Source/DotnetInspector.DocumentationHouse.Source.csproj" />
     <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
@@ -157,12 +158,12 @@
     <Project Path="src/DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Packages/DotnetInspector.Platforms.Packages.csproj" />
-    <Project Path="src/DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
     <Project Path="src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <Project Path="src/DotnetInspector.Sections.Installed/DotnetInspector.Sections.Installed.csproj" />
     <Project Path="src/DotnetInspector.SourceDelegation/DotnetInspector.SourceDelegation.csproj" />
     <Project Path="src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />

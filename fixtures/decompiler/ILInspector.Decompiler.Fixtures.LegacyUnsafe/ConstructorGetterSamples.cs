@@ -15,6 +15,27 @@ public struct ConstructorGetterComputed(int value)
     public int Value { get => field + 1; } = value;
 }
 
+public readonly struct ConstructorGetterLogged(int value)
+{
+    public int Value
+    {
+        get
+        {
+            Console.WriteLine(field);
+            return field;
+        }
+    } = value;
+}
+
+public readonly struct ConstructorGetterExpressionAttribute(int value)
+{
+    public int Value
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get => field + 1;
+    } = value;
+}
+
 public readonly struct ConstructorGetterParameterName
 {
     public ConstructorGetterParameterName(int Value) => this.Value = Value;
@@ -30,6 +51,19 @@ public readonly struct ConstructorGetterKeywordParameter
 public readonly struct ConstructorGetterOptional(int value = 7)
 {
     public int Value { get; } = value;
+}
+
+public readonly struct ConstructorGetterAnnotationName(int arg)
+{
+    public int Value { get => field + 1; } = arg;
+}
+
+public class ConstructorGetterContainer
+{
+    public readonly struct Nested(int value)
+    {
+        public int Value { get => field + 1; } = value;
+    }
 }
 
 public readonly struct ConstructorGetterPrivate

@@ -455,10 +455,14 @@ substrates, and inspection producers that will extend that space.
   construction, and restoration. Its admission composer atomically transfers
   each session-backed child through ordinary Workspace admission, reports
   unsupported owner shapes, and issues historical contribution witnesses only
-  for accepted Focus Libraries. Navigation remains responsible for current
-  route validity. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
-  consumers; each composes its exact PlatformHouse family without exposing a
-  user-facing Platform component or merging focus and binding-support roles.
+  for accepted Focus Libraries. Its one-way adapter into Queries classifies
+  those witnesses against one current Workspace registration revision,
+  preserving exact current contribution evidence without Package ancestry.
+  Navigation remains responsible for subject construction, route issuance, and
+  reconciliation. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the
+  first consumers; each composes its exact PlatformHouse family without
+  exposing a user-facing Platform component or merging focus and
+  binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -560,7 +564,7 @@ substrates, and inspection producers that will extend that space.
   [Research Finding census projection](design/research-finding-census-projection.md)
   owns preservation of one producer-sealed body-fact receipt and its instance
   keys across those projections.
-  The proposed [Library Structural Report](design/library-structural-report.md)
+  The proposed [Library Metrics](design/library-structural-report.md)
   separately owns one exact library's qualified compiled-IL structural
   population document without assigning a score or source-level meaning.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer

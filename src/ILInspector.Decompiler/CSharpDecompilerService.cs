@@ -39,6 +39,12 @@ public sealed record CSharpDecompilationAttempt(
     DecompilerSymbolSource Symbols,
     int BodyProjectionsAttempted)
 {
+    /// <summary>
+    /// The selected declaration without its optional containing context, indented
+    /// for a type body. Comparison consumers use this fragment, not standalone source.
+    /// </summary>
+    public string? MemberDeclarationText { get; init; }
+
     public string? Text => Projection.Output;
     public DecompilationFidelity Fidelity => Projection.Fidelity;
     public bool IsAvailable => Status == CSharpDecompilationStatus.Available;
@@ -296,7 +302,10 @@ public static class CSharpDecompilerService
             bodies,
             pdbSupplied,
             composed.Symbols,
-            tracker.Attempted);
+            tracker.Attempted)
+        {
+            MemberDeclarationText = composed.MemberDeclarationText,
+        };
     }
 
     static CSharpDecompilationAttempt Failure(
@@ -337,7 +346,10 @@ internal sealed record CSharpServiceCompositionResult(
     string? Text,
     ImmutableArray<string> Namespaces,
     DecompilerResult? Failure,
-    DecompilerSymbolSource Symbols);
+    DecompilerSymbolSource Symbols)
+{
+    internal string? MemberDeclarationText { get; init; }
+}
 
 internal sealed class CSharpCompositionBudgetExceededException : Exception
 {

@@ -12,13 +12,38 @@ Rows path: request-local sequence-key binding, one named semantic invocation,
 and typed success or strict-failure rebinding. #5625 adds the immutable typed
 selection-operation intent received before schema and order resolution. #5786
 binds Head, Tail, and Window intent directly to one unordered cohort for
-package-version rows. Ordered/ranked intent resolution, projection, general
-Count binding, source outcomes, and multiple-cohort composition remain
-unimplemented.
-The dependency-free `SectionCountOutcome<TIdentity, TEvidence>` carrier
-implements the terminal exact-count, source-for-Count, and semantic-failure
-branches consumed by Diff History; it does not itself resolve or execute a
-section request.
+package-version rows.
+
+The section-row substrate slice of #8010 adds one explicit association over
+complete source rows. It binds typed schema witnesses to already-resolved
+cohort executors, allocates sequence keys across the complete request, forms
+ordered heterogeneous cohorts by schema and request-local intent-binding
+identity, executes each cohort once, and returns declaration-ordered typed Rows
+or exact Count outcomes. Rows rebind through the declaration's typed result
+adapter without section names or presentation schemas.
+
+The Query Space composition slice resolves one explicit structural row
+association through an owner-issued typed row-scope binding, retains the
+resolved row plan beside that association, and constructs the matching
+terminal-bound complete-source Sections execution request. Owner-issued
+row-query failures remain structured and visible before execution. Named
+multi-sequence
+row-query execution applies predicates and baseline order per sequence, then
+invokes semantic selection once across the cohort while preserving
+request-wide sequence keys.
+
+Projection, source dispositions and completion evidence, the complete Sections
+resolution-failure algebra, multiple association instances, and Graph
+Libraries adoption remain unimplemented. The complete-source subset rejects
+malformed composition with exceptions before execution; it does not yet
+satisfy the design's complete structured-failure or resolution-order
+contracts.
+The `DotnetInspector.Sections`-owned
+`SectionCountOutcome<TIdentity, TEvidence>` carrier implements the terminal
+exact-count, source-for-Count, and semantic-failure branches consumed by Diff
+History; it does not itself resolve or execute a section request. The L1
+PackageQueries outcome remains Count-free, while L2 returns
+`DiffHistorySectionAvailable` with the optional section Count outcome.
 
 Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -593,6 +618,25 @@ The one-cohort Rows implementation is enforced by:
 | `RowsCohortBindsStrictFailureAtomically` | A strict semantic failure binds to its exact declared identity and publishes no selected row sets. |
 | `RowsCohortRejectsAmbiguousOrInvalidInput` | Empty cohorts, duplicate identities, and invalid required inputs reject before plausible output; resolver and comparer exceptions propagate unchanged. |
 | `RowsCohortSnapshotsInputsAndResults` | Input and result collection membership and order are snapshots while row values remain caller-owned objects. |
+
+The one-association, complete-source heterogeneous substrate is enforced by:
+
+| Gate | Contract |
+| --- | --- |
+| `HeterogeneousCompleteSourceCohortsPreserveTypedRowsAndCount` | One explicit association binds every declared row set exactly once; request-wide sequence keys round-trip owner identity; cohorts follow first schema occurrence and retain declaration order; one typed execution binding serves every same-schema member; successful Rows and Count reassemble in declaration order; typed result adapters receive the selected caller-owned rows. |
+| `SectionRowSingleAssociationRejectsInvalidBinding` | Empty selected sets, duplicate declarations, unknown, duplicate, or unassigned association references, duplicate or missing schema bindings, and unused bindings reject before any cohort executor runs. These construction exceptions do not claim the later structured-resolution failure contract. |
+| `CrossCohortCompleteSourceFailureIsAtomic` | A semantic failure in a later heterogeneous cohort publishes no earlier Rows or Count payload, binds to the owner-issued row-set identity, and skips every later cohort. |
+| `CrossCohortExceptionsPropagateAndSkipLaterWork` | An exception from an entered cohort propagates as the exact instance and skips every later cohort. |
+
+The one-association Query Space composition path is enforced by:
+
+| Gate | Contract |
+| --- | --- |
+| `StructuralAssociationResolvesAndExecutesSameSchemaRowSets` | One structural row association lowers through its registered typed vocabulary, retains the structural association beside the resolved plan, applies predicates and effective baseline order independently to each same-schema sequence, invokes semantic selection once across the cohort, and feeds terminal-bound Rows and Count requests through the same resolution path; invoking a different terminal is rejected before execution. |
+| `PredicatesRunBeforeBaselineComparerResolution` | Composed execution evaluates predicates across the cohort before resolving the one request-wide baseline comparer, preserving callback and competing-failure precedence. |
+| `RowResolutionFailureRemainsVisibleBeforeExecution` | An owner-issued row-query value failure returns its exact structured reason and scope before a Sections execution request exists. |
+| `DescriptorAndExecutableVocabularyMustMatch` | A typed row-scope binding rejects structural facet/operator/order capability drift from its executable row vocabulary before query-space construction or execution; the current descriptor advertises Top only when the vocabulary supplies a default Top ranking. |
+| `RequestIsRevalidatedAgainstExecutableBinding` | Resolution revalidates a structural request against the current executable binding's descriptor; a request created from another descriptor with the same query-space identity cannot carry stale facet capability into execution. |
 
 The remaining implementation must add these named Release gates:
 

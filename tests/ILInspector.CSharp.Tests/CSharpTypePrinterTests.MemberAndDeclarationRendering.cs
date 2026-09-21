@@ -7,9 +7,10 @@ namespace ILInspector.CSharp.Tests;
 public sealed partial class CSharpTypePrinterTests
 {
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void PropertyInitializerPreservesPrimaryParameterAndTargetBody(bool automatic)
+    [InlineData(CSharpAccessorBodyKind.Auto)]
+    [InlineData(CSharpAccessorBodyKind.Block)]
+    [InlineData(CSharpAccessorBodyKind.Expression)]
+    public void PropertyInitializerPreservesPrimaryParameterAndTargetBody(CSharpAccessorBodyKind kind)
     {
         var property = new ApiMember
         {
@@ -26,9 +27,13 @@ public sealed partial class CSharpTypePrinterTests
         type.Kind = "struct";
         type.Members.Add(property);
         var body = new CSharpPropertyBody(
-            automatic
-                ? CSharpAccessorBody.Auto
-                : CSharpAccessorBody.Block("return field + 1;") with { IsReplacementTarget = true },
+            kind switch
+            {
+                CSharpAccessorBodyKind.Auto => CSharpAccessorBody.Auto,
+                CSharpAccessorBodyKind.Expression =>
+                    CSharpAccessorBody.Expression("field + 1") with { IsReplacementTarget = true },
+                _ => CSharpAccessorBody.Block("return field + 1;") with { IsReplacementTarget = true },
+            },
             null)
         {
             Initializer = "@event",
@@ -40,15 +45,23 @@ public sealed partial class CSharpTypePrinterTests
 
         Assert.Contains("struct Counter(int @event)", result.Source);
         Assert.Contains("} = @event;", result.Source);
-        if (automatic)
+        if (kind == CSharpAccessorBodyKind.Auto)
             Assert.Contains("Value { get; } = @event;", result.Source);
         else
         {
+            var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
+            if (kind == CSharpAccessorBodyKind.Expression)
+            {
+                Assert.Contains("Value\n    {\n        get => field + 1;\n    } = @event;", result.Source);
+                Assert.Equal("=> field + 1;", result.Source.Substring(range.Start, range.Length));
+            }
             string replacement = result.SourceArtifact.ReplaceBody("return field + 2;");
             Assert.Contains("return field + 2;", replacement);
             Assert.DoesNotContain("return field + 1;", replacement);
             Assert.Contains("struct Counter(int @event)", replacement);
             Assert.Contains("} = @event;", replacement);
+            Assert.StartsWith(result.Source[..range.Start], replacement);
+            Assert.EndsWith(result.Source[range.End..], replacement);
         }
     }
 
@@ -72,6 +85,64 @@ public sealed partial class CSharpTypePrinterTests
                 memberPolicyOverrides: [new CSharpMemberPolicy(member, bodyPolicy, body)])));
 
         Assert.Contains("must use skeleton body policy", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InterfaceConstantAcceptsTypedFieldInitializer()
+    {
+        var field = new ApiMember
+        {
+            Name = "Answer",
+            Kind = "field",
+            ReturnType = "int",
+            IsConst = true,
+            IsStatic = true,
+        };
+        var type = CreateEmptyType("Samples", "IConstants");
+        type.Kind = "interface";
+        type.Members.Add(field);
+
+        CSharpTypePrintResult result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        field,
+                        CSharpBodyPolicy.Full,
+                        new CSharpFieldInitializer("42")),
+                ]));
+
+        Assert.Contains(
+            "public const int Answer = 42;",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InterfaceMethodStillRejectsExecutableBody()
+    {
+        ApiMember method = CreateMethod("Observe");
+        var type = CreateEmptyType("Samples", "IConstants");
+        type.Kind = "interface";
+        type.Members.Add(method);
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            _printer.Print(
+                new CSharpTypePrintRequest(
+                    type,
+                    memberPolicyOverrides:
+                    [
+                        new CSharpMemberPolicy(
+                            method,
+                            CSharpBodyPolicy.Full,
+                            new CSharpBlockBody("return;")),
+                    ])));
+
+        Assert.Contains(
+            "must use skeleton body policy",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
