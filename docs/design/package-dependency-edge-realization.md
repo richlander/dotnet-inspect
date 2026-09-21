@@ -210,7 +210,7 @@ No external implementation or source code is transferred.
 
 ## Production adoption
 
-The end-to-end dependency-aware call-graph adoption path has three slices:
+The end-to-end dependency-aware call-graph adoption path has four slices:
 
 1. This owner prepares and completes one target-aware resolved-edge
    PackageHouse execution, including optional exact Platform pruning.
@@ -218,8 +218,11 @@ The end-to-end dependency-aware call-graph adoption path has three slices:
    batches completed admitted-edge evidence, retains destination Package Root
    lifetimes through Scope, reuses already-realized root occurrences, and
    lowers package or Platform decisions into typed dependency destinations.
-3. CLI and Browser/Wasm consume that shared Workspace result. Inspect Web adds
-   an independent traversal-TFM selector defaulted to `net12.0`; package TFM
+3. One owner-issued source-operation context executes all admitted resolved
+   edges, invokes the Workspace route operation, and exposes detached
+   dependency destinations to one shared dependency-aware call-graph service.
+4. CLI and Browser/Wasm consume that same service. Inspect Web adds an
+   independent traversal-TFM selector defaulted to `net12.0`; package TFM
    remains the root/member selection contract.
 
 This first slice is independently coherent: it either produces exact
