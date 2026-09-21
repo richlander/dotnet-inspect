@@ -237,6 +237,31 @@ test("publication revalidates intent after classification", () => {
   assert.equal(arbiter.unresolved?.intentId, traversal.id);
 });
 
+test("successful publication consumes its location intent", () => {
+  const arbiter = createNavigationLocationIntentArbiter();
+  const intent = arbiter.admitNonBrowser("push", null, null);
+  const installed = association("workspace-a");
+  const effect = arbiter.classify(intent, result(installed));
+  const writes: string[] = [];
+  const history = {
+    pushState() {
+      writes.push("push");
+    },
+    replaceState() {
+      writes.push("replace");
+    },
+  };
+
+  arbiter.publish(effect, history);
+  arbiter.publish(effect, history);
+
+  assert.deepEqual(writes, ["push"]);
+  assert.equal(arbiter.currentIntentId, null);
+  assert.deepEqual(
+    arbiter.classify(intent, result(installed)),
+    { kind: "none", intentId: intent.id, reason: "stale" });
+});
+
 test("post-cutover history failure keeps the installed successor unresolved", () => {
   const arbiter = createNavigationLocationIntentArbiter();
   const accepted = arbiter.admitNonBrowser("push", null, null);

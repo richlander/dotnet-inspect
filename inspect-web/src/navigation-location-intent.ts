@@ -209,13 +209,16 @@ NavigationLocationIntentArbiter {
 
   function settle(effect: LocationEffect, succeeded: boolean): void {
     if (effect.kind === "none" || effect.intentId !== currentIntentId) return;
-    unresolved = succeeded
-      ? null
-      : {
-        intentId: effect.intentId,
-        association: cloneAssociation(effect.association),
-        selectedEntry: effect.selectedEntry,
-      };
+    if (succeeded) {
+      currentIntentId = null;
+      unresolved = null;
+      return;
+    }
+    unresolved = {
+      intentId: effect.intentId,
+      association: cloneAssociation(effect.association),
+      selectedEntry: effect.selectedEntry,
+    };
   }
 
   function publish(
