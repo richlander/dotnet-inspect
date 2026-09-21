@@ -102,7 +102,7 @@ test("data bar shows versioned linked build provenance", () => {
 test("Diagnostics is a routed typed surface outside the Application menu", () => {
   assert.match(
     appSource,
-    /if \(isDiagnosticsPath\(location\.pathname\)\) \{\s*loadingBotSrc = null;\s*renderDiagnosticsPage\(\);\s*return;/);
+    /if \(isDiagnosticsPath\(location\.pathname\)\) \{\s*loadingBotSrc = null;\s*renderDiagnosticsPage\(\);\s*bindLibraryOpenEvents\(\);\s*return;/);
   assert.match(
     appSource,
     /function renderDiagnosticsPage\(\)[\s\S]*diagnosticsViewHtml\(\{[\s\S]*bindDiagnosticsView\(document/);
@@ -1315,7 +1315,7 @@ test("browser history reuses available identities and publishes only unavailable
     /function finishPackageRemoval\([\s\S]*if \(!state\.package && !state\.platformSelection\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);
   assert.match(
     appSource,
-    /if \(snapshot\.state\.packages\.length === 0 && !snapshot\.state\.platformSelection\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
+    /if \(snapshot\.state\.packages\.length === 0\s*&& !snapshot\.state\.platformSelection\s*&& !snapshot\.state\.uploadedLibrary\) \{\s*snapshot\.state\.workspaceSubjectOpen = true;\s*snapshot\.state\.atPackageRoot = true;\s*snapshot\.state\.atLibraryRoot = false;/);
   assert.match(
     appSource,
     /function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*const memberCallGraphSeq = state\.memberCallGraphSeq;[\s\S]*const platformIndex = state\.platformIndex \?\? snapshot\.state\.platformIndex;\s*clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);[\s\S]*state\.memberCallGraphSeq =\s*Math\.max\(memberCallGraphSeq, snapshot\.state\.memberCallGraphSeq\) \+ 1;[\s\S]*state\.platformIndex = platformIndex;/);

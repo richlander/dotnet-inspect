@@ -23,10 +23,16 @@ test("picker, drop, and paste share one accepted file admission", () => {
   }
 });
 
-test("admission rejects missing, multiple, and over-bound files visibly", () => {
+test("admission rejects missing, empty, multiple, and over-bound files visibly", () => {
   assert.deepEqual(admitLibraryUpload([]), {
     kind: "rejected",
     message: "Choose one managed .NET assembly.",
+  });
+  assert.deepEqual(admitLibraryUpload([
+    file("Empty.dll", 0),
+  ]), {
+    kind: "rejected",
+    message: "The selected file is empty.",
   });
   assert.deepEqual(admitLibraryUpload([
     file("One.dll", 1),

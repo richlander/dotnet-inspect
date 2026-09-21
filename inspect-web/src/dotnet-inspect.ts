@@ -159,7 +159,9 @@ import {
 } from "./library-subject-nav.ts";
 import {
   bindLibraryOpen,
+  bindLibraryOpenDocument,
   renderLibraryOpenDialog,
+  type LibraryOpenActions,
   type LibraryOpenInput,
 } from "./library-open.ts";
 import {
@@ -1353,6 +1355,9 @@ CanonicalWorkspaceRestoreSnapshot {
     catalogRequests.copyPackage(original, copy);
   }
   packageComparisonTargets.copyPackages(copies);
+  const uploadedLibrary = state.uploadedLibrary
+    ? structuredClone(state.uploadedLibrary)
+    : null;
   const activeKey = state.package
     ? packageIdentityKey(state.package)
     : null;
@@ -1366,9 +1371,12 @@ CanonicalWorkspaceRestoreSnapshot {
       platformCatalogStatus: { ...state.platformCatalogStatus },
       platformOpeningStatus: { ...state.platformOpeningStatus },
       packages,
-      package: activeKey
-        ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
-        : null,
+      uploadedLibrary,
+      package: state.rootKind === "library" && state.package
+        ? uploadedLibrary
+        : activeKey
+          ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
+          : null,
       workspaceDependencies: structuredClone(state.workspaceDependencies),
       workspaceDependencyErrors:
         structuredClone(state.workspaceDependencyErrors),
@@ -1402,7 +1410,9 @@ CanonicalWorkspaceRestoreSnapshot {
     platformLibraryRetry,
     platformCatalogRetry,
   };
-  if (snapshot.state.packages.length === 0 && !snapshot.state.platformSelection) {
+  if (snapshot.state.packages.length === 0
+    && !snapshot.state.platformSelection
+    && !snapshot.state.uploadedLibrary) {
     snapshot.state.workspaceSubjectOpen = true;
     snapshot.state.atPackageRoot = true;
     snapshot.state.atLibraryRoot = false;
@@ -2314,7 +2324,9 @@ function captureView(): WorkspaceView | null {
     rootKind: state.rootKind,
     platform: state.platformSelection ? { ...state.platformSelection } : null,
     package: state.package?.id ?? "",
-    packageKey: packageIdentityKey(state.package),
+    packageKey: state.rootKind === "library"
+      ? uploadedLibraryHistoryKey(state.package)
+      : packageIdentityKey(state.package),
     workspaceSubjectOpen: state.workspaceSubjectOpen,
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
@@ -2342,6 +2354,16 @@ function captureView(): WorkspaceView | null {
       && hasPlatformRootHistoryView(),
     platformPresentedAsRoot: platformIsPresentedAsRoot(),
   };
+}
+
+function uploadedLibraryHistoryKey(
+  pkg: AppPackage | null | undefined,
+): string {
+  if (!pkg) return "";
+  return [
+    packageIdentityKey(pkg),
+    encodeURIComponent(pkg.assemblyId.toLowerCase()),
+  ].join("|");
 }
 
 function viewSignature() {
@@ -2442,7 +2464,7 @@ function applyView(view: WorkspaceView) {
     }
   }
   const pkg = (view.rootKind === "library"
-      && packageIdentityKey(state.uploadedLibrary) === view.packageKey
+      && uploadedLibraryHistoryKey(state.uploadedLibrary) === view.packageKey
       ? state.uploadedLibrary
       : null)
     ?? packageForView(state.packages, view)
@@ -5169,6 +5191,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   if (isDiagnosticsPath(location.pathname)) {
     loadingBotSrc = null;
     renderDiagnosticsPage();
+    bindLibraryOpenEvents();
     return;
   }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
@@ -5177,11 +5200,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   if (state.explorer?.open) {
     loadingBotSrc = null;
     renderMetadataExplorer();
+    bindLibraryOpenEvents();
     return;
   }
   if (state.credits) {
     loadingBotSrc = null;
     renderCreditsView();
+    bindLibraryOpenEvents();
     return;
   }
   if (state.packageQueryOpen
@@ -5191,6 +5216,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     document.body.classList.add("package-query-route");
     loadingBotSrc = null;
     renderPackageQueryPage();
+    bindLibraryOpenEvents();
     return;
   }
   if (state.packageActivityOpen
@@ -5200,6 +5226,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     document.body.classList.add("package-activity-route");
     loadingBotSrc = null;
     renderPackageActivityPage();
+    bindLibraryOpenEvents();
     return;
   }
   packageQueryLiveAnnouncer.reset();
@@ -13625,6 +13652,7 @@ function renderLoading() {
         : `<div class="load-progress"><img class="loading-bot" src="${interstitialBotSrc()}" width="200" height="200" alt="dotnet-bot inspector mascot" /><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   bindLoadErrorShell(document, loadErrorShellActions);
+  bindLibraryOpenEvents();
 }
 
 async function loadSelectedMemberDocumentation() {
@@ -15897,31 +15925,46 @@ function closeLibraryDialog() {
 }
 
 function bindLibraryOpenEvents() {
-  disconnectLibraryOpen = bindLibraryOpen(document, {
+  if (state.libraryOpen
+    && !document.querySelector("#library-open-dialog")) {
+    app.insertAdjacentHTML(
+      "beforeend",
+      renderLibraryOpenDialog(currentLibraryOpenView(), escapeHtml));
+  }
+  disconnectLibraryOpen = bindLibraryOpen(
+    document,
+    currentLibraryOpenView(),
+    libraryOpenActions);
+}
+
+function currentLibraryOpenView() {
+  return {
     open: state.libraryOpen,
     busy: state.libraryOpenBusy,
     fileName: state.libraryOpenFileName,
     error: state.libraryOpenError,
-  }, {
-    onDismiss: closeLibraryDialog,
-    onReject: message => {
-      state.libraryOpen = true;
-      state.libraryOpenError = message;
-      render({ synchronizeUrl: false });
-    },
-    onFile: (file, input) =>
-      observeAsync(
-        openUploadedLibraryFile(file, input),
-        "Opening uploaded Library"),
-  });
+  };
 }
+
+const libraryOpenActions: LibraryOpenActions = {
+  onDismiss: closeLibraryDialog,
+  onReject: message => {
+    state.libraryOpen = true;
+    state.libraryOpenError = message;
+    render({ synchronizeUrl: false });
+  },
+  onFile: (file, input) =>
+    observeAsync(
+      openUploadedLibraryFile(file, input),
+      "Opening uploaded Library"),
+};
 
 async function openUploadedLibraryFile(
   file: File,
   input: LibraryOpenInput,
 ) {
   const operationSequence = ++libraryOpenSequence;
-  const navigationSeq = navigationSequence.current();
+  const navigationSeq = navigationSequence.begin();
   const isCurrent = () =>
     operationSequence === libraryOpenSequence
     && navigationSequence.isCurrent(navigationSeq);
@@ -15984,6 +16027,11 @@ async function openUploadedLibraryFile(
     }
   }
 }
+
+bindLibraryOpenDocument(
+  document,
+  currentLibraryOpenView,
+  libraryOpenActions);
 
 function focusSettingsEntry() {
   const selector = state.settingsReturn === "source"

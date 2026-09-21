@@ -378,7 +378,7 @@ test("workspace data bar receives package acquisition provenance", () => {
 test("uploaded Libraries remain transient closed-world subjects", () => {
   const open =
     appSource.match(
-      /async function openUploadedLibraryFile\([\s\S]*?\n}\n\nfunction focusSettingsEntry/)?.[0]
+      /async function openUploadedLibraryFile\([\s\S]*?\n}\n\nbindLibraryOpenDocument/)?.[0]
     ?? "";
   const memberDocumentation =
     appSource.match(
@@ -391,7 +391,7 @@ test("uploaded Libraries remain transient closed-world subjects", () => {
 
   assert.match(
     open,
-    /const operationSequence = \+\+libraryOpenSequence;\s*const navigationSeq = navigationSequence\.current\(\);\s*const isCurrent = \(\) =>\s*operationSequence === libraryOpenSequence\s*&& navigationSequence\.isCurrent\(navigationSeq\);[\s\S]*state\.libraryOpen = true;[\s\S]*file\.arrayBuffer\(\)[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*inspectOpenUploadedLibrary\(file\.name, content\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*createUploadedLibraryModel\(inspection\.content\)[\s\S]*activatePackage\(packageModel, \{ resetAccessibility: true \}\)[\s\S]*state\.uploadedLibrary = packageModel[\s\S]*state\.rootKind = "library"[\s\S]*workspaceLocation\.replace\("\/"\)/);
+    /const operationSequence = \+\+libraryOpenSequence;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const isCurrent = \(\) =>\s*operationSequence === libraryOpenSequence\s*&& navigationSequence\.isCurrent\(navigationSeq\);[\s\S]*state\.libraryOpen = true;[\s\S]*file\.arrayBuffer\(\)[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*inspectOpenUploadedLibrary\(file\.name, content\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*createUploadedLibraryModel\(inspection\.content\)[\s\S]*activatePackage\(packageModel, \{ resetAccessibility: true \}\)[\s\S]*state\.uploadedLibrary = packageModel[\s\S]*state\.rootKind = "library"[\s\S]*workspaceLocation\.replace\("\/"\)/);
   assert.doesNotMatch(
     open,
     /retainPackageModel|state\.packages|syncUrl|workspaceShareBasis/);

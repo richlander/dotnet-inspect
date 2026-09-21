@@ -42,6 +42,12 @@ export function admitLibraryUpload<TFile extends LibraryUploadCandidate>(
   }
 
   const file = files[0]!;
+  if (file.size === 0) {
+    return {
+      kind: "rejected",
+      message: "The selected file is empty.",
+    };
+  }
   if (file.size > maximumBytes) {
     return {
       kind: "rejected",
@@ -50,6 +56,62 @@ export function admitLibraryUpload<TFile extends LibraryUploadCandidate>(
     };
   }
   return { kind: "accepted", file };
+}
+
+function submitLibraryUpload(
+  files: ArrayLike<File>,
+  source: LibraryOpenInput,
+  actions: LibraryOpenActions,
+): void {
+  const admission = admitLibraryUpload(files);
+  if (admission.kind === "accepted") {
+    actions.onFile(admission.file, source);
+  } else {
+    actions.onReject(admission.message, source);
+  }
+}
+
+function hasFiles(event: DragEvent): boolean {
+  return [...(event.dataTransfer?.types ?? [])].includes("Files");
+}
+
+export function bindLibraryOpenDocument(
+  root: Document,
+  currentView: () => Pick<LibraryOpenView, "open" | "busy">,
+  actions: LibraryOpenActions,
+): () => void {
+  const dragover = (event: DragEvent) => {
+    if (!hasFiles(event) || currentView().busy) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    root.querySelector("#library-open-dropzone")
+      ?.classList.add("is-dragging");
+  };
+  const drop = (event: DragEvent) => {
+    if (!hasFiles(event) || currentView().busy) return;
+    event.preventDefault();
+    root.querySelector("#library-open-dropzone")
+      ?.classList.remove("is-dragging");
+    submitLibraryUpload(event.dataTransfer?.files ?? [], "drop", actions);
+  };
+  const paste = (event: ClipboardEvent) => {
+    const view = currentView();
+    if (!view.open || view.busy) return;
+    const files = event.clipboardData?.files;
+    if (!files?.length) return;
+    event.preventDefault();
+    submitLibraryUpload(files, "paste", actions);
+  };
+
+  root.addEventListener("dragover", dragover);
+  root.addEventListener("drop", drop);
+  root.addEventListener("paste", paste);
+
+  return () => {
+    root.removeEventListener("dragover", dragover);
+    root.removeEventListener("drop", drop);
+    root.removeEventListener("paste", paste);
+  };
 }
 
 export function renderLibraryOpenDialog(
@@ -105,44 +167,12 @@ export function bindLibraryOpen(
   const dropzone =
     root.querySelector<HTMLElement>("#library-open-dropzone");
 
-  const submit = (
-    files: ArrayLike<File>,
-    source: LibraryOpenInput,
-  ) => {
-    const admission = admitLibraryUpload(files);
-    if (admission.kind === "accepted") {
-      actions.onFile(admission.file, source);
-    } else {
-      actions.onReject(admission.message, source);
-    }
-  };
-  const hasFiles = (event: DragEvent) =>
-    [...(event.dataTransfer?.types ?? [])].includes("Files");
-  const dragover = (event: DragEvent) => {
-    if (!hasFiles(event) || view.busy) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    dropzone?.classList.add("is-dragging");
-  };
   const dragleave = (event: DragEvent) => {
     if (event.target === dropzone) dropzone?.classList.remove("is-dragging");
   };
-  const drop = (event: DragEvent) => {
-    if (!hasFiles(event) || view.busy) return;
-    event.preventDefault();
-    dropzone?.classList.remove("is-dragging");
-    submit(event.dataTransfer?.files ?? [], "drop");
-  };
-  const paste = (event: ClipboardEvent) => {
-    if (!view.open || view.busy) return;
-    const files = event.clipboardData?.files;
-    if (!files?.length) return;
-    event.preventDefault();
-    submit(files, "paste");
-  };
 
   input?.addEventListener("change", () =>
-    submit(input.files ?? [], "picker"));
+    submitLibraryUpload(input.files ?? [], "picker", actions));
   root.querySelector("#library-open-close")
     ?.addEventListener("click", () => actions.onDismiss());
   backdrop?.addEventListener("click", event => {
@@ -157,15 +187,8 @@ export function bindLibraryOpen(
     }
   });
   dropzone?.addEventListener("dragleave", dragleave);
-  root.addEventListener("dragover", dragover);
-  root.addEventListener("drop", drop);
-  root.addEventListener("paste", paste);
 
-  return () => {
-    root.removeEventListener("dragover", dragover);
-    root.removeEventListener("drop", drop);
-    root.removeEventListener("paste", paste);
-  };
+  return () => dropzone?.removeEventListener("dragleave", dragleave);
 }
 
 function formatByteCount(bytes: number): string {

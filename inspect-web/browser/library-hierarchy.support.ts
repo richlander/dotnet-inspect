@@ -904,6 +904,32 @@ async function installFacades(
           await new Promise(resolve =>
             document.addEventListener("finish-library-upload", resolve));
         }
+        if (uploadInspection.content.outcome === "Available") {
+          const digest = (content[0] ?? 0).toString(16).padStart(64, "0");
+          const assemblyId = "sha256:" + digest;
+          document.documentElement.dataset.libraryUploadDigest = digest;
+          return {
+            ...uploadInspection,
+            content: {
+              ...uploadInspection.content,
+              declaredName,
+              digest,
+              byteLength: content.length,
+              provenance: {
+                ...uploadInspection.content.provenance,
+                digest: assemblyId,
+                declaredName,
+              },
+              surface: {
+                ...uploadInspection.content.surface,
+                assemblies: uploadInspection.content.surface.assemblies.map(
+                  assembly => ({ ...assembly, id: assemblyId, asset: declaredName })),
+                types: uploadInspection.content.surface.types.map(
+                  type => ({ ...type, assemblyId, assembly: declaredName })),
+              },
+            },
+          };
+        }
         return {
           ...uploadInspection,
           content: {
@@ -1462,6 +1488,7 @@ async function installLibraryQueryFacades(
 async function installLibraryUploadFacades(
   page: Page,
   libraryUpload: LibraryUploadFixture,
+  packageLoading: PackageLoadingFixture = {},
 ) {
   await installFacades(
     page,
@@ -1474,7 +1501,7 @@ async function installLibraryUploadFacades(
     "ready",
     undefined,
     {},
-    {},
+    packageLoading,
     libraryUpload,
   );
 }

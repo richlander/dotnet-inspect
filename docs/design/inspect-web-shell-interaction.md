@@ -371,20 +371,25 @@ descriptors and outcomes; it does not infer supported extensions,
 correspondence, or workspace composition. Arbitrary pasted text is not guessed
 to be binary or base64.
 
-The first production shape accepts exactly one file and applies the declared
-32 MiB browser preflight before reading it. The host-neutral operation remains
-the authoritative bound and format gate. An accepted managed assembly opens
-directly as a transient Library with Type and Member API navigation; the Open
-surface keeps rejection visible and retains focus for correction.
-A page-level drop opens the overlay before work begins so progress and typed
+The first production shape accepts exactly one non-empty file and applies the
+declared 32 MiB browser preflight before reading it. The host-neutral operation
+remains the authoritative bound and format gate. An accepted managed assembly
+opens directly as a transient Library with Type and Member API navigation; the
+Open surface keeps rejection visible and retains focus for correction.
+A page-level drop remains available across ordinary and full-bleed routed
+surfaces and opens the overlay before work begins so progress and typed
 rejection remain visible. Routed navigation retires any in-flight Open
-operation; a retired completion cannot replace the newer route or rerender its
-dismissed overlay.
+operation, and beginning Open work retires older routed acquisition; a retired
+completion cannot replace the user's newer destination or rerender a dismissed
+overlay. Failed routed acquisition restores an active uploaded Library rather
+than dropping its transient model.
 
 Successful transient-Library activation replaces the current address with the
 neutral Home route `/`. The route carries no upload identity, bytes, or
 restoration claim; refresh therefore returns Home rather than restoring the
-session-local Library.
+session-local Library. In-memory history matches uploaded views with the
+digest-backed assembly identity, so replacing an upload cannot expose the new
+image through an older same-name/version history entry.
 
 ### Settings
 

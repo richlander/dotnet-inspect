@@ -1002,10 +1002,11 @@ A successful result never implies sibling discovery, dependency acquisition,
 platform closure, package identity, local-file identity, source or PDB
 acquisition, persistence, or restoration.
 
-The Browser host bounds one upload at 32 MiB before managed dispatch and
-reasserts the same bound inside the operation. The UI may use the declared
-bound to avoid an unnecessary browser allocation, but the product operation is
-the enforcement gate. If Browser DTO lowering exceeds its independent
+The Browser host rejects empty input and bounds one upload at 32 MiB before
+materialization and managed dispatch, then reasserts both constraints inside
+the operation. The UI may use the declared bounds to avoid an unnecessary
+browser allocation, but the product operation is the enforcement gate. If
+Browser DTO lowering exceeds its independent
 transport-text bound, the Browser facade converts that truncation to the same
 typed `ProjectionTruncated` rejection shape; it never serializes partial
 Library content as available. `EmbeddedLibraryInspectionTests` gates
