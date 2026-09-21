@@ -1,4 +1,5 @@
 using DotnetInspector.Cache;
+using DotnetInspector.Fixtures;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
@@ -142,7 +143,7 @@ public class LibraryFindingConsumerTests
     [Fact]
     public void ClassifiedMethodsQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
     {
-        string path = typeof(SampleUnsafeClass).Assembly.Location;
+        string path = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using var session = AssemblyInspectionSession.Open(path);
         var inspection = new LibraryInspection();
 
@@ -154,12 +155,12 @@ public class LibraryFindingConsumerTests
 
         var finding = Assert.Single(
             inspection.ClassifiedMethodInspection.Findings(),
-            finding => finding.Payload.Anchor.MemberName == nameof(SampleUnsafeClass.UnsafePointerMethod));
+            finding => finding.Payload.Anchor.MemberName == "PointerNoneMethod");
         Assert.Same(MetadataFindings.ClassifiedMethodDescriptor, finding.Descriptor);
         Assert.Equal(MethodClassification.Unsafe, finding.Payload.Classification);
         Assert.Contains(
             inspection.UnsafeMethods!,
-            method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod)
+            method => method.MethodName == "PointerNoneMethod"
                       && method.Signature.Contains('*', StringComparison.Ordinal));
     }
 

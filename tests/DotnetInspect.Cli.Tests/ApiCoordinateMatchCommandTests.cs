@@ -358,7 +358,6 @@ public sealed class ApiCoordinateMatchCommandTests
     }
 
     [Theory]
-    [InlineData("--bare")]
     [InlineData("--tree")]
     [InlineData("--count")]
     [InlineData("-Q")]
@@ -382,6 +381,24 @@ public sealed class ApiCoordinateMatchCommandTests
             "--envelope cannot be combined with",
             result.Error,
             StringComparison.Ordinal);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Fact]
+    public async Task TypeEnvelopeRejectsRetiredBareBeforeAcquisition()
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type", "Example.Widget",
+            "--package", "Example@1.0.0",
+            "--tfm", "net8.0",
+            "--envelope",
+            "--bare",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("Unrecognized option '--bare'", result.Error);
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
     }
 

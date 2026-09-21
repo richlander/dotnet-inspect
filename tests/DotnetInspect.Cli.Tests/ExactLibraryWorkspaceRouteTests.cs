@@ -214,7 +214,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
                 options with
                 {
                     JsonOutput = true,
-                    Bare = true,
+                    PlainText = true,
                 },
                 out _));
     }

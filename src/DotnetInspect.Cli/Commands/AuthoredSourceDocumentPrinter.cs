@@ -77,7 +77,10 @@ internal static class AuthoredSourceDocumentPrinter
         }
 
         var document = new PrintableDocument(
-            selected.Row, selected.Section, selected.Label, selected.Path, selected.Url, source.Text);
+            selected.Row, selected.Section, selected.Label, selected.Path, selected.Url, source.Text)
+        {
+            Language = "csharp"
+        };
         return PrintProjectionOutput.Write(
             [document],
             new PrintProjectionOptions(
@@ -85,8 +88,8 @@ internal static class AuthoredSourceDocumentPrinter
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                options.Bare,
-                new ProjectionDestination(null, options.Rows)));
+                new ProjectionDestination(null, options.Rows),
+                Markdown: options.UsesMarkdownPayloadFormat));
     }
 
     internal static (AssemblyContextParticipant Participant, AssemblyContextSourceQueryContext Context)

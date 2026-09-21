@@ -544,7 +544,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiTypeShape).FullName,
-            Verbosity = Verbosity.Normal,
+            Verbosity = Verbosity.Detailed,
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
@@ -860,7 +860,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                 options with
                 {
                     JsonOutput = true,
-                    Bare = true,
+                    PlainText = true,
                 },
                 out _));
         Assert.False(
