@@ -2353,6 +2353,7 @@ public class ResearchDiffTests
         var endpoint =
             new LibraryImplementationProfileAnalysisResult(
                 receipt,
+                FakeCoverage(receipt, profiles),
                 profiles,
                 ImmutableArray<OverloadCallRelationship>.Empty,
                 ImmutableHashSet<TypeRef>.Empty);
