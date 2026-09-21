@@ -3604,6 +3604,71 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("get_SyncRoot", output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        Type_DecompiledSource_PreservesExplicitPropertyDeclarationAttributes(
+            bool includeAll)
+    {
+        List<string> arguments =
+        [
+            "type",
+            typeof(AttributedExplicitValuesFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--bare",
+            "--tips",
+            "q",
+        ];
+        if (includeAll)
+            arguments.Add("--all");
+
+        var (exit, output, error) = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string normalized = output.ReplaceLineEndings("\n");
+        const string values =
+            "    [DataMember(Name = \"values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values => _values;";
+        const string otherValues =
+            "    [DataMember(Name = \"other-values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues => _otherValues;";
+        Assert.Equal(
+            1,
+            normalized.Split(values, StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            normalized.Split(otherValues, StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            normalized.Split(
+                "[DataMember(Name = \"values\")]",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            normalized.Split(
+                "[DataMember(Name = \"other-values\")]",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "[DataMember(Name = \"values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues",
+            normalized,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "[DataMember(Name = \"other-values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values",
+            normalized,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "private virtual List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.",
+            normalized,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task
         Type_DecompiledSource_RequiresCompletedSharedInspection()
@@ -3952,6 +4017,28 @@ public partial class CommandExecutionTests
             ConcealedCore();
 
         private static int ConcealedCore() => 42;
+    }
+
+    public interface IAttributedExplicitValuesFixture
+    {
+        List<int> Values { get; }
+
+        List<int> OtherValues { get; }
+    }
+
+    [System.Runtime.Serialization.DataContract]
+    public sealed class AttributedExplicitValuesFixture :
+        IAttributedExplicitValuesFixture
+    {
+        readonly List<int> _values = [];
+        readonly List<int> _otherValues = [];
+
+        [System.Runtime.Serialization.DataMember(Name = "values")]
+        List<int> IAttributedExplicitValuesFixture.Values => _values;
+
+        [System.Runtime.Serialization.DataMember(Name = "other-values")]
+        List<int> IAttributedExplicitValuesFixture.OtherValues =>
+            _otherValues;
     }
 
     [Fact]

@@ -1409,6 +1409,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        Member_DecompiledSource_ExplicitPropertyOmitsPropertyDeclarationAttributes()
+    {
+        string interfaceName =
+            typeof(IAttributedExplicitValuesFixture).FullName!
+                .Replace('+', '.');
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(AttributedExplicitValuesFixture).FullName!,
+            $"explicit:{interfaceName}.get_Values",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--bare",
+            "--all",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            "DataMember",
+            output,
+            StringComparison.Ordinal);
+        Assert.EndsWith(
+            "CommandExecutionTests.IAttributedExplicitValuesFixture.Values => _values;\n",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfaceSetterUsesPropertyValueType()
     {
         var (exit, output, error) = await RunAppAsync(
