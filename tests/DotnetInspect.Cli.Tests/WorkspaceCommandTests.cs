@@ -1369,6 +1369,133 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task CommandLineShare_DeclaresTypedSourcesWithoutCredentials()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--package",
+            "Private.Package@1.2.3",
+            "--tfm",
+            "net10.0",
+            "--nuget-source-anonymous",
+            "https://api.nuget.org/v3/index.json",
+            "--nuget-source-auth-required",
+            "https://nuget.pkg.github.com/example/index.json",
+            "--nuget-source-auth-required",
+            "https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
+            "--pat-for",
+            "https://nuget.pkg.github.com/example/index.json",
+            "example-user",
+            "env:UNREAD_DURING_RESOURCE_FREE_SHARE",
+            "--share",
+            "packet",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(WorkspaceSharePacketCodec.Format5Version, packet.FormatVersion);
+        Assert.DoesNotContain(
+            "example-user",
+            WorkspaceSharePacketCodec.SerializeJson(packet),
+            StringComparison.Ordinal);
+        Assert.Collection(
+            packet.PackageSources,
+            source =>
+            {
+                Assert.Equal(
+                    "https://api.nuget.org/v3/index.json",
+                    source.Endpoint);
+                Assert.Equal(
+                    WorkspacePackageSourceAuthentication.Anonymous,
+                    source.Authentication);
+            },
+            source =>
+            {
+                Assert.Equal(
+                    "https://nuget.pkg.github.com/example/index.json",
+                    source.Endpoint);
+                Assert.Equal(
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired,
+                    source.Authentication);
+            },
+            source =>
+            {
+                Assert.Equal(
+                    "https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
+                    source.Endpoint);
+                Assert.Equal(
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired,
+                    source.Authentication);
+            });
+    }
+
+    [Fact]
+    public async Task CommandLinePat_RejectsLiteralCredentialWithoutDisclosure()
+    {
+        const string secret = "literal-secret";
+        string[] args =
+        [
+            "workspace",
+            "--package",
+            "Private.Package@1.2.3",
+            "--tfm",
+            "net10.0",
+            "--nuget-source-auth-required",
+            "https://nuget.pkg.github.com/example/index.json",
+            "--pat-for",
+            "https://nuget.pkg.github.com/example/index.json",
+            "richlander",
+            secret,
+        ];
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.NotEqual(0, captured.ExitCode);
+        Assert.Contains("env:NAME, stdin, or file:PATH", captured.Error);
+        Assert.DoesNotContain(secret, captured.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, captured.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CommandLineSource_RejectsAliasSyntax()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--package",
+            "Private.Package@1.2.3",
+            "--tfm",
+            "net10.0",
+            "--nuget-source-auth-required",
+            "github=https://nuget.pkg.github.com/example/index.json",
+            "--share",
+            "packet",
+        ];
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.NotEqual(0, captured.ExitCode);
+        Assert.Contains("absolute HTTPS URL", captured.Error);
+    }
+
+    [Fact]
     public async Task CommandLineInventory_PreservesGroupedRegistrationOrder()
     {
         string[] args =

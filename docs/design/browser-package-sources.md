@@ -1148,6 +1148,36 @@ fields, URL user information, queries, and fragments. Descriptor names, IDs,
 and paths are treated as public. Runtime credentials are never part of this
 registry.
 
+### Workspace-declared source policies and page-session PATs
+
+A schema-version-5 Workspace may carry an exact credential-free source set
+independently of the browser-local registry. Each declaration contains its
+exact HTTPS service-index endpoint and either an anonymous or
+authentication-required policy. The endpoint is the source identity; the
+portable declaration contains no alias, username, credential, or host
+mechanism. A later annotation cannot promote a generic source.
+
+Before activating such a Workspace, Inspect Web describes the required source
+endpoints so the page can collect each Basic username and PAT. The page passes
+an in-memory endpoint-to-credential map with that activation only. The map is
+not added to the retained definition, URL, canonical packet, posting, local
+storage, session storage, IndexedDB, cache storage, diagnostics, logs, or
+telemetry. Refreshing or reopening the URL therefore requires the credential
+again. The active managed realization may retain it in process memory until it
+is replaced or disposed.
+
+Browser/Wasm supports anonymous sources and explicit page-session credentials.
+It cannot launch a NuGet credential-provider plugin, so an
+authentication-required source without an explicit credential is rejected
+before network work rather than reinterpreted as anonymous.
+
+Activation validates the complete binding set before package acquisition.
+Missing and unexpected bindings deny all source authorization rather than
+starting a partial restore. A valid binding replaces ambient browser source
+selection with exactly the Workspace-declared source set, and the ordinary
+configured-source authority keeps Basic credentials scoped to the declared
+origin across service-index and resource requests.
+
 Changing a descriptor's kind or canonical endpoint creates a new configured
 authority identity. The browser invalidates that registry entry's resolved
 resources, candidate state, credentials, and payload-cache eligibility rather
@@ -1703,8 +1733,8 @@ sent to the replacement endpoint.
 ## Browser credentials
 
 Package-source configuration may accept a short-lived packaging-read PAT for a
-source that declares Basic PAT authentication. The session credential contains
-both the configured username and the secret; the wire form is
+source that declares authentication required. The session credential contains
+both a runtime username and the secret; the wire form is
 `Authorization: Basic base64(username:PAT)`. A source-specific UI may suggest a
 documented placeholder username, but the common client does not invent one.
 
