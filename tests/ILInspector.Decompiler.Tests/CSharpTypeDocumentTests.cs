@@ -178,6 +178,61 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_RejectsOwnedAndContributedActivationOwners()
+    {
+        var input = Input();
+        CSharpTypeDeclaration constructor = input.Declarations[2];
+        CSharpTypeRenderPart implementation = constructor.Parts[1];
+        input.Declarations[2] = constructor with
+        {
+            Parts = constructor.Parts.SetItem(
+                1,
+                implementation with
+                {
+                    Contributions =
+                    [
+                        new(
+                            1,
+                            CSharpTypeBodyContributionRole.LoweredImplementation,
+                            implementation.OwnedBodies[0].FullRange),
+                    ],
+                }),
+        };
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => Create(input));
+
+        Assert.Contains(
+            "different Selected-body activation",
+            error.Message);
+    }
+
+    [Fact]
+    public void Create_RejectsArtifactBodyDeclarationRoleMismatch()
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            Role = CSharpTypeBodyRole.Getter,
+        };
+        Assert.Contains(
+            "role is inconsistent",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+
+        input = Input();
+        input.Artifacts[3] = input.Artifacts[3] with
+        {
+            Representation = input.Artifacts[3].Representation with
+            {
+                Role = CSharpTypeArtifactRole.Declaration,
+            },
+        };
+        Assert.Contains(
+            "role is inconsistent",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+    }
+
+    [Fact]
     public void Create_RejectsAggregateNodeBudgetExhaustion()
     {
         var input = Input();
@@ -382,6 +437,11 @@ public class CSharpTypeDocumentTests
         stale["source"]!["rendering_policy"] = "changed-policy";
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(stale.ToJsonString()));
+
+        JsonObject missing = Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        Assert.True(missing["source"]!.AsObject().Remove("kind"));
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(missing.ToJsonString()));
 
         Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
             new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));

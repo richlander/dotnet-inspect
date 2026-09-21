@@ -515,6 +515,7 @@ internal sealed partial class CSharpTypeDocumentCompactJsonContext : JsonSeriali
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    RespectRequiredConstructorParameters = true,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(CSharpTypeDocumentWire))]
 internal sealed partial class CSharpTypeDocumentStrictJsonContext : JsonSerializerContext;
