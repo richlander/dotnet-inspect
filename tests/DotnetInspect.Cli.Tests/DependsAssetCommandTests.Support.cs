@@ -288,7 +288,8 @@ public partial class DependsAssetCommandTests
         string folder,
         string packageId,
         string version,
-        string dependenciesXml)
+        string dependenciesXml,
+        string licenseXml = "")
     {
         string path = Path.Combine(
             folder,
@@ -298,7 +299,7 @@ public partial class DependsAssetCommandTests
         ZipArchiveEntry entry = archive.CreateEntry($"{packageId}.nuspec");
         using Stream entryStream = entry.Open();
         entryStream.Write(
-            Manifest(packageId, version, dependenciesXml));
+            Manifest(packageId, version, dependenciesXml, licenseXml));
     }
 
     private static string Dependency(string packageId, string constraint) =>
@@ -358,7 +359,8 @@ public partial class DependsAssetCommandTests
     private static byte[] Manifest(
         string packageId,
         string version,
-        string dependencies) =>
+        string dependencies,
+        string license = "") =>
         Encoding.UTF8.GetBytes(
             $$"""
               <?xml version="1.0" encoding="utf-8"?>
@@ -368,6 +370,7 @@ public partial class DependsAssetCommandTests
                   <version>{{version}}</version>
                   <authors>Depends Tests</authors>
                   <description>Depends test package.</description>
+                  {{license}}
                   <dependencies>
                     {{dependencies}}
                   </dependencies>
