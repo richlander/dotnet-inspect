@@ -169,6 +169,354 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
+    public void RowsPreserveIndependentSourceOutcomes()
+    {
+        int residualCalls = 0;
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(
+                    () => residualCalls++));
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        "score",
+                        PortableQueryOperator.AtLeast,
+                        "2"),
+                ],
+                [],
+                [PortableQueryStage.Head(1)],
+                [
+                    PortableQueryOrderOperation.Fields(
+                        PortableQueryOrderRole.Baseline,
+                        [
+                            new(
+                                "score",
+                                PortableQueryDirection.Descending),
+                        ]),
+                ]);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        SectionRowSetDeclaration<
+            string,
+            Projection>[] declarations =
+        [
+            Declaration(
+                "left",
+                schema,
+                [new(1), new(4), new(3)],
+                static (projection, rows) =>
+                    projection with
+                    {
+                        Left =
+                            rows.Select(
+                                static row => row.Score)
+                                .ToArray(),
+                    }),
+            Declaration(
+                "right",
+                schema,
+                [new(9)],
+                static (projection, rows) =>
+                    projection with
+                    {
+                        Right =
+                            rows.Select(
+                                static row => row.Score)
+                                .ToArray(),
+                    }),
+        ];
+        var partial =
+            new CompletionReceipt("candidate limit");
+        var unavailable =
+            new CompletionReceipt("source unavailable");
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] sources =
+        [
+            Source(
+                "left",
+                SourceDisposition.Partial,
+                partial,
+                rowsAreUsable: true,
+                countIsSufficient: false),
+            Source(
+                "right",
+                SourceDisposition.Unavailable,
+                unavailable,
+                rowsAreUsable: false,
+                countIsSufficient: false),
+        ];
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                queryScope,
+                schema);
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rowsResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Rows),
+                    declarations,
+                    sources,
+                    sectionScope);
+
+        Assert.True(rowsResolution.IsSuccess);
+        SectionSourceRowsOutcome<
+            string,
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rows =
+                QuerySpaceSectionRowExecutor.ApplyRows(
+                    rowsResolution.Request!);
+        Assert.True(rows.IsSuccess);
+        Assert.Equal(["left", "right"], rows.RowSets.Select(
+            static rowSet => rowSet.Identity));
+        Assert.Equal(
+            [SourceDisposition.Partial, SourceDisposition.Unavailable],
+            rows.RowSets.Select(
+                static rowSet =>
+                    rowSet.Source.Evidence.Disposition));
+        Assert.Same(
+            partial,
+            rows.RowSets[0].Source.Evidence.Completion);
+        Assert.Same(
+            unavailable,
+            rows.RowSets[1].Source.Evidence.Completion);
+        var selectedLeft =
+            Assert.IsType<
+                SectionRowSetResult<
+                    string,
+                    Projection,
+                    ScoreRow>>(
+                        rows.RowSets[0].SelectedRows);
+        Assert.Equal(
+            [4],
+            selectedLeft.Rows.Select(
+                static row => row.Score));
+        Assert.False(rows.RowSets[1].RowsAreAvailable);
+        Assert.Null(rows.RowSets[1].SelectedRows);
+        Projection projection =
+            rows.Rebind(Projection.Empty);
+        Assert.Equal([4], projection.Left);
+        Assert.Empty(projection.Right);
+        Assert.Equal(1, residualCalls);
+        Assert.Throws<InvalidOperationException>(
+            () => QuerySpaceSectionRowExecutor.ApplyCount(
+                rowsResolution.Request!));
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> countResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Count),
+                    declarations,
+                    sources,
+                    sectionScope);
+        SectionCountOutcome<
+            string,
+            SectionRowSourceEvidence<
+                SourceDisposition,
+                CompletionReceipt>> count =
+                    QuerySpaceSectionRowExecutor.ApplyCount(
+                        countResolution.Request!);
+        var sourceFailure =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.SourceForCount>(
+                            count);
+        Assert.Equal(
+            ["left", "right"],
+            sourceFailure.Sources.Select(
+                static source => source.Identity));
+        Assert.Same(
+            partial,
+            sourceFailure.Sources[0].Evidence.Completion);
+        Assert.Same(
+            unavailable,
+            sourceFailure.Sources[1].Evidence.Completion);
+        Assert.Equal(1, residualCalls);
+        Assert.Throws<InvalidOperationException>(
+            () => QuerySpaceSectionRowExecutor.ApplyRows(
+                countResolution.Request!));
+    }
+
+    [Fact]
+    public void IncompleteRowsRemainVisibleWithoutBecomingCount()
+    {
+        int residualCalls = 0;
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(
+                CreateRowVocabulary(
+                    () => residualCalls++));
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        SectionRowSetDeclaration<
+            string,
+            Projection>[] declarations =
+        [
+            Declaration(
+                "left",
+                schema,
+                [],
+                static (projection, rows) =>
+                    projection with
+                    {
+                        Left =
+                            rows.Select(
+                                static row => row.Score)
+                                .ToArray(),
+                    }),
+        ];
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                queryScope,
+                schema);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Empty;
+        var partialReceipt =
+            new CompletionReceipt("bounded before exhaustion");
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] partialSources =
+        [
+            Source(
+                "left",
+                SourceDisposition.Partial,
+                partialReceipt,
+                rowsAreUsable: true,
+                countIsSufficient: false),
+        ];
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rowsResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Rows,
+                        ["left"]),
+                    declarations,
+                    partialSources,
+                    sectionScope);
+        SectionSourceRowsOutcome<
+            string,
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rows =
+                QuerySpaceSectionRowExecutor.ApplyRows(
+                    rowsResolution.Request!);
+        Assert.True(rows.IsSuccess);
+        Assert.True(rows.RowSets[0].RowsAreAvailable);
+        Assert.Empty(
+            Assert.IsType<
+                SectionRowSetResult<
+                    string,
+                    Projection,
+                    ScoreRow>>(
+                        rows.RowSets[0].SelectedRows)
+                .Rows);
+        Assert.Same(
+            partialReceipt,
+            rows.RowSets[0].Source.Evidence.Completion);
+
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> partialCountResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Count,
+                        ["left"]),
+                    declarations,
+                    partialSources,
+                    sectionScope);
+        var partialCount =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.SourceForCount>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                partialCountResolution.Request!));
+        Assert.Single(partialCount.Sources);
+        Assert.Same(
+            partialReceipt,
+            partialCount.Sources[0].Evidence.Completion);
+
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] completeSources =
+        [
+            Source(
+                "left",
+                SourceDisposition.Complete,
+                new("logical exhaustion"),
+                rowsAreUsable: true,
+                countIsSufficient: true),
+        ];
+        QuerySpaceSectionSourceRowResolutionResult<
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> completeCountResolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    CreateRequest(
+                        querySpace,
+                        queryScope,
+                        rowIntent,
+                        QuerySpaceTerminalRequirement.Count,
+                        ["left"]),
+                    declarations,
+                    completeSources,
+                    sectionScope);
+        var completed =
+            Assert.IsType<
+                SectionCountOutcome<
+                    string,
+                    SectionRowSourceEvidence<
+                        SourceDisposition,
+                        CompletionReceipt>>.Completed>(
+                            QuerySpaceSectionRowExecutor.ApplyCount(
+                                completeCountResolution.Request!));
+        Assert.Single(completed.Counts);
+        Assert.Equal("left", completed.Counts[0].Identity);
+        Assert.Equal(0, completed.Counts[0].Value);
+        Assert.Equal(0, residualCalls);
+    }
+
+    [Fact]
     public void PredicatesRunBeforeBaselineComparerResolution()
     {
         var predicateException =
@@ -563,6 +911,43 @@ public sealed class QuerySpaceSectionRowCompositionTests
             []);
     }
 
+    private static QuerySpaceRequest CreateRequest(
+        QuerySpaceBinding querySpace,
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope,
+        PortableQueryIntent rowIntent,
+        QuerySpaceTerminalRequirement terminal,
+        IReadOnlyList<string>? rowSets = null)
+    {
+        IReadOnlyList<string> participating =
+            rowSets ?? ["left", "right"];
+        return QuerySpaceRequest.Create(
+            querySpace.Descriptor,
+            PortableQueryIntent.Empty,
+            participating,
+            [
+                new(
+                    queryScope.Descriptor.Identity,
+                    rowIntent,
+                    participating),
+            ],
+            terminal);
+    }
+
+    private static SectionRowSourceState<
+        string,
+        SourceDisposition,
+        CompletionReceipt> Source(
+            string identity,
+            SourceDisposition disposition,
+            CompletionReceipt completion,
+            bool rowsAreUsable,
+            bool countIsSufficient) =>
+        new(
+            identity,
+            new(disposition, completion),
+            rowsAreUsable,
+            countIsSufficient);
+
     private static SectionRowSetDeclaration<
         string,
         Projection,
@@ -581,6 +966,15 @@ public sealed class QuerySpaceSectionRowCompositionTests
             binder);
 
     private sealed record ScoreRow(int Score);
+
+    private enum SourceDisposition
+    {
+        Complete,
+        Partial,
+        Unavailable,
+    }
+
+    private sealed record CompletionReceipt(string Description);
 
     private sealed record Projection(
         IReadOnlyList<int> Left,

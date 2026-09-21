@@ -329,16 +329,15 @@ unit. A predicate accepted by `Relations`, `Integration`, or `Extensions` is
 not silently applied to incompatible neighboring sections; the mixed request
 fails before producer execution.
 
-The currently verified QuerySpace path resolves one explicit row-intent
-association only for a source already known to be complete. That path is not
-sufficient for a Subject Relations population that is unavailable, bounded,
-or only partly inspected. Initial adoption therefore also requires the
-QuerySpace and section-row bridge to preserve typed source disposition and
-completion through Rows, and to refuse exact Count when completion is not
-exact. Subject Relations does not depend on unverified multiple-association
-execution. A future gesture that truly needs one atomic request over
-heterogeneous row-query scopes must first land that separately owned
-QuerySpace and section-row composition support.
+The verified QuerySpace path resolves one explicit row-intent association for
+complete or source-qualified rows. It preserves typed source disposition and
+completion through Rows, admits only Rows-usable sets to residual shaping, and
+refuses exact Count before residual execution when any participating source is
+insufficient. Initial Subject Relations sections can consume that path without
+depending on unverified multiple-association execution or accepted upstream
+Count. A future gesture that truly needs one atomic request over heterogeneous
+row-query scopes must first land that separately owned QuerySpace and
+section-row composition support.
 
 Depends hierarchies and Graph topology remain their owners' results. Relations
 may preserve the same direct evidence and endpoint identities, but it does not
@@ -1467,7 +1466,7 @@ count, not hide several unreviewable changes inside a nominal slice.
 | 4 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
 | 5 | **Complete:** Search Scope Resolution broad-versus-explicit candidate intent (#6931, #6932). |
 | 6 | Find's exact host-neutral locator/context handoff, including CLI and Browser reopening. |
-| 7 | QuerySpace exact-section substrate. Query Operation registration, descriptors/bindings, and one explicit complete-source row-intent association are complete (#7712, #8007, #8042, #8073); typed source disposition/completion through Rows and exactness enforcement for Count remain required before initial Relations adoption. Multiple explicit associations remain unverified and are not required by the initial Relations sections. |
+| 7 | **Complete for the initial Relations path:** Query Operation registration, descriptors/bindings, one explicit row-intent association, typed source disposition/completion through Rows, and Count exactness enforcement (#7712, #8007, #8042, #8073, #8139). Multiple explicit associations and accepted upstream Count without row handoff remain unverified and are not required by the initial Relations sections. |
 | 8 | Subject Relations operation, Package/Library/Type/Member routes, canonical logical-row query scope, content result, and `InspectionEnvelope<SubjectRelationsContent>`, consuming the completed source-outcome path from step 7. |
 | 9 | Metadata-owned hierarchy, extension, reference, and signature adapters, including constructed shapes and return/parameter match sites. |
 | 10 | Analysis-owned invocation and exact correspondence adapters. |

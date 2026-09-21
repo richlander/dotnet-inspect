@@ -46,6 +46,14 @@ execution request, retains the selected terminal, and executes Rows or Count
 without section-name or presentation-schema inference. A mismatched terminal
 cannot be invoked through the composed executor. The independent consumer
 exercises that path over application-owned types.
+
+The source-aware one-association path additionally carries one opaque
+owner-issued disposition/completion-evidence pair plus independent
+Rows-usability and Count-sufficiency decisions for every participating set.
+Rows execute residual shaping only for usable sets and preserve source-only
+companions. Count returns every source outcome and enters no residual cohort
+when any set is insufficient; complete empty input remains exact zero.
+
 Because the current structural descriptor cannot distinguish unqualified Top
 from explicit-ranking-only Top, a scope advertises Top only when its executable
 vocabulary supplies a default Top ranking. A future richer capability may
@@ -53,8 +61,8 @@ represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
 operation-scope capabilities. Multiple row-intent associations, source
-evidence, projection stages, continuation binding, the full structural-plan
-meaning record, and the remaining gates in
+delegation and accepted upstream Count, projection stages, continuation
+binding, the full structural-plan meaning record, and the remaining gates in
 [Required gates](#required-gates) remain **unverified** until their named
 implementation slices land and run in Release.
 
