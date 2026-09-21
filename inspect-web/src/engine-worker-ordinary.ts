@@ -72,6 +72,7 @@ type MetadataOperationName =
   | "queryGraphMemberSurface";
 
 type AnalysisOperationName =
+  | "queryCloneCandidates"
   | "queryMemberFacts"
   | "queryPackageIntegrations"
   | "queryPlatformIntegrations"
@@ -1046,6 +1047,14 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   analysis: {
+    queryCloneCandidates: valueOperation(
+      "ordinary-analysis-query-clone-candidates",
+      1,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryCloneCandidates"]>
+      ) => facades.analysis.queryCloneCandidates(...args),
+    ),
     queryMemberFacts: valueOperation(
       "ordinary-analysis-query-member-facts",
       10,
@@ -1618,6 +1627,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     analysis: {
+      queryCloneCandidates: bind(
+        engineWorkerOrdinaryOperations.analysis.queryCloneCandidates,
+      ),
       queryMemberFacts: bind(
         engineWorkerOrdinaryOperations.analysis.queryMemberFacts,
       ),
