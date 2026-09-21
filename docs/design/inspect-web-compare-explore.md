@@ -79,9 +79,11 @@ It does not own:
 | --- | --- |
 | Library API diff presentation, Inspect Web Library API Diff | The complete Library-root document: the Member relation (pair kind, role, Before and After identities with exact declaring Type and anchor), the containing Type entry, and the classified compatibility changes placed on that relation |
 | Browser Diff targets | The effective Package-owned baseline: the target and current package coordinates that produced the document |
-| Selected member source pair query, Inspect Web authored Source comparison | One ordered Before/After authored-Source comparison for one exact member anchor and two package versions, with per-endpoint provenance, exactness, line relations, and typed non-success, through the existing generated Source facade operation and its cancellation |
-| Member declaration pair (prerequisite, see below) | Each endpoint's complete C# declaration for the same anchor resolved independently in both retained images, with per-endpoint outcome |
-| Diff viewer interaction (#5686) | Row rendering, unified or side-by-side mode, Previous/Next change navigation, and accessibility for line-pair evidence |
+| Selected member source pair query, Inspect Web authored Source comparison | One ordered Before/After authored-Source comparison for one exact member anchor and two package versions, with per-endpoint provenance, exactness, the native `FindingComparison<string>`, and typed non-success, through the existing generated Source facade operation and its cancellation |
+| Member declaration pair (prerequisite, see below) | Each endpoint's complete C# declaration for the same anchor resolved independently in both retained images, their `AnalysisDiff<string>`, and per-endpoint outcome |
+| [Analysis diff](analysis-diff.md), [Member source diff presentation](member-source-diff-presentation.md) | The complete relation partition and its shared lowering to one Markout `MappedTextDiff` plus two-sided statistics through `TextAnalysisDiffPresentation.CreateMappedTextDiff` |
+| [Inspect Web source-diff transport](inspect-web-source-diff-transport.md) | The bounded typed payload that carries a `MappedTextDiff`, its statistics, endpoints, and provenance to the Browser, with admission limits and complete decoding |
+| Diff viewer interaction (#5686) | Row rendering, unified or side-by-side mode, Previous/Next change navigation, and accessibility for that payload |
 | Inspect Web Shell Interaction | Modal dialog semantics for full-bleed transient surfaces |
 | Inspect Web Operation Authority | Current-view publication, supersession, cancellation, and disposal for every pane request |
 | Inspect Web Compare Experience | The settled Member Diff result, the retained mode, the selected row, scroll position, and the invoking action to return focus to |
@@ -95,12 +97,29 @@ itself: the design forbids a second matcher in the Browser, and a physical
 token from one image is never a valid identity in the other. The paired
 query resolves the anchor independently in each retained image, renders each
 endpoint through the existing declaration renderer, compares the two texts
-with the existing text-line semantics, and returns both declarations, the
-line relations, and each endpoint's typed outcome. It follows the same
-independent-resolution, non-success, and cancellation rules as the selected
-member source pair query. Its owner is `DotnetInspector.Queries`; this
-document records the requirement and consumes the result. Until it lands, the
-declaration pane reports itself unavailable with that reason.
+with the existing text-line semantics into one `AnalysisDiff<string>`, and
+returns both declarations, that analysis, and each endpoint's typed outcome.
+It follows the same independent-resolution, non-success, and cancellation
+rules as the selected member source pair query. Its owner is
+`DotnetInspector.Queries`; this document records the requirement and consumes
+the result. Its presentation lowers that analysis exactly as the member source
+diff does, through `TextAnalysisDiffPresentation.CreateMappedTextDiff`, so the
+pane receives the same Markout `MappedTextDiff` shape as every other diff in
+the product. Until the query lands, the declaration pane reports itself
+unavailable with that reason.
+
+### One diff shape
+
+Every line-pair pane consumes the product's one structured diff pipeline:
+`AnalysisDiff<string>` for the relations, the shared Presentation lowering
+for the Markout `MappedTextDiff` and statistics, and the source-diff transport
+for delivery to the Browser. The viewer renders the transported Markout ranges,
+inner mappings, annotations, and terminator assertions in the DOM; it does not
+run a matcher, re-split lines, rebase coordinates, parse CLI output, or build a
+second line format. The retained authored-Source facade's flat line rows are
+the pre-transport lowering of the same query; the Authored Source pane adopts
+the transport payload, and moving that facade onto the transport is a residual
+for the transport owner, not a redefinition here.
 
 ## Destination issuance
 
@@ -147,13 +166,13 @@ The body has three panes in this order:
    exactly as the inline surface renders them. This pane is always present
    because the relation always exists; when the relation carries no change of
    its own, it states that the change belongs to the containing Type.
-2. **Declaration.** The Before and After C# declarations and their line
-   relations from the member declaration pair. Exact declarations are shown
-   as exact, not as an empty diff.
+2. **Declaration.** The Before and After C# declarations and their mapped
+   diff and statistics from the member declaration pair. Exact declarations
+   are shown as exact, not as an empty diff.
 3. **Authored Source.** The Before and After authored member Source, their
-   provenance, and their line relations from the paired Source query. Missing
-   Source on one side keeps the other side inspectable; it is never shown as
-   an empty declaration, a deletion, or decompiled C#.
+   provenance, and their mapped diff and statistics from the paired Source
+   query. Missing Source on one side keeps the other side inspectable; it is
+   never shown as an empty declaration, a deletion, or decompiled C#.
 
 Each pane names its Before and After endpoints separately, shows its own
 state, and does not borrow another pane's outcome. Cross-version comparison
@@ -162,10 +181,11 @@ never shows the PDB-versus-decompiled Member Diff evidence as a pane, and that
 surface never shows cross-version evidence.
 
 Row rendering inside the Declaration and Authored Source panes is consumed from
-the Diff viewer interaction owner. Until it lands, each pane renders its
-line-pair relations as one read-only unified listing with the producer's
-relation kinds visible per row and no change navigation. That is real
-evidence with fewer controls, not a placeholder.
+the Diff viewer interaction owner. Until it lands, each pane renders the
+transported `MappedTextDiff` as one read-only unified listing: anchored
+unchanged lines, removal and addition ranges, and the statistics summary, with
+no change navigation. That is the same evidence with fewer controls, not a
+placeholder and not a second diff format.
 
 At wide widths the Declaration and Authored Source panes may present Before
 and After side by side; at narrow widths each pane is one unified listing.
@@ -225,18 +245,22 @@ This design does not claim:
   [#4706](https://github.com/richlander/dotnet-inspect/issues/4706), and a
   future body pane would join this composition as one more owner-issued pane;
 - that declaration or Source exactness implies API, C#, or IL equivalence;
-- that the viewer is a routed surface or portable state; or
+- that the viewer is a routed surface or portable state;
 - that the Browser may pair endpoints, match lines, or derive identities
-  itself.
+  itself; or
+- that any pane introduces a diff representation other than the product's
+  `AnalysisDiff<string>`, its Markout `MappedTextDiff` lowering, and the
+  source-diff transport.
 
 ## Adoption
 
 1. Destination issuance in the Library API Diff Browser wire projection, the
    Explore action on Member Diff, and the viewer shell with the What changed
-   and Authored Source panes over the existing Source facade operation. The
-   Declaration pane ships unavailable with its stated reason.
-2. The member declaration pair query in Queries and its generated-facade
-   projection, then the Declaration pane.
+   and Authored Source panes, the latter over the paired Source query
+   delivered as the source-diff transport payload. The Declaration pane ships
+   unavailable with its stated reason.
+2. The member declaration pair query in Queries, its shared Markout lowering,
+   and its transport projection, then the Declaration pane.
 3. Adoption of the Diff viewer interaction's row rendering, mode, and change
    navigation in both panes when [#5686](https://github.com/richlander/dotnet-inspect/issues/5686)
    lands.
@@ -251,9 +275,11 @@ Each stage lands only when its own result and failure states are complete.
    both comparison panes, and that the subject, lens, URL, and history are
    unchanged.
 2. Confirm the Authored Source pane runs one paired Source request for the
-   destination's two endpoints and anchors, shows exact, changed, one-sided
+   destination's two endpoints and anchors, receives one transported
+   `MappedTextDiff` with statistics, shows exact, changed, one-sided
    unavailable, and failed outcomes separately, and never substitutes empty or
-   decompiled text.
+   decompiled text. Confirm the CLI's `-v:d` rendering of the same pair and
+   the pane show the same ranges and statistics.
 3. Before the declaration pair lands, confirm the Declaration pane states that
    reason and offers no retry; after it lands, confirm it shows both
    declarations and their relations, and exact declarations as exact.
