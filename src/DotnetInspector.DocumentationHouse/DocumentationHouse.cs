@@ -10,7 +10,7 @@ namespace DotnetInspector.DocumentationHouse;
 /// </summary>
 public static class DocumentationHouse
 {
-    public static ValueTask<DocumentationHouseOutcome> ExecuteAsync(
+    public static async ValueTask<DocumentationHouseOutcome> ExecuteAsync(
         DocumentationHouseRequest request,
         LibraryOperationLease operationLease,
         CancellationToken cancellationToken = default)
@@ -18,25 +18,102 @@ public static class DocumentationHouse
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(operationLease);
 
-        ProvisionalOutcome provisional;
+        bool houseOwnsLease = true;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            provisional = ExecuteCore(
+            DocumentationAuthoredSourceChannelPlan? authoredPlan =
+                RequestsAuthoredSource(request.Demand)
+                    ? request.Plan.AuthoredSource
+                    : null;
+            IDocumentationAuthoredSourceOperation? authoredOperation =
+                authoredPlan?.Operation;
+            ProvisionalOutcome? validation =
+                ValidateRequest(request, operationLease);
+            if (validation is not null)
+            {
+                return CompleteTopLevel(
+                    request,
+                    validation,
+                    HouseSettlement());
+            }
+
+            DocumentationCompiledXmlAttempt? compiledXmlAttempt = null;
+            DocumentationHouseWorkCharge work = EmptyWork();
+            if (RequestsCompiledXml(request.Demand))
+            {
+                ProvisionalOutcome compiled = ExecuteCompiledCore(
+                    request,
+                    operationLease,
+                    cancellationToken);
+                if (compiled is not CompletedOutcome completed)
+                {
+                    return CompleteTopLevel(
+                        request,
+                        compiled,
+                        HouseSettlement());
+                }
+
+                compiledXmlAttempt = completed.Attempt;
+                work = completed.Work;
+            }
+
+            if (!RequestsAuthoredSource(request.Demand))
+            {
+                return Complete(
+                    request,
+                    compiledXmlAttempt,
+                    authoredSourceAttempt: null,
+                    work,
+                    HouseSettlement());
+            }
+
+            if (authoredPlan is null || authoredOperation is null)
+            {
+                return Complete(
+                    request,
+                    compiledXmlAttempt,
+                    new DocumentationAuthoredSourceAttempt.Unavailable(
+                        DocumentationAuthoredSourceUnavailableKind
+                            .OperationUnavailable,
+                        outcome: null),
+                    work,
+                    HouseSettlement());
+            }
+
+            var invocation =
+                new DocumentationAuthoredSourceOperationInvocation(
+                    authoredPlan.Binding,
+                    authoredPlan.Limits,
+                    request.Plan.Deadline);
+            houseOwnsLease = false;
+            DocumentationAuthoredSourceOperationOutcome authoredOutcome =
+                await authoredOperation.InvokeAsync(
+                        invocation,
+                        operationLease,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            DocumentationAuthoredSourceAttempt authoredAttempt =
+                MapAuthoredAttempt(invocation, authoredOutcome);
+            work = new(
+                work.ContributionsObserved,
+                work.CompiledXmlBytesObserved,
+                work.ParsedCompiledXml,
+                authoredOutcome.Work);
+            return Complete(
                 request,
-                operationLease,
-                cancellationToken);
+                compiledXmlAttempt,
+                authoredAttempt,
+                work,
+                AuthoredSettlement(authoredOutcome.LeaseSettlement));
         }
         finally
         {
-            operationLease.Dispose();
+            if (houseOwnsLease)
+                operationLease.Dispose();
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var settlement = new DocumentationLibraryLeaseSettlement(
-            DocumentationLibraryLeaseConsumer.DocumentationHouse);
-        return ValueTask.FromResult(
-            provisional.Complete(request, settlement));
     }
 
     /// <summary>
@@ -61,6 +138,13 @@ public static class DocumentationHouse
                 "Documentation requests cannot contain null.",
                 nameof(requests));
         }
+        if (requests.Any(static request =>
+                request.Demand != DocumentationDemand.CompiledXml))
+        {
+            throw new ArgumentException(
+                "Batch documentation settlement supports compiled XML demand only.",
+                nameof(requests));
+        }
 
         ProvisionalOutcome[] provisional =
             new ProvisionalOutcome[requests.Count];
@@ -69,11 +153,14 @@ public static class DocumentationHouse
         {
             for (int index = 0; index < requests.Count; index++)
             {
-                provisional[index] = ExecuteCore(
-                    requests[index],
-                    operationLease,
-                    cancellationToken,
-                    batch);
+                DocumentationHouseRequest request = requests[index];
+                provisional[index] =
+                    ValidateRequest(request, operationLease)
+                    ?? ExecuteCompiledCore(
+                        request,
+                        operationLease,
+                        cancellationToken,
+                        batch);
             }
         }
         finally
@@ -86,8 +173,9 @@ public static class DocumentationHouse
         for (int index = 0; index < requests.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            outcomes[index] = provisional[index].Complete(
+            outcomes[index] = CompleteTopLevel(
                 requests[index],
+                provisional[index],
                 new DocumentationLibraryLeaseSettlement(
                     DocumentationLibraryLeaseConsumer
                         .DocumentationHouse));
@@ -96,18 +184,13 @@ public static class DocumentationHouse
             IReadOnlyList<DocumentationHouseOutcome>>(outcomes);
     }
 
-    private static ProvisionalOutcome ExecuteCore(
+    private static ProvisionalOutcome? ValidateRequest(
         DocumentationHouseRequest request,
-        LibraryOperationLease operationLease,
-        CancellationToken cancellationToken,
-        CompiledXmlBatch? batch = null)
+        LibraryOperationLease operationLease)
     {
         DocumentationSubjectReference subject = request.Subject;
         DocumentationHouseOperationPlan plan = request.Plan;
-        var emptyWork = new DocumentationHouseWorkCharge(
-            ContributionsObserved: 0,
-            CompiledXmlBytesObserved: 0,
-            ParsedCompiledXml: false);
+        DocumentationHouseWorkCharge emptyWork = EmptyWork();
         if (!ReferenceEquals(subject.ApiContent.Library, subject.Library))
         {
             return new RejectedOutcome(
@@ -137,12 +220,48 @@ public static class DocumentationHouse
                         .LeaseReferenceMismatch),
                 emptyWork);
         }
+        if (RequestsAuthoredSource(request.Demand)
+            && plan.AuthoredSource is { } authored
+            && !MatchesAuthoredBinding(request, authored.Binding))
+        {
+            return new RejectedOutcome(
+                new(
+                    DocumentationHouseRejectionKind
+                        .AuthoredSourceBindingMismatch),
+                emptyWork);
+        }
         if (DateTimeOffset.UtcNow >= plan.Deadline)
         {
             return new IncompleteOutcome(
                 DocumentationIncompleteBoundary.Deadline,
                 emptyWork);
         }
+
+        return null;
+    }
+
+    private static bool MatchesAuthoredBinding(
+        DocumentationHouseRequest request,
+        DocumentationAuthoredSourceOperationBinding binding) =>
+        ReferenceEquals(binding.Request, request.Identity)
+        && ReferenceEquals(binding.OperationPlan, request.Plan.Identity)
+        && ReferenceEquals(
+            binding.PolicyGeneration,
+            request.Plan.PolicyGeneration)
+        && ReferenceEquals(binding.Subject, request.Subject)
+        && ReferenceEquals(binding.Library, request.Subject.Library)
+        && ReferenceEquals(
+            binding.ImplementationContent,
+            request.Subject.Library.ImplementationAssembly);
+
+    private static ProvisionalOutcome ExecuteCompiledCore(
+        DocumentationHouseRequest request,
+        LibraryOperationLease operationLease,
+        CancellationToken cancellationToken,
+        CompiledXmlBatch? batch = null)
+    {
+        DocumentationSubjectReference subject = request.Subject;
+        DocumentationHouseOperationPlan plan = request.Plan;
 
         IReadOnlyList<CompiledXmlContribution> contributions =
             plan.CompiledXmlContributions;
@@ -367,6 +486,365 @@ public static class DocumentationHouse
                     contributions);
         return new CompletedOutcome(completed, readWork);
     }
+
+    private static DocumentationAuthoredSourceAttempt MapAuthoredAttempt(
+        DocumentationAuthoredSourceOperationInvocation invocation,
+        DocumentationAuthoredSourceOperationOutcome outcome)
+    {
+        if (!ReferenceEquals(outcome.Invocation, invocation)
+            || !ReferenceEquals(
+                outcome.Receipt.Invocation,
+                invocation)
+            || !ReferenceEquals(
+                outcome.Receipt.LeaseSettlement,
+                outcome.LeaseSettlement)
+            || !ReferenceEquals(outcome.Receipt.Work, outcome.Work)
+            || !ReferenceEquals(outcome.Receipt.Evidence, outcome.Evidence)
+            || outcome
+                is DocumentationAuthoredSourceOperationOutcome.Produced
+                    producedOutcome
+                && !ReferenceEquals(
+                    producedOutcome.Contribution.Binding,
+                    invocation.Binding))
+        {
+            return new DocumentationAuthoredSourceAttempt.Rejected(
+                DocumentationAuthoredSourceAttemptRejectionKind
+                    .OperationEvidenceMismatch,
+                outcome);
+        }
+
+        return outcome switch
+        {
+            DocumentationAuthoredSourceOperationOutcome.Produced produced
+                when produced.Contribution.Documentation
+                    is CSharpAuthoredDocumentationOutcome.Available =>
+                new DocumentationAuthoredSourceAttempt.Available(
+                    produced),
+            DocumentationAuthoredSourceOperationOutcome.Produced produced
+                when produced.Contribution.Documentation
+                    is CSharpAuthoredDocumentationOutcome.Absent =>
+                new DocumentationAuthoredSourceAttempt.Absent(
+                    produced),
+            DocumentationAuthoredSourceOperationOutcome.Unavailable
+                {
+                    UnavailableKind:
+                        DocumentationAuthoredUnavailableKind
+                            .PhysicalDeclarationConflict,
+                } unavailable =>
+                new DocumentationAuthoredSourceAttempt.Ambiguous(
+                    DocumentationAuthoredSourceAmbiguityKind
+                        .PhysicalDeclarationConflict,
+                    unavailable),
+            DocumentationAuthoredSourceOperationOutcome.Unavailable
+                {
+                    UnavailableKind:
+                        DocumentationAuthoredUnavailableKind
+                            .DeclarationAmbiguous,
+                } unavailable =>
+                new DocumentationAuthoredSourceAttempt.Ambiguous(
+                    DocumentationAuthoredSourceAmbiguityKind
+                        .DeclarationAmbiguous,
+                    unavailable),
+            DocumentationAuthoredSourceOperationOutcome.Unavailable
+                {
+                    UnavailableKind:
+                        DocumentationAuthoredUnavailableKind
+                            .DeclarationUncertain,
+                } unavailable =>
+                new DocumentationAuthoredSourceAttempt.Incomplete(
+                    unavailable),
+            DocumentationAuthoredSourceOperationOutcome.Unavailable
+                unavailable =>
+                new DocumentationAuthoredSourceAttempt.Unavailable(
+                    MapUnavailable(unavailable.UnavailableKind),
+                    unavailable),
+            DocumentationAuthoredSourceOperationOutcome.Rejected rejected =>
+                new DocumentationAuthoredSourceAttempt.Rejected(
+                    DocumentationAuthoredSourceAttemptRejectionKind
+                        .OperationRejected,
+                    rejected),
+            DocumentationAuthoredSourceOperationOutcome.Failed failed =>
+                new DocumentationAuthoredSourceAttempt.Failed(failed),
+            DocumentationAuthoredSourceOperationOutcome.Incomplete
+                incomplete =>
+                new DocumentationAuthoredSourceAttempt.Incomplete(
+                    incomplete),
+            _ => throw new InvalidOperationException(
+                "Unknown authored-source operation outcome."),
+        };
+    }
+
+    private static DocumentationAuthoredSourceUnavailableKind MapUnavailable(
+        DocumentationAuthoredUnavailableKind unavailable) =>
+        unavailable switch
+        {
+            DocumentationAuthoredUnavailableKind.SourceUnavailable =>
+                DocumentationAuthoredSourceUnavailableKind
+                    .SourceUnavailable,
+            DocumentationAuthoredUnavailableKind
+                .PhysicalDeclarationUnavailable =>
+                DocumentationAuthoredSourceUnavailableKind
+                    .PhysicalDeclarationUnavailable,
+            DocumentationAuthoredUnavailableKind.DeclarationNotFound =>
+                DocumentationAuthoredSourceUnavailableKind
+                    .DeclarationNotFound,
+            _ => throw new InvalidOperationException(
+                "The authored unavailable result belongs to another channel attempt kind."),
+        };
+
+    private static DocumentationHouseOutcome Complete(
+        DocumentationHouseRequest request,
+        DocumentationCompiledXmlAttempt? compiledXmlAttempt,
+        DocumentationAuthoredSourceAttempt? authoredSourceAttempt,
+        DocumentationHouseWorkCharge work,
+        DocumentationLibraryLeaseSettlement settlement) =>
+        new DocumentationHouseOutcome.Completed(
+            request,
+            compiledXmlAttempt,
+            authoredSourceAttempt,
+            SettleFields(
+                request.Demand,
+                compiledXmlAttempt,
+                authoredSourceAttempt),
+            work,
+            settlement);
+
+    private static DocumentationHouseOutcome CompleteTopLevel(
+        DocumentationHouseRequest request,
+        ProvisionalOutcome provisional,
+        DocumentationLibraryLeaseSettlement settlement) =>
+        provisional switch
+        {
+            CompletedOutcome completed => Complete(
+                request,
+                completed.Attempt,
+                authoredSourceAttempt: null,
+                completed.Work,
+                settlement),
+            RejectedOutcome rejected =>
+                new DocumentationHouseOutcome.Rejected(
+                    request,
+                    rejected.Rejection,
+                    rejected.Work,
+                    settlement),
+            FailedOutcome failed =>
+                new DocumentationHouseOutcome.Failed(
+                    request,
+                    failed.Failure,
+                    failed.Work,
+                    settlement),
+            IncompleteOutcome incomplete =>
+                new DocumentationHouseOutcome.Incomplete(
+                    request,
+                    incomplete.Boundary,
+                    incomplete.Work,
+                    settlement),
+            _ => throw new InvalidOperationException(
+                "Unknown DocumentationHouse provisional outcome."),
+        };
+
+    private static DocumentationFieldSettlement SettleFields(
+        DocumentationDemand demand,
+        DocumentationCompiledXmlAttempt? compiledXmlAttempt,
+        DocumentationAuthoredSourceAttempt? authoredSourceAttempt)
+    {
+        IReadOnlyList<DocumentationChannel> requestedChannels =
+            demand switch
+            {
+                DocumentationDemand.CompiledXml =>
+                    [DocumentationChannel.CompiledXml],
+                DocumentationDemand.AuthoredSourceDocumentation =>
+                    [DocumentationChannel.AuthoredSource],
+                DocumentationDemand
+                    .CompiledXmlAndAuthoredSourceDocumentation =>
+                    [
+                        DocumentationChannel.CompiledXml,
+                        DocumentationChannel.AuthoredSource,
+                    ],
+                _ => throw new InvalidOperationException(
+                    "Unknown documentation demand."),
+            };
+        var documents =
+            new List<ChannelDocumentation>(requestedChannels.Count);
+        if (compiledXmlAttempt
+            is DocumentationCompiledXmlAttempt.Available compiled)
+        {
+            documents.Add(
+                new(
+                    DocumentationChannel.CompiledXml,
+                    compiled.Documentation));
+        }
+        if (authoredSourceAttempt
+            is DocumentationAuthoredSourceAttempt.Available authored)
+        {
+            var available =
+                (CSharpAuthoredDocumentationOutcome.Available)
+                    authored.Contribution.Documentation;
+            documents.Add(
+                new(
+                    DocumentationChannel.AuthoredSource,
+                    available.Documentation));
+        }
+
+        string[] parameterNames =
+        [
+            .. documents
+                .SelectMany(static document =>
+                    document.Documentation.Parameters.Keys)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        var parameters =
+            new Dictionary<
+                string,
+                DocumentationFieldEvidence<string>>(
+                    parameterNames.Length,
+                    StringComparer.Ordinal);
+        foreach (string name in parameterNames)
+        {
+            parameters.Add(
+                name,
+                SettleField(
+                    requestedChannels,
+                    documents
+                        .Select(document =>
+                            (
+                                document.Channel,
+                                Value: document.Documentation.Parameters
+                                    .GetValueOrDefault(name)))
+                        .Where(static candidate =>
+                            !string.IsNullOrEmpty(candidate.Value))
+                        .Select(static candidate =>
+                            new DocumentationFieldContribution<string>(
+                                candidate.Channel,
+                                candidate.Value!))
+                        .ToArray(),
+                    static (left, right) =>
+                        string.Equals(
+                            left,
+                            right,
+                            StringComparison.Ordinal)));
+        }
+
+        return new(
+            Scalar(
+                static document => document.Documentation.Summary),
+            Scalar(
+                static document => document.Documentation.Remarks),
+            Scalar(
+                static document => document.Documentation.Returns),
+            parameters,
+            SettleField(
+                requestedChannels,
+                documents
+                    .Where(static document =>
+                        document.Documentation.Exceptions.Count > 0)
+                    .Select(static document =>
+                        new DocumentationFieldContribution<
+                            IReadOnlyList<XmlDocumentationException>>(
+                                document.Channel,
+                                Array.AsReadOnly(
+                                    document.Documentation.Exceptions
+                                        .ToArray())))
+                    .ToArray(),
+                static (left, right) => left.SequenceEqual(right)),
+            SettleField(
+                requestedChannels,
+                documents
+                    .Where(static document =>
+                        document.Documentation.Samples.Count > 0)
+                    .Select(static document =>
+                        new DocumentationFieldContribution<
+                            IReadOnlyList<XmlDocumentationSampleReference>>(
+                                document.Channel,
+                                Array.AsReadOnly(
+                                    document.Documentation.Samples
+                                        .ToArray())))
+                    .ToArray(),
+                static (left, right) => left.SequenceEqual(right)));
+
+        DocumentationFieldEvidence<string> Scalar(
+            Func<ChannelDocumentation, string?> select) =>
+            SettleField(
+                requestedChannels,
+                documents
+                    .Select(document =>
+                        (
+                            document.Channel,
+                            Value: select(document)))
+                    .Where(static candidate =>
+                        !string.IsNullOrEmpty(candidate.Value))
+                    .Select(static candidate =>
+                        new DocumentationFieldContribution<string>(
+                            candidate.Channel,
+                            candidate.Value!))
+                    .ToArray(),
+                static (left, right) =>
+                    string.Equals(
+                        left,
+                        right,
+                        StringComparison.Ordinal));
+    }
+
+    private static DocumentationFieldEvidence<T> SettleField<T>(
+        IReadOnlyList<DocumentationChannel> requestedChannels,
+        IReadOnlyList<DocumentationFieldContribution<T>> contributions,
+        Func<T, T, bool> equals)
+        where T : notnull
+    {
+        DocumentationFieldEvidenceKind kind =
+            contributions.Count switch
+            {
+                0 => DocumentationFieldEvidenceKind.Absent,
+                1 => DocumentationFieldEvidenceKind.Selected,
+                _ when contributions
+                    .Skip(1)
+                    .All(contribution =>
+                        equals(
+                            contributions[0].Value,
+                            contribution.Value)) =>
+                    DocumentationFieldEvidenceKind.Corroborated,
+                _ => DocumentationFieldEvidenceKind.Conflict,
+            };
+        return new(kind, requestedChannels, contributions);
+    }
+
+    private static DocumentationLibraryLeaseSettlement HouseSettlement() =>
+        new(DocumentationLibraryLeaseConsumer.DocumentationHouse);
+
+    private static DocumentationLibraryLeaseSettlement AuthoredSettlement(
+        DocumentationAuthoredLeaseSettlement settlement) =>
+        new(
+            settlement.Consumer switch
+            {
+                DocumentationAuthoredLeaseConsumer.Operation =>
+                    DocumentationLibraryLeaseConsumer.Operation,
+                DocumentationAuthoredLeaseConsumer.SourceHouse =>
+                    DocumentationLibraryLeaseConsumer.SourceHouse,
+                _ => throw new InvalidOperationException(
+                    "Unknown authored-source lease consumer."),
+            },
+            settlement);
+
+    private static bool RequestsCompiledXml(DocumentationDemand demand) =>
+        demand is DocumentationDemand.CompiledXml
+            or DocumentationDemand
+                .CompiledXmlAndAuthoredSourceDocumentation;
+
+    private static bool RequestsAuthoredSource(DocumentationDemand demand) =>
+        demand is DocumentationDemand.AuthoredSourceDocumentation
+            or DocumentationDemand
+                .CompiledXmlAndAuthoredSourceDocumentation;
+
+    private static DocumentationHouseWorkCharge EmptyWork() =>
+        new(
+            ContributionsObserved: 0,
+            CompiledXmlBytesObserved: 0,
+            ParsedCompiledXml: false);
+
+    private sealed record ChannelDocumentation(
+        DocumentationChannel Channel,
+        XmlDocumentationEntry Documentation);
 
     private static CompiledXmlBatchRead ReadCompiledXml(
         CompiledXmlContribution selected,
@@ -742,70 +1220,25 @@ public static class DocumentationHouse
     }
 
     private abstract record ProvisionalOutcome(
-        DocumentationHouseWorkCharge Work)
-    {
-        internal abstract DocumentationHouseOutcome Complete(
-            DocumentationHouseRequest request,
-            DocumentationLibraryLeaseSettlement settlement);
-    }
+        DocumentationHouseWorkCharge Work);
 
     private sealed record CompletedOutcome(
         DocumentationCompiledXmlAttempt Attempt,
         DocumentationHouseWorkCharge Work)
-        : ProvisionalOutcome(Work)
-    {
-        internal override DocumentationHouseOutcome Complete(
-            DocumentationHouseRequest request,
-            DocumentationLibraryLeaseSettlement settlement) =>
-            new DocumentationHouseOutcome.Completed(
-                request,
-                Attempt,
-                Work,
-                settlement);
-    }
+        : ProvisionalOutcome(Work);
 
     private sealed record RejectedOutcome(
         DocumentationHouseRejection Rejection,
         DocumentationHouseWorkCharge Work)
-        : ProvisionalOutcome(Work)
-    {
-        internal override DocumentationHouseOutcome Complete(
-            DocumentationHouseRequest request,
-            DocumentationLibraryLeaseSettlement settlement) =>
-            new DocumentationHouseOutcome.Rejected(
-                request,
-                Rejection,
-                Work,
-                settlement);
-    }
+        : ProvisionalOutcome(Work);
 
     private sealed record FailedOutcome(
         DocumentationHouseFailure Failure,
         DocumentationHouseWorkCharge Work)
-        : ProvisionalOutcome(Work)
-    {
-        internal override DocumentationHouseOutcome Complete(
-            DocumentationHouseRequest request,
-            DocumentationLibraryLeaseSettlement settlement) =>
-            new DocumentationHouseOutcome.Failed(
-                request,
-                Failure,
-                Work,
-                settlement);
-    }
+        : ProvisionalOutcome(Work);
 
     private sealed record IncompleteOutcome(
         DocumentationIncompleteBoundary Boundary,
         DocumentationHouseWorkCharge Work)
-        : ProvisionalOutcome(Work)
-    {
-        internal override DocumentationHouseOutcome Complete(
-            DocumentationHouseRequest request,
-            DocumentationLibraryLeaseSettlement settlement) =>
-            new DocumentationHouseOutcome.Incomplete(
-                request,
-                Boundary,
-                Work,
-                settlement);
-    }
+        : ProvisionalOutcome(Work);
 }
