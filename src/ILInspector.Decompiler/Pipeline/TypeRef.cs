@@ -191,6 +191,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// </summary>
     public bool FunctionPointerSignatureIsExact { get; private init; } = true;
 
+    internal byte FunctionPointerSignatureDiscriminator { get; private init; }
+
+    internal int FunctionPointerGenericParameterCount { get; private init; }
+
+    internal int FunctionPointerRequiredParameterCount { get; private init; }
+
+    internal bool FunctionPointerConventionModifiersAreExact { get; private init; } = true;
+
     /// <summary>
     /// Whether an MD-array has no explicit bounds or sizes that the C# type
     /// syntax would erase. Gated by
@@ -394,7 +402,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRef returnType,
         ImmutableArray<TypeRef> parameters,
         string callingConvention,
-        bool callingConventionIsExact)
+        bool callingConventionIsExact,
+        byte signatureDiscriminator = 0,
+        int genericParameterCount = 0,
+        int? requiredParameterCount = null)
     {
         var parameterRefKinds = FunctionPointerParameterRefKindsFor(parameters);
         bool conventionModifiersAreExact = TryApplyFunctionPointerConventionModifiers(
@@ -403,15 +414,24 @@ public sealed class TypeRef : IEquatable<TypeRef>
             out string convention);
         convention = AddSuppressGcTransition(
             convention,
-            HasCustomModifier(
-                returnType,
-                isRequired: false,
-                "System.Runtime.CompilerServices",
-                "CallConvSuppressGCTransition"));
+            (conventionModifiersAreExact
+                && HasRecognizedSuppressGcTransitionModifier(returnType))
+                || CanDeriveSuppressGcTransitionFromManagedSignature(
+                    callingConvention,
+                    returnType));
         bool signatureIsExact = callingConventionIsExact
             && conventionModifiersAreExact
             && FunctionPointerRefKindsAreExact(returnType, parameters);
-        return FunctionPointer(returnType, parameters, convention, parameterRefKinds, signatureIsExact);
+        return FunctionPointer(
+            returnType,
+            parameters,
+            convention,
+            parameterRefKinds,
+            signatureIsExact,
+            signatureDiscriminator,
+            genericParameterCount,
+            requiredParameterCount ?? parameters.Length,
+            conventionModifiersAreExact);
     }
 
     internal static TypeRef FunctionPointer(
@@ -426,7 +446,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ImmutableArray<TypeRef> parameters,
         string callingConvention,
         ImmutableArray<ArgumentRefKind> parameterRefKinds,
-        bool signatureIsExact)
+        bool signatureIsExact,
+        byte signatureDiscriminator = 0,
+        int genericParameterCount = 0,
+        int? requiredParameterCount = null,
+        bool conventionModifiersAreExact = true)
         => new(TypeRefKind.FunctionPointer)
         {
             ElementType = returnType,
@@ -434,6 +458,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
             CallingConvention = callingConvention,
             FunctionPointerParameterRefKinds = parameterRefKinds,
             FunctionPointerSignatureIsExact = signatureIsExact,
+            FunctionPointerSignatureDiscriminator = signatureDiscriminator,
+            FunctionPointerGenericParameterCount = genericParameterCount,
+            FunctionPointerRequiredParameterCount =
+                requiredParameterCount ?? parameters.Length,
+            FunctionPointerConventionModifiersAreExact =
+                conventionModifiersAreExact,
         };
 
     internal static ImmutableArray<ArgumentRefKind> FunctionPointerParameterRefKindsFor(ImmutableArray<TypeRef> parameters)
@@ -521,10 +551,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
         out string convention)
     {
         convention = callingConvention;
+        if (returnType.CustomModifiers.Any(modifier =>
+            !IsRecognizedFunctionPointerConventionModifier(modifier)))
+        {
+            return false;
+        }
         var modifiers = returnType.CustomModifiers
-            .Where(modifier =>
-                modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
-                && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal))
             .Select(modifier => (
                 modifier.IsRequired,
                 Name: modifier.Modifier.Name["CallConv".Length..]))
@@ -577,7 +609,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ImmutableArray<TypeRef> parameters)
     {
         if (HasNestedCustomModifiers(returnType)
-            || returnType.CustomModifiers.Any(modifier => !IsOptionalCallConvModifier(modifier)))
+            || returnType.CustomModifiers.Any(modifier =>
+                !IsRecognizedFunctionPointerConventionModifier(modifier)))
         {
             return false;
         }
@@ -628,11 +661,31 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => (type.ElementType?.ContainsCustomModifiers ?? false)
             || type.TypeArguments.Any(argument => argument.ContainsCustomModifiers);
 
-    static bool IsOptionalCallConvModifier(TypeRefCustomModifier modifier)
+    internal static bool IsRecognizedFunctionPointerConventionModifier(
+        TypeRefCustomModifier modifier)
         => !modifier.IsRequired
             && modifier.Modifier.Assembly == CoreLibrary
             && modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
-            && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal);
+            && modifier.Modifier.Name is
+                "CallConvCdecl"
+                or "CallConvStdcall"
+                or "CallConvThiscall"
+                or "CallConvFastcall"
+                or "CallConvSuppressGCTransition"
+                or "CallConvMemberFunction";
+
+    static bool HasRecognizedSuppressGcTransitionModifier(TypeRef type)
+        => type.CustomModifiers.Any(modifier =>
+            IsRecognizedFunctionPointerConventionModifier(modifier)
+            && modifier.Modifier.Name
+                == "CallConvSuppressGCTransition");
+
+    static bool CanDeriveSuppressGcTransitionFromManagedSignature(
+        string callingConvention,
+        TypeRef returnType)
+        => callingConvention.Length == 0
+            && returnType.CustomModifiers.Length == 1
+            && HasRecognizedSuppressGcTransitionModifier(returnType);
 
     static bool IsExactFunctionPointerParameterModifier(TypeRefCustomModifier modifier)
         => modifier.IsRequired
@@ -695,6 +748,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             CallingConvention = callingConvention ?? CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
             FunctionPointerSignatureIsExact = FunctionPointerSignatureIsExact,
+            FunctionPointerSignatureDiscriminator = FunctionPointerSignatureDiscriminator,
+            FunctionPointerGenericParameterCount = FunctionPointerGenericParameterCount,
+            FunctionPointerRequiredParameterCount = FunctionPointerRequiredParameterCount,
+            FunctionPointerConventionModifiersAreExact = FunctionPointerConventionModifiersAreExact,
             ArrayShapeIsExact = ArrayShapeIsExact,
             ValueTypeHint = valueTypeHint ?? ValueTypeHint,
             InlineArray = inlineArray ?? InlineArray,
@@ -776,11 +833,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
                                 parameters),
                         callingConvention: AddSuppressGcTransition(
                             CallingConvention,
-                            HasCustomModifier(
-                                returnType,
-                                isRequired: false,
-                                "System.Runtime.CompilerServices",
-                                "CallConvSuppressGCTransition")))
+                            (FunctionPointerConventionModifiersAreExact
+                                && HasRecognizedSuppressGcTransitionModifier(
+                                    returnType))))
                     : this;
                 break;
             }
@@ -907,6 +962,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
             || GenericParameterIndex != other.GenericParameterIndex
             || UnsupportedReason != other.UnsupportedReason
             || CallingConvention != other.CallingConvention
+            || FunctionPointerSignatureDiscriminator
+                != other.FunctionPointerSignatureDiscriminator
+            || FunctionPointerGenericParameterCount
+                != other.FunctionPointerGenericParameterCount
+            || FunctionPointerRequiredParameterCount
+                != other.FunctionPointerRequiredParameterCount
+            || FunctionPointerConventionModifiersAreExact
+                != other.FunctionPointerConventionModifiersAreExact
             || FunctionPointerParameterRefKinds.Length != other.FunctionPointerParameterRefKinds.Length
             || !Equals(ElementType, other.ElementType)
             || TypeArguments.Length != other.TypeArguments.Length)
@@ -950,6 +1013,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         hash.Add(Rank);
         hash.Add(GenericParameterIndex);
         hash.Add(CallingConvention);
+        hash.Add(FunctionPointerSignatureDiscriminator);
+        hash.Add(FunctionPointerGenericParameterCount);
+        hash.Add(FunctionPointerRequiredParameterCount);
+        hash.Add(FunctionPointerConventionModifiersAreExact);
         foreach (var kind in FunctionPointerParameterRefKinds)
             hash.Add(kind);
         hash.Add(ElementType);

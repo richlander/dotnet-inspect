@@ -517,6 +517,200 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
+    public void ExecutionUsesDeclarationSnapshotAfterCallerMutation()
+    {
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(CreateRowVocabulary());
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [],
+                [],
+                [PortableQueryStage.Head(1)],
+                []);
+        QuerySpaceRowIntentAssociation association =
+            new(
+                queryScope.Descriptor.Identity,
+                rowIntent,
+                ["left"]);
+        QuerySpaceRequest request =
+            QuerySpaceRequest.Create(
+                querySpace.Descriptor,
+                PortableQueryIntent.Empty,
+                ["left"],
+                [association],
+                QuerySpaceTerminalRequirement.Rows);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                queryScope,
+                schema);
+        var source = new List<ScoreRow>
+        {
+            new(1),
+            new(2),
+        };
+        SectionRowSetDeclaration<
+            string,
+            Projection,
+            ScoreRow> declaration =
+                Declaration(
+                    "left",
+                    schema,
+                    source,
+                    static (projection, rows) =>
+                        projection with
+                        {
+                            Left =
+                                rows.Select(
+                                    static row => row.Score)
+                                    .ToArray(),
+                        });
+
+        QuerySpaceSectionRowResolutionResult<Projection> resolution =
+            QuerySpaceSectionRowResolver.Resolve(
+                querySpace,
+                request,
+                [declaration],
+                sectionScope);
+
+        Assert.True(resolution.IsSuccess);
+        source.Clear();
+        source.Add(new(99));
+
+        SectionRowsOutcome<string, Projection> rows =
+            QuerySpaceSectionRowExecutor.ApplyRows(
+                resolution.Request!);
+
+        Assert.True(rows.IsSuccess);
+        Assert.Equal(
+            [1],
+            rows.Rebind(Projection.Empty).Left);
+    }
+
+    [Fact]
+    public void SourceFilteringPreservesDeclaredCohortFailureOrder()
+    {
+        var calls = new List<string>();
+        SectionRowSchemaIdentity<ScoreRow> schemaA =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        SectionRowSchemaIdentity<ScoreRow> schemaB =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        RowSelectionPlan<string> strictWindow =
+            RowSelectionPlan<string>.Create(
+                [
+                    RowSelectionStage<string>.Window(
+                        1,
+                        2),
+                ]);
+        var bindingA =
+            new SectionRowSchemaBinding<string, ScoreRow>(
+                schemaA,
+                sequences =>
+                {
+                    calls.Add(
+                        "A:"
+                        + string.Join(
+                            ",",
+                            sequences.Select(
+                                static sequence =>
+                                    sequence.Identity)));
+                    return RowsCohortExecutor.Apply(
+                        sequences,
+                        strictWindow);
+                });
+        var bindingB =
+            new SectionRowSchemaBinding<string, ScoreRow>(
+                schemaB,
+                sequences =>
+                {
+                    calls.Add(
+                        "B:"
+                        + string.Join(
+                            ",",
+                            sequences.Select(
+                                static sequence =>
+                                    sequence.Identity)));
+                    return RowsCohortExecutor.Apply(
+                        sequences,
+                        strictWindow);
+                });
+        SectionRowSetDeclaration<
+            string,
+            Projection>[] declarations =
+        [
+            Declaration(
+                "a0",
+                schemaA,
+                [new(0)],
+                static (projection, _) => projection),
+            Declaration(
+                "b0",
+                schemaB,
+                [new(0)],
+                static (projection, _) => projection),
+            Declaration(
+                "a1",
+                schemaA,
+                [new(0)],
+                static (projection, _) => projection),
+        ];
+        SectionRowSourceState<
+            string,
+            SourceDisposition,
+            CompletionReceipt>[] sources =
+        [
+            Source(
+                "a0",
+                SourceDisposition.Unavailable,
+                new("unavailable"),
+                rowsAreUsable: false,
+                countIsSufficient: false),
+            Source(
+                "b0",
+                SourceDisposition.Complete,
+                new("complete"),
+                rowsAreUsable: true,
+                countIsSufficient: true),
+            Source(
+                "a1",
+                SourceDisposition.Complete,
+                new("complete"),
+                rowsAreUsable: true,
+                countIsSufficient: true),
+        ];
+        SectionSourceRowExecutionRequest<
+            string,
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> request =
+                SectionSourceRowExecutionRequest<
+                    string,
+                    Projection,
+                    SourceDisposition,
+                    CompletionReceipt>.Create(
+                        declarations,
+                        new(
+                            ["a0", "b0", "a1"],
+                            [bindingB, bindingA]),
+                        sources);
+
+        SectionSourceRowsOutcome<
+            string,
+            Projection,
+            SourceDisposition,
+            CompletionReceipt> rows =
+                SectionSourceRowExecutor.ApplyRows(request);
+
+        Assert.False(rows.IsSuccess);
+        Assert.Equal("a1", rows.Failure!.Identity);
+        Assert.Empty(rows.RowSets);
+        Assert.Equal(["A:a1"], calls);
+    }
+
+    [Fact]
     public void PredicatesRunBeforeBaselineComparerResolution()
     {
         var predicateException =

@@ -81,14 +81,6 @@ public sealed class SectionSourceRowExecutionRequest<
                 TDisposition,
                 TCompletionEvidence>[sources.Count];
         var usableIdentities = new HashSet<TIdentity>();
-        var usableRowSets =
-            new List<
-                SectionRowSetDeclaration<
-                    TIdentity,
-                    TProjection>>();
-        var usableSchemas =
-            new HashSet<SectionRowSchemaIdentity>(
-                ReferenceEqualityComparer.Instance);
         for (int index = 0; index < sources.Count; index++)
         {
             SectionRowSourceState<
@@ -115,35 +107,13 @@ public sealed class SectionSourceRowExecutionRequest<
             if (source.RowsAreUsable)
             {
                 usableIdentities.Add(source.Identity);
-                usableRowSets.Add(rowSet);
-                usableSchemas.Add(rowSet.Schema);
             }
         }
 
         SectionRowExecutionRequest<
             TIdentity,
-            TProjection>? residualRequest = null;
-        if (usableRowSets.Count > 0)
-        {
-            TIdentity[] associatedRowSets =
-                validated.Association.RowSets
-                    .Where(usableIdentities.Contains)
-                    .ToArray();
-            SectionRowSchemaBinding<TIdentity>[] schemaBindings =
-                validated.Association.SchemaBindings
-                    .Where(
-                        binding =>
-                            usableSchemas.Contains(binding.Schema))
-                    .ToArray();
-            residualRequest =
-                SectionRowExecutionRequest<
-                    TIdentity,
-                    TProjection>.Create(
-                        usableRowSets,
-                        new(
-                            associatedRowSets,
-                            schemaBindings));
-        }
+            TProjection>? residualRequest =
+                validated.CreateSubset(usableIdentities);
 
         return new(
             validated.RowSets,
