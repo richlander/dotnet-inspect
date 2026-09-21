@@ -473,8 +473,9 @@ selects one displayed row; `first` and `last` mean the rendered endpoints.
 Missing payloads fail rather than sliding to another row.
 
 Keep work bounds and ranking separate: Package Query `--take N` bounds
-candidate work before final row selection, while `--top N` requires a ranking
-order. Neither is another spelling of `-n`.
+candidate work before final row selection, and Library Query `--take N` bounds
+its explicit Library population before final row selection, while `--top N`
+requires a ranking order. None is another spelling of `-n`.
 
 ## Use a URL as part of the answer
 
@@ -500,5 +501,8 @@ Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
 Inspect Web rejects both formats. Keep them as packet strings for supported
 CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
 Web does not yet restore query-bearing packets. Keep Package Query answers in
-Content rather than manufacturing a link.
+Content rather than manufacturing a link. Inspect Web directly adopts Library
+Query in the current package's Library navigation by sending the same portable
+`references` intent to the shared envelope and filtering with returned asset
+IDs; it does not infer matches from display names.
 Offer a URL only for a browser-restorable scenario selection.
