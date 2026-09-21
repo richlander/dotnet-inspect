@@ -217,6 +217,35 @@ test("Workspace occurrence activation retains Package Info", async ({ page }) =>
     .toHaveText("Package Info");
 });
 
+test("Workspace product navigation exits every routed product surface", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+
+  const openWorkspace = async () => {
+    await openProductDestination(page, "workspace");
+    await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  };
+
+  await openProductDestination(page, "home");
+  await expect(page).toHaveURL("/");
+  await openWorkspace();
+
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  await openWorkspace();
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  await openWorkspace();
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await openWorkspace();
+});
+
 for (const width of [1440, 800, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

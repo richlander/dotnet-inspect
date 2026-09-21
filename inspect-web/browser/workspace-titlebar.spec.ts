@@ -117,6 +117,25 @@ test("the top shell row separates product navigation from inspection subjects", 
     "/assets/dotnet-inspect-bot.png");
 });
 
+test("product navigation Tab closes and continues after the brand", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?package=1");
+
+  const brand = page.locator("[data-product-navigation-button]");
+  await brand.focus();
+  await brand.press("ArrowDown");
+  await expect(page.locator("[data-product-destination='home']"))
+    .toBeFocused();
+
+  await page.keyboard.press("Tab");
+
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator(".scope-switch [data-subject-tab]").first())
+    .toBeFocused();
+});
+
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
   page,
 }) => {

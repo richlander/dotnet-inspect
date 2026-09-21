@@ -1,3 +1,5 @@
+import { continueMenuButtonDocumentOrder } from "./menu-button.ts";
+
 function escapeAttribute(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -43,7 +45,7 @@ export function renderBrand(options: {
   <nav id="${menuId}" class="product-navigation-menu" role="menu"
     data-product-navigation-menu aria-label="dotnet-inspect" hidden>
     ${productDestinations.map(([destination, label]) =>
-      `<button type="button" role="menuitem" data-product-destination="${destination}">${label}</button>`).join("")}
+      `<button type="button" role="menuitem" tabindex="-1" data-product-destination="${destination}">${label}</button>`).join("")}
   </nav>`;
 }
 
@@ -219,6 +221,16 @@ export function bindProductNavigation(
     if (event.key === "Escape") {
       event.preventDefault();
       closeOpenMenu(true);
+      return;
+    }
+    if (event.key === "Tab") {
+      const trigger = currentButton(menu);
+      if (!trigger) return;
+      continueMenuButtonDocumentOrder(
+        trigger,
+        menu,
+        event,
+        () => closeOpenMenu(false));
       return;
     }
     const items = enabledItems(menu);

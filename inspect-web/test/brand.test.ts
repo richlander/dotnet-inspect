@@ -13,5 +13,5 @@ test("brand renders the ordered product navigation inventory", () => {
     /data-product-destination="home">Home[\s\S]*data-product-destination="query">Query[\s\S]*data-product-destination="workspace">Workspace[\s\S]*data-product-destination="activity">Activity/);
   assert.match(
     html,
-    /id="test-product-menu" class="product-navigation-menu" role="menu"[\s\S]*hidden[\s\S]*role="menuitem"/);
+    /id="test-product-menu" class="product-navigation-menu" role="menu"[\s\S]*hidden[\s\S]*role="menuitem" tabindex="-1"/);
 });

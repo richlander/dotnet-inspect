@@ -12905,14 +12905,24 @@ function openPackageActivityRoute(
 
 async function openWorkspaceProductDestination() {
   const pkg = state.package;
+  if (!pkg && !state.platformSelection && !state.workspaceSubjectOpen) return;
+
+  dismissModalsForRoutedNavigation();
+  const navigationSeq = navigationSequence.begin();
+  discardPackageQueryTermEditors();
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  packageQueryController.cancel();
+  packageChangesController.cancel("disposed");
+  state.packageQueryNavigationError = "";
+  state.credits = false;
+  state.home = false;
+  spotlight.reset();
+
   if (!pkg) {
-    if (state.platformSelection) {
-      navigationSequence.begin();
-      openDefaultWorkspace();
-    }
+    openDefaultWorkspace();
     return;
   }
-  const navigationSeq = navigationSequence.begin();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
