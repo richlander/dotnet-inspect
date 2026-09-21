@@ -60,7 +60,7 @@ public sealed record CSharpAuthoredDocumentationLimits
 /// </summary>
 public sealed class CSharpAuthoredDocumentationRequest
 {
-    private readonly ImmutableArray<int> activePhysicalLines;
+    private readonly Lazy<ImmutableArray<int>> activePhysicalLines;
 
     public CSharpAuthoredDocumentationRequest(
         string sourceText,
@@ -79,10 +79,41 @@ public sealed class CSharpAuthoredDocumentationRequest
         limits ??= CSharpAuthoredDocumentationLimits.Default;
         limits.Validate();
 
-        this.activePhysicalLines =
-            activePhysicalLines is null ? [] : [.. activePhysicalLines];
+        int? admittedLineCount = null;
+        if (activePhysicalLines is not null
+            && sourceText.Length <= limits.MaxSourceCharacters)
+        {
+            int validationLineLimit =
+                Math.Min(limits.MaxLines, DeclarationIndex.MaxLineCount);
+            int lineCount = CSharpSourceText.CountLines(
+                sourceText,
+                validationLineLimit);
+            if (lineCount <= validationLineLimit)
+                admittedLineCount = lineCount;
+        }
+        this.activePhysicalLines = new(
+            () => ValidateActiveLines(
+                activePhysicalLines,
+                admittedLineCount),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        if (activePhysicalLines is null || admittedLineCount is not null)
+            _ = this.activePhysicalLines.Value;
+
+        SourceText = sourceText;
+        DeclarationSpan = declarationSpan;
+        Limits = limits;
+    }
+
+    private static ImmutableArray<int> ValidateActiveLines(
+        IReadOnlyList<int>? activePhysicalLines,
+        int? admittedLineCount)
+    {
+        if (activePhysicalLines is null)
+            return [];
+
+        var lines = ImmutableArray.CreateBuilder<int>();
         int previous = 0;
-        foreach (int line in this.activePhysicalLines)
+        foreach (int line in activePhysicalLines)
         {
             if (line <= previous)
             {
@@ -91,33 +122,23 @@ public sealed class CSharpAuthoredDocumentationRequest
                         + "distinct.",
                     nameof(activePhysicalLines));
             }
-            previous = line;
-        }
-        if (!this.activePhysicalLines.IsEmpty
-            && sourceText.Length <= limits.MaxSourceCharacters)
-        {
-            int validationLineLimit =
-                Math.Min(limits.MaxLines, DeclarationIndex.MaxLineCount);
-            int lineCount = CSharpSourceText.CountLines(
-                sourceText,
-                validationLineLimit);
-            if (lineCount <= validationLineLimit
-                && this.activePhysicalLines[^1] > lineCount)
+            if (admittedLineCount is { } lineCount
+                && line > lineCount)
             {
                 throw new ArgumentException(
                     "Active physical lines must lie within the supplied source.",
                     nameof(activePhysicalLines));
             }
+            lines.Add(line);
+            previous = line;
         }
 
-        SourceText = sourceText;
-        DeclarationSpan = declarationSpan;
-        Limits = limits;
+        return lines.ToImmutable();
     }
 
     public string SourceText { get; }
     public CSharpSourceSpan DeclarationSpan { get; }
-    public IReadOnlyList<int> ActivePhysicalLines => activePhysicalLines;
+    public IReadOnlyList<int> ActivePhysicalLines => activePhysicalLines.Value;
     public CSharpAuthoredDocumentationLimits Limits { get; }
 }
 
@@ -485,9 +506,8 @@ public static class CSharpAuthoredDocumentation
                             declaration)))
                     .Where(candidate =>
                         candidate.Span is { } span
-                        && candidate.Declaration.SpanKnown
                         && candidate.Declaration.TextCoordinates
-                            is { IsKnown: true }
+                            is { DeclarationKnown: true }
                         && SameSpan(
                             span,
                             request.DeclarationSpan))
@@ -503,6 +523,13 @@ public static class CSharpAuthoredDocumentation
                 }
                 if (repairedMatches.Length == 1)
                 {
+                    if (!index.UnterminatedDocumentationKnown)
+                    {
+                        return new CSharpAuthoredDocumentationOutcome.Uncertain(
+                            CSharpAuthoredDocumentationUncertainty
+                                .ConditionalBranchUnresolved,
+                            Work(unterminatedCharacters));
+                    }
                     return new CSharpAuthoredDocumentationOutcome.Malformed(
                         CSharpAuthoredDocumentationMalformedReason
                             .UnterminatedDocumentationComment,

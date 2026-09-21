@@ -699,6 +699,29 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void DetachedConditionalDocumentation_DoesNotHideUnterminatedFragment()
+    {
+        const string source = """
+            #if X
+            /// <summary>Older.</summary>
+            #endif
+            /** broken
+            class C { }
+            """;
+        CSharpSourceSpan declaration = TextSpan(source, "class C { }");
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Malformed>(
+                CSharpAuthoredDocumentation.Read(
+                    new(source, declaration)));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationMalformedReason
+                .UnterminatedDocumentationComment,
+            result.Reason);
+    }
+
+    [Fact]
     public void UnterminatedDocumentationLimit_CoversTheFullLexicalComment()
     {
         string source = """
@@ -1056,7 +1079,7 @@ public sealed class AuthoredDocumentationTests
         var request = new CSharpAuthoredDocumentationRequest(
             source,
             new(0, 0),
-            activePhysicalLines: [2],
+            activePhysicalLines: new ThrowingActiveLines(),
             limits: CSharpAuthoredDocumentationLimits.Default with
             {
                 MaxSourceCharacters = 1,
@@ -1070,6 +1093,28 @@ public sealed class AuthoredDocumentationTests
             CSharpAuthoredDocumentationIncompleteBoundary.SourceCharacters,
             result.Boundary);
         Assert.Equal(2, result.Work.SourceCharactersExamined);
+    }
+
+    [Fact]
+    public void LineLimitPrecedesDeferredPhysicalLineValidation()
+    {
+        const string source = "first\nsecond";
+        var request = new CSharpAuthoredDocumentationRequest(
+            source,
+            new(0, 0),
+            activePhysicalLines: new ThrowingActiveLines(),
+            limits: CSharpAuthoredDocumentationLimits.Default with
+            {
+                MaxLines = 1,
+            });
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(request));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationIncompleteBoundary.Lines,
+            result.Boundary);
     }
 
     [Fact]
@@ -1402,6 +1447,22 @@ public sealed class AuthoredDocumentationTests
                         limits: configure(
                             CSharpAuthoredDocumentationLimits.Default))));
         Assert.Equal(boundary, result.Boundary);
+    }
+
+    private sealed class ThrowingActiveLines : IReadOnlyList<int>
+    {
+        public int Count =>
+            throw new InvalidOperationException("Evidence was consumed.");
+
+        public int this[int index] =>
+            throw new InvalidOperationException("Evidence was consumed.");
+
+        public IEnumerator<int> GetEnumerator() =>
+            throw new InvalidOperationException("Evidence was consumed.");
+
+        System.Collections.IEnumerator
+            System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
     }
 
     private static string RepositoryRoot()

@@ -105,12 +105,12 @@ The request contains:
   documentation isolation, XML parsing, and retained output.
 
 Request construction rejects null source, negative or overflowing coordinates,
-out-of-bounds spans, non-positive or unsorted active lines, duplicate active
-lines, and non-positive limits. It validates active lines against the source
-only while source and line counting remain inside their configured bounds;
-otherwise the operation returns the applicable typed `Incomplete` before using
-that evidence. These are caller contract violations, not source-analysis
-outcomes.
+out-of-bounds spans, and non-positive limits. While source and line counting
+remain inside those configured bounds, it also rejects non-positive, unsorted,
+duplicate, or out-of-bounds active lines. Otherwise the operation returns the
+applicable typed `Incomplete` before enumerating or validating that optional
+evidence. Invalid admitted inputs are caller contract violations, not
+source-analysis outcomes.
 
 The operation matches the supplied span to the complete raw syntax extent of a
 recovered declaration. Documentation leading trivia is outside that extent;
