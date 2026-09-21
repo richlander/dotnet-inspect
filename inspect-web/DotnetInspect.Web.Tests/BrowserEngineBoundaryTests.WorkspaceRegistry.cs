@@ -365,15 +365,26 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserPackageWorkspace.PackageKey(packageId, coordinate.Version);
         var release = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var closing = new GatedScope(release);
-        await BrowserPackageWorkspace.RegisterScopeAsync(
-            $"racing-{Guid.NewGuid():N}",
-            closing,
-            [packageKey]);
+        GatedScope[] closing =
+        [
+            .. Enumerable.Range(0, BrowserPackageWorkspace.MaxOpenScopes)
+                .Select(_ => new GatedScope(release)),
+        ];
+        foreach (GatedScope scope in closing)
+        {
+            await BrowserPackageWorkspace.RegisterScopeAsync(
+                $"racing-{Guid.NewGuid():N}",
+                scope,
+                [packageKey]);
+        }
 
-        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
-        await closing.DisposeStarted.Task;
-        Assert.False(removal.IsCompleted);
+        Task[] removals =
+        [
+            .. closing.Select(scope =>
+                BrowserPackageWorkspace.RemoveScopeAsync(scope).AsTask()),
+        ];
+        await Task.WhenAll(closing.Select(scope => scope.DisposeStarted.Task));
+        Assert.All(removals, removal => Assert.False(removal.IsCompleted));
 
         Task<BrowserPackageWorkspace.PackageDownloadReservation> pressure =
             BrowserPackageWorkspace.ReservePackageDownloadAsync(
@@ -388,8 +399,8 @@ public sealed partial class BrowserEngineBoundaryTests
         release.SetResult();
         using (await pressure)
         {
-            await removal;
-            Assert.True(closing.Disposed);
+            await Task.WhenAll(removals);
+            Assert.All(closing, scope => Assert.True(scope.Disposed));
             Assert.DoesNotContain(
                 packageKey,
                 BrowserPackageWorkspace.ResidentPackageKeys());
