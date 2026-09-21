@@ -177,6 +177,7 @@ public enum DocumentationHouseRejectionKind
     LibraryReferenceMismatch,
     ApiContentMismatch,
     LeaseReferenceMismatch,
+    AuthoredSourceBindingMismatch,
 }
 
 public sealed record DocumentationHouseRejection(
@@ -195,16 +196,20 @@ public sealed record DocumentationHouseFailure(
 public sealed record DocumentationHouseWorkCharge(
     int ContributionsObserved,
     long CompiledXmlBytesObserved,
-    bool ParsedCompiledXml);
+    bool ParsedCompiledXml,
+    DocumentationAuthoredSourceOperationWorkCharge? AuthoredSourceWork = null);
 
 public enum DocumentationLibraryLeaseConsumer
 {
     DocumentationHouse,
+    Operation,
+    SourceHouse,
 }
 
 /// <summary>Resource-free proof of the final Library lease consumer.</summary>
 public sealed record DocumentationLibraryLeaseSettlement(
-    DocumentationLibraryLeaseConsumer Consumer);
+    DocumentationLibraryLeaseConsumer Consumer,
+    DocumentationAuthoredLeaseSettlement? AuthoredSourceSettlement = null);
 
 public sealed class DocumentationHouseReceiptIdentity
 {
@@ -220,21 +225,27 @@ public sealed class DocumentationHouseReceiptIdentity
 public sealed class DocumentationHouseReceipt
 {
     internal DocumentationHouseReceipt(
-        DocumentationHouseRequest request,
-        DocumentationCompiledXmlAttempt compiledXmlAttempt,
+        DocumentationHouseRequestEvidence request,
+        DocumentationCompiledXmlAttempt? compiledXmlAttempt,
+        DocumentationAuthoredSourceAttempt? authoredSourceAttempt,
+        DocumentationFieldSettlement fields,
         DocumentationHouseWorkCharge work,
         DocumentationLibraryLeaseSettlement leaseSettlement)
     {
         Identity = new DocumentationHouseReceiptIdentity();
         Request = request;
         CompiledXmlAttempt = compiledXmlAttempt;
+        AuthoredSourceAttempt = authoredSourceAttempt;
+        Fields = fields;
         Work = work;
         LeaseSettlement = leaseSettlement;
     }
 
     public DocumentationHouseReceiptIdentity Identity { get; }
-    public DocumentationHouseRequest Request { get; }
-    public DocumentationCompiledXmlAttempt CompiledXmlAttempt { get; }
+    public DocumentationHouseRequestEvidence Request { get; }
+    public DocumentationCompiledXmlAttempt? CompiledXmlAttempt { get; }
+    public DocumentationAuthoredSourceAttempt? AuthoredSourceAttempt { get; }
+    public DocumentationFieldSettlement Fields { get; }
     public DocumentationHouseWorkCharge Work { get; }
     public DocumentationLibraryLeaseSettlement LeaseSettlement { get; }
 }
@@ -247,12 +258,12 @@ public abstract class DocumentationHouseOutcome
         DocumentationHouseWorkCharge work,
         DocumentationLibraryLeaseSettlement leaseSettlement)
     {
-        Request = request;
+        Request = new(request);
         Work = work;
         LeaseSettlement = leaseSettlement;
     }
 
-    public DocumentationHouseRequest Request { get; }
+    public DocumentationHouseRequestEvidence Request { get; }
     public DocumentationHouseWorkCharge Work { get; }
     public DocumentationLibraryLeaseSettlement LeaseSettlement { get; }
 
@@ -260,20 +271,31 @@ public abstract class DocumentationHouseOutcome
     {
         internal Completed(
             DocumentationHouseRequest request,
-            DocumentationCompiledXmlAttempt compiledXmlAttempt,
+            DocumentationCompiledXmlAttempt? compiledXmlAttempt,
+            DocumentationAuthoredSourceAttempt? authoredSourceAttempt,
+            DocumentationFieldSettlement fields,
             DocumentationHouseWorkCharge work,
             DocumentationLibraryLeaseSettlement leaseSettlement)
             : base(request, work, leaseSettlement)
         {
             CompiledXmlAttempt = compiledXmlAttempt;
+            AuthoredSourceAttempt = authoredSourceAttempt;
+            Fields = fields;
             Receipt = new(
-                request,
+                Request,
                 compiledXmlAttempt,
+                authoredSourceAttempt,
+                fields,
                 work,
                 leaseSettlement);
         }
 
-        public DocumentationCompiledXmlAttempt CompiledXmlAttempt { get; }
+        public DocumentationCompiledXmlAttempt? CompiledXmlAttempt { get; }
+        public DocumentationAuthoredSourceAttempt? AuthoredSourceAttempt
+        {
+            get;
+        }
+        public DocumentationFieldSettlement Fields { get; }
         public DocumentationHouseReceipt Receipt { get; }
     }
 

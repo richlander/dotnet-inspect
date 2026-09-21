@@ -61,7 +61,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             available.Documentation.Summary,
             StringComparison.Ordinal);
         Assert.Same(contribution, available.Selected);
-        Assert.Same(request, completed.Receipt.Request);
+        Assert.Same(completed.Request, completed.Receipt.Request);
+        Assert.Same(request.Identity, completed.Request.Identity);
         Assert.Same(
             available,
             completed.Receipt.CompiledXmlAttempt);
@@ -995,9 +996,12 @@ public sealed partial class CompiledXmlDocumentationHouseTests
         var seen = new HashSet<Type>();
         foreach (Type root in new[]
         {
-            typeof(DocumentationHouseRequest),
+            typeof(DocumentationHouseRequestEvidence),
             typeof(CompiledXmlContribution),
             typeof(DocumentationCompiledXmlAttempt),
+            typeof(DocumentationAuthoredSourceChannelPlan),
+            typeof(DocumentationAuthoredSourceAttempt),
+            typeof(DocumentationFieldSettlement),
             typeof(DocumentationHouseReceipt),
             typeof(DocumentationHouseOutcome),
             typeof(DocumentationAuthoredSourceOperationBinding),
@@ -1288,15 +1292,35 @@ public sealed partial class CompiledXmlDocumentationHouseTests
 
         public static async Task<LibraryFixture> CreateSourceAsync(
             byte[] assembly,
-            byte[] portablePdb)
+            byte[] portablePdb,
+            byte[]? compiledXml = null)
         {
+            byte[][] contents = compiledXml is null
+                ? [assembly, portablePdb]
+                : [assembly, portablePdb, compiledXml];
             ArtifactFixture artifacts =
-                await ArtifactFixture.CreateAsync(
-                    [assembly, portablePdb]);
+                await ArtifactFixture.CreateAsync(contents);
             try
             {
                 ManagedMetadataIdentity.Assembly identity =
                     AssemblyIdentity(assembly);
+                var companions =
+                    new List<LibraryCompanionCorrespondence>
+                    {
+                        new(
+                            artifacts[1],
+                            LibraryContentRole.PortablePdb,
+                            artifacts[0]),
+                    };
+                if (compiledXml is not null)
+                {
+                    companions.Add(
+                        new(
+                            artifacts[2],
+                            LibraryContentRole
+                                .CompiledXmlDocumentation,
+                            artifacts[0]));
+                }
                 LibraryReference reference =
                     LibraryReference.CreateDirect(
                         new LibraryAssemblyCorrespondence(
@@ -1304,12 +1328,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                             identity,
                             artifacts[0],
                             identity),
-                        [
-                            new LibraryCompanionCorrespondence(
-                                artifacts[1],
-                                LibraryContentRole.PortablePdb,
-                                artifacts[0]),
-                        ]);
+                        companions);
                 var owner = new LibraryContentOwner(
                     reference,
                     artifacts.IssueContentLeases());
