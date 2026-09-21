@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect-relationships
-version: 0.2.0
+version: 0.1.0
 description: Map how code connects — implementors and subclasses, extension methods, dependency graphs, reverse callers, and ecosystem integrations. Many outputs are graph-shaped (add --mermaid).
 ---
 
@@ -123,8 +123,6 @@ dnx dotnet-inspect -y -- library System.Text.Json \
   -D @Dependencies --details
 dnx dotnet-inspect -y -- library System.Text.Json \
   -D "Reference Hierarchy" --details
-dnx dotnet-inspect -y -- explain \
-  library/sections/reference-hierarchy
 dnx dotnet-inspect -y -- library System.Text.Json -S References
 dnx dotnet-inspect -y -- library System.Text.Json \
   -S "Reference Hierarchy" --tree
@@ -142,12 +140,9 @@ order; Traversal cannot rank.
 On `library`, `References` remains direct assembly metadata and
 `Reference Hierarchy` invokes that same occurrence-addressed Depends operation
 for the exact assembly; `--depth` controls traversal and `--tree` remains only
-a projection choice. Use `-D @Dependencies` to orient, then
-`explain library/categories/dependencies` or
-`explain library/sections/reference-hierarchy` to inspect the stable product
-resource and its related paths before choosing the exact hierarchy section for
-tree or Mermaid output. `-D --details` remains available while Formats moves to
-Resource Explanation.
+a projection choice. Use `-D @Dependencies --details` to compare the complete
+category with its members before choosing the exact hierarchy section for tree
+or Mermaid output.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
