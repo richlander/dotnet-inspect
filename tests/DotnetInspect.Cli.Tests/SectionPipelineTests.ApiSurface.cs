@@ -404,6 +404,146 @@ public partial class SectionPipelineTests
             ApiMemberDetailSectionDescriptors.ILBody.SizeClass);
     }
 
+    [Fact]
+    public void
+        ApiMemberDomainAndUncategorizedDescriptors_DeclareAuditedGrowth()
+    {
+        (string Name, SectionSizeClass SizeClass)[] verbose =
+        [
+            (ApiMemberSectionDescriptors.MemberIndex.Name,
+                ApiMemberSectionDescriptors.MemberIndex.SizeClass),
+            (ApiMemberSectionDescriptors.CostOverlay.Name,
+                ApiMemberSectionDescriptors.CostOverlay.SizeClass),
+            (ApiMemberSectionDescriptors.SemanticsOverlay.Name,
+                ApiMemberSectionDescriptors.SemanticsOverlay.SizeClass),
+            (ApiMemberSectionDescriptors.UnsafeMembers.Name,
+                ApiMemberSectionDescriptors.UnsafeMembers.SizeClass),
+            (ApiMemberSectionDescriptors.CloneCandidates.Name,
+                ApiMemberSectionDescriptors.CloneCandidates.SizeClass),
+            (ApiMemberSectionDescriptors.ExceptionRegions.Name,
+                ApiMemberSectionDescriptors.ExceptionRegions.SizeClass),
+            (ApiMemberSectionDescriptors.CalledTypes.Name,
+                ApiMemberSectionDescriptors.CalledTypes.SizeClass),
+            (ApiMemberSectionDescriptors.AllocationFacts.Name,
+                ApiMemberSectionDescriptors.AllocationFacts.SizeClass),
+            (ApiMemberSectionDescriptors.SafetyFacts.Name,
+                ApiMemberSectionDescriptors.SafetyFacts.SizeClass),
+            (ApiMemberSectionDescriptors.CostFacts.Name,
+                ApiMemberSectionDescriptors.CostFacts.SizeClass),
+            (ApiMemberSectionDescriptors.TopLeverage.Name,
+                ApiMemberSectionDescriptors.TopLeverage.SizeClass),
+            (ApiMemberSectionDescriptors.TypeMetrics.Name,
+                ApiMemberSectionDescriptors.TypeMetrics.SizeClass),
+            (ApiMemberSectionDescriptors.MemberMetrics.Name,
+                ApiMemberSectionDescriptors.MemberMetrics.SizeClass),
+            (ApiMemberSectionDescriptors.OptimizationOpportunities.Name,
+                ApiMemberSectionDescriptors.OptimizationOpportunities.SizeClass),
+            (ApiMemberSectionDescriptors.SourceLocations.Name,
+                ApiMemberSectionDescriptors.SourceLocations.SizeClass),
+            (ApiMemberSectionDescriptors.SourceFiles.Name,
+                ApiMemberSectionDescriptors.SourceFiles.SizeClass),
+            (ApiMemberSectionDescriptors.Facts.Name,
+                ApiMemberSectionDescriptors.Facts.SizeClass),
+            (ApiMemberDetailSectionDescriptors.AnnotatedSource.Name,
+                ApiMemberDetailSectionDescriptors.AnnotatedSource.SizeClass),
+            (ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument.Name,
+                ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument.SizeClass),
+            (ApiMemberDetailSectionDescriptors.FindingCensus.Name,
+                ApiMemberDetailSectionDescriptors.FindingCensus.SizeClass),
+            (ApiMemberDetailSectionDescriptors.FidelityCauses.Name,
+                ApiMemberDetailSectionDescriptors.FidelityCauses.SizeClass),
+            (ApiMemberDetailSectionDescriptors.AppliedTaste.Name,
+                ApiMemberDetailSectionDescriptors.AppliedTaste.SizeClass),
+            (ApiMemberDetailSectionDescriptors.CostOverlay.Name,
+                ApiMemberDetailSectionDescriptors.CostOverlay.SizeClass),
+            (ApiMemberDetailSectionDescriptors.SemanticsOverlay.Name,
+                ApiMemberDetailSectionDescriptors.SemanticsOverlay.SizeClass),
+            (ApiMemberDetailSectionDescriptors.SourceDiff.Name,
+                ApiMemberDetailSectionDescriptors.SourceDiff.SizeClass),
+            (ApiMemberDetailSectionDescriptors.ExceptionRegions.Name,
+                ApiMemberDetailSectionDescriptors.ExceptionRegions.SizeClass),
+            (ApiMemberDetailSectionDescriptors.Calls.Name,
+                ApiMemberDetailSectionDescriptors.Calls.SizeClass),
+            (ApiMemberDetailSectionDescriptors.Callers.Name,
+                ApiMemberDetailSectionDescriptors.Callers.SizeClass),
+            (ApiMemberDetailSectionDescriptors.CallGraph.Name,
+                ApiMemberDetailSectionDescriptors.CallGraph.SizeClass),
+            (ApiMemberDetailSectionDescriptors.UnsafeOperations.Name,
+                ApiMemberDetailSectionDescriptors.UnsafeOperations.SizeClass),
+            (ApiMemberDetailSectionDescriptors.BodyShapes.Name,
+                ApiMemberDetailSectionDescriptors.BodyShapes.SizeClass),
+            (ApiMemberDetailSectionDescriptors.BodyShapeSummary.Name,
+                ApiMemberDetailSectionDescriptors.BodyShapeSummary.SizeClass),
+            (ApiMemberDetailSectionDescriptors.Facts.Name,
+                ApiMemberDetailSectionDescriptors.Facts.SizeClass),
+        ];
+
+        Assert.All(
+            verbose,
+            section => Assert.True(
+                section.SizeClass == SectionSizeClass.Verbose,
+                $"{section.Name} must declare Verbose growth."));
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            ApiMemberDetailSectionDescriptors.SourceLocations.SizeClass);
+    }
+
+    [Fact]
+    public void
+        ApiMemberPipelines_DomainAndUncategorizedSelectionsUseAuditedGrowth()
+    {
+        AssertAuditedGrowth(
+            ApiMemberSectionDescriptors.CreatePipeline(),
+            new Dictionary<string, Verbosity>(
+                StringComparer.OrdinalIgnoreCase));
+        AssertAuditedGrowth(
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            new Dictionary<string, Verbosity>(StringComparer.OrdinalIgnoreCase)
+            {
+                [SectionNames.Signature] = Verbosity.Minimal,
+            });
+        AssertAuditedGrowth(
+            ApiMemberDetailSectionDescriptors.CreatePipeline(),
+            new Dictionary<string, Verbosity>(StringComparer.OrdinalIgnoreCase)
+            {
+                [SectionNames.SourceLocations] = Verbosity.Normal,
+            });
+
+        static void AssertAuditedGrowth(
+            SectionPipeline<ApiType> pipeline,
+            IReadOnlyDictionary<string, Verbosity> bounded)
+        {
+            var categories = ApiMemberSectionPipelines.GetCategoryMap(pipeline);
+            HashSet<string> categorized =
+            [
+                .. categories.SelectMany(pair => pair.Value),
+            ];
+            string[] audited =
+            [
+                .. categories
+                    .Where(pair => pair.Key != SectionCategoryNames.Member)
+                    .SelectMany(pair => pair.Value)
+                    .Concat(pipeline.SelectableSectionNames.Where(
+                        section => !categorized.Contains(section)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase),
+            ];
+
+            foreach (string section in audited)
+            {
+                Verbosity expected = bounded.GetValueOrDefault(
+                    section,
+                    Verbosity.Detailed);
+                Assert.Equal(
+                    expected,
+                    pipeline.GetRequiredVerbosity(
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            section,
+                        }));
+            }
+        }
+    }
+
     [Theory]
     [InlineData(SectionNames.Values)]
     [InlineData(SectionNames.TypeInterfaces)]
@@ -641,7 +781,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.MemberIndex,
-                SectionNames.ImplementationProfiles,
+                SectionNames.TypeMetrics,
                 SectionNames.CloneCandidates,
             ],
             Uncategorized(broad));
@@ -652,14 +792,14 @@ public partial class SectionPipelineTests
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
             ],
             Uncategorized(overload));
         Assert.Equal(
             [
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
             ],
             Uncategorized(detail));
     }

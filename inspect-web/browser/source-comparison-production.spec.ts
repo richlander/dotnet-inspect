@@ -253,8 +253,10 @@ test.describe("published authored Source comparison transport", () => {
         });
       await openPublishedSite(page);
 
-      async function memberRequest(targetPage: Page, name: string, selectedVersion = "1.0.0") {
-        return targetPage.evaluate(async ({ memberName, version }) => {
+      async function memberRequest(
+        targetPage: Page, name: string, selectedVersion = "1.0.0", typeName = "Counter",
+      ) {
+        return targetPage.evaluate(async ({ memberName, version, selectedType }) => {
           const packages = await import("/inspect-web-package.js");
           const loadResult = await packages.queryPackage(
             "InspectWeb.SourceComparisonFixture", version, "net11.0",
@@ -268,14 +270,16 @@ test.describe("published authored Source comparison transport", () => {
           }
           const type = surface.types.find(candidate =>
             candidate.definitionId
-              === "SourceDiffFixture.Counter");
+              === `SourceDiffFixture.${selectedType}`);
           const member = type?.api.find(candidate =>
             candidate.name === memberName);
           const body = member?.bodySelectors.find(candidate =>
-            candidate.token === member.metadataToken);
+            candidate.token === member.metadataToken)
+            ?? member?.bodySelectors.find(candidate =>
+              candidate.memberName === `get_${memberName}`);
           if (!type || !body) {
             throw new Error(
-              `The fixture does not expose Counter.${memberName}.`);
+              `The fixture does not expose ${selectedType}.${memberName}.`);
           }
           return {
             packageId: surface.package,
@@ -288,7 +292,7 @@ test.describe("published authored Source comparison transport", () => {
             selectorKey: body.selectorKey,
             metadataToken: body.token,
           };
-        }, { memberName: name, version: selectedVersion });
+        }, { memberName: name, version: selectedVersion, selectedType: typeName });
       }
 
       async function compareMember(targetPage: Page, name: string) {
@@ -300,8 +304,10 @@ test.describe("published authored Source comparison transport", () => {
         }, selected);
       }
 
-      async function memberSource(targetPage: Page, version: string) {
-        const selected = await memberRequest(targetPage, "Value", version);
+      async function memberSource(
+        targetPage: Page, version: string, typeName = "Counter", name = "Value",
+      ) {
+        const selected = await memberRequest(targetPage, name, version, typeName);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSource(
@@ -324,6 +330,16 @@ test.describe("published authored Source comparison transport", () => {
 
       const authoredMember = await memberSource(page, "1.0.0");
       const authoredType = await typeSource(page, "1.0.0");
+      const initializedGetter = await memberSource(page, "1.0.0", "InitializedFieldGetter", "Count");
+      const declinedGetter = await memberSource(page, "1.0.0", "CalculatedFieldGetter", "Count");
+      expect(initializedGetter.source.provider).toBe("decompiled");
+      expect(initializedGetter.source.text).toContain("readonly struct InitializedFieldGetter(int value)");
+      expect(initializedGetter.source.text).toContain("get => field + 1;");
+      expect(initializedGetter.source.text).toContain("} = value;");
+      expect(declinedGetter.source.provider).toBe("decompiled");
+      expect(declinedGetter.source.text).toContain("Count => field + 1;");
+      expect(declinedGetter.source.text).not.toContain("struct ");
+      expect(declinedGetter.source.text).not.toContain("} = ");
       const body = authoredMember.parts.find(part => part.kind === "Body");
       if (!body) {
         throw new Error("Authored fixture member did not publish its body part.");
@@ -433,6 +449,7 @@ test.describe("published authored Source comparison transport", () => {
       await unavailablePage.close();
       const evidence = {
         authoredMember, fallbackMember, authoredType, fallbackType,
+        initializedGetter, declinedGetter,
         changed, exact, moved, movedAndEdited, unavailable,
       };
       const evidencePath =

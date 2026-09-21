@@ -45,10 +45,7 @@ DotnetInspector.Sections -> QuerySpace
   |                        ^
   v                        |
 DotnetInspector.Queries ---+
-  L1                       |
-                           |
-DotnetInspector.QueryEngine+
-  transitional operation carrier
+  L1
 
 QuerySpace
   |
@@ -67,14 +64,13 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
-`QuerySpace` is the current orthogonal, dependency-free physical carrier for
-portable query intent and codec, generic row-vocabulary resolution and
-execution, and semantic row selection. It is not a new layer or architectural
-owner. `DotnetInspector.QueryEngine` temporarily retains Query Operation
-registration and section-owned Count outcomes until the remaining migration
-slice retires it. [QuerySpace Library Boundary](query-space-library.md)
-retains the rule that physical composition does not transfer authority from
-the focused designs. L2 owns
+`QuerySpace` is the orthogonal, dependency-free physical carrier for portable
+query intent and codec, generic row-vocabulary resolution and execution,
+semantic row selection, Query Operation registration, and Query Space
+structural composition. It is not a new layer or architectural owner.
+[QuerySpace Library Boundary](query-space-library.md) retains the rule that
+physical composition does not transfer authority from the focused designs.
+Section-owned Count outcomes remain in `DotnetInspector.Sections`. L2 owns
 resolution into the executable plan and typed source request. L1 or source
 owners may analyze that request for equivalent execution and return a typed
 result with completion evidence through the

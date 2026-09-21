@@ -124,6 +124,87 @@ public partial class CommandExecutionTests
         Assert.Equal("41", output.Trim());
     }
 
+    [Theory]
+    [InlineData("Member Index")]
+    [InlineData("Called Types")]
+    [InlineData("Unsafe Members")]
+    [InlineData("Safety Facts")]
+    [InlineData("Allocation Facts")]
+    [InlineData("Cost Facts")]
+    [InlineData("Performance Triage")]
+    [InlineData("Top Leverage")]
+    [InlineData("Type Metrics")]
+    public async Task
+        Type_PlatformMemberDomainSectionsExceedInformativeRange(
+            string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            section,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out int count));
+        Assert.True(
+            count > 24,
+            $"Expected {section} to exceed the informative range; observed {count}.");
+    }
+
+    [Fact]
+    public async Task Member_PlatformMemberMetricsExceedInformativeRange()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Runtime.Intrinsics.Arm.AdvSimd",
+            "Store",
+            "--platform",
+            "System.Runtime.Intrinsics",
+            "-S",
+            "Member Metrics",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out int count));
+        Assert.True(
+            count > 24,
+            $"Expected Member Metrics to exceed the informative range; observed {count}.");
+    }
+
+    [Fact]
+    public async Task
+        Member_PlatformExactMemberAnnotatedSourceExceedsInformativeRange()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Linq.Enumerable",
+            "ToArray:1",
+            "--platform",
+            "System.Linq",
+            "-S",
+            "Annotated Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        int renderedLines =
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(
+            renderedLines > 24,
+            "Expected Annotated Source output to exceed 24 rendered lines; "
+            + $"observed {renderedLines}.");
+    }
+
     [Fact]
     public async Task Member_PlatformExactMemberIlExceedsInformativeRange()
     {
