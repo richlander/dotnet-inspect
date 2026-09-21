@@ -2198,60 +2198,34 @@ internal static class BrowserCompleteRestorationOptions
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(definitions);
         ArgumentNullException.ThrowIfNull(credentials);
-        if (definitions.Count == 0)
+        WorkspacePackageSourceBindingResult binding =
+            WorkspacePackageSourceBinding.Create(definitions, credentials);
+        if (binding is WorkspacePackageSourceBindingResult.Rejected rejected)
         {
-            if (credentials.Count != 0)
-            {
-                return Deny(
-                    options,
-                    "This Workspace does not declare an authenticated source.");
-            }
-            return options;
+            return Deny(options, rejected.Message);
         }
 
-        var required = definitions
-            .Where(static source =>
-                source.Authentication
-                    == WorkspacePackageSourceAuthentication.AuthenticationRequired)
-            .ToDictionary(
-                static source => source.Endpoint,
-                StringComparer.Ordinal);
-        string? unexpected = credentials.Keys.FirstOrDefault(
-            endpoint => !required.ContainsKey(endpoint));
-        if (unexpected is not null)
+        WorkspacePackageSourceBindingPlan plan =
+            ((WorkspacePackageSourceBindingResult.Bound)binding).Plan;
+        if (plan.Sources.Count == 0)
+            return options;
+
+        if (plan.UnboundAuthenticationRequirements.FirstOrDefault()
+            is { } missing)
         {
             return Deny(
                 options,
-                $"PAT binding endpoint '{unexpected}' is not required by this Workspace.");
-        }
-        string? missing = required.Keys.FirstOrDefault(
-            endpoint => !credentials.ContainsKey(endpoint));
-        if (missing is not null)
-        {
-            return Deny(
-                options,
-                $"Workspace source '{missing}' requires an explicit Basic "
+                $"Workspace source '{missing.Endpoint}' requires an explicit Basic "
                     + "credential for this page session; credential providers "
                     + "are unavailable in Browser/Wasm.");
         }
 
-        PackageSource[] sources =
-        [
-            .. definitions.Select(source =>
-                new PackageSource(
-                    source.Endpoint,
-                    source.Endpoint,
-                    source.Authentication
-                        == WorkspacePackageSourceAuthentication.AuthenticationRequired
-                            ? credentials[source.Endpoint]
-                            : null)),
-        ];
         return options with
         {
             ContextLoad = options.ContextLoad with
             {
                 SourceAuthorization =
-                    new UniformPackageSourceAuthorization(sources),
+                    new UniformPackageSourceAuthorization(plan.Sources),
             },
         };
     }
