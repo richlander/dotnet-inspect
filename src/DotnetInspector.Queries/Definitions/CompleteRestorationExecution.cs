@@ -970,7 +970,7 @@ public static class CompleteRestorationCoordinator
                 }
             }
             WorkspaceScopeOperationResult scopeResult =
-                await workspace.ReplaceScopeAsync(
+                await workspace.AddPackagesAsync(
                     available.Snapshot.Revision,
                     roots,
                     options.ScopeDeadline,

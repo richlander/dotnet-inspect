@@ -156,12 +156,45 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             StructuralSubjectIdentity? subject,
             NavigationDescriptorState state,
             bool active,
-            bool retained) =>
+            bool retained,
+            ImmutableArray<NavigationInventoryEvidence> evidence = default) =>
             new(kind, kind.ToString(), subject is null ? null : Subject(snapshot, subject),
                 state, active, retained,
+                evidence.IsDefaultOrEmpty
+                    ? []
+                    : [.. evidence.Select(Diagnostic)],
                 state == NavigationDescriptorState.Available && subject is not null && !active
                     ? Action(NavigationOperationKind.Subject, subject)
                     : null);
+
+        ImmutableArray<NavigationInventoryEvidence> HierarchyEvidence(
+            NavigationHierarchyDescriptor descriptor)
+        {
+            if (descriptor.State != NavigationDescriptorState.Failed
+                || snapshot.Inventory is null)
+            {
+                return [];
+            }
+
+            return descriptor.Kind switch
+            {
+                StructuralSubjectKind.Type =>
+                    snapshot.TypeInventoryLibraryContext switch
+                    {
+                        StructuralSubjectIdentity.AllLibrariesSubject =>
+                            snapshot.Inventory.Types.Evidence,
+                        StructuralSubjectIdentity.LibrarySubject library =>
+                            snapshot.Inventory.Libraries.Single(candidate =>
+                                candidate.Subject == library).Types.Evidence,
+                        _ => [],
+                    },
+                StructuralSubjectKind.Member
+                    when snapshot.RetainedContext?.Type is { } type =>
+                    snapshot.Inventory.Libraries.Single(candidate =>
+                        candidate.Subject == type.Library).Types.Evidence,
+                _ => [],
+            };
+        }
 
         NavigationConsumerLensDescriptor LensDescriptor(
             StructuralSubjectIdentity subject,
@@ -257,7 +290,8 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             ],
             [
                 .. snapshot.Hierarchy.Select(row => Descriptor(
-                    row.Kind, row.Subject, row.State, row.IsActive, row.Subject is not null)),
+                    row.Kind, row.Subject, row.State, row.IsActive,
+                    row.Subject is not null, HierarchyEvidence(row))),
             ],
             [
                 .. snapshot.Libraries.Select(row => new NavigationConsumerLibraryDescriptor(

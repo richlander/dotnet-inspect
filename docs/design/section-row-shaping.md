@@ -48,9 +48,11 @@ outcomes.
 
 `RowSelectionIntent` is physically carried by
 `DotnetInspector.QueryEngine` because `RowQueryIntent` embeds it and row-query
-resolution consumes it. This design retains ownership of that unresolved
-selection intent. Declared-row-set binding and the `RowsCohort*` family remain
-in `DotnetInspector.Sections`.
+resolution consumes it. [QuerySpace Library
+Boundary](query-space-library.md) owns its target physical and namespace
+migration. This design retains ownership of that unresolved selection intent.
+Declared-row-set binding and the `RowsCohort*` family remain in
+`DotnetInspector.Sections`.
 
 This design owns:
 
