@@ -4,11 +4,11 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using QuerySpace;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;

@@ -2,10 +2,9 @@
 
 ## Status
 
-**Implemented.** `DotnetInspector.QueryEngine` currently carries the codec
-under the existing `DotnetInspector.PortableQueries` namespace.
-[QuerySpace Library Boundary](query-space-library.md) owns the target physical
-and namespace migration without changing this byte contract, and
+**Implemented.** `QuerySpace` carries the codec under its root namespace.
+[QuerySpace Library Boundary](query-space-library.md) owns that physical and
+namespace composition without changing this byte contract, and
 `DotnetInspector.PortableQueries.Tests` runs every vector in
 [`models/portable-query-payload/`](models/portable-query-payload/vectors.json)
 against it in CI. The vectors come in four kinds — an intent and the bytes it
