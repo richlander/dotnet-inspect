@@ -298,6 +298,11 @@ coverage, and completion. A missing or failed producer cannot become an empty
 successful row set. The completed host-neutral boundary is
 `InspectionEnvelope<SubjectRelationsContent>`; the content type remains owned
 here, while the envelope retains its existing Share and diagnostic contract.
+Rows shaping must carry that source disposition and completion evidence with
+the selected rows. A partial source may contribute useful rows only while
+remaining visibly incomplete. Count succeeds only from exact completion or
+another owner-accepted exact witness; an observed partial cardinality,
+including zero, is a typed non-count outcome rather than an exact Count.
 
 `Integration` is a classified projection of the same composition result. It
 keeps only logical rows carrying producer-issued Integration associations and
@@ -324,12 +329,16 @@ unit. A predicate accepted by `Relations`, `Integration`, or `Extensions` is
 not silently applied to incompatible neighboring sections; the mixed request
 fails before producer execution.
 
-The currently verified complete-source QuerySpace path resolves one explicit
-row-intent association. That path is sufficient for each exact section and for
-the canonical `Relations`/`Integration` row set. Subject Relations does not
-depend on unverified multiple-association execution. A future gesture that
-truly needs one atomic request over heterogeneous row-query scopes must first
-land the separately owned QuerySpace and section-row composition support.
+The currently verified QuerySpace path resolves one explicit row-intent
+association only for a source already known to be complete. That path is not
+sufficient for a Subject Relations population that is unavailable, bounded,
+or only partly inspected. Initial adoption therefore also requires the
+QuerySpace and section-row bridge to preserve typed source disposition and
+completion through Rows, and to refuse exact Count when completion is not
+exact. Subject Relations does not depend on unverified multiple-association
+execution. A future gesture that truly needs one atomic request over
+heterogeneous row-query scopes must first land that separately owned
+QuerySpace and section-row composition support.
 
 Depends hierarchies and Graph topology remain their owners' results. Relations
 may preserve the same direct evidence and endpoint identities, but it does not
@@ -1346,7 +1355,7 @@ map, not a specification of the participating components' internals.
 | Workspace | [Registration handoff](workspace-ecosystem-registration-handoff.md) and [scope](workspace-scope-and-expansion.md) retain inert registrations, finite realization, revision and coverage; solve the capacity boundary before claiming complete broad execution. |
 | Source Selection / search binding | [Source intent](search-scope-domain.md) and [search scope](search-scope-resolution.md) preserve explicit selection, authority and bounded prefix expansion; adopt the new default and ecosystem selector in their owners. |
 | Locator | [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) proposes the exact finite-population type-declaration query; its [adoption map](reverse-type-locator-adoption.md) tracks the source/context and host prerequisites. The current [Find service](find-search-service.md) remains CLI-local; member/signature locator adoption is separate. |
-| QuerySpace | [Query Operation Infrastructure](query-operation-infrastructure.md) registers the Relations operation and routes; [Query Space Composition](query-space-composition.md) binds operation and typed row scopes without merging their vocabularies; [section-row shaping](section-row-shaping.md) executes declared rows and terminals. Multiple explicit row-intent associations remain a separate unverified substrate adoption. |
+| QuerySpace | [Query Operation Infrastructure](query-operation-infrastructure.md) registers the Relations operation and routes; [Query Space Composition](query-space-composition.md) binds operation and typed row scopes without merging their vocabularies; [section-row shaping](section-row-shaping.md) executes declared rows and terminals. The initial Relations path requires typed source disposition and completion through Rows and exactness enforcement for Count. Multiple explicit row-intent associations remain a separate unverified substrate adoption. |
 | Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints. Signature discovery additionally needs parameter/return roles, constructed shapes and match sites; name matching alone is not endpoint correspondence or general assignability. |
 | Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. [Local-throw evidence](analysis-local-throw-evidence.md) owns member/type/site associations and visible evidence limits. Existing [throw counts and constructed-exception signals](graph-signal-annotations.md#exception-risk) are not that projection. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
@@ -1458,8 +1467,8 @@ count, not hide several unreviewable changes inside a nominal slice.
 | 4 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
 | 5 | **Complete:** Search Scope Resolution broad-versus-explicit candidate intent (#6931, #6932). |
 | 6 | Find's exact host-neutral locator/context handoff, including CLI and Browser reopening. |
-| 7 | **Complete for the required exact-section path:** Query Operation registration, QuerySpace descriptors/bindings, and one explicit complete-source row-intent association (#7712, #8007, #8042, #8073). Multiple explicit associations remain unverified and are not required by the initial Relations sections. |
-| 8 | Subject Relations operation, Package/Library/Type/Member routes, canonical logical-row query scope, content result, and `InspectionEnvelope<SubjectRelationsContent>`. |
+| 7 | QuerySpace exact-section substrate. Query Operation registration, descriptors/bindings, and one explicit complete-source row-intent association are complete (#7712, #8007, #8042, #8073); typed source disposition/completion through Rows and exactness enforcement for Count remain required before initial Relations adoption. Multiple explicit associations remain unverified and are not required by the initial Relations sections. |
+| 8 | Subject Relations operation, Package/Library/Type/Member routes, canonical logical-row query scope, content result, and `InspectionEnvelope<SubjectRelationsContent>`, consuming the completed source-outcome path from step 7. |
 | 9 | Metadata-owned hierarchy, extension, reference, and signature adapters, including constructed shapes and return/parameter match sites. |
 | 10 | Analysis-owned invocation and exact correspondence adapters. |
 | 11 | Local-throw relation adapter consuming the **complete** typed local-throw producer (#6961, #6992) without expanding its evidence claim. |
@@ -1497,6 +1506,7 @@ the named adoption gates run in Release:
 | Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
 | Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
+| Partial Rows and Count exactness | A bounded producer returning some rows retains those rows with typed incomplete source evidence; a bounded producer returning zero rows cannot establish absence. Rows preserves each disposition and completion outcome. Count returns no cardinality unless the source is exact or supplies an owner-accepted exact witness; observed partial counts, including zero, produce the typed non-count outcome. |
 | Explicit selection | A local-only or empty explicit corpus does not acquire an implicit ecosystem population; a subject's source coordinate alone does not erase broad caller scope. |
 | Pattern qualification | IEnumerable/List and Span-style candidates differ correctly; unsuitable or ambiguous GetEnumerator shapes are rejected or qualified, not certified as compilable. |
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
