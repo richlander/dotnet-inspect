@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <ProjectReference Include="../../src/QuerySpace/QuerySpace.csproj" />
   </ItemGroup>
 

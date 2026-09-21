@@ -178,7 +178,8 @@ public sealed class IteratorReconstructionPass : IIrPass
             work.EliminatedLocalSlots,
             work.SynthesizedLocalNames,
             work.LocalDeclaredInNestedScope,
-            work.LocalDeclarationBindings);
+            work.LocalDeclarationBindings,
+            work.PdbLocalNameCandidates);
         function.LocalNameImportCauses = function.LocalNameImportCauses.AddRange(
             work.LocalNameImportCauses.Select(static cause =>
                 cause.WithLocation(DecompilerFidelityLocation.Unknown)));

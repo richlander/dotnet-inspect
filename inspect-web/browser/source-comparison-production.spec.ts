@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
+import type { TypeSourceView } from "../src/source-inspection.ts";
 import {
   chooseSubject,
   selectFirstExactLibrary,
@@ -157,8 +158,10 @@ test.describe("published authored Source comparison transport", () => {
         });
       await openPublishedSite(page);
 
-      async function memberRequest(targetPage: Page, name: string, selectedVersion = "1.0.0") {
-        return targetPage.evaluate(async ({ memberName, version }) => {
+      async function memberRequest(
+        targetPage: Page, name: string, selectedVersion = "1.0.0", typeName = "Counter",
+      ) {
+        return targetPage.evaluate(async ({ memberName, version, selectedType }) => {
           const packages = await import("/inspect-web-package.js");
           const loadResult = await packages.queryPackage(
             "InspectWeb.SourceComparisonFixture", version, "net11.0",
@@ -172,14 +175,16 @@ test.describe("published authored Source comparison transport", () => {
           }
           const type = surface.types.find(candidate =>
             candidate.definitionId
-              === "SourceDiffFixture.Counter");
+              === `SourceDiffFixture.${selectedType}`);
           const member = type?.api.find(candidate =>
             candidate.name === memberName);
           const body = member?.bodySelectors.find(candidate =>
-            candidate.token === member.metadataToken);
+            candidate.token === member.metadataToken)
+            ?? member?.bodySelectors.find(candidate =>
+              candidate.memberName === `get_${memberName}`);
           if (!type || !body) {
             throw new Error(
-              `The fixture does not expose Counter.${memberName}.`);
+              `The fixture does not expose ${selectedType}.${memberName}.`);
           }
           return {
             packageId: surface.package,
@@ -192,7 +197,7 @@ test.describe("published authored Source comparison transport", () => {
             selectorKey: body.selectorKey,
             metadataToken: body.token,
           };
-        }, { memberName: name, version: selectedVersion });
+        }, { memberName: name, version: selectedVersion, selectedType: typeName });
       }
 
       async function compareMember(targetPage: Page, name: string) {
@@ -204,8 +209,10 @@ test.describe("published authored Source comparison transport", () => {
         }, selected);
       }
 
-      async function memberSource(targetPage: Page, version: string) {
-        const selected = await memberRequest(targetPage, "Value", version);
+      async function memberSource(
+        targetPage: Page, version: string, typeName = "Counter", name = "Value",
+      ) {
+        const selected = await memberRequest(targetPage, name, version, typeName);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryMemberSource(
@@ -215,19 +222,50 @@ test.describe("published authored Source comparison transport", () => {
         }, selected);
       }
 
-      async function typeSource(targetPage: Page, version: string) {
+      async function typeSource(
+        targetPage: Page,
+        version: string,
+        view: TypeSourceView = "source",
+      ) {
         const selected = await memberRequest(targetPage, "Value", version);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryTypeSource(
-            `type-source-fixture-${request.beforeVersion}`,
+            `type-source-fixture-${request.beforeVersion}-${request.view}`,
             request.packageId, request.beforeVersion, request.framework,
-            request.assembly, request.typeIdentity, "[]");
-        }, selected);
+            request.assembly, request.typeIdentity, "[]", request.view);
+        }, { ...selected, view });
       }
 
       const authoredMember = await memberSource(page, "1.0.0");
       const authoredType = await typeSource(page, "1.0.0");
+      const apiType = await typeSource(page, "1.0.0", "api-declarations");
+      const allType = await typeSource(page, "1.0.0", "all-declarations");
+      if (apiType.value?.kind !== "apiDeclarations"
+        || allType.value?.kind !== "apiDeclarations") {
+        throw new Error("Expected completed declaration views from the source facade.");
+      }
+      const apiDeclarations = apiType.value.inspection;
+      const allDeclarations = allType.value.inspection;
+      expect(apiDeclarations.content.outcome).toBe("Available");
+      expect(apiDeclarations.content.scope).toBe("ApiVisible");
+      expect(apiDeclarations.content.text).toContain("public int Value();");
+      expect(apiDeclarations.content.text).not.toContain("Hidden");
+      expect(apiDeclarations.content.text).not.toContain("1 + 2");
+      expect(allDeclarations.content.outcome).toBe("Available");
+      expect(allDeclarations.content.scope).toBe("All");
+      expect(allDeclarations.content.text).toContain("private int Hidden();");
+      expect(allDeclarations.content.text).not.toContain("1 + 2");
+      const initializedGetter = await memberSource(page, "1.0.0", "InitializedFieldGetter", "Count");
+      const declinedGetter = await memberSource(page, "1.0.0", "CalculatedFieldGetter", "Count");
+      expect(initializedGetter.source.provider).toBe("decompiled");
+      expect(initializedGetter.source.text).toContain("readonly struct InitializedFieldGetter(int value)");
+      expect(initializedGetter.source.text).toContain("get => field + 1;");
+      expect(initializedGetter.source.text).toContain("} = value;");
+      expect(declinedGetter.source.provider).toBe("decompiled");
+      expect(declinedGetter.source.text).toContain("Count => field + 1;");
+      expect(declinedGetter.source.text).not.toContain("struct ");
+      expect(declinedGetter.source.text).not.toContain("} = ");
       const body = authoredMember.parts.find(part => part.kind === "Body");
       if (!body) {
         throw new Error("Authored fixture member did not publish its body part.");
@@ -322,6 +360,22 @@ test.describe("published authored Source comparison transport", () => {
           __copiedMemberSource?: string;
         }).__copiedMemberSource)).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await chooseSubject(applicationPage, "type");
+      await applicationPage.locator('[data-lens="source"]:visible').click();
+      const typeView = applicationPage.getByLabel("Select type code view");
+      await expect(typeView).toHaveValue("source");
+      await typeView.selectOption("api-declarations");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(apiDeclarations.content.text);
+      await expect(applicationPage.locator("#explore-source")).toHaveCount(0);
+      await typeView.selectOption("all-declarations");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(allDeclarations.content.text);
+      await applicationPage.locator("#copy-type-source").click();
+      await expect.poll(() => applicationPage.evaluate(() =>
+        (window as typeof window & {
+          __copiedMemberSource?: string;
+        }).__copiedMemberSource)).toBe(allDeclarations.content.text);
       await applicationPage.close();
 
       const changed = await compareMember(page, "Value");
@@ -336,7 +390,8 @@ test.describe("published authored Source comparison transport", () => {
       const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
-        authoredMember, fallbackMember, authoredType, fallbackType,
+        authoredMember, fallbackMember, authoredType, fallbackType, apiType, allType,
+        initializedGetter, declinedGetter,
         changed, exact, moved, movedAndEdited, unavailable,
       };
       const evidencePath =
@@ -360,16 +415,22 @@ test.describe("published authored Source comparison transport", () => {
       expect(fallbackMember.parts).toEqual([]);
 
       expect(authoredType.kind).toBe("Succeeded");
-      expect(authoredType.value?.provider).toBe("pdb");
-      expect(authoredType.value?.text).toContain("class Counter");
-      expect(authoredType.value?.text).toContain("1 + 2");
-      expect(authoredType.value?.pdbSourceLimitation).toBeNull();
-      expect(authoredType.value?.url).toBeTruthy();
+      expect(authoredType.value?.kind).toBe("source");
+      if (authoredType.value?.kind !== "source")
+        throw new Error("Expected an authored type source code view.");
+      expect(authoredType.value.value.provider).toBe("pdb");
+      expect(authoredType.value.value.text).toContain("class Counter");
+      expect(authoredType.value.value.text).toContain("1 + 2");
+      expect(authoredType.value.value.pdbSourceLimitation).toBeNull();
+      expect(authoredType.value.value.url).toBeTruthy();
       expect(fallbackType.kind).toBe("Succeeded");
-      expect(fallbackType.value?.provider).toBe("decompiled");
-      expect(fallbackType.value?.text).toContain("class Counter");
-      expect(fallbackType.value?.pdbSourceLimitation).toBeTruthy();
-      expect(fallbackType.value?.url).toBeNull();
+      expect(fallbackType.value?.kind).toBe("source");
+      if (fallbackType.value?.kind !== "source")
+        throw new Error("Expected a decompiled type source code view.");
+      expect(fallbackType.value.value.provider).toBe("decompiled");
+      expect(fallbackType.value.value.text).toContain("class Counter");
+      expect(fallbackType.value.value.pdbSourceLimitation).toBeTruthy();
+      expect(fallbackType.value.value.url).toBeNull();
 
       expect(changed.kind).toBe("Succeeded");
       expect(changed.value?.status).toBe("Compared");

@@ -586,6 +586,18 @@ public static class TypeCommand
                             fallbackPackageVersion: packageVersion);
                     }
 
+                    if (AuthorizesTypeApiDeclarations(
+                            apiType,
+                            effectiveOptions))
+                    {
+                        effectiveOptions =
+                            await AttachTypeApiDeclarationInspectionAsync(
+                                apiType,
+                                effectiveOptions,
+                                loaded,
+                                cancellationToken);
+                    }
+
                     if (effectiveOptions.DllPath is { } decompilationPath
                         && AuthorizesWholeTypeDecompilation(
                             apiType,
@@ -1838,6 +1850,83 @@ public static class TypeCommand
            && options.IncludeSections is { Count: > 0 }
            && ApiCommand.GetRequestedMemberSections(apiType, options)
                .Contains(SectionNames.DecompiledSource);
+
+    private static bool AuthorizesTypeApiDeclarations(
+        ApiType apiType,
+        TypeOptions options)
+        => options.Verbosity != Verbosity.Quiet
+           && options.IncludeSections is { Count: > 0 }
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Contains(SectionNames.ApiDeclarations);
+
+    private static async Task<TypeOptions>
+        AttachTypeApiDeclarationInspectionAsync(
+        ApiType apiType,
+        TypeOptions options,
+        ApiServices.LoadedApiSurface loaded,
+        CancellationToken cancellationToken)
+    {
+        MetadataTypeDefinitionName type =
+            apiType.DefinitionName
+            ?? throw new InvalidOperationException(
+                $"Type '{apiType.FullName}' has no exact metadata definition "
+                    + "identity for API Declarations.");
+        ResolvedAssemblyReference definingAssembly =
+            loaded.TryGetSourceAssembly(apiType)
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                apiType.SourceAssemblyPath
+                    ?? loaded.ApiDllPath,
+                AssemblyResolutionProvenance.Local(
+                    "type API declarations"));
+        SelectedTypeBindingContext? bindingContext =
+            loaded.TryGetBindingContext(apiType)
+            ?? loaded.RootBindingContext;
+        IAssemblyBindingPolicy bindingPolicy =
+            bindingContext?.Policy
+            ?? (definingAssembly.Path is { } definingAssemblyPath
+                ? new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        definingAssemblyPath)
+                {
+                    ProjectAssetsPath = options.ProjectAssetsPath,
+                    TargetFramework = options.Tfm,
+                    IncludeDepsJsonAssets = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    PreferImplementationAssemblies = true,
+                    AllowPlatformAssemblyVersionRollForward = true,
+                })
+                : throw new InvalidOperationException(
+                    "A pathless selected API participant requires its "
+                        + "authoritative binding policy."));
+        var participant =
+            new AssemblyContextParticipant(
+                definingAssembly,
+                bindingPolicy);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        InspectionEnvelope<TypeApiDeclarationResult> inspection =
+            TypeApiDeclarationInspection.Execute(
+                group,
+                participant,
+                type,
+                options.IncludeAll
+                    ? TypeApiDeclarationScope.All
+                    : TypeApiDeclarationScope.ApiVisible,
+                new ApiSurfaceProjectionLimits(
+                    1,
+                    1_000_000,
+                    1_000_000,
+                    1_000,
+                    1_000_000,
+                    10_000_000),
+                cancellationToken);
+        WriteInspectionDiagnostics(inspection.Diagnostics);
+        return options with
+        {
+            TypeApiDeclarationInspection = inspection,
+        };
+    }
 
     private static async Task<TypeOptions>
         AttachTypeDecompilationInspectionAsync(

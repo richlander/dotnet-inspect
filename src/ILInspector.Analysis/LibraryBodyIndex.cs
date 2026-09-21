@@ -609,6 +609,7 @@ public sealed class LibraryBodyIndex
                 Methods: new(
                     DeclaredMethods: methods,
                     Methods: methods,
+                    FailedMethodBodies: [],
                     DirectCalls: directCalls.IsDefault ? [] : directCalls,
                     ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
                     FieldStores: fieldStores.IsDefault ? [] : fieldStores,

@@ -13,35 +13,17 @@ public sealed class WorkspaceDefinitionSnapshot
         WorkspaceScopeRevision scope)
     {
         Workspace = workspace;
-        Identity = new();
         Registrations = registrations;
         Scope = scope;
     }
 
     public InspectionWorkspaceIdentity Workspace { get; }
 
-    public WorkspaceDefinitionSnapshotIdentity Identity { get; }
-
     public WorkspaceRegistrationRevision Registrations { get; }
 
     public WorkspaceScopeRevision Scope { get; }
 
     public WorkspacePlan Plan => Registrations.Plan;
-}
-
-public sealed class WorkspaceDefinitionSnapshotIdentity
-{
-    internal WorkspaceDefinitionSnapshotIdentity() { }
-}
-
-public sealed class WorkspaceRealizationReplacementAttemptIdentity
-{
-    internal WorkspaceRealizationReplacementAttemptIdentity() { }
-}
-
-public sealed class WorkspaceRealizationCandidateIdentity
-{
-    internal WorkspaceRealizationCandidateIdentity() { }
 }
 
 public enum WorkspaceRealizationRetirementReason
@@ -106,25 +88,18 @@ public sealed class WorkspaceRealizationRetirement
 /// </summary>
 public sealed class WorkspaceRealizationCandidate
 {
-    readonly WorkspaceRealizationCoordinator _owner;
-    internal readonly WorkspaceRealizationCoordinator.RealizationState State;
+    readonly WorkspaceReplacementCoordinator _owner;
+    internal readonly WorkspaceReplacementCoordinator.RealizationState State;
 
     internal WorkspaceRealizationCandidate(
-        WorkspaceRealizationCoordinator owner,
-        WorkspaceRealizationCoordinator.RealizationState state,
-        WorkspaceRealizationReplacementAttemptIdentity attempt)
+        WorkspaceReplacementCoordinator owner,
+        WorkspaceReplacementCoordinator.RealizationState state)
     {
         _owner = owner;
         State = state;
-        Attempt = attempt;
-        Identity = new();
     }
 
-    internal WorkspaceRealizationCoordinator Owner => _owner;
-
-    public WorkspaceRealizationCandidateIdentity Identity { get; }
-
-    public WorkspaceRealizationReplacementAttemptIdentity Attempt { get; }
+    internal WorkspaceReplacementCoordinator Owner => _owner;
 
     public InspectionWorkspaceIdentity Realization => State.Identity;
 
@@ -151,12 +126,12 @@ public sealed class WorkspaceRealizationCandidate
 /// </summary>
 public sealed class WorkspaceRealizationConstructionLease : IDisposable
 {
-    WorkspaceRealizationCoordinator? _owner;
-    readonly WorkspaceRealizationCoordinator.RealizationState _state;
+    WorkspaceReplacementCoordinator? _owner;
+    readonly WorkspaceReplacementCoordinator.RealizationState _state;
 
     internal WorkspaceRealizationConstructionLease(
-        WorkspaceRealizationCoordinator owner,
-        WorkspaceRealizationCoordinator.RealizationState state)
+        WorkspaceReplacementCoordinator owner,
+        WorkspaceReplacementCoordinator.RealizationState state)
     {
         _owner = owner;
         _state = state;
@@ -166,7 +141,7 @@ public sealed class WorkspaceRealizationConstructionLease : IDisposable
     {
         get
         {
-            WorkspaceRealizationCoordinator owner =
+            WorkspaceReplacementCoordinator owner =
                 Volatile.Read(ref _owner)
                 ?? throw new ObjectDisposedException(
                     nameof(WorkspaceRealizationConstructionLease));
@@ -176,7 +151,7 @@ public sealed class WorkspaceRealizationConstructionLease : IDisposable
 
     public void Dispose()
     {
-        WorkspaceRealizationCoordinator? owner =
+        WorkspaceReplacementCoordinator? owner =
             Interlocked.Exchange(ref _owner, null);
         owner?.ReleaseConstruction(_state);
     }
@@ -213,8 +188,7 @@ public abstract record WorkspaceRealizationCandidateStartResult
         WorkspaceRealizationRetirement? SupersededCandidate)
         : WorkspaceRealizationCandidateStartResult;
 
-    public sealed record Superseded(
-        WorkspaceRealizationReplacementAttemptIdentity Attempt)
+    public sealed record Superseded
         : WorkspaceRealizationCandidateStartResult;
 
     public sealed record Closed : WorkspaceRealizationCandidateStartResult;
@@ -301,14 +275,14 @@ public abstract record WorkspaceRealizationOperationAdmission
 public sealed class WorkspaceRealizationOperationLease : IDisposable
 {
     readonly object _gate = new();
-    WorkspaceRealizationCoordinator? _owner;
-    readonly WorkspaceRealizationCoordinator.RealizationState _state;
+    WorkspaceReplacementCoordinator? _owner;
+    readonly WorkspaceReplacementCoordinator.RealizationState _state;
     int _activeUses;
     bool _disposed;
 
     internal WorkspaceRealizationOperationLease(
-        WorkspaceRealizationCoordinator owner,
-        WorkspaceRealizationCoordinator.RealizationState state,
+        WorkspaceReplacementCoordinator owner,
+        WorkspaceReplacementCoordinator.RealizationState state,
         WorkspaceDefinitionSnapshot definition,
         WorkspaceScopeSnapshot scope)
     {
@@ -352,7 +326,7 @@ public sealed class WorkspaceRealizationOperationLease : IDisposable
 
     public void Dispose()
     {
-        WorkspaceRealizationCoordinator? owner = null;
+        WorkspaceReplacementCoordinator? owner = null;
         lock (_gate)
         {
             if (_disposed)
@@ -370,7 +344,7 @@ public sealed class WorkspaceRealizationOperationLease : IDisposable
 
     internal void ReleaseUse()
     {
-        WorkspaceRealizationCoordinator? owner = null;
+        WorkspaceReplacementCoordinator? owner = null;
         lock (_gate)
         {
             if (_activeUses <= 0)
@@ -394,7 +368,7 @@ internal sealed class WorkspaceRealizationOperationUse : IDisposable
 
     internal WorkspaceRealizationOperationUse(
         WorkspaceRealizationOperationLease lease,
-        WorkspaceRealizationCoordinator.RealizationState state,
+        WorkspaceReplacementCoordinator.RealizationState state,
         WorkspaceDefinitionSnapshot definition,
         WorkspaceScopeSnapshot scope)
     {
@@ -421,22 +395,26 @@ internal sealed class WorkspaceRealizationOperationUse : IDisposable
     }
 }
 
-public sealed record WorkspaceRealizationCoordinatorCloseReport(
+public sealed record WorkspaceReplacementCoordinatorCloseReport(
     ImmutableArray<WorkspaceRealizationSettlement> Settlements);
 
 /// <summary>
-/// Owns selection, operation admission, cutover, and drainage for one active
-/// Workspace realization.
+/// Owns candidate construction, cutover, operation admission, and predecessor
+/// drainage for a host that can replace its active Workspace realization.
 /// </summary>
-public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
+public sealed class WorkspaceReplacementCoordinator : IAsyncDisposable
 {
+    sealed class ReplacementAttemptToken
+    {
+    }
+
     readonly object _gate = new();
     readonly List<RetirementRecord> _retired = [];
     Task _candidateBarrier = Task.CompletedTask;
-    WorkspaceRealizationReplacementAttemptIdentity? _currentAttempt;
+    ReplacementAttemptToken? _currentAttempt;
     WorkspaceRealizationCandidate? _candidate;
     RealizationState? _active;
-    TaskCompletionSource<WorkspaceRealizationCoordinatorCloseReport>?
+    TaskCompletionSource<WorkspaceReplacementCoordinatorCloseReport>?
         _closeCompletion;
     long _nextSequence;
 
@@ -461,7 +439,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(plan);
         cancellationToken.ThrowIfCancellationRequested();
 
-        WorkspaceRealizationReplacementAttemptIdentity attempt = new();
+        ReplacementAttemptToken attempt = new();
         WorkspaceRealizationRetirement? displaced = null;
         RealizationState? startClose = null;
         Task barrier;
@@ -508,7 +486,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
             if (!ReferenceEquals(_currentAttempt, attempt))
             {
                 return new WorkspaceRealizationCandidateStartResult
-                    .Superseded(attempt);
+                    .Superseded();
             }
 
             var state = new RealizationState(
@@ -517,8 +495,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
                 ++_nextSequence);
             var candidate = new WorkspaceRealizationCandidate(
                 this,
-                state,
-                attempt);
+                state);
             _candidate = candidate;
             _candidateBarrier = Task.CompletedTask;
             return new WorkspaceRealizationCandidateStartResult.Prepared(
@@ -885,9 +862,9 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         }
     }
 
-    public Task<WorkspaceRealizationCoordinatorCloseReport> CloseAsync()
+    public Task<WorkspaceReplacementCoordinatorCloseReport> CloseAsync()
     {
-        TaskCompletionSource<WorkspaceRealizationCoordinatorCloseReport>
+        TaskCompletionSource<WorkspaceReplacementCoordinatorCloseReport>
             completion;
         List<RealizationState> startClose = [];
         RetirementRecord[] retired;
@@ -935,7 +912,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        WorkspaceRealizationCoordinatorCloseReport report =
+        WorkspaceReplacementCoordinatorCloseReport report =
             await CloseAsync().ConfigureAwait(false);
         Exception[] failures =
         [
@@ -1131,7 +1108,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
 
     static async Task CompleteCloseAsync(
         RetirementRecord[] retired,
-        TaskCompletionSource<WorkspaceRealizationCoordinatorCloseReport>
+        TaskCompletionSource<WorkspaceReplacementCoordinatorCloseReport>
             completion)
     {
         WorkspaceRealizationSettlement[] settlements =
