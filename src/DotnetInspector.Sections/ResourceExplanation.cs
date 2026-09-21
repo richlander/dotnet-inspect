@@ -188,10 +188,10 @@ public abstract record ResourceExplanationIdentity
 
     public sealed record Catalog : ResourceExplanationIdentity
     {
-        public Catalog(string catalog)
+        public Catalog(string catalogName)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(catalog);
-            CatalogName = catalog;
+            ArgumentException.ThrowIfNullOrWhiteSpace(catalogName);
+            CatalogName = catalogName;
         }
 
         public string CatalogName { get; }

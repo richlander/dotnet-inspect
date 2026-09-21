@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Sections.Tests;
@@ -470,6 +471,85 @@ public class ResourceExplanationTests
             "CatalogSections",
             identity.GetProperty("collection_kind").GetString());
         Assert.False(identity.TryGetProperty("key", out _));
+    }
+
+    [Fact]
+    public void Json_SourceGeneratedContract_RoundTripsPolymorphicDocument()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            catalog.Resolve("library"));
+        ResourceExplanationDocument explanation =
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(4, 1000, 2000))
+                .Content;
+
+        string json = JsonSerializer.Serialize(
+            explanation,
+            ResourceExplanationJsonContext
+                .Default
+                .ResourceExplanationDocument);
+        ResourceExplanationDocument roundTripped =
+            JsonSerializer.Deserialize(
+                json,
+                ResourceExplanationJsonContext
+                    .Default
+                    .ResourceExplanationDocument)!;
+        string roundTrippedJson = JsonSerializer.Serialize(
+            roundTripped,
+            ResourceExplanationJsonContext
+                .Default
+                .ResourceExplanationDocument);
+
+        Assert.True(
+            JsonNode.DeepEquals(
+                JsonNode.Parse(json),
+                JsonNode.Parse(roundTrippedJson)));
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Identity
+                    is ResourceExplanationIdentity.Catalog);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Identity
+                    is ResourceExplanationIdentity.NavigationCollection);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Identity
+                    is ResourceExplanationIdentity.Structural);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Details
+                    is ResourceExplanationDetail.CatalogDetails);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Details
+                    is ResourceExplanationDetail
+                        .NavigationCollectionDetails);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Details
+                    is ResourceExplanationDetail
+                        .StructuralCategoryDetails);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Details
+                    is ResourceExplanationDetail
+                        .StructuralSectionDetails);
+        Assert.Contains(
+            roundTripped.Resources,
+            static resource =>
+                resource.Details
+                    is ResourceExplanationDetail
+                        .StructuralItemDetails);
     }
 
     private static ResourceExplanationCatalog StructuralCatalog()
