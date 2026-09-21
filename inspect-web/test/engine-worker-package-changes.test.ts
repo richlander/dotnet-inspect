@@ -35,6 +35,7 @@ import {
   QueueWorkerRuntimeTransportFactory,
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
+import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 
 const request: BrowserPackageChangesRequest = {
   packageSetId: "package-set.microsoft-extensions",
@@ -48,7 +49,8 @@ const progress: BrowserPackageChangesProgress = {
   phase: "Catalog",
   completed: 10,
   total: null,
-  capturedHorizon: "2026-04-01T00:00:00.0000000+00:00",
+  capturedHorizon: dateTimeOffsetString(
+    "2026-04-01T00:00:00+00:00"),
   catalogPagesAcquired: 2,
   catalogHttpAttempts: 2,
   catalogDecodedBytes: 4_096,
@@ -67,7 +69,8 @@ const row: BrowserPackageChangesRow = {
     normalizedVersion: "1.0.0",
     leafUrl: "https://api.nuget.org/v3/catalog0/page/leaf.json",
     commitId: "0123456789abcdef",
-    commitTimestamp: "2026-03-31T00:00:00.0000000+00:00",
+    commitTimestamp: dateTimeOffsetString(
+      "2026-03-31T00:00:00+00:00"),
     catalogKind: "Details",
     activity: "SnapshotObserved",
   },
@@ -91,9 +94,12 @@ function inspection(): BrowserPackageChangesInspection {
     content: {
       schemaVersion: 1,
       request: {
-        referenceTime: "2026-04-01T00:00:00.0000000+00:00",
-        fromExclusive: "2026-02-18T00:00:00.0000000+00:00",
-        throughInclusive: "2026-04-01T00:00:00.0000000+00:00",
+        referenceTime: dateTimeOffsetString(
+          "2026-04-01T00:00:00+00:00"),
+        fromExclusive: dateTimeOffsetString(
+          "2026-02-18T00:00:00+00:00"),
+        throughInclusive: dateTimeOffsetString(
+          "2026-04-01T00:00:00+00:00"),
         usedDefaultInterval: true,
         packageScope: {
           kind: "PackageSet",
@@ -115,7 +121,8 @@ function inspection(): BrowserPackageChangesInspection {
       rows: [row],
       failures: [failure],
       summary: {
-        capturedHorizon: "2026-04-01T00:00:00.0000000+00:00",
+        capturedHorizon: dateTimeOffsetString(
+          "2026-04-01T00:00:00+00:00"),
         catalogCompletion: "WindowExhausted",
         catalogFailure: null,
         catalogPagesAcquired: 2,
@@ -128,7 +135,8 @@ function inspection(): BrowserPackageChangesInspection {
         advisoryEvidence: {
           packageProducerKey: "nuget.org",
           advisoryProducer: "GitHub Advisory Database",
-          observedAt: "2026-04-01T00:00:00.0000000+00:00",
+          observedAt: dateTimeOffsetString(
+            "2026-04-01T00:00:00+00:00"),
           apiRequests: 1,
           responseBytes: 2,
           complete: false,
@@ -215,6 +223,24 @@ test("Package Activity terminal envelope remains physically successful when part
     engineWorkerPackageChangesInspection.decode(malformed).kind,
     "rejected",
   );
+
+  const malformedTimestamp = {
+    ...inspection(),
+    content: {
+      ...inspection().content,
+      rows: [{
+        ...row,
+        catalogActivity: {
+          ...row.catalogActivity,
+          commitTimestamp: "2026-03-31T00:00:00.12345678+00:00",
+        },
+      }],
+    },
+  };
+  assert.equal(
+    engineWorkerPackageChangesInspection.decode(malformedTimestamp).kind,
+    "rejected",
+  );
 });
 
 test("Package Activity admits multiplicative advisory evidence at maximum rows", () => {
@@ -223,8 +249,10 @@ test("Package Activity admits multiplicative advisory evidence at maximum rows",
     cveId: null,
     severity: "High",
     advisoryUrl: `https://github.com/advisories/${index}`,
-    publishedAt: "2026-03-01T00:00:00.0000000+00:00",
-    updatedAt: "2026-03-02T00:00:00.0000000+00:00",
+    publishedAt: dateTimeOffsetString(
+      "2026-03-01T00:00:00+00:00"),
+    updatedAt: dateTimeOffsetString(
+      "2026-03-02T00:00:00+00:00"),
   }));
   const populatedRows: BrowserPackageChangesRow[] =
     Array.from({ length: 1_000 }, (_, index) => {

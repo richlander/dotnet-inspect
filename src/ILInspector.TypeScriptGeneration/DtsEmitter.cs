@@ -26,6 +26,7 @@ static class DtsEmitter
         "System.Decimal",
         "System.Guid",
         "System.Version",
+        "System.DateTimeOffset",
         "System.IntPtr",
         "System.Void",
         "System.Nullable`1",
@@ -89,7 +90,9 @@ static class DtsEmitter
         TypeScriptGenerationDiagnostics? diagnostics = null,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         string? allocatedInertStringName = null,
-        string? allocatedInertStringBrandName = null)
+        string? allocatedInertStringBrandName = null,
+        string? allocatedDateTimeOffsetName = null,
+        string? allocatedDateTimeOffsetBrandName = null)
     {
         ApiType[] declarationTypes = GetDeclarationTypes(surface);
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
@@ -114,7 +117,9 @@ static class DtsEmitter
             diagnostics,
             allocatedTypeNames,
             allocatedInertStringName,
-            allocatedInertStringBrandName);
+            allocatedInertStringBrandName,
+            allocatedDateTimeOffsetName,
+            allocatedDateTimeOffsetBrandName);
         return sb.ToString();
     }
 
@@ -124,6 +129,7 @@ static class DtsEmitter
         TypeScriptGenerationDiagnostics? diagnostics = null,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         string? allocatedInertStringName = null,
+        string? allocatedDateTimeOffsetName = null,
         bool includeRawReturnType = true) =>
         GetFunctionSignature(
             surface,
@@ -132,6 +138,7 @@ static class DtsEmitter
             diagnostics,
             allocatedTypeNames,
             allocatedInertStringName,
+            allocatedDateTimeOffsetName,
             includeRawReturnType);
 
     static ApiType[] GetDeclarationTypes(
@@ -287,14 +294,17 @@ static class DtsEmitter
         TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         string? allocatedInertStringName = null,
-        string? allocatedInertStringBrandName = null)
+        string? allocatedInertStringBrandName = null,
+        string? allocatedDateTimeOffsetName = null,
+        string? allocatedDateTimeOffsetBrandName = null)
     {
         TypeMappingEnvironment typeEnvironment =
             CreateKnownTypes(
                 surface,
                 declarationTypes,
                 allocatedTypeNames,
-                allocatedInertStringName);
+                allocatedInertStringName,
+                allocatedDateTimeOffsetName);
 
         if (FindInertStringIdentity(surface) is { } inertStringIdentity)
         {
@@ -331,6 +341,45 @@ static class DtsEmitter
                 .Append(" = string & {\n  readonly [")
                 .Append(inertStringBrandName)
                 .Append("]: \"InertString\";\n};\n\n");
+        }
+
+        if (FindDateTimeOffsetIdentities(surface).Count > 0)
+        {
+            string dateTimeOffsetName =
+                allocatedDateTimeOffsetName
+                    ?? TsTypeMapper.DateTimeOffsetJsonStringName;
+            string dateTimeOffsetBrandName =
+                allocatedDateTimeOffsetBrandName
+                    ?? "dateTimeOffsetStringBrand";
+            if (declarationTypes.Any(type =>
+                AllocatedTypeName(type, allocatedTypeNames)
+                    == dateTimeOffsetName))
+            {
+                throw new UnsupportedWireContractException(
+                    TsTypeMapper.DateTimeOffsetFullName,
+                    "the DateTimeOffset TypeScript brand collides with another type");
+            }
+            if (allocatedDateTimeOffsetBrandName is null
+                && (declarationTypes.Any(type =>
+                        AllocatedTypeName(type, allocatedTypeNames)
+                            == dateTimeOffsetBrandName)
+                    || surface.Functions.Any(function =>
+                        CamelCase.FromPascalCase(function.Name)
+                            == dateTimeOffsetBrandName)))
+            {
+                throw new UnsupportedWireContractException(
+                    TsTypeMapper.DateTimeOffsetFullName,
+                    "the DateTimeOffset TypeScript brand binding collides with another declaration");
+            }
+
+            sb.Append("declare const ")
+                .Append(dateTimeOffsetBrandName)
+                .Append(": unique symbol;\n\n")
+                .Append("export type ")
+                .Append(dateTimeOffsetName)
+                .Append(" = string & {\n  readonly [")
+                .Append(dateTimeOffsetBrandName)
+                .Append("]: \"DateTimeOffsetString\";\n};\n\n");
         }
 
         if (UsesJsonValue(surface))
@@ -670,6 +719,7 @@ static class DtsEmitter
         TypeScriptGenerationDiagnostics? diagnostics,
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         string? allocatedInertStringName = null,
+        string? allocatedDateTimeOffsetName = null,
         bool includeRawReturnType = true)
     {
         var effectiveDiagnostics =
@@ -679,7 +729,8 @@ static class DtsEmitter
                 surface,
                 declarationTypes,
                 allocatedTypeNames,
-                allocatedInertStringName);
+                allocatedInertStringName,
+                allocatedDateTimeOffsetName);
         bool validDelegateAssociations = TryIndexDelegateParameters(
             function,
             out IReadOnlyDictionary<int, JsExportDelegateParameter>
@@ -835,7 +886,8 @@ static class DtsEmitter
             ILInspector.JsExportSurface.JsExportSurface surface,
             ApiType[] declarationTypes,
             IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
-            string? allocatedInertStringName = null)
+            string? allocatedInertStringName = null,
+            string? allocatedDateTimeOffsetName = null)
     {
         (ApiTypeReferenceIdentity Identity, ApiType Type)[] typeIdentities =
             TypeIdentities(surface, declarationTypes);
@@ -852,6 +904,9 @@ static class DtsEmitter
             FindInertStringIdentity(surface);
         if (inertStringIdentity is not null)
             knownTypeIdentities.Add(inertStringIdentity);
+        IReadOnlyList<ApiTypeReferenceIdentity> dateTimeOffsetIdentities =
+            FindDateTimeOffsetIdentities(surface);
+        knownTypeIdentities.UnionWith(dateTimeOffsetIdentities);
         var localTypeKinds = declarationTypes
             .Select(type => (
                 type.DefinitionName,
@@ -918,6 +973,14 @@ static class DtsEmitter
             identityNames.Add(
                 inertStringIdentity,
                 allocatedInertStringName ?? "InertString");
+        }
+        foreach (ApiTypeReferenceIdentity identity
+            in dateTimeOffsetIdentities)
+        {
+            identityNames.Add(
+                identity,
+                allocatedDateTimeOffsetName
+                    ?? TsTypeMapper.DateTimeOffsetJsonStringName);
         }
 
         return new TypeMappingEnvironment(
@@ -1929,6 +1992,79 @@ static class DtsEmitter
                 TsTypeMapper.InertStringFullName,
                 "multiple inert-string assembly identities are unsupported"),
         };
+    }
+
+    internal static IReadOnlyList<ApiTypeReferenceIdentity>
+        FindDateTimeOffsetIdentities(
+            ILInspector.JsExportSurface.JsExportSurface surface) =>
+        [
+            .. JsonWireShapes(surface)
+                .SelectMany(ShapeIdentities)
+                .Where(identity =>
+                    identity.FullName
+                        == TsTypeMapper.DateTimeOffsetFullName
+                    && IsAuthenticFrameworkMapping(identity))
+                .Distinct()
+                .OrderBy(
+                    identity => identity.Assembly.Name,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    identity => identity.Assembly.Version)
+                .ThenBy(
+                    identity => identity.FullName,
+                    StringComparer.Ordinal),
+        ];
+
+    static IEnumerable<ApiTypeShape> JsonWireShapes(
+        ILInspector.JsExportSurface.JsExportSurface surface)
+    {
+        foreach (JsExportFunction function in surface.Functions)
+        {
+            if (function.ReturnWireTypeShape is { } returnShape)
+                yield return returnShape;
+            foreach (JsExportParameterWireBinding binding
+                in function.ParameterWireBindings)
+            {
+                if (binding.WireTypeShape is { } parameterShape)
+                    yield return parameterShape;
+            }
+        }
+
+        foreach (ApiType type in surface.Records
+            .Concat(surface.PolymorphicUnions.SelectMany(
+                union => new[] { union.Definition }
+                    .Concat(union.Cases.Select(
+                        @case => @case.Definition)))))
+        {
+            JsonWireDirection directions =
+                surface.WireDirections.GetValueOrDefault(
+                    type,
+                    JsonWireDirection.Both);
+            foreach (ApiMember member in type.Members.Where(member =>
+                JsonWireMemberRules.ParticipatesInWireContract(
+                    member,
+                    directions)))
+            {
+                if (member.SignatureModel?.ReturnTypeShape is { } memberShape)
+                    yield return memberShape;
+            }
+        }
+    }
+
+    static IEnumerable<ApiTypeReferenceIdentity> ShapeIdentities(
+        ApiTypeShape root)
+    {
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(root);
+        while (pending.TryPop(out ApiTypeShape? current))
+        {
+            if (current.Definition is { } identity)
+                yield return identity;
+            if (current.ElementType is { } element)
+                pending.Push(element);
+            foreach (ApiTypeShape argument in current.TypeArguments)
+                pending.Push(argument);
+        }
     }
 
     internal static bool UsesJsonValue(

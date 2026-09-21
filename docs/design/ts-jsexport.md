@@ -246,6 +246,43 @@ use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
 
+### Semantic JSON strings
+
+An exact platform `System.DateTimeOffset` reached through an authenticated
+System.Text.Json wire contract becomes an opaque TypeScript string:
+
+```ts
+declare const dateTimeOffsetStringBrand: unique symbol;
+
+export type DateTimeOffsetString = string & {
+  readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+};
+```
+
+System.Text.Json owns the runtime representation: its default
+`DateTimeOffset` converter writes the ISO 8601-1:2019 extended profile and
+preserves an offset. The generated type preserves that semantic distinction
+without converting the value to JavaScript `Date`, which would discard the
+original offset and expose a different mutability and validity model. This is
+stricter than the common OpenAPI `string` plus `date-time` format lowering:
+the value remains assignable to `string`, but an untreated `string` is not
+assignable to `DateTimeOffsetString`.
+
+Consumers that validate the serialized text accept the default writer's
+optional one-to-seven fractional second digits rather than assuming the fixed
+seven digits produced by an explicit round-trip format string.
+
+The mapping requires the exact platform type identity carried by the
+authenticated source-generated JSON shape. A producer-defined type with the
+same display name does not acquire the mapping. A member-level custom converter
+remains unsupported under the existing converter rule rather than inheriting
+the platform contract.
+
+The facade emits no unchecked constructor, parser, or decoder. A deserialize
+caller supplies a value previously received through an authenticated boundary
+or validated by its own runtime owner. Direct JS-interop signatures remain
+unchanged; this mapping applies only to JSON wire views.
+
 For a serialize-only record, owner-issued `Conditional` member presence becomes
 an exact optional property:
 
@@ -1239,6 +1276,10 @@ issue references below.
   same-named application type does not acquire the brand;
 - the inert-text fixture remains a scalar JSON string at runtime and the
   generated module exposes no decoder or unchecked branding helper;
+- exact platform `System.DateTimeOffset` wire values emit the collision-safe
+  `DateTimeOffsetString` brand, the TypeScript compiler rejects an untreated
+  string, a same-named application type does not acquire the brand, and the
+  compiled fixture preserves the System.Text.Json timestamp text at runtime;
 - structurally equal hand-composed owner-issued surfaces produce byte-identical
   TypeScript without any lowering-specific generator branch;
 - an integration gate gives the command paired compiler-async and

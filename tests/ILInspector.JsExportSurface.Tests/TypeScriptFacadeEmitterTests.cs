@@ -835,6 +835,124 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_AllocatesDateTimeOffsetBrandBeforeUnrelatedTypes()
+    {
+        ApiAssemblyIdentity assembly = AssemblyIdentity();
+        var dateTimeOffsetIdentity = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "System.Private.CoreLib",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "7cec85d7bea7798e"),
+            "System.DateTimeOffset",
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "DateTimeOffset")))
+                .Name);
+        var container = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Container",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "ObservedAt",
+                    Kind = "property",
+                    HasGetter = true,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "System.DateTimeOffset",
+                        ReturnTypeReferences = [dateTimeOffsetIdentity],
+                        ReturnTypeShape =
+                            ApiTypeShape.Named(dateTimeOffsetIdentity),
+                    },
+                },
+            ],
+        };
+        var unrelated = new ApiType
+        {
+            Namespace = "Application",
+            Name = "DateTimeOffsetString",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var unrelatedBrand = new ApiType
+        {
+            Namespace = "Application",
+            Name = "dateTimeOffsetStringBrand",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    ReturnType = "string",
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Records = [container, unrelated, unrelatedBrand],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [container] = JsonWireDirection.Serialize,
+                        [unrelated] = JsonWireDirection.Serialize,
+                        [unrelatedBrand] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const dateTimeOffsetStringBrand: unique symbol;
+
+            export type DateTimeOffsetString = string & {
+              readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly ObservedAt: DateTimeOffsetString;",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export interface DateTimeOffsetString {",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export interface dateTimeOffsetStringBrand {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            source.Split(
+                "export interface type_",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     [System.Runtime.Versioning.SupportedOSPlatform("browser")]
     public async Task InertStringFixture_SerializesEncodedTextAsScalarString()
     {
@@ -844,6 +962,63 @@ public sealed class TypeScriptFacadeEmitterTests
 
         Assert.Equal(
             """{"name":"widget","display":"line\\u202Egpj"}""",
+            json);
+    }
+
+    [Fact]
+    public void Emit_PreservesDateTimeOffsetAsOpaqueJsonString()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+
+        string source = TypeScriptFacadeEmitter.Emit(surface, RuntimeModule);
+
+        Assert.Contains(
+            """
+            declare const dateTimeOffsetStringBrand: unique symbol;
+
+            export type DateTimeOffsetString = string & {
+              readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+            };
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface TimestampDto {
+              readonly observedAt: DateTimeOffsetString;
+              readonly completedAt: DateTimeOffsetString | null;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getTimestampAsync(): "
+                + "Promise<TimestampDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "parseDateTimeOffset",
+            source,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "function dateTimeOffsetString(",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("browser")]
+    public async Task DateTimeOffsetFixture_PreservesSerializerTimestampText()
+    {
+        string json = await global::ILInspector.JsExportSurface
+            .TypeScriptFixtures.TypeScriptFixtureExports
+            .GetTimestampAsync();
+
+        Assert.Equal(
+            """{"observedAt":"2026-09-21T10:30:45.1234567-07:00","completedAt":null}""",
             json);
     }
 

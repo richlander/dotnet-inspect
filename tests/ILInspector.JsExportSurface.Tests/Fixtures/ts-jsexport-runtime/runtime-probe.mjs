@@ -63,6 +63,8 @@ const getInspectionEvidenceKey =
   facadeSource.match(/"(GetInspectionEvidence\.-?\d+)"/)?.[1];
 const getInertWidgetAsyncKey =
   facadeSource.match(/"(GetInertWidgetAsync\.-?\d+)"/)?.[1];
+const getTimestampAsyncKey =
+  facadeSource.match(/"(GetTimestampAsync\.-?\d+)"/)?.[1];
 const getRuntimeApiAsyncKey =
   facadeSource.match(/"(GetRuntimeApiAsync\.-?\d+)"/)?.[1];
 const getStringDtoAsyncKey =
@@ -155,6 +157,10 @@ assert.ok(
 assert.ok(
   getInertWidgetAsyncKey,
   "The generated GetInertWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getTimestampAsyncKey,
+  "The generated GetTimestampAsync runtime dispatch key was not found.",
 );
 assert.ok(
   getRuntimeApiAsyncKey,
@@ -327,6 +333,12 @@ function managedExports(methods = {}) {
               ?? (async (name) => JSON.stringify({
                 name,
                 display: "line\\u202Egpj",
+              })),
+            [getTimestampAsyncKey]:
+              methods.getTimestampAsync
+              ?? (async () => JSON.stringify({
+                observedAt: "2026-09-21T10:30:45.1234567-07:00",
+                completedAt: null,
               })),
             [getRuntimeApiAsyncKey]:
               methods.getRuntimeApiAsync
@@ -572,6 +584,13 @@ async function freshFacade() {
   assert.deepEqual(
     await facade.getInertWidgetAsync("widget"),
     { name: "widget", display: "line\\u202Egpj" },
+  );
+  assert.deepEqual(
+    await facade.getTimestampAsync(),
+    {
+      observedAt: "2026-09-21T10:30:45.1234567-07:00",
+      completedAt: null,
+    },
   );
   assert.deepEqual(
     await facade.getRuntimeApiAsync("runtime"),
