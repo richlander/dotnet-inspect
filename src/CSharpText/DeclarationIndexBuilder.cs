@@ -42,6 +42,7 @@ internal static class DeclarationIndexBuilder
         public bool HasInitializer;
         public bool ClosesAtEndOfFile;
         public ImmutableArray<LineRange> AttributeLists = [];
+        public SourceTextPoint DeclarationStart;
         public SourceTextPoint SignatureStart;
         public SourceTextPoint SignatureEnd;
         public SourceTextPoint? BodyStart;
@@ -49,18 +50,71 @@ internal static class DeclarationIndexBuilder
         public ImmutableArray<SourceTextRange> XmlDocumentation = [];
         public ImmutableArray<SourceTextRange> AttributeSpans = [];
         public bool TextPartsKnown = true;
+        public bool DeclarationTextKnown = true;
+        public bool DocumentationKnown = true;
     }
 
     public static ImmutableArray<DeclarationSpan> Build(
         IReadOnlyList<string> lines,
         out ImmutableArray<TransparentScopeSpan> transparentScopes,
         out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
-        out bool hasLineDirectives)
+        out bool hasLineDirectives) =>
+        Build(
+            lines,
+            CSharpLexer.MaxTokenCount,
+            int.MaxValue,
+            out transparentScopes,
+            out conditionalGroups,
+            out hasLineDirectives,
+            out _,
+            out _,
+            out _,
+            out _);
+
+    internal static ImmutableArray<DeclarationSpan> Build(
+        IReadOnlyList<string> lines,
+        int maxTokenCount,
+        int maxDeclarationCount,
+        out ImmutableArray<TransparentScopeSpan> transparentScopes,
+        out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        out bool hasLineDirectives,
+        out int tokenCount,
+        out int declarationCount) =>
+        Build(
+            lines,
+            maxTokenCount,
+            maxDeclarationCount,
+            out transparentScopes,
+            out conditionalGroups,
+            out hasLineDirectives,
+            out tokenCount,
+            out declarationCount,
+            out _,
+            out _);
+
+    internal static ImmutableArray<DeclarationSpan> Build(
+        IReadOnlyList<string> lines,
+        int maxTokenCount,
+        int maxDeclarationCount,
+        out ImmutableArray<TransparentScopeSpan> transparentScopes,
+        out ImmutableArray<ConditionalGroupSpan> conditionalGroups,
+        out bool hasLineDirectives,
+        out int tokenCount,
+        out int declarationCount,
+        out SourceTextRange? unterminatedDocumentation,
+        out bool unterminatedDocumentationKnown)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTokenCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDeclarationCount);
+
         var tokens = CSharpLexer.ScanTokens(
             lines,
             out conditionalGroups,
-            out hasLineDirectives);
+            out hasLineDirectives,
+            maxTokenCount);
+        tokenCount = tokens.Count;
+        declarationCount = 0;
+        int currentDeclarationCount = 0;
         var rows = new List<Row>();
         int rootLastChildIndex = -1;
         int rootLastRefusedChildIndex = -1;
@@ -136,6 +190,8 @@ internal static class DeclarationIndexBuilder
         // ABranchLocalAttributedDeclaration_DoesNotPoisonTheFollowingRow.
         bool attachedAttributesKnown = true;
         bool attachedDocumentationKnown = true;
+        bool nearestAttachedDocumentationKnown = true;
+        bool documentationSeparatorSinceLastFragment = false;
         bool textPartsHeaderKnown = true;
         int lastClosed = -1;
         int lastClosedSection = 0;
@@ -154,11 +210,11 @@ internal static class DeclarationIndexBuilder
         var xmlDocumentation = new List<SourceTextRange>();
         var documentationSections = new HashSet<int>();
         int openDocumentationBlock = -1;
+        bool openDocumentationKnown = true;
         int previousLineDocumentationLine = -2;
         bool previousDocumentationWasLine = false;
         int nestedBraceDepth = 0;
         int lastTerminatorLine = 0;
-        bool lastTerminatorWasBrace = false;
 
         // The section of the terminator that last ended a declaration. A brace-less declaration
         // ends without closing a block, so it clears lastClosed while leaving no closed row and --
@@ -197,6 +253,13 @@ internal static class DeclarationIndexBuilder
 
         void AddRow(Row row)
         {
+            if (rows.Count >= maxDeclarationCount)
+            {
+                throw new CSharpTextComplexityException(
+                    maxDeclarationCount,
+                    "declarations");
+            }
+
             int index = rows.Count;
             if (row.ParentIndex >= 0)
             {
@@ -210,6 +273,7 @@ internal static class DeclarationIndexBuilder
             }
 
             rows.Add(row);
+            currentDeclarationCount = rows.Count;
         }
 
         // A type at file scope and a statement inside a method body both report no enclosing row.
@@ -369,6 +433,8 @@ internal static class DeclarationIndexBuilder
 
             attachedAttributesKnown = true;
             attachedDocumentationKnown = true;
+            nearestAttachedDocumentationKnown = true;
+            documentationSeparatorSinceLastFragment = false;
             triviaStart = -1;
             attributeLists.Clear();
             attributeStarts.Clear();
@@ -376,6 +442,7 @@ internal static class DeclarationIndexBuilder
             xmlDocumentation.Clear();
             documentationSections.Clear();
             openDocumentationBlock = -1;
+            openDocumentationKnown = true;
             previousLineDocumentationLine = -2;
             previousDocumentationWasLine = false;
         }
@@ -384,7 +451,6 @@ internal static class DeclarationIndexBuilder
         {
             ResetHeader(terminator);
             lastTerminatorLine = terminator.Line + 1;
-            lastTerminatorWasBrace = Text(terminator) is "{" or "}";
             lastTerminatorSection = terminator.Section;
         }
 
@@ -413,6 +479,13 @@ internal static class DeclarationIndexBuilder
                 && attachedAttributesKnown && headerDelimitersKnown
                 && unknownTransparentScopes == 0
                 && pending.All(t => t.DepthKnown);
+            bool declarationTextKnown =
+                terminator.DepthKnown
+                && headerKnown
+                && attachedAttributesKnown
+                && headerDelimitersKnown
+                && unknownTransparentScopes == 0
+                && pending.All(t => t.DepthKnown);
             var row = new Row
             {
                 Kind = kind,
@@ -432,6 +505,9 @@ internal static class DeclarationIndexBuilder
                     "static",
                     Text),
                 HasInitializer = hasInitializer,
+                DeclarationStart = attributeSpans.Count > 0
+                    ? attributeSpans[0].Start
+                    : new SourceTextPoint(sigStart - 1, sigColumn),
                 SignatureStart = new SourceTextPoint(sigStart - 1, sigColumn),
                 SignatureEnd = new SourceTextPoint(signatureEnd.Line, signatureEnd.End),
                 BodyStart = bodyStart is { } body
@@ -443,6 +519,10 @@ internal static class DeclarationIndexBuilder
                 TextPartsKnown = spanKnown
                     && textPartsHeaderKnown
                     && attachedDocumentationKnown,
+                DeclarationTextKnown = declarationTextKnown,
+                DocumentationKnown = declarationTextKnown
+                    && textPartsHeaderKnown
+                    && nearestAttachedDocumentationKnown,
             };
             AddRow(row);
             return row;
@@ -473,6 +553,7 @@ internal static class DeclarationIndexBuilder
                 IsStatic = sharedDeclaration.IsStatic,
                 HasInitializer = declarator.HasInitializer,
                 ClosesAtEndOfFile = sharedDeclaration.ClosesAtEndOfFile,
+                DeclarationStart = sharedDeclaration.DeclarationStart,
                 SignatureStart = sharedDeclaration.SignatureStart,
                 SignatureEnd = sharedDeclaration.SignatureEnd,
                 BodyStart = sharedDeclaration.BodyStart,
@@ -480,6 +561,9 @@ internal static class DeclarationIndexBuilder
                 XmlDocumentation = sharedDeclaration.XmlDocumentation,
                 AttributeSpans = sharedDeclaration.AttributeSpans,
                 TextPartsKnown = sharedDeclaration.TextPartsKnown,
+                DeclarationTextKnown =
+                    sharedDeclaration.DeclarationTextKnown,
+                DocumentationKnown = sharedDeclaration.DocumentationKnown,
             });
         }
 
@@ -608,7 +692,7 @@ internal static class DeclarationIndexBuilder
             int newestRefused = lastChild;
             while (lastChild > alreadyRefused)
             {
-                rows[lastChild].SpanKnown = false;
+                RefuseDeclarationExtent(rows[lastChild]);
                 lastChild = rows[lastChild].PreviousSiblingIndex;
             }
 
@@ -643,13 +727,31 @@ internal static class DeclarationIndexBuilder
             }
         }
 
+        void BeginAuthoredDocumentationFragment(ScanToken token)
+        {
+            if (attributeSpans.Count > 0)
+                return;
+            if (documentationSeparatorSinceLastFragment)
+                nearestAttachedDocumentationKnown = true;
+            nearestAttachedDocumentationKnown &= token.DepthKnown;
+            documentationSeparatorSinceLastFragment = false;
+        }
+
         foreach (var tok in tokens)
         {
             if (!tok.DepthKnown)
                 depthLost = true;
 
             if (tok.Kind == ScanTokenKind.Directive)
+            {
+                if (xmlDocumentation.Count > 0
+                    && attributeSpans.Count == 0)
+                {
+                    documentationSeparatorSinceLastFragment = true;
+                }
+                previousDocumentationWasLine = false;
                 continue;
+            }
 
             // Comment and literal tokens are excluded, and that exclusion is load-bearing in both
             // directions. A comment or literal inside a group inside a list can move neither end
@@ -707,23 +809,20 @@ internal static class DeclarationIndexBuilder
                     triviaKnown &= tok.DepthKnown;
                 }
 
-                // Exact documentation attachment admits the brace-boundary case the legacy
-                // line-only trivia start above cannot represent. Documentation after a type
-                // opener or a preceding member's closing brace can share that brace's line and
-                // still lead the next declaration. Other same-line terminators retain the legacy
-                // refusal. Keeping the predicates separate preserves normalized ExtractMemberText
-                // behavior while exact parts retain the attached comment.
+                // Exact documentation attachment admits same-line leading trivia that the legacy
+                // line-only declaration span above cannot represent. Keeping the predicates
+                // separate preserves normalized ExtractMemberText behavior while exact parts
+                // retain the attached comment.
                 bool documentationAttached = pending.Count == 0
                     && !inAttribute
-                    && (commentOpenLine > lastTerminatorLine
-                        || (commentOpenLine == lastTerminatorLine
-                            && lastTerminatorWasBrace));
+                    && commentOpenLine >= lastTerminatorLine;
                 if (opens)
                 {
                     openDocumentationBlock = -1;
                     if (documentationAttached
                         && CSharpLexer.IsSingleLineDocumentationComment(comment))
                     {
+                        BeginAuthoredDocumentationFragment(tok);
                         var end = new SourceTextPoint(tok.Line, tok.End);
                         if (previousDocumentationWasLine
                             && previousLineDocumentationLine + 1 == tok.Line)
@@ -746,16 +845,25 @@ internal static class DeclarationIndexBuilder
                     else if (documentationAttached
                         && CSharpLexer.IsDelimitedDocumentationComment(comment))
                     {
+                        BeginAuthoredDocumentationFragment(tok);
                         xmlDocumentation.Add(new SourceTextRange(
                             new SourceTextPoint(tok.Line, tok.Column),
                             new SourceTextPoint(tok.Line, tok.End)));
                         openDocumentationBlock = xmlDocumentation.Count - 1;
+                        openDocumentationKnown = tok.DepthKnown;
                         documentationSections.Add(tok.Section);
                         attachedDocumentationKnown &= tok.DepthKnown;
+                        openDocumentationKnown &= tok.DepthKnown;
                         previousDocumentationWasLine = false;
                     }
                     else
                     {
+                        if (documentationAttached
+                            && xmlDocumentation.Count > 0
+                            && attributeSpans.Count == 0)
+                        {
+                            documentationSeparatorSinceLastFragment = true;
+                        }
                         previousDocumentationWasLine = false;
                     }
                 }
@@ -768,6 +876,9 @@ internal static class DeclarationIndexBuilder
                     };
                     documentationSections.Add(tok.Section);
                     attachedDocumentationKnown &= tok.DepthKnown;
+                    openDocumentationKnown &= tok.DepthKnown;
+                    if (attributeSpans.Count == 0)
+                        nearestAttachedDocumentationKnown &= tok.DepthKnown;
                 }
 
                 if (closesBlock)
@@ -854,6 +965,8 @@ internal static class DeclarationIndexBuilder
                                 section => section != tok.Section);
                         attachedAttributesKnown = true;
                         attachedDocumentationKnown = true;
+                        nearestAttachedDocumentationKnown = true;
+                        documentationSeparatorSinceLastFragment = false;
                         attributeSpans.Clear();
                         xmlDocumentation.Clear();
                         documentationSections.Clear();
@@ -990,6 +1103,13 @@ internal static class DeclarationIndexBuilder
                         && attachedAttributesKnown && headerDelimitersKnown
                         && unknownTransparentScopes == 0
                         && pending.All(t => t.DepthKnown);
+                    bool declarationTextKnown =
+                        tok.DepthKnown
+                        && headerKnown
+                        && attachedAttributesKnown
+                        && headerDelimitersKnown
+                        && unknownTransparentScopes == 0
+                        && pending.All(t => t.DepthKnown);
                     var row = new Row
                     {
                         Kind = k,
@@ -1007,6 +1127,9 @@ internal static class DeclarationIndexBuilder
                         StaticModifierKnown = headerKnown
                             && declarationHeader.All(t => t.DepthKnown),
                         IsPartial = DeclarationHeaderGrammar.HasTopLevelKeyword(declarationHeader, "partial", Text),
+                        DeclarationStart = attributeSpans.Count > 0
+                            ? attributeSpans[0].Start
+                            : new SourceTextPoint(sigStart - 1, sigColumn),
                         SignatureStart = new SourceTextPoint(sigStart - 1, sigColumn),
                         SignatureEnd = new SourceTextPoint(signatureEnd.Line, signatureEnd.End),
                         BodyStart = new SourceTextPoint(tok.Line, tok.Column),
@@ -1016,6 +1139,10 @@ internal static class DeclarationIndexBuilder
                         TextPartsKnown = spanKnown
                             && textPartsHeaderKnown
                             && attachedDocumentationKnown,
+                        DeclarationTextKnown = declarationTextKnown,
+                        DocumentationKnown = declarationTextKnown
+                            && textPartsHeaderKnown
+                            && nearestAttachedDocumentationKnown,
                     };
                     AddRow(row);
                     scopes.Add((rows.Count - 1, true, true, true));
@@ -1115,8 +1242,8 @@ internal static class DeclarationIndexBuilder
                         rows[idx].BodyEndLine = tok.Line + 1;
                         rows[idx].EndLine = tok.Line + 1;
                         rows[idx].TerminalEnd = new SourceTextPoint(tok.Line, tok.End);
-                        if (!tok.DepthKnown) rows[idx].SpanKnown = false;
-                        if (!tok.DepthKnown) rows[idx].TextPartsKnown = false;
+                        if (!tok.DepthKnown)
+                            RefuseDeclarationExtent(rows[idx]);
                         lastClosed = idx;
                         lastClosedSection = tok.Section;
                     }
@@ -1241,7 +1368,8 @@ internal static class DeclarationIndexBuilder
                         // accessor block closed, so it needs the same correction that close took:
                         // a conditional between the block and the initializer puts the ";" in a
                         // branch, and the end this reads is one branch's, not the declaration's.
-                        if (!tok.DepthKnown) rows[lastClosed].SpanKnown = false;
+                        if (!tok.DepthKnown)
+                            RefuseDeclarationExtent(rows[lastClosed]);
 
                         ResetHeader(tok);
                         lastClosed = -1;
@@ -1473,7 +1601,7 @@ internal static class DeclarationIndexBuilder
             if (r.EndLine < 0 && !r.ClosesAtEndOfFile)
             {
                 r.EndLine = lines.Count;
-                r.SpanKnown = false;
+                RefuseDeclarationExtent(r);
             }
         }
 
@@ -1489,6 +1617,17 @@ internal static class DeclarationIndexBuilder
         transparentScopes = [.. transparentScopeRows
             .OrderBy(scope => scope.StartLine)
             .ThenBy(scope => scope.EndLine)];
+        declarationCount = currentDeclarationCount;
+        unterminatedDocumentation = openDocumentationBlock >= 0
+            ? xmlDocumentation[openDocumentationBlock] with
+            {
+                End = new SourceTextPoint(
+                    lines.Count - 1,
+                    lines[^1].Length),
+            }
+            : null;
+        unterminatedDocumentationKnown =
+            openDocumentationBlock < 0 || openDocumentationKnown;
 
         return [.. rows.Select((r, i) => new DeclarationSpan(
             r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureStartColumn,
@@ -1499,6 +1638,7 @@ internal static class DeclarationIndexBuilder
             IsStatic = r.IsStatic,
             HasInitializer = r.HasInitializer,
             TextCoordinates = new DeclarationTextCoordinates(
+                new SourceTextRange(r.DeclarationStart, r.TerminalEnd),
                 new SourceTextRange(r.SignatureStart, r.SignatureEnd),
                 r.BodyStart is { } bodyStart
                     ? new SourceTextRange(bodyStart, r.TerminalEnd)
@@ -1506,6 +1646,8 @@ internal static class DeclarationIndexBuilder
                 r.TerminalEnd,
                 r.XmlDocumentation,
                 r.AttributeSpans,
+                r.DeclarationTextKnown,
+                r.DocumentationKnown,
                 r.SpanKnown && r.TextPartsKnown),
         })];
 
@@ -1536,8 +1678,16 @@ internal static class DeclarationIndexBuilder
         {
             active += deltas[i];
             if (active > 0)
-                rows[i].SpanKnown = false;
+                RefuseDeclarationExtent(rows[i]);
         }
+    }
+
+    private static void RefuseDeclarationExtent(Row row)
+    {
+        row.SpanKnown = false;
+        row.TextPartsKnown = false;
+        row.DeclarationTextKnown = false;
+        row.DocumentationKnown = false;
     }
 
     private static void FinalizeFileScopedNamespaces(List<Row> rows, bool depthLost)
