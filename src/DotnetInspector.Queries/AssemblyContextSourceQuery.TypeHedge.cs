@@ -186,6 +186,7 @@ public static partial class AssemblyContextSourceQuery
                     HedgeEvidence(
                         portablePdbReadyBeforeDecompilation,
                         decompilation,
+                        pdb.LibraryFailure,
                         TypeSourceLatencyHedgeSelection
                             .AuthoredAfterDecompilation));
             }
@@ -198,6 +199,7 @@ public static partial class AssemblyContextSourceQuery
                 HedgeEvidence(
                     portablePdbReadyBeforeDecompilation,
                     decompilation,
+                    pdb.LibraryFailure,
                     pdb.Inspection.Outcome
                         == PdbTypeSourceOutcome
                             .AuthoredSourcePreferenceWindowElapsed
@@ -394,6 +396,8 @@ public static partial class AssemblyContextSourceQuery
     static TypeSourceLatencyHedgeEvidence HedgeEvidence(
         bool portablePdbReadyBeforeDecompilation,
         DecompilationOperationResult decompilation,
+        AssemblyContextLibraryAdapterResult.Terminal?
+            authoredLibraryFailure,
         TypeSourceLatencyHedgeSelection selection)
     {
         bool usedPdb =
@@ -410,7 +414,17 @@ public static partial class AssemblyContextSourceQuery
             DecompilationStarted: true,
             DecompilationUsedPdb:
                 usedPdb,
-            selection);
+            selection)
+        {
+            AuthoredLibraryFailure =
+                authoredLibraryFailure,
+            DecompilationLibraryFailure =
+                decompilation
+                    is DecompilationOperationResult
+                        .LibraryUnavailable unavailable
+                    ? unavailable.Terminal
+                    : null,
+        };
     }
 
     static TypePdbInspection PreparedFailureInspection(

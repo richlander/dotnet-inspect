@@ -386,6 +386,96 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(host.SourceRequests);
     }
 
+    // PR-fast: independent authored and decompilation admissions retain both
+    // terminal results when their distinct Library limits reject the assembly.
+    [Fact]
+    public async Task
+        TypeSourceLatencyHedge_DualLibraryFailuresRemainDistinct()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1));
+        SourceHouseLimits defaults =
+            host.Context.TypeSourceLimits;
+        var context =
+            new AssemblyContextSourceQueryContext(
+                host.Context.SymbolClient,
+                host.Context.PdbStore,
+                host.Context
+                    .PackageSourceAuthorization,
+                host.Context.SourceFetch)
+            {
+                TypeSourceLimits = new(
+                    1,
+                    1,
+                    defaults.TargetBounds,
+                    defaults.SourceLinkReadLimits,
+                    defaults.MaximumDocuments,
+                    defaults.MaximumTargetMappings,
+                    defaults.MaximumCandidateAttempts,
+                    defaults.MaximumSourceBytes,
+                    defaults
+                        .MaximumSourceTextCharacters),
+                TypeDecompilationLimits = new(
+                    2,
+                    2,
+                    defaults.TargetBounds,
+                    defaults.SourceLinkReadLimits),
+            };
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection =
+                await TypeSourceInspection
+                    .ExecuteWithLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        context,
+                        new TypeSourceLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            TimeSpan.FromMilliseconds(250)),
+                        TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Unavailable>(
+                    inspection.Content);
+        TypeSourceLatencyHedgeEvidence evidence =
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(
+                unavailable.LatencyHedgeEvidence);
+        var authored =
+            Assert.IsType<
+                AssemblyContextLibraryAdapterResult
+                    .Incomplete>(
+                        evidence.AuthoredLibraryFailure);
+        var decompilation =
+            Assert.IsType<
+                AssemblyContextLibraryAdapterResult
+                    .Incomplete>(
+                        evidence
+                            .DecompilationLibraryFailure);
+        Assert.Equal(
+            1,
+            authored.MaxCapturedImageBytes);
+        Assert.Equal(
+            2,
+            decompilation.MaxCapturedImageBytes);
+        Assert.Same(
+            decompilation,
+            unavailable.LibraryFailure);
+        Assert.Empty(host.SourceRequests);
+    }
+
     // PR-fast: the authored path remains authoritative beyond the grace
     // window when decompilation cannot produce publishable source.
     [Fact]

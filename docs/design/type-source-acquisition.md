@@ -96,7 +96,9 @@ their internal policies:
 
 The operation returns `TypeSourceLatencyHedgeEvidence`: whether the PDB was
 ready when decompilation began, whether decompilation ran and observed a PDB,
-and which authored/decompiled selection path published. This is execution
+and which authored/decompiled selection path published. It also distinguishes
+terminal authored and decompilation Library admissions when the independent
+hedged operations both fail before reaching their Houses. This is execution
 evidence for deterministic gates and Browser timing work, not a rendering
 section or a claim that one timing sample establishes a universal policy.
 

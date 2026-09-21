@@ -355,7 +355,15 @@ public sealed record TypeSourceLatencyHedgeEvidence(
     bool PdbReadyBeforeDecompilation,
     bool DecompilationStarted,
     bool DecompilationUsedPdb,
-    TypeSourceLatencyHedgeSelection Selection);
+    TypeSourceLatencyHedgeSelection Selection)
+{
+    /// <summary>Terminal from the independent authored Library admission.</summary>
+    public AssemblyContextLibraryAdapterResult.Terminal?
+        AuthoredLibraryFailure { get; init; }
+    /// <summary>Terminal from the independent decompilation Library admission.</summary>
+    public AssemblyContextLibraryAdapterResult.Terminal?
+        DecompilationLibraryFailure { get; init; }
+}
 
 public abstract record AssemblyMemberSourceEntry(
     AssemblyContextSubject Subject,
