@@ -25,7 +25,7 @@ public sealed record WorkspaceReplacementInspector(
 
 public sealed record WorkspacePortableCoordinateReplacementOutcome(
     bool Succeeded,
-    string Navigation,
+    WorkspacePackageComponentPath Component,
     WorkspacePortableCoordinateReplacementFailure? Failure,
     WorkspaceReplacementCoordinate? Source,
     WorkspaceReplacementCoordinate? Destination,
@@ -38,7 +38,7 @@ public sealed record WorkspacePortableCoordinateReplacementOutcome(
 
 public static class WorkspacePortableCoordinateReplacementOperation
 {
-    const string SharePath = "workspace/coordinate-replacement";
+    const string SharePath = "workspace/package-update";
 
     public static async ValueTask<
         InspectionEnvelope<WorkspacePortableCoordinateReplacementOutcome>>
@@ -55,18 +55,27 @@ public static class WorkspacePortableCoordinateReplacementOperation
         NavigationConsumerResult? navigation = result.NavigationResult?.Consumer;
         NavigationConsumerSnapshot? snapshot = navigation?.Snapshot;
         NavigationCoordinateRetentionResult? retention =
-            result.NavigationResult?.CoordinateRetention;
+            result.CoordinateRetention;
+        NavigationConsumerCoordinateOutcome? retained =
+            retention is null
+                ? null
+                : new(
+                    retention.Disposition,
+                    retention.Detail,
+                    retention.LibraryPairing?.Status,
+                    retention.TypeCorrespondence?.Status,
+                    retention.MemberCorrespondence?.Status);
         NavigationConsumerLensOutcome? lens = snapshot?.LensOutcome;
         var content = new WorkspacePortableCoordinateReplacementOutcome(
             result.Succeeded,
-            request.Navigation,
+            request.Component,
             result.Failure,
             Coordinate(retention?.Source),
             Coordinate(retention?.Destination),
             result.ScopeResult is { } scope
                 ? NavigationConsumerScopeOutcome.FromSettlement(scope)
                 : null,
-            navigation?.Outcome.CoordinateRetention,
+            retained,
             navigation?.Outcome.Kind,
             snapshot is null ? null : Subject(snapshot.ActiveSubject),
             snapshot is null
@@ -87,22 +96,23 @@ public static class WorkspacePortableCoordinateReplacementOperation
         if (result.Failure is { } failure)
         {
             diagnostics.Add(new(
-                $"workspace.coordinate-replacement.{failure.Kind}",
+                $"workspace.package-update.{failure.Kind}",
                 InspectionDiagnosticSeverity.Error,
                 failure.Detail));
         }
-        if (navigation?.Outcome.CoordinateRetention is { } retained
-            && retained.Disposition != NavigationCoordinateRetentionDisposition.ExactPath)
+        if (retained is not null
+            && retained.Disposition
+                != NavigationCoordinateRetentionDisposition.ExactPath)
         {
             diagnostics.Add(new(
-                "workspace.coordinate-replacement.fallback",
+                "workspace.package-update.fallback",
                 InspectionDiagnosticSeverity.Warning,
                 retained.Detail));
         }
         if (lens?.Kind is NavigationOutcomeKind.Unavailable or NavigationOutcomeKind.Failed)
         {
             diagnostics.Add(new(
-                "workspace.coordinate-replacement.inspector",
+                "workspace.package-update.inspector",
                 InspectionDiagnosticSeverity.Warning,
                 lens.Resolution?.Message
                     ?? $"The retained inspector is {lens.Kind}."));
@@ -114,7 +124,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
         foreach (NavigationConsumerDiagnostic diagnostic in nativeDiagnostics)
         {
             diagnostics.Add(new(
-                $"workspace.coordinate-replacement.navigation.{diagnostic.Kind}",
+                $"workspace.package-update.navigation.{diagnostic.Kind}",
                 InspectionDiagnosticSeverity.Warning,
                 diagnostic.Message,
                 diagnostic.Library));

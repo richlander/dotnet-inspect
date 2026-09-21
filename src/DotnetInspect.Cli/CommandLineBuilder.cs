@@ -135,6 +135,7 @@ public static class CommandLineBuilder
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
+        processed = BindWorkspaceShareValue(processed);
         processed = ExpandInlineEmptyParentOptionValuesBeforeChild(
             processed,
             rootCommand,
@@ -168,6 +169,27 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static string[] BindWorkspaceShareValue(string[] args)
+    {
+        if (args.FirstOrDefault() != WorkspaceCommand.Name)
+            return args;
+
+        for (int index = 1; index + 1 < args.Length; index++)
+        {
+            if (args[index] == "--share"
+                && args[index + 1] is "packet" or "url")
+            {
+                return
+                [
+                    .. args[..index],
+                    $"--share={args[index + 1]}",
+                    .. args[(index + 2)..],
+                ];
+            }
+        }
+        return args;
     }
 
     private static string[] ExpandInlineEmptyParentOptionValuesBeforeChild(
@@ -1136,6 +1158,10 @@ public static class CommandLineBuilder
         // Product-owned query vocabulary
         rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
 
+        // Product resource explanation
+        rootCommand.Subcommands.Add(
+            ResourceExplanationCommandDefinitions.CreateExplainCommand(opts));
+
         // Product-owned ecosystem catalog
         rootCommand.Subcommands.Add(EcosystemCommandDefinitions.CreateEcosystemCommand(opts));
 
@@ -1155,11 +1181,7 @@ public static class CommandLineBuilder
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
-        // Workspace share packet conversion
-        rootCommand.Subcommands.Add(
-            UtilityCommandDefinitions.CreateWorkspaceStateCommand());
-
-        // Product-owned runtime Workspace inventory
+        // Workspace definition, packet, editing, and runtime inventory
         rootCommand.Subcommands.Add(
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 

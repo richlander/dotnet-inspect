@@ -1100,15 +1100,28 @@ async function installFacades(
         };
       }
       let holdNextWorkspaceEncode = false;
+      let failNextWorkspaceEncode = false;
       document.addEventListener("hold-workspace-encode", () => {
         holdNextWorkspaceEncode = true;
       });
+      document.addEventListener("fail-workspace-encode", () => {
+        failNextWorkspaceEncode = true;
+      });
       export async function encodeWorkspaceShareState(state) {
+        const fail = failNextWorkspaceEncode;
+        failNextWorkspaceEncode = false;
         if (holdNextWorkspaceEncode) {
           holdNextWorkspaceEncode = false;
           document.documentElement.dataset.workspaceEncodePending = "true";
           await new Promise(resolve => document.addEventListener(
             "finish-workspace-encode", resolve, { once: true }));
+        }
+        if (fail) {
+          return {
+            succeeded: false,
+            packet: null,
+            failure: { kind: "Fixture", message: "Fixture workspace projection failure." },
+          };
         }
         return {
           succeeded: true,

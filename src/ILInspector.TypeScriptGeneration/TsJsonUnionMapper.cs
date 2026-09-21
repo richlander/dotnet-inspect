@@ -12,6 +12,7 @@ sealed record TsJsonUnionMappingContext(
     IReadOnlyDictionary<string, int> GenericNameArities,
     TsDelegateMappingContext LocalTypes,
     IReadOnlySet<ApiTypeReferenceIdentity> GenericRecords,
+    string? DateTimeOffsetName,
     bool ConservativeReferenceArguments = false);
 
 static class TsJsonUnionMapper
@@ -261,6 +262,14 @@ static class TsJsonUnionMapper
             : type;
         if (definition.Kind != TypeRefKind.Definition)
             throw Unsupported(location, "unsupported union case signature");
+
+        if (definition.Namespace == "System"
+            && definition.Name == "DateTimeOffset"
+            && TsTypeMapper.IsAuthenticFrameworkMapping(definition))
+        {
+            return context.DateTimeOffsetName
+                ?? TsTypeMapper.DateTimeOffsetJsonStringName;
+        }
 
         if (type.Kind == TypeRefKind.GenericInstance)
         {

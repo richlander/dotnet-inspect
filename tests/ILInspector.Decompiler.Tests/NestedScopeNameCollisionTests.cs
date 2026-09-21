@@ -159,6 +159,54 @@ public class NestedScopeNameCollisionTests
         AssertCompiles(body);
     }
 
+    [Fact]
+    public void NestedCatchVariableDoesNotSuppressOuterDeclaration()
+    {
+        var exception = TypeRef.CoreLib("System", "Exception");
+        var catchBody = Body(
+            new ExpressionStatement(new LoadLocal(0, exception)));
+        var catchClause = new CatchClause(exception, catchBody)
+        {
+            VariableIndex = 0,
+        };
+        var localFunction = new LocalFunctionStatement(
+            "Inner",
+            Void,
+            [],
+            isStatic: true,
+            [exception],
+            ["error"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Body(new TryCatch(
+                Body(new Return(null)),
+                [catchClause])));
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            Body(
+                new ExpressionStatement(new LoadLocal(0, Int32)),
+                localFunction));
+
+        var outerPlan = LocalDeclarationPlan.Create(function, 1);
+        var nestedPlan = LocalDeclarationPlan.Create(localFunction, 1);
+        string body = CSharpPrinter.Print(function).Output!
+            .ReplaceLineEndings("\n")
+            .Trim();
+
+        Assert.Empty(outerPlan.CatchLocals);
+        Assert.Contains(0, nestedPlan.CatchLocals);
+        Assert.Contains("int V_0 = default;", body);
+        Assert.Contains("catch (Exception error)", body);
+        AssertCompiles(body);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

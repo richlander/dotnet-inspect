@@ -369,7 +369,56 @@ Missing Files is the row inventory for those individual failures and therefore
 retains the target-dependent population. All SourceLink sections remain
 capability-gated and explicit despite their size classification.
 
-API and other command families remain separate work under issue #3284.
+Other command families remain separate work under issue #3284.
+
+#### `depends` evidence
+
+Both `depends` catalogs expose target-growing row or edge populations. Their
+producer contracts place no section-level cap on the number of emitted items:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Dependency Hierarchy, Dependencies, Restored Edges | One row per selected or traversed dependency edge; Dependencies has 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Roots, Dependency Groups, Restored Packages | One row per input root, authored dependency group, or restored package | `Verbose` |
+| Licenses, Pruning, Failures | One row per inspected package, pruning decision, or failed dependency operation | `Verbose` |
+| Dependency Graph | One row per discovered type relationship; `System.Int128` has 32 rows on .NET 11 RC1 | `Verbose` |
+
+The asset route keeps Dependency Hierarchy as its authored `Info` section.
+Minimal therefore retains that primary result, Normal omits every uncapped
+inventory, and Detailed restores the bounded-cost Dependency Hierarchy,
+Dependencies, and Failures sections. Licenses and Pruning remain explicit
+because their execution cost is unbounded. The positional-Type route follows
+the same primary-section rule for Dependency Graph: Minimal retains it, Normal
+is a valid empty automatic view, and Detailed restores it. Exact section or
+category selection retains complete evidence and promotes the effective
+verbosity to Detailed.
+
+#### Library domain and exact-name evidence
+
+The residual library audit covers the command's domain categories, exact-name
+sections, and one base-section omission from the first library pass. Domain
+membership remains explicit: changing a section's growth class does not add it
+to automatic `@Library` or `@Surface` scope.
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Ecosystem Dependencies | 31 rows in `Npgsql` 8.0.4; one row per recognized direct assembly reference with no product cap | `Verbose` |
+| Audit: Identifier Confusion, Non-normalized Paths | One row per concerning identifier or path across target-authored metadata populations | `Verbose` |
+| Integrations | One row per matching API or type signal; a target can contribute arbitrarily many signals | `Verbose` |
+| Integration Opportunities | At most one representative row per product-authored concept and opportunity kind; the current rule set permits six rows | `Terse` |
+| SourceLink: Availability, SourceLink: Integrity | Fixed aggregate field tables over the selected library | `Fixed` |
+| SourceLink: Missing Files | One complete row per missing source document; a 31-row boundary is preserved without truncation | `Verbose` |
+| Reference Hierarchy | One occurrence per traversed reference edge | `Verbose` |
+| Performance kind sections, Array Pool Escapes | One row per matching optimization opportunity or resource-lifecycle boundary | `Verbose` |
+| Clone Candidates | Ranked candidate rows with a default result ceiling of 100 | `Verbose` |
+| Context: Source Location, Member, Instruction, Callsite, Return Address, Allocation, Safety, Cost | Fixed facts for one exact method and IL coordinate | `Fixed` |
+| Context: Exception | One row per enclosing exception region; nesting has no product row cap | `Verbose` |
+
+The existing `Verbose` declarations for SourceLink Files and Diagnostics,
+Unsafe Members, Top Leverage, Member Metrics, Body Shapes, and Body Shape
+Summary already match their target-dependent inventories. Metadata and
+ReadyToRun sections retain their separately owned fixed-summary and verbose-
+inventory classifications.
 
 #### API type-list evidence
 

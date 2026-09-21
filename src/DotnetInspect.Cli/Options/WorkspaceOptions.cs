@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
@@ -10,7 +11,7 @@ public sealed record WorkspaceOptions
     public string[] Packages { get; init; } = [];
     public string? Tfm { get; init; }
     public string? Packet { get; init; }
-    public int? ReplacePackage { get; init; }
+    public WorkspacePackageComponentPath? UpdatePackage { get; init; }
     public string? ReplacementVersion { get; init; }
     public string? ReplacementTfm { get; init; }
     public bool EnvelopeOutput { get; init; }
@@ -61,9 +62,25 @@ public sealed record WorkspaceOptions
     public bool Verbose { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public bool MakePackageDependenciesExplicit { get; init; }
+    public WorkspacePackageSourceDefinition[] PackageSources { get; init; } =
+        [];
+    internal WorkspacePatBindingInput[] PatBindings { get; init; } = [];
     public NuGetSourceOptions SourceOptions { get; init; } =
         NuGetSourceOptions.Default;
 }
+
+internal enum WorkspacePatInputKind
+{
+    Environment,
+    StandardInput,
+    File,
+}
+
+internal sealed record WorkspacePatBindingInput(
+    string Endpoint,
+    string Username,
+    WorkspacePatInputKind Kind,
+    string? Value);
 
 internal enum WorkspaceRegistrationInputKind
 {

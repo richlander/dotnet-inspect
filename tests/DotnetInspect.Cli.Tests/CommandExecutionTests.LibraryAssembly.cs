@@ -191,6 +191,7 @@ public partial class CommandExecutionTests
         Assert.Contains("--history", output);
         Assert.Contains("--at", output);
         Assert.Contains("--max-probes", output);
+        Assert.Contains("--sample-percent", output);
         Assert.Contains("--count", output);
         Assert.DoesNotContain("--authored-source", output);
     }
@@ -1244,10 +1245,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --markdown, --plaintext |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | library/sections/references "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1271,13 +1275,19 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --markdown, --plaintext |",
             output);
         Assert.Contains(
-            "| Reference Hierarchy | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree, --mermaid |",
+            "| Reference Hierarchy | section "
+            + "| library/sections/reference-hierarchy "
+            + "| --markdown, --plaintext, --json, --table, --tsv, "
+            + "--jsonl, --tree, --mermaid |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | library/sections/references "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1311,6 +1321,9 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "section",
             row.GetProperty("kind").GetString());
+        Assert.Equal(
+            "library/sections/reference-hierarchy",
+            row.GetProperty("path").GetString());
         Assert.Equal(
             [
                 "--markdown",
@@ -2123,13 +2136,15 @@ public partial class CommandExecutionTests
         // SourceLink document — network-free. Newtonsoft's PDB is external (snupkg), so warm the
         // symbol cache first with an explicit render; discovery then resolves it cache-only.
         var (warmExit, _, _) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-S", "SourceLink: Availability", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-S", "SourceLink: Availability", "--tips", "q");
         Assert.Equal(0, warmExit);
 
         // Full effective discovery is the explicit larger-budget gesture that may open the warmed
         // PDB. SourceLink members stay behind their domain door, never in the flat base catalog.
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "--effective",
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-D", "--effective",
             "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -2142,7 +2157,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("@Hidden", output);
 
         var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "@SourceLink", "--table", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-D", "@SourceLink", "--table", "--tips", "q");
 
         Assert.Equal(0, sourceExit);
         Assert.DoesNotContain("Tip:", sourceError);
@@ -2665,7 +2681,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SourceFilesSection_TypeFilterAndPreferRenderedUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json",
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
             "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -2878,6 +2894,25 @@ public partial class CommandExecutionTests
             "| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration |",
             output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_NpgsqlPackage_PreservesMeasuredEcosystemDependencyRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Npgsql@8.0.4",
+            "--library",
+            "-S",
+            SectionNames.EcosystemDependencies,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("31", output.Trim());
     }
 
     [Fact]
@@ -3119,7 +3154,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsUnifiedSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Microsoft.Extensions.AI", "-D", "@Integrations",
+            "library", "--package", "Microsoft.Extensions.AI",
+            "--namesake-library", "-D", "@Integrations",
             "--effective", "--table");
 
         Assert.Equal(0, exit);
@@ -3530,7 +3566,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--all-libraries", "-S", "Integrations", "--rows", "20");
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--library", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -3543,7 +3579,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--all-libraries", "-S", "Integrations", "--rows", "20");
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--library", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);

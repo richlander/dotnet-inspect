@@ -141,6 +141,11 @@ internal abstract class SectionRowCohort<TIdentity, TProjection>
     public abstract SectionRowCohortExecution<
         TIdentity,
         TProjection> Execute();
+
+    public abstract SectionRowCohort<
+        TIdentity,
+        TProjection>? CreateSubset(
+            IReadOnlySet<TIdentity> includedRowSets);
 }
 
 internal sealed class TypedSectionRowCohort<
@@ -160,6 +165,7 @@ internal sealed class TypedSectionRowCohort<
     private readonly Func<
         IReadOnlyList<RowsCohortSequence<TIdentity, TRow>>,
         RowsCohortResult<TIdentity, TRow>> _executor;
+    private readonly SectionRowSchemaIdentity<TRow> _schema;
 
     public TypedSectionRowCohort(
         ShapingCohortIdentity identity,
@@ -183,6 +189,7 @@ internal sealed class TypedSectionRowCohort<
                     .Select(static rowSet => rowSet.Identity)
                     .ToArray()))
     {
+        _schema = schema;
         _rowSets = rowSets;
         _keys = keys;
         _executor = executor;
@@ -204,10 +211,10 @@ internal sealed class TypedSectionRowCohort<
                 TRow> rowSet =
                     _rowSets[index];
             sequences[index] =
-                RowsCohortSequence<TIdentity, TRow>.CreateBound(
-                    rowSet.Identity,
-                    rowSet.Rows,
-                    _keys[rowSet.Identity]);
+                RowsCohortSequence<TIdentity, TRow>
+                    .CreateBoundFromDeclaration(
+                        rowSet,
+                        _keys[rowSet.Identity]);
         }
 
         RowsCohortResult<TIdentity, TRow> selected =
@@ -282,6 +289,35 @@ internal sealed class TypedSectionRowCohort<
         return SectionRowCohortExecution<
             TIdentity,
             TProjection>.Success(outcomes);
+    }
+
+    public override SectionRowCohort<
+        TIdentity,
+        TProjection>? CreateSubset(
+            IReadOnlySet<TIdentity> includedRowSets)
+    {
+        SectionRowSetDeclaration<
+            TIdentity,
+            TProjection,
+            TRow>[] rowSets =
+                _rowSets
+                    .Where(
+                        rowSet =>
+                            includedRowSets.Contains(
+                                rowSet.Identity))
+                    .ToArray();
+        return rowSets.Length == 0
+            ? null
+            : new TypedSectionRowCohort<
+                TIdentity,
+                TProjection,
+                TRow>(
+                    Descriptor.Identity,
+                    Descriptor.IntentBinding,
+                    _schema,
+                    rowSets,
+                    _keys,
+                    _executor);
     }
 }
 

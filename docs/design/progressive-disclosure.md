@@ -31,15 +31,23 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
-For library inspection, References, Switches, Type Forwarders, P/Invoke
-Methods, and Union Types are measured or structurally `Verbose` inventories.
-They therefore enter automatic output at `-v:d`, not `-v:n`. Exact `-S`
-selection and the explicit `@Library` or `@Surface` category remain available;
-explicit selection promotes the effective verbosity needed to render the
-requested inventory. Inspection Failures remains `Terse` and visible at
-`-v:n`; hiding failed producers from the normal view would allow partial
-inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
-Symbols, and Signals.
+For library inspection, References, Ecosystem Dependencies, Switches, Type
+Forwarders, P/Invoke Methods, and Union Types are measured or structurally
+`Verbose` inventories. They therefore enter automatic output at `-v:d`, not
+`-v:n`. Exact `-S` selection and the explicit `@Library` or `@Surface`
+category remain available; explicit selection promotes the effective verbosity
+needed to render the requested inventory. Inspection Failures remains `Terse`
+and visible at `-v:n`; hiding failed producers from the normal view would allow
+partial inspection to look clean. Bare `-S` remains the fixed overview:
+Library Info, Symbols, and Signals.
+
+Library domain categories remain explicit. Their target-growing audit,
+dependency, integration, SourceLink file, performance, resource-lifecycle,
+clone, and exception-context inventories are `Verbose`. SourceLink
+Availability and Integrity remain fixed aggregate tables, while the exact
+coordinate field views are fixed except for the enclosing exception-region
+inventory. `SourceLink: Missing Files` retains every missing document rather
+than truncating the explicitly requested evidence.
 
 For package inspection, Target Frameworks, Package nuspec file, Dependencies,
 Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
@@ -56,6 +64,16 @@ identifiers, mapped documents, or source failures. SourceLink Availability and
 Integrity are `Fixed` aggregate field tables. Their source acquisition remains
 capability-gated, so their exact or `@SourceLink` selection still requires
 Detailed despite the fixed output shape.
+
+For `depends`, every asset and positional-Type section is an uncapped
+dependency row or edge population and is therefore `Verbose`. Dependency
+Hierarchy and Dependency Graph remain their routes' authored primary sections,
+so `-v:m` retains them, generic `-v:n` omits them, and `-v:d` restores them.
+For the asset route, Detailed also restores the bounded-cost Dependencies and
+Failures inventories; unbounded-cost Licenses and Pruning remain explicit.
+Exact section and explicit `@Dependencies` selection retain the complete
+requested evidence. A positional-Type `-v:n` request is consequently a valid
+empty automatic view rather than an unsupported-section error.
 
 For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
 Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain

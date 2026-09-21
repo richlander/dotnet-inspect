@@ -111,6 +111,8 @@ public sealed record CSharpDiffRow(
     CSharpDiffOperation? OldOperation = null,
     CSharpDiffOperation? NewOperation = null)
 {
+    public MemberAnchor? BodyAnchor { get; init; }
+
     public CSharpDiffRow(
         string assemblyIdentity,
         string stableMemberKey,
@@ -198,7 +200,10 @@ public sealed record CSharpDiffFailureRow(
     string Message,
     string? Side = null,
     string? Detail = null,
-    int? HunkId = null);
+    int? HunkId = null)
+{
+    public MemberAnchor? BodyAnchor { get; init; }
+}
 
 public sealed record CSharpIdentityResolutionFailure(
     string Side,
@@ -552,6 +557,9 @@ public static partial class CSharpBodyDiff
     {
         var oldMethods = oldIndex.Methods;
         var newMethods = newIndex.Methods;
+        IReadOnlySet<string> bodyAnchorCollisionKeys =
+            BodyAnchorCollisionKeys(
+                oldMethods.Values.Concat(newMethods.Values));
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
         var failureRows = ImmutableArray.CreateBuilder<CSharpDiffFailureRow>();
         var sources = new SourceCache();
@@ -563,10 +571,23 @@ public static partial class CSharpBodyDiff
             {
                 oldMethods.TryGetValue(key, out var oldMethod);
                 newMethods.TryGetValue(key, out var newMethod);
+                if (oldMethod is not null)
+                {
+                    oldMethod = ApplyBodyAnchor(
+                        oldMethod,
+                        bodyAnchorCollisionKeys);
+                }
+                if (newMethod is not null)
+                {
+                    newMethod = ApplyBodyAnchor(
+                        newMethod,
+                        bodyAnchorCollisionKeys);
+                }
                 var representative = newMethod ?? oldMethod!;
                 if (memberTargetIdentities is { Count: > 0 }
-                    && !memberTargetIdentities.Contains(
-                        representative.Anchor.StableSelector))
+                    && !MatchesMemberTarget(
+                        representative,
+                        memberTargetIdentities))
                 {
                     continue;
                 }
@@ -602,6 +623,14 @@ public static partial class CSharpBodyDiff
             failureRows.ToImmutable(),
             [.. oldIndex.Failures, .. newIndex.Failures]);
     }
+
+    internal static bool MatchesMemberTarget(
+        CSharpMethodEntry method,
+        IReadOnlySet<string> memberTargetIdentities)
+        => memberTargetIdentities.Contains(
+            method.BodyAnchor == method.Anchor
+                ? method.Anchor.StableSelector
+                : method.BodyAnchor.StableSelector);
 
     internal static Dictionary<string, CSharpMethodEntry> BuildMethodIndex(
         IReadOnlyList<string> paths,
@@ -715,6 +744,30 @@ public static partial class CSharpBodyDiff
             failures.ToImmutable(),
             declarationOmissionFailures.ToImmutable());
     }
+
+    internal static IReadOnlySet<string> BodyAnchorCollisionKeys(
+        IEnumerable<CSharpMethodEntry> entries)
+        => entries
+            .GroupBy(
+                BodyAnchorGroupKey,
+                StringComparer.Ordinal)
+            .Where(group => group
+                .Select(entry => entry.DuplicateDiscriminator)
+                .Distinct(StringComparer.Ordinal)
+                .Skip(1)
+                .Any())
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+    internal static CSharpMethodEntry ApplyBodyAnchor(
+        CSharpMethodEntry entry,
+        IReadOnlySet<string> collisionKeys)
+        => collisionKeys.Contains(BodyAnchorGroupKey(entry))
+            ? entry
+            : entry with { BodyAnchor = entry.Anchor };
+
+    static string BodyAnchorGroupKey(CSharpMethodEntry entry)
+        => $"{entry.StableAssemblyKey}|{entry.RawKey}";
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
     {
@@ -992,7 +1045,18 @@ public static partial class CSharpBodyDiff
         string returnSuffix = IsConversionOperator(methodName) ? $"~{returnType}" : "";
         string canonicalName = CanonicalMemberName(methodName);
         string rawKey = $"M:{typeKey}.{canonicalName}{methodGeneric}({string.Join(",", parameters)}){returnSuffix}";
-        var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method, IsExtensionMethod(reader, type, method));
+        bool isExtension = IsExtensionMethod(reader, type, method);
+        var anchor = ApiMemberIdentity.CreateMethodAnchor(
+            reader,
+            typeHandle,
+            method,
+            isExtension);
+        MemberAnchor bodyAnchor = CreateBodyAnchor(
+            anchor,
+            ApiMemberIdentity.GetMemberSelectorName(
+                methodName,
+                isExtension),
+            returnType);
         string displayName = methodName == ".ctor" ? "#ctor" : methodName;
         string display = $"{typeFullName}.{displayName}{GenericAritySuffix(genericArity)}({string.Join(", ", parameters)})";
         string duplicateDiscriminator = DuplicateDiscriminator(reader, method);
@@ -1001,6 +1065,7 @@ public static partial class CSharpBodyDiff
             source.AssemblyName,
             stableAssemblyKey,
             anchor,
+            bodyAnchor,
             rawKey,
             $"{stableAssemblyKey}|{rawKey}#{duplicateDiscriminator}",
             duplicateDiscriminator,
@@ -1011,6 +1076,28 @@ public static partial class CSharpBodyDiff
             overloadIndex ?? OverloadIndex(reader, type, methodHandle, methodName),
             method.RelativeVirtualAddress != 0,
             BodyFingerprint: null);
+    }
+
+    static MemberAnchor CreateBodyAnchor(
+        MemberAnchor apiAnchor,
+        string selectorName,
+        string returnType)
+    {
+        string returnSuffix = $"~{returnType}";
+        string canonicalSignature =
+            apiAnchor.CanonicalSignature.EndsWith(
+                returnSuffix,
+                StringComparison.Ordinal)
+                ? apiAnchor.CanonicalSignature
+                : apiAnchor.CanonicalSignature + returnSuffix;
+        string fingerprint =
+            MemberAnchor.ComputeFingerprint(canonicalSignature);
+        return new(
+            $"{selectorName}~{fingerprint}",
+            canonicalSignature,
+            fingerprint,
+            apiAnchor.TypeFullName,
+            apiAnchor.MemberName);
     }
 
     static int OverloadIndex(MetadataReader reader, TypeDefinition type, MethodDefinitionHandle targetMethod, string methodName)
@@ -1068,7 +1155,9 @@ public static partial class CSharpBodyDiff
             TypeRefKind.Pinned => $"pinned {CanonicalTypeName(type.ElementType!)}",
             TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
             TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
-            TypeRefKind.FunctionPointer => CanonicalFunctionPointer(type),
+            TypeRefKind.FunctionPointer => CanonicalFunctionPointer(
+                type,
+                includeOwnModifiers: true),
             _ => $"<unsupported:{type.UnsupportedReason}>",
         };
     }
@@ -1172,8 +1261,101 @@ public static partial class CSharpBodyDiff
                 "Unknown metadata type-name result."),
         };
 
-    static string CanonicalFunctionPointer(TypeRef type)
-        => $"delegate*<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName).Append(CanonicalTypeName(type.ElementType!)))}>";
+    static string CanonicalFunctionPointer(
+        TypeRef type,
+        bool includeOwnModifiers)
+    {
+        string convention = type.CallingConvention.Length == 0
+            ? ""
+            : $" {type.CallingConvention}";
+        string signatureShape = CanonicalFunctionPointerSignatureShape(type);
+        var parameters = type.TypeArguments.Select(
+            parameter => CanonicalFunctionPointerComponent(
+                parameter,
+                omitNormalizedConventionModifiers: false));
+        string returnType = CanonicalFunctionPointerComponent(
+            type.ElementType!,
+            omitNormalizedConventionModifiers:
+                type.FunctionPointerConventionModifiersAreExact);
+        string identity = $"delegate*{convention}{signatureShape}<"
+            + $"{string.Join(",", parameters.Append(returnType))}>";
+        return includeOwnModifiers
+            ? ApplyFunctionPointerCustomModifiers(
+                type,
+                identity,
+                omitNormalizedConventionModifiers: false)
+            : identity;
+    }
+
+    static string CanonicalFunctionPointerSignatureShape(TypeRef type)
+    {
+        var parts = new List<string>(3);
+        byte callingConvention =
+            (byte)(type.FunctionPointerSignatureDiscriminator & 0x0F);
+        byte attributes =
+            (byte)(type.FunctionPointerSignatureDiscriminator & 0xF0);
+        if (callingConvention is not (0x00
+            or 0x01
+            or 0x02
+            or 0x03
+            or 0x04
+            or 0x09))
+        {
+            parts.Add($"calling=0x{callingConvention:X2}");
+        }
+        if (attributes != 0)
+        {
+            parts.Add(
+                $"flags=0x{attributes:X2}");
+        }
+        if (type.FunctionPointerGenericParameterCount != 0)
+        {
+            parts.Add(
+                $"generic={type.FunctionPointerGenericParameterCount}");
+        }
+        if (type.FunctionPointerRequiredParameterCount
+            != type.TypeArguments.Length)
+        {
+            parts.Add(
+                $"required={type.FunctionPointerRequiredParameterCount}");
+        }
+        return parts.Count == 0
+            ? ""
+            : $"{{{string.Join(";", parts)}}}";
+    }
+
+    static string CanonicalFunctionPointerComponent(
+        TypeRef type,
+        bool omitNormalizedConventionModifiers)
+    {
+        string identity = type.Kind == TypeRefKind.FunctionPointer
+            ? CanonicalFunctionPointer(type, includeOwnModifiers: false)
+            : CanonicalTypeName(type);
+        return ApplyFunctionPointerCustomModifiers(
+            type,
+            identity,
+            omitNormalizedConventionModifiers);
+    }
+
+    static string ApplyFunctionPointerCustomModifiers(
+        TypeRef type,
+        string identity,
+        bool omitNormalizedConventionModifiers)
+    {
+        foreach (TypeRefCustomModifier modifier in type.CustomModifiers)
+        {
+            if (omitNormalizedConventionModifiers
+                && TypeRef.IsRecognizedFunctionPointerConventionModifier(
+                    modifier))
+            {
+                continue;
+            }
+            string kind = modifier.IsRequired ? "modreq" : "modopt";
+            identity =
+                $"{kind}({CanonicalTypeName(modifier.Modifier)}){identity}";
+        }
+        return identity;
+    }
 
     static string GenericParameterList(int arity, bool isMethod)
     {
@@ -1937,7 +2119,12 @@ public static partial class CSharpBodyDiff
             message,
             side,
             detail,
-            hunkId);
+            hunkId)
+        {
+            BodyAnchor = entry.BodyAnchor == entry.Anchor
+                ? null
+                : entry.BodyAnchor,
+        };
 
     static CSharpDiffRow CreateRow(
         CSharpMethodEntry entry,
@@ -2000,7 +2187,12 @@ public static partial class CSharpBodyDiff
             oldValue,
             newValue,
             oldOperation,
-            newOperation);
+            newOperation)
+        {
+            BodyAnchor = entry.BodyAnchor == entry.Anchor
+                ? null
+                : entry.BodyAnchor,
+        };
     }
 
     static void AddSemanticRows(
@@ -2711,6 +2903,7 @@ public static partial class CSharpBodyDiff
         string AssemblyName,
         string StableAssemblyKey,
         MemberAnchor Anchor,
+        MemberAnchor BodyAnchor,
         string RawKey,
         string StableMemberKey,
         string DuplicateDiscriminator,

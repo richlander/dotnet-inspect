@@ -56,6 +56,11 @@ retained production consumer is Inspect Web activation
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028). CLI replay
 of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+Schema-version-5 Workspace package-source declarations and packet format 5
+carry exact credential-free HTTPS NuGet source registrations. Construction
+selects one closed requirement: anonymous or authentication required. CLI and
+Browser hosts choose a supported authentication mechanism while realizing that
+definition; no credential or host mechanism is a definition or packet field.
 The definition-first role of the `workspace` command, portable
 Workspace-to-Workspace transformations, and noun-command packet consumption are
 specified by
@@ -196,7 +201,16 @@ Navigation effect authority remain separate owner-issued currencies.
    Version 3 adds one ordered registration vector beside contexts, permits zero
    contexts when that vector is nonempty or in the closed query-only composition,
    and projects the same complete state into the packet.
-8. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+8. **Portable package-source declarations begin at definition schema version 5
+   and packet format 5.** Versions 1 through 4 remain immutable source
+   contracts. Each source is identified by one exact HTTPS service-index
+   endpoint and carries either an anonymous or authentication-required policy.
+   Credentials are never part of the definition, packet, canonical URL,
+   projection, or diagnostic. A host binds authentication-required endpoints
+   to ephemeral credentials or, where supported, a noninteractive credential
+   provider before acquisition. It refuses unsupported, duplicate, or
+   unexpected bindings rather than widening to ambient source configuration.
+9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -281,7 +295,7 @@ portable basis.
 
 ### The `workspace` command
 
-The `workspace` command transforms portable Workspace state:
+The `workspace` command authors and transforms portable Workspace definitions:
 
 ```text
 direct definition inputs | packet
@@ -941,6 +955,92 @@ Existing CLI inventory and `--active-package` behavior are transitional. They
 may be retired only after the definition-first command and equivalent
 packet-context noun-command paths exist.
 
+### Component identity and immutable packet editing
+
+Workspace Definitions owns packet-local component identity. It applies the
+same separation established by
+[Resource Explanation](resource-explanation.md#resource-identity-and-path-projection):
+typed owner identity remains authoritative, while a separate canonical,
+shell-safe path is emitted for unchanged handoff to a consuming command.
+Resource Explanation's `ResourcePath` is not reused: it names installed product
+contracts, while a Workspace component path names one component in one
+immutable packet snapshot.
+
+The first adopted component domain is every direct Package tuple. Its path is:
+
+```text
+packages/<lowercase-package-id>@<version>/<tfm>/<rid>
+```
+
+`~` represents an absent Version, TFM, or RID. Package ID equality follows the
+existing case-insensitive packet identity; Version, TFM, and RID use the
+packet's canonical normalized spellings. Because packet validity already
+rejects duplicate normalized source tuples, this projection is complete and
+unique for the adopted domain. Reordering unrelated tuples does not change a
+Package path. Updating a coordinate produces a new path in the derived packet,
+as expected for snapshot-local identity.
+
+Context paths use the existing packet-local context identity:
+`contexts/g0`, `contexts/g1`, and so on. They have the same scope as
+`WorkspaceContextAddress`: they are stable for one canonical packet, not global
+context identity. Package add defaults to the packet's selected context;
+`--context` is needed only to override that choice. Component inspection emits
+both typed path families and their relationship, so no edit command derives
+identity from display text or row order.
+
+Packet editing is immutable:
+
+```console
+$ dotnet-inspect workspace component list --packet "$w"
+{
+  "schema_version": 1,
+  "contexts": [
+    {
+      "path": "contexts/g0",
+      "packages": [
+        "packages/system.text.json@10.0.0/net10.0/~"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "path": "packages/system.text.json@10.0.0/net10.0/~",
+      "package_id": "System.Text.Json",
+      "version": "10.0.0",
+      "framework": "net10.0"
+    }
+  ]
+}
+
+$ w=$(dotnet-inspect workspace package add \
+    Microsoft.Extensions.Logging.Abstractions@10.0.0 --packet "$w")
+$ w=$(dotnet-inspect workspace package update \
+    packages/system.text.json@10.0.0/net10.0/~ \
+    --version 9.0.0 --packet "$w")
+$ w=$(dotnet-inspect workspace package remove \
+    packages/microsoft.extensions.logging.abstractions@10.0.0/net10.0/~ \
+    --packet "$w")
+```
+
+Add and remove are resource-free definition transformations. They preserve
+unselected tuples, contexts, registrations, package sources, queries, and view
+states, compact affected indexes, prune only query identities made unreachable
+by removal, and pass the complete result through the canonical packet validity
+gate before emitting it. A removal that cannot produce a valid complete packet
+is a visible refusal.
+
+Update is the user-facing name for the existing realization-backed portable
+Package-coordinate replacement. It accepts an emitted Package path rather than
+a navigation-row ordinal and retains the fresh successor Workspace,
+correspondence, committed-view, and complete-output obligations of that
+contract. "Replacement" remains an implementation description of the
+remove-old/admit-successor mechanism, not CLI vocabulary.
+
+Packet conversion is representation work beneath the same noun:
+`workspace packet decode` and `workspace packet encode`. It remains
+resource-free and canonical. The former peer `workspace-state` name is retired
+because the packet is durable snapshot data, not live Workspace authority.
+
 ### CLI mockup
 
 The target mockup uses real Package and registration intent. Final option
@@ -1009,6 +1109,9 @@ Implementation proceeds in focused slices:
    placement, context-local duplicate handling, all-or-nothing completion, and
    that no graph result enters the packet. Implemented under
    [#7494](https://github.com/richlander/dotnet-inspect/issues/7494).
+   Canonical component paths and immutable Package add/update/remove adoption
+   are implemented under
+   [#8145](https://github.com/richlander/dotnet-inspect/issues/8145).
 5. **Noun-command packet context.** Adopt canonical Base64URL packet-string
    input and derived packet-or-URL Share in `type` under
    [#7555](https://github.com/richlander/dotnet-inspect/issues/7555), then
@@ -1276,16 +1379,16 @@ Field semantics:
   `members`. Schema versions 1 and 2 require at least one context. Schema
   version 3 permits an empty context array when `registrations` is nonempty or
   when the record participates in the query-only peer composition below.
-  Schema version 4 permits an empty context array only when `registrations` is
-  nonempty.
-- `registrations` — required on schema-version-3-or-4 Workspace records and
-  unknown on earlier versions. It is the ordered closed Exact Library, Package
+  Schema versions 4 and 5 permit an empty context array only when
+  `registrations` is nonempty.
+- `registrations` — required on schema-version-3-through-5 Workspace records
+  and unknown on earlier versions. It is the ordered closed Exact Library, Package
   Prefix, or Ecosystem union defined by
   [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
   A version-3 Workspace with neither context nor registration is valid only in
   the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Versions 2 through 4 use the common closed envelope
+  optional product query ID. Versions 2 through 5 use the common closed envelope
   `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
   `payload` is one closed JSON object parsed and canonically rewritten by
   `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
@@ -1410,6 +1513,48 @@ explicit active Library, Type and Member requests without reinterpreting the
 version-2/3 subject tags specified here. Its managed records, codec,
 transposition, resolution and complete restoration are implemented; that
 focused document names the Release gates and remaining CLI/Browser adoption.
+
+### Credential-free package-source declarations
+
+Schema version 5 and packet format 5 add the Workspace-owned
+`packageSources` vector. Each entry contains only an absolute HTTPS
+service-index endpoint without user information, query, or fragment and one
+authentication requirement (`Anonymous` or `AuthenticationRequired`). The
+exact endpoint is the source identity and is unique under ordinal comparison.
+Packet format 5 lowers anonymous sources to `[endpoint]` and
+authentication-required sources to `[endpoint, "a"]`.
+
+Each record is safe by construction: no separate annotation can promote a
+generic source after creation. Exact endpoints are unique. Sources on one
+origin cannot mix anonymous and authentication-required policy, preventing an
+anonymous registration from acquiring authority through another declaration's
+credential provider.
+
+The username, PAT, and credential-provider result are host execution authority,
+not portable state. They are absent from definition JSON, packets, URLs,
+retained postings, and all output. Complete restoration carries the
+credential-free declarations to the host. Before package acquisition, the host
+must validate any explicit bindings and install exactly the packet-declared
+source set. It must not import ambient `nuget.config` sources or persisted
+credentials when a version-5 source set exists.
+
+For an authentication-required endpoint, one complete explicit Basic
+credential wins. If none is supplied, a host that supports noninteractive
+NuGet credential providers may query one for that declared origin. An explicit
+credential rejection is final and must not fall back to a provider. Because
+provider authority is origin-scoped, explicit bindings must cover every
+authentication-required endpoint on the same origin or none. A host without a
+usable provider fails visibly. The CLI accepts explicit PATs through
+environment, redirected-standard-input, or caller-owned file bindings. Inspect
+Web has no provider capability and therefore requires an endpoint-bound
+username and PAT in page-session memory before network work.
+
+Those host mechanisms may retain a credential in process memory for the active
+operation or realization, but must not write it to a packet, browser storage,
+generated file, log, diagnostic, or telemetry event. Host-specific input and
+lifetime details remain owned by
+[NuGet feed authentication](nuget-authentication.md) and
+[Browser package sources](browser-package-sources.md).
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the
@@ -3646,7 +3791,7 @@ Definition records and product demos (this slice):
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
   signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
-  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  `SerializeJson` boundary powers CLI `workspace packet encode` / `decode`;
   those commands accept inline input or bounded strict UTF-8 stdin/file input
   and emit BOM-free UTF-8 without acquisition or execution. Stream and file
   input may carry one terminal LF or CRLF outside the declared payload bound.

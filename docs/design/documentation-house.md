@@ -12,15 +12,17 @@ settles compiled XML documentation and documentation extracted from authored
 source over one exact shared Library reference and transferred operation lease,
 without acquiring packages, platforms, PDBs, or source bytes itself.
 
-The source-neutral request, contribution, attempt, outcome, and receipt floor
-and the compiled-XML operation are implemented in
+The source-neutral request, contribution, channel-attempt, field-evidence,
+outcome, and receipt floor plus compiled-XML and authored-source settlement are
+implemented in
 `DotnetInspector.DocumentationHouse.Contracts` and
 `DotnetInspector.DocumentationHouse`. The subject consumes owner-issued
 Library-Metadata correspondence rather than pairing independently acquired
-Metadata with a Library by assembly identity. The operation consumes one transferred
-`LibraryOperationLease`, snapshots one exact associated XML content reference
-into bounded detached bytes, ends the borrow, invokes the bounded CSharpText
-reader, and settles the lease before publishing resource-free evidence.
+Metadata with a Library by assembly identity. The operation consumes one
+transferred `LibraryOperationLease`, snapshots one exact associated XML content
+reference into bounded detached bytes, ends the borrow, conditionally transfers
+the lease to one pre-authorized authored-source operation, and settles every
+requested channel before publishing resource-free evidence.
 Cancellation and the absolute deadline are observed at each synchronous stage
 boundary; CSharpText's document, member, child, depth, and retained-text limits
 bound the non-interruptible scan itself. Its current `XmlException` contract
@@ -35,10 +37,15 @@ contract. Inspect Web package and platform member documentation now consume
 those House-backed query paths through generated TypeScript declarations.
 PlatformHouse's superseded subject-level documentation contracts are removed.
 The CLI now composes package, direct-Library, and platform reference-pack
-compiled documentation through the same House-backed Queries paths. The
-SourceHouse authored-documentation operation is implemented as a cold,
-single-use adapter over one pre-authorized exact request. The authored channel,
-field settlement, and remaining legacy retirement remain staged.
+compiled documentation through the same House-backed Queries paths.
+`SourceHouseDocumentationHouseAdapter` creates the cold, single-use operation
+for one pre-authorized exact request. DocumentationHouse now invokes that
+source-neutral operation for explicit authored or combined demand, preserves
+both terminal attempts, settles field evidence, and records the final lease
+consumer. Queries now exposes the unified settlement through a QuerySpace-
+backed documentation operation while preserving the compiled-only projection
+for existing consumers. Host adoption and remaining legacy retirement remain
+staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -591,11 +598,13 @@ source/document limits, and deadline before transferring the lease once to
 SourceHouse. Operation-local exits settle the lease locally. After transfer,
 the adapter accepts only the exact SourceHouse request and receipt evidence,
 uses the complete decoded physical document plus the #6584 exact declaration
-span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain
-the CSharpText result, bounded work, opaque source/declaration evidence
-references when available, and the final lease consumer without retaining
-SourceHouse types or live authority. DocumentationHouse core does not invoke
-this operation until slice 18 adds authored demand and channel settlement.
+span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain the CSharpText result, bounded work, opaque
+source/declaration evidence references when available, and the final lease
+consumer without retaining SourceHouse types or live authority.
+DocumentationHouse core invokes the operation only for explicit authored or
+combined demand. Terminal outcomes and receipts snapshot resource-free request
+and plan evidence, including the authored binding and limits but not the
+one-shot operation capability.
 
 DocumentationHouse consumes the returned owner-issued evidence and preserves
 it with the SourceHouse receipt. It does not upgrade filename inference,
@@ -781,10 +790,11 @@ DotnetInspector.DocumentationHouse.Direct
   -> direct Library composition + DocumentationHouse contracts
 
 DotnetInspector.Queries
-  -> DocumentationHouse
-  - executes an already-authorized source-neutral request
+  -> QuerySpace + DocumentationHouse
+  - resolves one explicit documentation demand before House work
+  - executes an already-authorized source-neutral operation plan
   - retains the exact detached outcome for in-process composition
-  - publishes a copied portable terminal outcome as the sole JSON contract
+  - publishes copied portable compiled/authored attempts and field evidence
 
 DotnetInspector.PlatformQueries
   -> Queries + PlatformHouse + DocumentationHouse.Platform
@@ -806,6 +816,36 @@ the House operation starts. `CompiledDocumentationQuery` owns no source adapter
 selection or acquisition. It invokes the House with that prepared request and
 transferred lease, then copies the settled result into
 `CompiledDocumentationOutcome` before returning.
+
+`DocumentationQuery` is the unified migration surface. It registers one
+QuerySpace operation for an exact documentation subject and one required,
+exclusive `demand` term with the closed values `compiled-xml`,
+`authored-source`, and `compiled-xml-and-authored-source`. Its QuerySpace
+descriptor declares one `documentation` row set, one row scope without row
+selection semantics, the Rows terminal, and the
+`documentation/query-result/v1` result contract. A structural request resolves
+to a resource-free `DocumentationQueryPlan` before Library or source work. The
+caller then supplies the exact request identity, subject, pre-authorized House
+operation plan, and transferred Library lease; Queries constructs the House
+request from the resolved demand so the structural and executable inputs
+cannot disagree about requested channels. Foreign QuerySpace identities,
+participating row sets, row intents, terminals, and result contracts reject
+before House execution.
+
+The unified `DocumentationQueryOutcome` is a Queries-owned source-generated
+JSON union. A completed case carries the common subject, optional independent
+compiled and authored attempts, and detached field settlement. The compiled
+attempt reuses the existing nine-case `CompiledDocumentationOutcome`; the
+authored attempt has closed available, absent, unavailable, ambiguous,
+rejected, failed, and incomplete cases. Its reason enums distinguish operation
+absence and evidence mismatch from SourceHouse, physical-declaration,
+CSharpText, deadline, and budget outcomes. Bounded observation code and detail
+are copied when present. Field settlement copies the requested channel order,
+contribution order, selected/corroborated/conflict/absent kind, scalar fields,
+ordinally ordered parameter names, and typed exception and sample lists.
+Top-level House rejection, failure, and incompleteness remain distinct wire
+cases. The exact House outcome, work charge, source evidence references, and
+lease settlement remain available only on the in-process query result.
 
 The exact `DocumentationHouseOutcome` remains available on the in-process
 Queries result and is excluded from JSON. It retains reference-scoped Library,
@@ -994,8 +1034,12 @@ assembly and XML companion in the .NET 11 reference pack.
     authored-documentation operation;
 17. **Completed.** Add the SourceHouse-to-DocumentationHouse integration
     adapter;
-18. add authored-source channel and field settlement to DocumentationHouse;
-19. extend Queries with authored-source documentation evidence;
+18. **Completed.** Add authored-source channel and field settlement to
+    DocumentationHouse;
+19. **Completed under
+    [#8130](https://github.com/richlander/dotnet-inspect/issues/8130).**
+    Extend Queries with authored-source documentation evidence through a
+    QuerySpace-backed operation;
 20. adopt authored-source documentation in Inspect Web;
 21. adopt authored-source documentation in the CLI and remove the remaining
     `SourceEnricher` composition; and
@@ -1077,6 +1121,21 @@ source-dependency absence rule; project references establish the intended
 direction, while Release behavior and adversarial design review provide the
 slice evidence.
 
+`AuthoredSourceDocumentationSettlementTests` gates core adoption. Its real
+combined-channel scenario adds an associated compiler-XML companion to the
+build-attested `MemberTextSlicer.ExtractMemberText` Library, proves that XML
+availability does not suppress the exact SourceHouse read or physical
+declaration attestation, retains both available attempts, preserves their
+different summaries as one conflict, and names SourceHouse as the final lease
+consumer. Neighboring gates prove operation-unavailable House settlement,
+foreign-binding rejection before either channel, continuation after every
+terminal compiled-attempt kind, mapping of every authored non-success,
+selected/corroborated/conflicting/absent field evidence, rejection of a foreign
+produced binding after transfer, and preservation of the operation's typed
+`AlreadyInvoked` result across repeated House execution. The public
+outcome-closure gate includes request evidence, authored attempts, and field
+settlement and continues to reject live resource types.
+
 `PackageHouseExecutionTests` gates the PackageHouse adapter over real
 `System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
 separate LibraryMetadata and DocumentationHouse operation leases, exact
@@ -1126,6 +1185,20 @@ at no more than 1,100 code units.
 closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,
 immutable-array, and Queries-owned values.
+
+`DocumentationQueryTests` gates the unified Queries operation. It requires the
+QuerySpace descriptor and executable route to agree on the one documentation
+row set, Rows terminal, result contract, and closed demand vocabulary. Missing,
+unknown, conflicting, or foreign structural requests reject before House work.
+A real direct C# build attestation for
+`CSharpText.MemberSlicing.MemberTextSlicer.ExtractMemberText` resolves combined
+demand through QuerySpace, executes compiled XML and the SourceHouse adapter,
+and publishes both available attempts plus their differing summaries as one
+ordered field conflict. The same gate proves one source read, one attestation
+read, SourceHouse as final lease consumer, exact House-outcome retention, and a
+portable JSON round trip. Neighboring gates cover authored operation absence
+and each authored terminal category with its closed reason and bounded
+observation.
 
 The CLI documentation command gates require a projected extension method on
 its receiver type to receive the exact declaration-owned compiled
