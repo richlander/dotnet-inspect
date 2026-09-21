@@ -337,9 +337,6 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 
 Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
-`type -S "Decompiled Source" --bare` reconstructs the complete selected type,
-including non-public members; `--all` changes API/member listings, not the
-completeness of full-type source.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. **Explore**
 starts with one Relationships row per exact physical call, with explicit

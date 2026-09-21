@@ -149,11 +149,7 @@ substrates, and inspection producers that will extend that space.
   through its referencing context, an applicable platform, and owner-issued
   package dependency routes without mutating a sealed assembly-context group.
   The source query delegates exact member and type decompilation to SourceHouse
-  over retained Library content while it still owns authored-first ordering.
-  Exact type source is complete for the selected type regardless of listing
-  accessibility; exact-member source remains one selected target.
-  Completed decompiled-only member and type envelopes also supply ordinary CLI
-  Decompiled Source without moving presentation into the query;
+  over retained Library content while it still owns authored-first ordering;
   the
   [authored project dependency facts](design/authored-project-dependency-facts.md)
   owner projects bounded exact project XML into literal target observations,

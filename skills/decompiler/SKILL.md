@@ -30,9 +30,7 @@ full zero-network evidence set:
 - `IL` — raw IL, the highest-fidelity view.
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
-calls matter. Use `--bare` for whole-type source. Full-type decompilation
-includes the selected type's non-public implementation members; `--all`
-controls API/member listings and is not required for complete type source.
+calls matter. Use `--bare` for a whole-type listing.
 `-S @Source` is broader and may fetch network `PDB Source` content when
 SourceLink is available; the fetch follows host-permitted redirects and returns
 the body only when it matches the PDB checksum, without treating the final
