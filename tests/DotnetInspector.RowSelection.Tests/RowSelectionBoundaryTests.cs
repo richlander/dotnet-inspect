@@ -1,5 +1,6 @@
 using QuerySpace.Rows;
 using QuerySpace.Consumer;
+using QuerySpace.Composition;
 
 namespace DotnetInspector.RowSelection.Tests;
 
@@ -82,6 +83,15 @@ public sealed class RowSelectionBoundaryTests
         Assert.DoesNotContain(
             observation.CollectionType.GetInterfaces(),
             IsQuerySpaceInterface);
+        Assert.Equal(
+            "application.space",
+            observation.QuerySpace);
+        Assert.Equal(
+            "rows.application",
+            observation.RowScope);
+        Assert.Equal(
+            QuerySpaceTerminalRequirement.Rows,
+            observation.Terminal);
     }
 
     private static bool IsQuerySpaceInterface(Type type) =>
