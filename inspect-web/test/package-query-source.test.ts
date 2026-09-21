@@ -286,11 +286,12 @@ function semanticAssessmentSucceeded(
             }]
           : hasOperationDeadline
             ? [{
-                packageId: null,
-                version: null,
+                packageId: "contoso.package",
+                version: "2.0.0",
                 producer: "nuget.org",
-                kind: "Search",
-                message: "The package source operation deadline expired.",
+                kind: "AssemblyNotEvaluated",
+                message:
+                  "The operation deadline expired before semantic evaluation.",
                 manifestFailureReason: null,
               }]
             : [],
@@ -536,6 +537,7 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
     const assessments: unknown[] = [];
     const failures: string[] = [];
     const retainedAssessmentKinds: unknown[] = [];
+    const retainedFailureKinds: unknown[] = [];
     const engine: BrowserPackageQueryEngine = {
       ...defaultControls,
       async run(...args) {
@@ -580,6 +582,8 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
         if (inspection !== null) {
           retainedAssessmentKinds.push(
             inspection.content.libraryLiteralAssessments[0]?.kind);
+          retainedFailureKinds.push(
+            inspection.content.failures[0]?.kind ?? null);
         }
       },
     }).run(
@@ -610,6 +614,13 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
           }]
         : []);
     assert.deepEqual(retainedAssessmentKinds, [kind]);
+    assert.deepEqual(
+      retainedFailureKinds,
+      [kind === "Failure"
+        ? "AssemblyEvaluation"
+        : kind === "NotEvaluated"
+          ? "AssemblyNotEvaluated"
+          : null]);
     assert.equal(
       failures.length,
       kind === "Failure" || kind === "NotEvaluated" ? 1 : 0);

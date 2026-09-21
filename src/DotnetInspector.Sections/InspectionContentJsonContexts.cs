@@ -6,7 +6,11 @@ using DotnetInspector.Queries;
 namespace DotnetInspector.Sections;
 
 [JsonSourceGenerationOptions(
-    Converters = [typeof(InertStringJsonConverter)],
+    Converters =
+    [
+        typeof(InertStringJsonConverter),
+        typeof(PackageRootReacquisitionRequestJsonConverter),
+    ],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PackageQueryDocument))]
 public partial class PackageQueryJsonContext : JsonSerializerContext;

@@ -249,10 +249,6 @@ internal static class PackageQueryCommand
                 + "use -n or a closed --rows range that is satisfied by the observed rows.");
             return 1;
         }
-        var view = PackageQuerySections.CreateDocument(
-            plan.Prefix.ToString(),
-            displayResults,
-            summary);
         HashSet<string> includeSections = options.IncludeSections
             ?? (options.SelectDefault
                 ? [.. PackageQuerySections.BareSelectSectionNames]
@@ -261,7 +257,22 @@ internal static class PackageQueryCommand
                         ? PackageProfileSections.Packages
                         : PackageQuerySections.QuerySummaryName,
                 ]);
-        WriteOutput(view, options, includeSections);
+        if (plan.RequiresLibraryLiteralEvaluation)
+        {
+            var semanticView = PackageQuerySections.CreateSemanticDocument(
+                plan.Prefix.ToString(),
+                displayResults,
+                summary);
+            WriteOutput(semanticView, options, includeSections);
+        }
+        else
+        {
+            var view = PackageQuerySections.CreateDocument(
+                plan.Prefix.ToString(),
+                displayResults,
+                summary);
+            WriteOutput(view, options, includeSections);
+        }
         WriteDiagnostics(
             document.Failures,
             summary,
@@ -309,6 +320,39 @@ internal static class PackageQueryCommand
             && includeSections.Contains(PackageProfileSections.Packages)
                 ? EmptyPackageQueryView.From(view)
                 : null;
+        WriteOutputCore(
+            view,
+            view.Results.Count,
+            emptyView,
+            options,
+            includeSections);
+    }
+
+    private static void WriteOutput(
+        PackageQuerySemanticView view,
+        PackageQueryOptions options,
+        HashSet<string> includeSections)
+    {
+        EmptyPackageQueryView? emptyView =
+            view.Results.Count == 0
+            && includeSections.Contains(PackageProfileSections.Packages)
+                ? EmptyPackageQueryView.From(view)
+                : null;
+        WriteOutputCore(
+            view,
+            view.Results.Count,
+            emptyView,
+            options,
+            includeSections);
+    }
+
+    private static void WriteOutputCore<TView>(
+        TView view,
+        int resultCount,
+        EmptyPackageQueryView? emptyView,
+        PackageQueryOptions options,
+        HashSet<string> includeSections)
+    {
 
         void Serialize(
             TextWriter writer,
@@ -340,7 +384,7 @@ internal static class PackageQueryCommand
 
         if (options.Count)
         {
-            CountOutput.WriteCount(view.Results.Count);
+            CountOutput.WriteCount(resultCount);
         }
         else if (options.JsonOutput)
         {

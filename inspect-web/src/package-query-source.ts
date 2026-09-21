@@ -822,6 +822,7 @@ function failureKindValue(
     case "DependencyTraversal":
     case "AssemblyAcquisition":
     case "AssemblyEvaluation":
+    case "AssemblyNotEvaluated":
       return value;
     default:
       throw new TypeError(

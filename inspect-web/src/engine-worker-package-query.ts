@@ -895,6 +895,7 @@ function parseFailure(
         "DependencyTraversal",
         "AssemblyAcquisition",
         "AssemblyEvaluation",
+        "AssemblyNotEvaluated",
       ] as const,
       "Package Query failure kind"),
     message: text(

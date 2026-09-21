@@ -1226,7 +1226,7 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public async Task DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition()
+    public async Task DataDiscovery_UsesUnifiedPackageQuerySchemaWithoutAcquisition()
     {
         var query = await Run(
             "package",
@@ -1237,7 +1237,13 @@ public class PackageQueryCliTests
         Assert.Equal(0, query.ExitCode);
         Assert.Contains("Source", query.Output);
         Assert.Contains("Answer", query.Output);
-        Assert.DoesNotContain("Evidence", query.Output);
+        Assert.Contains("Library", query.Output);
+        Assert.Contains("Assembly", query.Output);
+        Assert.Contains("Target Framework", query.Output);
+        Assert.Contains("Unevaluated Siblings", query.Output);
+        Assert.Contains("Occurrences", query.Output);
+        Assert.Contains("Evidence", query.Output);
+        Assert.Contains("Root", query.Output);
 
         var summary = await Run(
             "package",
@@ -1806,9 +1812,11 @@ public class PackageQueryCliTests
         var json = await Run([.. arguments, "--json", "--compact"]);
         var envelope =
             await Run([.. arguments, "--envelope", "--compact"]);
+        var markdown = await Run(arguments);
 
         Assert.Equal(0, json.ExitCode);
         Assert.Equal(0, envelope.ExitCode);
+        Assert.Equal(0, markdown.ExitCode);
         using JsonDocument contentDocument = JsonDocument.Parse(json.Output);
         using JsonDocument envelopeDocument =
             JsonDocument.Parse(envelope.Output);
@@ -1816,6 +1824,31 @@ public class PackageQueryCliTests
             JsonElement.DeepEquals(
                 contentDocument.RootElement,
                 envelopeDocument.RootElement.GetProperty("content")));
+        JsonElement literal = contentDocument.RootElement
+            .GetProperty("results")[0]
+            .GetProperty("libraryLiteral");
+        string rootToken = literal
+            .GetProperty("rootRequest")
+            .GetString()
+            ?? throw new InvalidOperationException(
+                "Expected an encoded Package Root reopening token.");
+        string libraryPath = literal
+            .GetProperty("selectedAsset")
+            .GetProperty("path")
+            .GetString()
+            ?? throw new InvalidOperationException(
+                "Expected a selected implementation library path.");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootToken,
+                out PackageRootReacquisitionRequest? rootRequest));
+        Assert.Equal(
+            "Newtonsoft.Json",
+            rootRequest.Coordinate.PackageId,
+            ignoreCase: true);
+        Assert.Contains(libraryPath, markdown.Output);
+        Assert.Contains("/IL_", markdown.Output);
+        Assert.Contains(rootToken, markdown.Output);
     }
 
     [Theory]

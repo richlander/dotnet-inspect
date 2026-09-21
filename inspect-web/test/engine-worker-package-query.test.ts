@@ -454,6 +454,57 @@ function semanticCandidateFailureInspected(): BrowserPackageQueryResult {
   };
 }
 
+function semanticCandidateDeadlineInspected(): BrowserPackageQueryResult {
+  const valid = semanticInspected();
+  const inspection = valid.inspection;
+  if (inspection === null) {
+    throw new Error("Expected semantic Package Query inspection.");
+  }
+  const content = inspection.content;
+  const candidate = content.libraryLiteralAssessments[0]!;
+  const message =
+    "The operation deadline expired before semantic evaluation.";
+  return {
+    ...valid,
+    inspection: {
+      ...inspection,
+      content: {
+        ...content,
+        hasPackages: false,
+        results: [],
+        failures: [{
+          packageId: candidate.packageId,
+          version: candidate.version,
+          producer: candidate.producer,
+          kind: "AssemblyNotEvaluated",
+          message,
+          manifestFailureReason: null,
+        }],
+        completion: {
+          ...content.completion,
+          matches: 0,
+          failures: 1,
+          occurrences: 0,
+          notEvaluated: 1,
+          evaluatedCandidates: 0,
+          semanticMatches: 0,
+        },
+        libraryLiteralAssessments: [{
+          ...candidate,
+          kind: "NotEvaluated",
+          result: null,
+          selectedAsset: null,
+          rootRequest: null,
+          nonEvaluationKind: "OperationDeadline",
+          timeoutKind: "Operation",
+          timeoutSeconds: 25,
+          message,
+        }],
+      },
+    },
+  };
+}
+
 function semanticZeroCandidateDeadlineInspected(): BrowserPackageQueryResult {
   const valid = semanticInspected();
   const inspection = valid.inspection;
@@ -1502,6 +1553,14 @@ test("Package Query Worker accepts producer-valid semantic failure completion", 
   assert.equal(
     mapEngineWorkerPackageQueryResult(
       semanticCandidateFailureInspected()).kind,
+    "succeeded",
+  );
+});
+
+test("Package Query Worker accepts a candidate assembly deadline", () => {
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(
+      semanticCandidateDeadlineInspected()).kind,
     "succeeded",
   );
 });

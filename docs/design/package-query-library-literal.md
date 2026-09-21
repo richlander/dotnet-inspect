@@ -110,6 +110,12 @@ Presentation may show a bounded occurrence preview, but the
 Method-definition tokens and IL offsets remain typed coordinates rather than
 display-string identity.
 
+CLI Package Query presentation exposes the selected-library context, complete
+occurrence count, bounded coordinate preview, and opaque Root reopening token
+on each semantic package row. Package Query JSON serializes the typed
+`RootRequest` as that same opaque token so `workspace --root-request` can
+consume it without reconstructing owner-private fields.
+
 The Document also retains one typed semantic assessment for every candidate
 that entered the selected-library evaluator: `Matched`, `NoMatch`,
 `NotApplicable`, `Failure`, or `NotEvaluated`. Preliminary Package Query
