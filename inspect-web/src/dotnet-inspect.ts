@@ -12423,8 +12423,12 @@ function navigateProductDestination(destination: ProductDestination): void {
     return;
   }
   observeAsync(
-    openWorkspaceProductDestination().then(() =>
-      afterCurrentNavigationFrame(() => focusWorkspaceOrHeading())),
+    openWorkspaceProductDestination().then(navigationSeq =>
+      navigationSeq === null
+        ? undefined
+        : afterNavigationFrame(
+          navigationSeq,
+          () => focusWorkspaceOrHeading())),
     "Opening the Workspace destination");
 }
 
@@ -12635,6 +12639,12 @@ function focusPackageActivityInput() {
       if (document.activeElement === packageSet) return;
     }
     focusLevelOneHeading();
+  });
+}
+
+function afterNavigationFrame(navigationSeq: number, action: () => void) {
+  requestAnimationFrame(() => {
+    if (navigationSequence.isCurrent(navigationSeq)) action();
   });
 }
 
@@ -12905,9 +12915,23 @@ function openPackageActivityRoute(
   focusPackageActivityInput();
 }
 
-async function openWorkspaceProductDestination() {
+function reportWorkspaceProductNavigationFailure(error: unknown): void {
+  console.error("Opening Workspace failed.", error);
+  const message =
+    `Opening Workspace failed: ${errorMessage(error) || "Unknown error."}`;
+  if (state.packageQueryOpen) {
+    state.packageQueryNavigationError = message;
+  } else {
+    appendQueryNotice(message);
+  }
+  render();
+  showToast(message);
+}
+
+async function openWorkspaceProductDestination(): Promise<number | null> {
   const pkg = state.package;
-  if (!pkg && !state.platformSelection) return;
+  if (!pkg && !state.platformSelection) return null;
+  const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
 
   dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
@@ -12943,10 +12967,10 @@ async function openWorkspaceProductDestination() {
   } catch (error) {
     projectionError = error;
   }
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!pkg && projectionError !== null) {
-    reportAsyncFailure("Opening Workspace", projectionError);
-    return;
+  if (!navigationSequence.isCurrent(navigationSeq)) return null;
+  if (!fallbackPackage && projectionError !== null) {
+    reportWorkspaceProductNavigationFailure(projectionError);
+    return null;
   }
 
   discardPackageQueryTermEditors();
@@ -12977,11 +13001,13 @@ async function openWorkspaceProductDestination() {
       return projected;
     },
     () => {
-      if (!pkg) throw new Error("Package Workspace fallback is unavailable.");
+      if (!fallbackPackage) {
+        throw new Error("Package Workspace fallback is unavailable.");
+      }
       const fallback = buildPackageRootStateUrl(location.href, {
-        package: pkg.id,
-        version: pkg.version,
-        framework: pkg.activeFramework,
+        package: fallbackPackage.id,
+        version: fallbackPackage.version,
+        framework: fallbackPackage.activeFramework,
         lens: state.packageLens,
       });
       fallback.hash = "workspace";
@@ -12994,6 +13020,7 @@ async function openWorkspaceProductDestination() {
   }
   workspaceLocation.push(successor.url.toString());
   render();
+  return navigationSeq;
 }
 
 function closePackageQueryRoute() {

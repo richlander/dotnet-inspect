@@ -75,6 +75,69 @@ test("pending platform Workspace projection keeps Query current", async ({
   await expect(page).not.toHaveURL(queryLocation);
 });
 
+test("superseded Workspace projection cannot steal Activity focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await releaseFacade(page, "hold-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL(/\/activity$/);
+  const packageSet = page.locator("#package-changes-package-set");
+  await expect(packageSet).toBeFocused();
+
+  await releaseFacade(page, "finish-workspace-encode");
+  await page.waitForTimeout(100);
+  await expect(packageSet).toBeFocused();
+});
+
+test("Platform Workspace projection failure remains visible on Query", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  const queryLocation = page.url();
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page).toHaveURL(queryLocation);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Fixture workspace projection failure.");
+});
+
+test("Platform Library projection failure does not use package fallback", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await page.getByRole(
+    "button",
+    { name: /System.Text.Json Implementation/ },
+  ).click();
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+  await openProductDestination(page, "query");
+  const queryLocation = page.url();
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page).toHaveURL(queryLocation);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Fixture workspace projection failure.");
+});
+
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
   await openPlatform(page, { warmup: "pending" });
   await expect(page.locator(".platform-library-row")).toHaveCount(3);

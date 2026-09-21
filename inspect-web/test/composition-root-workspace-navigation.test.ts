@@ -1176,7 +1176,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /state\.packageQueryReturnFocus === "application-query"[\s\S]*focusRenderedElement\(document\.querySelector<HTMLElement>\(\s*"\[data-product-navigation-button\]"\)\)[\s\S]*else if \(focusLevelOneHeading\(\)\)/);
   assert.match(
     appSource,
-    /function afterCurrentNavigationFrame\(action: \(\) => void\) \{\s*const navigationSeq = navigationSequence\.current\(\);[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)/);
+    /function afterNavigationFrame\(navigationSeq: number, action: \(\) => void\) \{[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)[\s\S]*function afterCurrentNavigationFrame\(action: \(\) => void\) \{\s*const navigationSeq = navigationSequence\.current\(\);[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)/);
   assert.match(
     appSource,
     /function focusTypeList\([\s\S]*afterCurrentNavigationFrame\(\(\) => \{[\s\S]*"#type-list"/);
@@ -1245,7 +1245,13 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /async function openWorkspaceProductDestination\(\) \{[\s\S]*const routeState = \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*const projection = buildStateUrl\(\);\s*Object\.assign\(state, routeState\);[\s\S]*projected = await projection;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!pkg && projectionError !== null\) \{\s*reportAsyncFailure\("Opening Workspace", projectionError\);[\s\S]*discardPackageQueryTermEditors\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\([\s\S]*if \(projectionError !== null\) \{[\s\S]*throw projectionError instanceof Error[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+    /async function openWorkspaceProductDestination\(\): Promise<number \| null> \{[\s\S]*const fallbackPackage = pkg\?\.source\.kind === "platform" \? null : pkg;[\s\S]*const routeState = \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*const projection = buildStateUrl\(\);\s*Object\.assign\(state, routeState\);[\s\S]*projected = await projection;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return null;[\s\S]*if \(!fallbackPackage && projectionError !== null\) \{\s*reportWorkspaceProductNavigationFailure\(projectionError\);[\s\S]*discardPackageQueryTermEditors\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\([\s\S]*if \(projectionError !== null\) \{[\s\S]*throw projectionError instanceof Error[\s\S]*if \(!fallbackPackage\) \{[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\);\s*return navigationSeq;/);
+  assert.match(
+    appSource,
+    /openWorkspaceProductDestination\(\)\.then\(navigationSeq =>\s*navigationSeq === null\s*\? undefined\s*: afterNavigationFrame\(\s*navigationSeq,\s*\(\) => focusWorkspaceOrHeading\(\)\)/);
+  assert.match(
+    appSource,
+    /function reportWorkspaceProductNavigationFailure\(error: unknown\): void \{[\s\S]*if \(state\.packageQueryOpen\) \{\s*state\.packageQueryNavigationError = message;[\s\S]*render\(\);\s*showToast\(message\)/);
   assert.match(
     appSource,
     /function navigateProductDestination\(destination: ProductDestination\)[\s\S]*destination === "home"[\s\S]*destination === "query"[\s\S]*openPackageQueryRoute\("", \{[\s\S]*destination === "activity"[\s\S]*openPackageActivityRoute\("application-activity"\)[\s\S]*openWorkspaceProductDestination\(\)/);
