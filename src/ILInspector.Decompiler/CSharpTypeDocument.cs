@@ -449,6 +449,9 @@ static class CSharpTypeDocumentValidator
         ValidateBodies(data.Bodies, data.Artifacts, data.TypeAddress.ModuleVersionId);
         ValidateArtifactBodyAssociations(data.Artifacts, data.Bodies);
         ValidateFrameBodyReferences(data.Frame, data.Bodies);
+        ValidateSkeletonExcludesBodyEvidence(
+            data.Frame.PrefixParts,
+            "Type frame");
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
         ValidateArtifactBodyDeclarationRoles(
             data.Artifacts,
@@ -663,12 +666,15 @@ static class CSharpTypeDocumentValidator
             ValidateParts(declaration.Parts, $"Declaration {declaration.Id}");
             if (!declaration.Parts.Any(static part =>
                 part.Kind == CSharpTypeRenderPartKind.Fixed
-                && part.FullText.Length > 0))
+                && !string.IsNullOrWhiteSpace(part.FullText)))
             {
                 throw new ArgumentException(
-                    $"Declaration {declaration.Id} requires a non-empty signature part.");
+                    $"Declaration {declaration.Id} requires a non-whitespace signature part.");
             }
             ValidateBodyReferences(declaration, artifacts, bodies);
+            ValidateSkeletonExcludesBodyEvidence(
+                declaration.Parts,
+                $"Declaration {declaration.Id}");
         }
     }
 
@@ -1068,13 +1074,6 @@ static class CSharpTypeDocumentValidator
                     throw new ArgumentException(
                         $"{owner} implementation part {part.Id} must be independently selectable for one owned body.");
                 }
-                if ((!part.OwnedBodies.IsDefaultOrEmpty
-                        || !part.Contributions.IsDefaultOrEmpty)
-                    && part.FullText == part.SkeletonText)
-                {
-                    throw new ArgumentException(
-                        $"{owner} body-backed implementation part {part.Id} requires distinct full and skeleton alternatives.");
-                }
             }
             else
             {
@@ -1096,6 +1095,31 @@ static class CSharpTypeDocumentValidator
                 }
             }
 
+        }
+    }
+
+    static void ValidateSkeletonExcludesBodyEvidence(
+        ImmutableArray<CSharpTypeRenderPart> parts,
+        string owner)
+    {
+        foreach (CSharpTypeRenderPart part in parts)
+        {
+            foreach (CSharpSourceRange range in part.OwnedBodies
+                .Select(static reference => reference.FullRange)
+                .Concat(part.Contributions.Select(
+                    static contribution => contribution.FullRange)))
+            {
+                string evidence = part.FullText.Substring(
+                    range.Start,
+                    range.Length);
+                if (part.SkeletonText.Contains(
+                    evidence,
+                    StringComparison.Ordinal))
+                {
+                    throw new ArgumentException(
+                        $"{owner} body-backed implementation part {part.Id} skeleton retains exact body evidence.");
+                }
+            }
         }
     }
 

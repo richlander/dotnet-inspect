@@ -278,12 +278,12 @@ public class CSharpTypeDocumentTests
                 1,
                 implementation with
                 {
-                    SkeletonText = implementation.FullText,
+                    SkeletonText = implementation.FullText + " ",
                 }),
         };
 
         Assert.Contains(
-            "requires distinct full and skeleton alternatives",
+            "skeleton retains exact body evidence",
             Assert.Throws<ArgumentException>(() => Create(input)).Message);
     }
 
@@ -291,10 +291,13 @@ public class CSharpTypeDocumentTests
     public void Create_RequiresNonEmptyDeclarationSignature()
     {
         var input = Input();
-        input.Declarations[0] = input.Declarations[0] with { Parts = [] };
+        input.Declarations[0] = input.Declarations[0] with
+        {
+            Parts = [Fixed(0, " ")],
+        };
 
         Assert.Contains(
-            "requires a non-empty signature part",
+            "requires a non-whitespace signature part",
             Assert.Throws<ArgumentException>(() => Create(input)).Message);
     }
 
@@ -530,15 +533,19 @@ public class CSharpTypeDocumentTests
             missingSkeletonDifference["declarations"]!.AsArray()[2]!["parts"]!
                 .AsArray()[1]!;
         constructorPart["skeleton_text"] =
-            constructorPart["full_text"]!.GetValue<string>();
+            constructorPart["full_text"]!.GetValue<string>() + " ";
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(
                 missingSkeletonDifference.ToJsonString()));
 
         JsonObject emptyDeclaration =
             Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        JsonNode whitespaceSignature = emptyDeclaration["declarations"]!
+            .AsArray()[0]!["parts"]!.AsArray()[0]!.DeepClone();
+        whitespaceSignature["full_text"] = " ";
+        whitespaceSignature["skeleton_text"] = " ";
         emptyDeclaration["declarations"]!.AsArray()[0]!["parts"] =
-            new JsonArray();
+            new JsonArray(whitespaceSignature);
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(
                 emptyDeclaration.ToJsonString()));
