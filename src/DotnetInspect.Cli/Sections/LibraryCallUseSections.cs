@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -6,6 +7,41 @@ public sealed record LibraryCallUseDiscoveryModel;
 
 public static class LibraryCallUseSections
 {
+    private static readonly SemanticRowDeclaration[] SemanticRows =
+    [
+        new(
+            ConsumerUseSites,
+            GraphLibrariesSectionRows.ConsumerUseSites,
+            "Library consumer-use-site",
+            "use site",
+            "consumer use sites"),
+        new(
+            ProviderApiTypes,
+            GraphLibrariesSectionRows.ProviderApiTypes,
+            "Library provider-API-type",
+            "type",
+            "provider API types"),
+        new(
+            DirectUseClusters,
+            GraphLibrariesSectionRows.DirectUseClusters,
+            "Library direct-use cluster",
+            "cluster",
+            "direct-use clusters"),
+        new(
+            CallSites,
+            GraphLibrariesSectionRows.CallSites,
+            "Library call-site",
+            "call site",
+            "call sites"),
+    ];
+
+    private static readonly IReadOnlyDictionary<
+        string,
+        SemanticRowDeclaration> SemanticRowsBySection =
+            SemanticRows.ToDictionary(
+                static declaration => declaration.Section,
+                StringComparer.OrdinalIgnoreCase);
+
     public const string ConsumerUseSites =
         LibraryCallUseViewSections.ConsumerUseSites;
     public const string ProviderApiTypes =
@@ -27,6 +63,35 @@ public static class LibraryCallUseSections
         new HashSet<string>(
             [PublicRootPaths],
             StringComparer.OrdinalIgnoreCase);
+
+    internal static IReadOnlyList<SemanticRowDeclaration>
+        SemanticRowDeclarations => SemanticRows;
+
+    internal static bool TryGetSemanticRows(
+        IReadOnlyCollection<string>? selectedSections,
+        out SemanticRowDeclaration? declaration)
+    {
+        if (selectedSections is null)
+        {
+            declaration = SemanticRowsBySection[CallSites];
+            return true;
+        }
+
+        string[] distinct =
+        [
+            .. selectedSections.Distinct(
+                StringComparer.OrdinalIgnoreCase),
+        ];
+        if (distinct is [var section])
+        {
+            return SemanticRowsBySection.TryGetValue(
+                section,
+                out declaration);
+        }
+
+        declaration = null;
+        return false;
+    }
 
     public static SectionCatalog<LibraryCallUseDiscoveryModel> Catalog
     {
@@ -99,5 +164,21 @@ public static class LibraryCallUseSections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryCallUseDiscoveryModel model) => true;
+    }
+
+    internal sealed record SemanticRowDeclaration(
+        string Section,
+        GraphLibrariesSectionRowBinding Rows,
+        string FailureSubject,
+        string RequiredItem,
+        string AvailableItems)
+    {
+        internal string FormatFailure(
+            int stageNumber,
+            int requiredPosition,
+            int availableCount) =>
+            $"{FailureSubject} row selection stage {stageNumber} requires "
+                + $"{RequiredItem} {requiredPosition}, but only "
+                + $"{availableCount} {AvailableItems} are available.";
     }
 }

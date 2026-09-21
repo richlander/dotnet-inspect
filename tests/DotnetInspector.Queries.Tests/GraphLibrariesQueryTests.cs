@@ -1,5 +1,7 @@
 using QuerySpace;
+using QuerySpace.Composition;
 using QuerySpace.Operations;
+using QuerySpace.Rows;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Queries.Tests;
@@ -73,6 +75,51 @@ public sealed class GraphLibrariesQueryTests
                 [PortableQueryOperator.Equal],
                 registered.Operators);
         }
+    }
+
+    [Fact]
+    public void QuerySpace_DeclaresEveryOperationRowSetAndSemanticCapability()
+    {
+        QuerySpaceBinding querySpace = GraphLibrariesQuery.QuerySpace;
+
+        Assert.Equal(
+            GraphLibrariesQuery.RowSets,
+            querySpace.Descriptor.Operation.RowSets);
+        Assert.Equal(5, querySpace.RowScopes.Count);
+        Assert.Collection(
+            querySpace.RowScopes,
+            scope => AssertSelectableScope(
+                scope,
+                GraphLibrariesQuery.ConsumerUseSitesRowScope,
+                GraphLibrariesQuery.ConsumerUseSitesRowSet),
+            scope => AssertSelectableScope(
+                scope,
+                GraphLibrariesQuery.ProviderApiTypesRowScope,
+                GraphLibrariesQuery.ProviderApiTypesRowSet),
+            scope => AssertSelectableScope(
+                scope,
+                GraphLibrariesQuery.DirectUseClustersRowScope,
+                GraphLibrariesQuery.DirectUseClustersRowSet),
+            scope => AssertSelectableScope(
+                scope,
+                GraphLibrariesQuery.CallSitesRowScope,
+                GraphLibrariesQuery.CallSitesRowSet),
+            scope =>
+            {
+                Assert.Same(
+                    GraphLibrariesQuery.PublicRootPathsRowScope,
+                    scope);
+                Assert.Equal(
+                    [GraphLibrariesQuery.PublicRootPathsRowSet],
+                    scope.Descriptor.RowSets);
+                Assert.Empty(scope.Descriptor.Stages);
+            });
+        Assert.Equal(
+            [
+                QuerySpaceTerminalRequirement.Rows,
+                QuerySpaceTerminalRequirement.Count,
+            ],
+            querySpace.Descriptor.Terminals);
     }
 
     [Fact]
@@ -180,4 +227,20 @@ public sealed class GraphLibrariesQueryTests
         GraphLibrariesQuery.ResolveIntent(
             intent,
             TestContext.Current.CancellationToken);
+
+    private static void AssertSelectableScope(
+        QuerySpaceRowScopeBinding actual,
+        QuerySpaceRowScopeBinding expected,
+        string rowSet)
+    {
+        Assert.Same(expected, actual);
+        Assert.Equal([rowSet], actual.Descriptor.RowSets);
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Tail,
+                RowSelectionStageKind.Window,
+            ],
+            actual.Descriptor.Stages);
+    }
 }

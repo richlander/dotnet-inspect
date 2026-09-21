@@ -21,7 +21,7 @@ public enum PlatformCompiledDocumentationSubjectSelection
 }
 
 /// <summary>
-/// One exact package-backed Platform compiled-documentation inspection.
+/// One exact Platform compiled-documentation inspection.
 /// </summary>
 public sealed record PlatformCompiledDocumentationInspectionRequest
 {
@@ -88,7 +88,7 @@ public sealed record PlatformCompiledDocumentationSelection(
         DocumentationIds.IsDefault ? [] : DocumentationIds;
 }
 
-/// <summary>One completed ordered package-backed Platform documentation result.</summary>
+/// <summary>One completed ordered Platform documentation result.</summary>
 public sealed record PlatformCompiledDocumentationDocument(
     PlatformCompiledDocumentationSelection Selection,
     ImmutableArray<CompiledDocumentationOutcome> Outcomes)
@@ -103,13 +103,39 @@ public enum PlatformCompiledDocumentationFailureStage
     LibraryMaterialization,
 }
 
+public enum PlatformCompiledDocumentationSource
+{
+    Package,
+    Installed,
+}
+
+/// <summary>Source-owner diagnostic identity retained across the envelope.</summary>
+public sealed record PlatformCompiledDocumentationSourceDiagnostic
+{
+    public PlatformCompiledDocumentationSourceDiagnostic(
+        PlatformCompiledDocumentationSource source,
+        string code)
+    {
+        if (!Enum.IsDefined(source))
+            throw new ArgumentOutOfRangeException(nameof(source));
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+
+        Source = source;
+        Code = code;
+    }
+
+    public PlatformCompiledDocumentationSource Source { get; }
+
+    public string Code { get; }
+}
+
 /// <summary>A typed non-success rather than successful empty documentation.</summary>
 public sealed record PlatformCompiledDocumentationFailure(
     PlatformCompiledDocumentationSelection Selection,
     PlatformCompiledDocumentationFailureStage Stage,
     [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Summary,
-    PackagePlatformSourceDiagnosticKind? SourceDiagnostic,
+    PlatformCompiledDocumentationSourceDiagnostic? SourceDiagnostic,
     PlatformHouseSettlementKind? Settlement);
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -131,11 +157,105 @@ public abstract record PlatformCompiledDocumentationInspectionOutcome
 }
 
 /// <summary>
-/// Settles package-backed Platform reference content and compiled
-/// documentation behind one detached inspection envelope.
+/// Settles Platform reference content and compiled documentation behind one
+/// detached inspection envelope.
 /// </summary>
 public static class PlatformCompiledDocumentationInspection
 {
+    public sealed class Execution
+    {
+        private readonly PlatformCompiledDocumentationInspectionRequest
+            _request;
+        private readonly PlatformCompiledDocumentationSelection _selection;
+
+        internal Execution(
+            PlatformCompiledDocumentationInspectionRequest request,
+            PlatformCompiledDocumentationSelection selection,
+            PlatformHouseRequest houseRequest)
+        {
+            _request = request;
+            _selection = selection;
+            HouseRequest = houseRequest;
+        }
+
+        public PlatformHouseRequest HouseRequest { get; }
+
+        public InspectionEnvelope<
+            PlatformCompiledDocumentationInspectionOutcome>
+            SourceFailure(
+                string summary,
+                PlatformCompiledDocumentationSourceDiagnostic diagnostic)
+        {
+            ArgumentNullException.ThrowIfNull(summary);
+            ArgumentNullException.ThrowIfNull(diagnostic);
+            return FailureEnvelope(
+                new(
+                    _selection,
+                    PlatformCompiledDocumentationFailureStage
+                        .SourceRealization,
+                    Field(summary),
+                    diagnostic,
+                    Settlement: null),
+                "platform-compiled-documentation.source-realization");
+        }
+
+        public InspectionEnvelope<
+            PlatformCompiledDocumentationInspectionOutcome>
+            MaterializationFailure(PlatformHouseSettlementKind settlement) =>
+            FailureEnvelope(
+                new(
+                    _selection,
+                    PlatformCompiledDocumentationFailureStage
+                        .LibraryMaterialization,
+                    Field(
+                        "PlatformHouse could not materialize the exact "
+                            + "reference Library."),
+                    SourceDiagnostic: null,
+                    settlement),
+                "platform-compiled-documentation.library-materialization");
+
+        public Task<
+            InspectionEnvelope<
+                PlatformCompiledDocumentationInspectionOutcome>>
+            CompleteAsync(
+                PlatformLibraryRealizationResult.Completed library,
+                IAsyncDisposable artifacts,
+                PlatformCompiledDocumentationQueryLimits? queryLimits = null,
+                CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(library);
+            ArgumentNullException.ThrowIfNull(artifacts);
+            return PlatformCompiledDocumentationInspection.CompleteAsync(
+                _request,
+                _selection,
+                library,
+                artifacts,
+                queryLimits,
+                cancellationToken);
+        }
+    }
+
+    public static Execution Prepare(
+        PlatformCompiledDocumentationInspectionRequest request,
+        PlatformSourceCapabilityIdentity referenceCapability,
+        PlatformHouseWorkBudget realizationWork,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(referenceCapability);
+        ArgumentNullException.ThrowIfNull(realizationWork);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return new(
+            request,
+            Snapshot(request),
+            CreateRequest(
+                request,
+                referenceCapability,
+                realizationWork,
+                cancellationToken));
+    }
+
     public static async Task<
         InspectionEnvelope<PlatformCompiledDocumentationInspectionOutcome>>
         ExecutePackageBackedAsync(
@@ -149,15 +269,9 @@ public static class PlatformCompiledDocumentationInspection
         ArgumentNullException.ThrowIfNull(sourceOperation);
         using (sourceOperation)
         {
-            ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(adapter);
-            ArgumentNullException.ThrowIfNull(realizationWork);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            PlatformCompiledDocumentationSelection selection =
-                Snapshot(request);
-            PlatformHouseRequest houseRequest =
-                CreateRequest(
+            Execution execution =
+                Prepare(
                     request,
                     adapter.ReferenceRealization,
                     realizationWork,
@@ -167,7 +281,7 @@ public static class PlatformCompiledDocumentationInspection
             PackagePlatformHouseResult<PackageReferenceRealization>
                 sourceResult =
                     await adapter.RealizeReferenceAsync(
-                            houseRequest,
+                            execution.HouseRequest,
                             sourceOperation)
                         .ConfigureAwait(false);
             stopwatch.Stop();
@@ -177,34 +291,24 @@ public static class PlatformCompiledDocumentationInspection
             {
                 var terminal = (PackagePlatformHouseResult<
                     PackageReferenceRealization>.NotSucceeded)sourceResult;
-                return FailureEnvelope(
+                return execution.SourceFailure(
+                    terminal.Diagnostic.Summary,
                     new(
-                        selection,
-                        PlatformCompiledDocumentationFailureStage
-                            .SourceRealization,
-                        Field(terminal.Diagnostic.Summary),
-                        terminal.Diagnostic.Kind,
-                        Settlement: null),
-                    "platform-compiled-documentation.source-realization");
+                        PlatformCompiledDocumentationSource.Package,
+                        terminal.Diagnostic.Kind.ToString()));
             }
 
-            var consumed = new PlatformHouseConsumedWork(
-                sourceOperations: 1,
-                targetCandidates: 0,
-                assemblies: reference.Value.Libraries.Length,
-                xmlDocuments: reference.Value.Libraries.Count(
+            PlatformHouseConsumedWork consumed = ConsumedWork(
+                reference.Value.Libraries.Length,
+                reference.Value.Libraries.Count(
                     static library => library.Documentation is not null),
-                portablePdbs: 0,
-                sourceDocuments: 0,
-                bytes: reference.Value.Libraries.Sum(
+                reference.Value.Libraries.Sum(
                     static library => library.TotalContentLength),
-                forwardingHops: 0,
-                targetComparisons: 0,
-                elapsed: stopwatch.Elapsed);
+                stopwatch.Elapsed);
             PackagePlatformLibraryMaterializationResult materialization =
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferenceAsync(
-                        houseRequest,
+                        execution.HouseRequest,
                         reference,
                         consumed)
                     .ConfigureAwait(false);
@@ -215,53 +319,15 @@ public static class PlatformCompiledDocumentationInspection
                 PlatformHouseSettlementKind settlement =
                     materialization.Realization.Outcome.Receipt
                         .SettlementKind;
-                return FailureEnvelope(
-                    new(
-                        selection,
-                        PlatformCompiledDocumentationFailureStage
-                            .LibraryMaterialization,
-                        Field(
-                            "PlatformHouse could not materialize the exact "
-                                + "reference Library."),
-                        SourceDiagnostic: null,
-                        settlement),
-                    "platform-compiled-documentation.library-materialization");
+                return execution.MaterializationFailure(settlement);
             }
 
-            await using (completed.Artifacts.ConfigureAwait(false))
-            await using (completed.Library.Owner.ConfigureAwait(false))
-            {
-                IReadOnlyDictionary<string, CompiledDocumentationOutcome>
-                    outcomes =
-                        request.SubjectSelection
-                            == PlatformCompiledDocumentationSubjectSelection
-                                .RequireAll
-                            ? await PlatformCompiledDocumentationQuery
-                                .ExecuteManyAsync(
-                                    completed.Library,
-                                    request.DocumentationIds,
-                                    queryLimits,
-                                    cancellationToken)
-                                .ConfigureAwait(false)
-                            : await PlatformCompiledDocumentationQuery
-                                .ExecuteAvailableManyAsync(
-                                    completed.Library,
-                                    request.DocumentationIds,
-                                    queryLimits,
-                                    cancellationToken)
-                                .ConfigureAwait(false);
-                ImmutableArray<CompiledDocumentationOutcome> ordered =
-                [
-                    .. request.DocumentationIds
-                        .Where(outcomes.ContainsKey)
-                        .Select(id => outcomes[id]),
-                ];
-                return new(
-                    new PlatformCompiledDocumentationInspectionOutcome
-                        .Completed(
-                            new(selection, ordered)),
-                    Share());
-            }
+            return await execution.CompleteAsync(
+                    completed.Library,
+                    completed.Artifacts,
+                    queryLimits,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
@@ -296,6 +362,68 @@ public static class PlatformCompiledDocumentationInspection
                 ]),
             work,
             cancellationToken);
+
+    private static PlatformHouseConsumedWork ConsumedWork(
+        int assemblies,
+        int xmlDocuments,
+        long bytes,
+        TimeSpan elapsed) =>
+        new(
+            sourceOperations: 1,
+            targetCandidates: 0,
+            assemblies,
+            xmlDocuments,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes,
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed);
+
+    private static async Task<
+        InspectionEnvelope<PlatformCompiledDocumentationInspectionOutcome>>
+        CompleteAsync(
+            PlatformCompiledDocumentationInspectionRequest request,
+            PlatformCompiledDocumentationSelection selection,
+            PlatformLibraryRealizationResult.Completed library,
+            IAsyncDisposable artifacts,
+            PlatformCompiledDocumentationQueryLimits? queryLimits,
+            CancellationToken cancellationToken)
+    {
+        await using (artifacts.ConfigureAwait(false))
+        await using (library.Owner.ConfigureAwait(false))
+        {
+            IReadOnlyDictionary<string, CompiledDocumentationOutcome>
+                outcomes =
+                    request.SubjectSelection
+                        == PlatformCompiledDocumentationSubjectSelection
+                            .RequireAll
+                        ? await PlatformCompiledDocumentationQuery
+                            .ExecuteManyAsync(
+                                library,
+                                request.DocumentationIds,
+                                queryLimits,
+                                cancellationToken)
+                            .ConfigureAwait(false)
+                        : await PlatformCompiledDocumentationQuery
+                            .ExecuteAvailableManyAsync(
+                                library,
+                                request.DocumentationIds,
+                                queryLimits,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+            ImmutableArray<CompiledDocumentationOutcome> ordered =
+            [
+                .. request.DocumentationIds
+                    .Where(outcomes.ContainsKey)
+                    .Select(id => outcomes[id]),
+            ];
+            return new(
+                new PlatformCompiledDocumentationInspectionOutcome.Completed(
+                    new(selection, ordered)),
+                Share());
+        }
+    }
 
     private static PlatformCompiledDocumentationSelection Snapshot(
         PlatformCompiledDocumentationInspectionRequest request) =>
