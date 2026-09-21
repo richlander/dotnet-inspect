@@ -9,10 +9,10 @@ Its normative claim is:
 
 > For one exact metadata Type, preserve complete accounting of its direct
 > metadata artifacts, a complete owner-issued C# declaration population, exact
-> Type, Member, and physical body identity, and validated C# render variants in
-> one immutable document. A shared projector turns that document into complete
-> source text and exact structural ranges without any host parsing or C#
-> reconstruction.
+> Type, Member, and physical body identity, and validated C# declaration render
+> plans in one immutable document. A shared projector turns that document into
+> complete source text and exact structural ranges without any host parsing or
+> C# reconstruction.
 
 The implementation home is `ILInspector.Decompiler`, the
 `CSharp.Decompiler` layer that already owns assembling CSharp Type shells with
@@ -76,7 +76,7 @@ choice. In particular:
   document keeps each nested TypeDef as an independent exact implementation
   subject with its own body budget and route.
 - API Declarations returns one completed declaration string; this document
-  retains exact declaration/body identity and render variants for repeated
+  retains exact declaration/body identity and render plans for repeated
   structural projection.
 
 Both paths consume `ILInspector.CSharp` spelling and printing rather than
@@ -113,11 +113,11 @@ The Structured C# Type Document owner defines:
 - document-local declaration identity and ordering;
 - exact Metadata-owned Type, Member, and physical body references carried by
   the document;
-- full and skeletal declaration render variants;
+- declaration render plans with owner-issued full and skeletal alternatives;
 - documentation, attribute, signature, and implementation regions;
 - structural classifications needed to select declarations;
 - a revision that binds later results to one exact document;
-- validation of text, identities, ranges, variants, and body associations;
+- validation of text, identities, ranges, render plans, and body associations;
 - the pure host-neutral projection operation; and
 - typed rejection of invalid projection requests.
 
@@ -270,13 +270,14 @@ syntax is presented by that declaration. Owned references may supply exact
 drill-down destinations. A logical property or event may own several accessor
 body rows; selection and drill-down never choose one by declaration order.
 
-A declaration variant may separately have zero or more **body-contribution
-references**. Each reference names an exact physical body row, contribution
-role, and relative range whose emitted text was reconstructed from that body.
-Contribution references are many-to-many: one constructor body may contribute
-initializer text to several field declarations, and one declaration may cite
-several contributing bodies. They do not transfer body ownership, make the
-field a MethodDef, or create an Annotated Source destination.
+A declaration implementation slot may separately have zero or more
+**body-contribution references**. Each reference names an exact physical body
+row, contribution role, and relative range in the slot's full alternative whose
+emitted text was reconstructed from that body. Contribution references are
+many-to-many: one constructor body may contribute initializer text to several
+field declarations, and one declaration may cite several contributing bodies.
+They do not transfer body ownership, make the field a MethodDef, or create an
+Annotated Source destination.
 
 Field initializers and other declaration text reconstructed from body evidence
 use contribution references. The constructor body remains owned by its
@@ -292,7 +293,7 @@ the revision field itself, including:
 - exact Type and Member identities;
 - physical artifact order and primary representation associations;
 - declaration order and structural classifications;
-- every render variant and region;
+- every render-plan fragment, alternative, and region;
 - physical body addresses, fingerprints, outcomes, and fidelity;
 - owned-body and body-contribution references and ranges;
 - source provenance and symbol contribution; and
@@ -338,16 +339,32 @@ A declaration records:
 - declared accessibility;
 - static, instance, or unclassified placement;
 - positively generated, positively non-generated, or unknown origin;
-- whether full implementation text differs from its skeleton;
-- owned-body references and any exact drill-down destinations;
-- body-contribution references and variant-relative contribution ranges;
+- whether any implementation slot's full alternative differs from its
+  skeleton alternative;
+- owned-body references bound to implementation slots and any exact drill-down
+  destinations;
+- body-contribution references bound to implementation slots and their
+  full-alternative ranges;
 - optional owner-issued contract relationships; and
-- full and skeleton C# render variants with named regions.
+- one owner-issued C# declaration render plan with stable declaration-local
+  fragment and slot IDs.
 
-The variants are complete declaration fragments issued by CSharp rendering.
-They include the indentation and separators needed for composition. A host
-does not create a skeleton by deleting characters between braces and does not
-create a full declaration by attaching a decompiled string to a signature.
+The render plan is an ordered sequence of fixed syntax fragments,
+independently selectable documentation or attribute fragments, and
+implementation slots. Each slot contains owner-issued full and skeleton
+alternatives, including the indentation and separators needed for composition.
+A method-body slot may choose a complete block or its body-free form; a field
+initializer slot may choose the initializer or an empty alternative. CSharp
+issues every fragment and alternative in declaration context so the supported
+projection combinations remain valid C#.
+
+An implementation slot is the smallest independently selectable contribution
+that preserves valid C#. A slot that combines sources requiring different
+Selected-body activation is invalid and must be split by the producing owner.
+
+A host does not create a skeleton by deleting characters between braces, attach
+a decompiled string to a signature, or splice a contribution into another
+declaration.
 
 Named regions use C#-appropriate roles:
 
@@ -357,9 +374,10 @@ Named regions use C#-appropriate roles:
 - implementation.
 
 Regions describe source structure, not semantic facts. Their ranges are
-zero-based UTF-16 offsets, end-exclusive within their declaration variant. A
-region may contain narrower body ranges, but sibling regions do not partially
-overlap.
+zero-based UTF-16 offsets, end-exclusive within their fragment or slot
+alternative. A body-contribution range exists only in the full alternative
+that contains its text. A region may contain narrower body ranges, but sibling
+regions do not partially overlap.
 
 Documentation and attributes remain separate regions even when either is
 absent. Absence, unavailable acquisition, and an available empty value are
@@ -388,16 +406,26 @@ differently, but neither reimplements C# selection or range adjustment.
 
 The body mode is one of:
 
-- **Bodies** - use each declaration's full variant when available;
-- **Skeleton** - use every declaration's skeleton variant; or
-- **Selected body** - use the selected logical member's full variant and every
-  other declaration's skeleton variant.
+- **Bodies** - use every implementation slot's full alternative when
+  available;
+- **Skeleton** - use every implementation slot's skeleton alternative; or
+- **Selected body** - begin from Skeleton, use every implementation slot's
+  full alternative in the selected declaration, then use a full contribution
+  slot in another declaration when it references a physical body owned by the
+  selected declaration.
 
-Selected body is accepted only for an exact member in this document whose full
-variant has an observable implementation difference. For a property or event,
-the full variant includes all available accessor implementations represented
-by that one logical declaration. The projector never selects the first
-accessor or overload.
+The final rule is the selected declaration's **owned-body contribution
+closure**. It preserves initializer or other lowered text that valid C# places
+outside the declaration that owns the source body, without expanding unrelated
+implementation slots.
+
+Selected body is accepted only for an exact member whose resulting projection
+has an observable implementation difference. For a property or event, every
+local accessor implementation slot is full and its owned-body closure includes
+all available accessor bodies represented by that logical declaration. For a
+field with an initializer, its local initializer slot is full without
+expanding the contributing constructor declaration. The projector never
+selects the first accessor, overload, or contributing body.
 
 A declaration with no body uses the same valid source in Bodies and Skeleton.
 A body-production failure uses its valid skeleton source plus a typed body
@@ -423,6 +451,13 @@ classification remains visible in the unfiltered view and is not guessed into
 a narrower category. Physical artifacts associated with a Type frame,
 declaration, or body are not projection rows; generated-declaration filtering
 does not fabricate or reveal standalone syntax for them.
+
+Structural selection determines the visible declaration rows before body-plan
+projection. A selected member must remain visible. When an explicit structural
+filter removes another declaration that carries a selected owned-body
+contribution, the projection omits that declaration as requested and reports
+the exact hidden contribution rather than implying that the filtered view is a
+complete presentation of the selected implementation.
 
 An invalid member, unsupported contract selector, or impossible combination is
 a typed rejected projection. It does not fall back to Bodies, All members, or a
@@ -481,12 +516,16 @@ The constructor validates at least:
 - owned-body references that identify the declaration's MethodDef or one of its
   accessors;
 - body-contribution references that identify a same-document body and valid
-  variant-relative range without granting ownership or drill-down;
+  full-alternative range without granting ownership or drill-down;
 - valid 64-character physical-body fingerprints;
-- initialized variants and region collections;
+- initialized render plans, alternatives, and region collections;
+- contiguous declaration-local fragment and implementation-slot IDs;
 - well-formed UTF-16 text;
 - checked range arithmetic, bounds, ordering, and containment;
-- valid full/skeleton correspondence for every declaration;
+- valid render-plan ordering and full/skeleton alternatives for every
+  implementation slot;
+- valid C# for Bodies, Skeleton, and every Selected-body closure required by
+  the declaration population;
 - explicit capability state for documentation and contract relationships; and
 - a revision equal to the canonical validated payload.
 
@@ -528,8 +567,8 @@ The owner accepts typed inputs from existing layers:
 
 ```text
 Metadata facts and identities
-  -> CSharp declaration render variants
-  -> CSharp.Decompiler body render variants and physical provenance
+  -> CSharp declaration render plans and alternatives
+  -> CSharp.Decompiler body alternatives and physical provenance
   -> Structured C# Type Document validation and projection
   -> shared inspection envelope
   -> CLI and Browser presentation
@@ -552,7 +591,7 @@ split by owner:
 
 1. **Structured document owner** - add the document, validator, serializer,
    revision, and projector; refactor whole-Type composition through
-   CSharp-owned declaration variants; and retain exact physical artifact
+   CSharp-owned declaration render plans; and retain exact physical artifact
    associations, logical declarations, document-owned body rows, and
    many-to-many body contribution provenance.
 2. **SourceHouse and Queries/Sections** - preserve the document and native
@@ -580,8 +619,8 @@ Planned Release gates:
 
 | Gate | Claim |
 | --- | --- |
-| `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts or body rows, invalid primary representation or body-contribution references, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent variants, and overflowing or out-of-bounds ranges. |
-| `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued variants; structural filters preserve order, identities, valid C#, and projection-local absolute declaration, body, and contribution ranges without parsing source. |
+| `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts or body rows, invalid primary representation or body-contribution references, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent render-plan alternatives, and overflowing or out-of-bounds ranges. |
+| `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued render-plan alternatives; the selected declaration's owned-body contribution closure remains visible; structural filters preserve order, identities, valid C#, and projection-local absolute declaration, body, and contribution ranges without parsing source. |
 | `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, physical fingerprint, ownership, or contribution provenance changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
 | `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; properties/events with multiple accessors; constructor-to-field initializer contributions; bodyless and empty Types; visible body failures; and one-load exact body association. |
 | `TypeDocumentInspectionTests` | Exact-Type SourceHouse settlement preserves provenance, typed outcomes, bounds, diagnostics, detached serialization, and `InspectionEnvelope` content across supplied and absent PDB paths. |
@@ -615,6 +654,8 @@ The implementation must demonstrate:
 - one constructor body remains owned by its constructor declaration while
   contributing initializer ranges to multiple field declarations, none of
   which gains a fabricated MethodDef destination;
+- selecting that constructor expands its own body and those exact field
+  initializer slots without expanding unrelated declaration implementation;
 - an empty class, bodyless interface, enum, and delegate produce valid
   documents;
 - a body budget exhaustion retains a complete skeleton and identifies every
@@ -632,12 +673,13 @@ outline and CodeLens experiences similarly retain stable declaration identity
 while text coordinates change after a new projection. This design adopts that
 versioned structured-document convention.
 
-It deliberately diverges by carrying product-issued full and skeleton
-declaration variants instead of asking a host editor to parse and rewrite C#.
-dotnet-inspect must remain Roslyn-free in product paths, Inspect Web runs in
-Browser/Wasm, and the source is reconstructed from metadata plus decompiled
-bodies rather than edited authored text. The extra variants and projector are
-the cost of keeping identity and C# construction in their owning layers.
+It deliberately diverges by carrying product-issued declaration render plans
+with full and skeleton alternatives instead of asking a host editor to parse
+and rewrite C#. dotnet-inspect must remain Roslyn-free in product paths,
+Inspect Web runs in Browser/Wasm, and the source is reconstructed from metadata
+plus decompiled bodies rather than edited authored text. The extra render-plan
+structure and projector are the cost of keeping identity and C# construction in
+their owning layers.
 
 ## Non-claims
 

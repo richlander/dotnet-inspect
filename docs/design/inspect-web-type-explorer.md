@@ -255,22 +255,32 @@ The body projection is one of:
 
 - **Bodies** - complete available body presentation;
 - **Skeleton** - declarations without implementation bodies; or
-- **Selected body** - skeleton with only the selected body expanded.
+- **Selected body** - skeleton with the selected declaration and its
+  owner-issued cross-declaration body contributions expanded.
 
 These are owner-issued projections over the same Type document. Browser code
-does not delete text between braces or synthesize signatures. Changing
-projection retains exact Type and Member identity, source order, applicable
-filters, and the selected insight.
+does not delete text between braces, synthesize signatures, or move lifted
+implementation text between declarations. Changing projection retains exact
+Type and Member identity, source order, applicable filters, and the selected
+insight.
 
 Skeleton is the body-free projection of the same exact implementation
 document. It is not the separate API Declarations source choice, whose owner
 defines API-review scope and nested declaration-subtree behavior.
 
-**Selected body** is unavailable until a body-bearing member is selected.
-A bodyless Type or document does not offer a control whose choices have no
-observable difference. Interfaces with default implementations and other
-mixed body availability use the document owner's body classification rather
-than Type-kind heuristics in the Browser.
+**Selected body** is unavailable until the selected declaration's owner-issued
+projection has an observable implementation difference. A bodyless Type or
+document does not offer a control whose choices have no observable difference.
+Interfaces with default implementations, fields with lifted initializers, and
+other mixed implementation availability use the document owner's projection
+classification rather than Type-kind heuristics in the Browser.
+
+Selected body follows the document owner's owned-body contribution closure.
+Selecting a constructor therefore keeps initializer fragments that its body
+contributed to field declarations while leaving unrelated implementation
+collapsed. If an explicit structural filter hides a contributing declaration,
+the projection reports that hidden contribution; the Browser does not present
+the filtered view as the complete selected implementation.
 
 ### Static and instance
 
@@ -343,7 +353,8 @@ Member selection is local Type Explorer state correlated to one exact Member
 identity. It:
 
 - reveals the declaration in the source and outline;
-- enables **Selected body** when the member has a body;
+- enables **Selected body** when its owner-issued projection has an observable
+  implementation difference;
 - scopes member-local evidence details;
 - provides a stable Annotated Source opener when that member supports the
   existing viewer and its external-opener capability is available; and
