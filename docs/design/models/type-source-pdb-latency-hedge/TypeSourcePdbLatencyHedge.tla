@@ -1,4 +1,4 @@
-------------------- MODULE TypeSourceLatencyHedge -------------------
+---------------- MODULE TypeSourcePdbLatencyHedge ----------------
 EXTENDS TLC
 
 VARIABLES
@@ -7,7 +7,6 @@ VARIABLES
     decompilation,
     decompilationUsedPdb,
     initialWindowElapsed,
-    authoredWindow,
     selection,
     cleanup,
     published
@@ -18,7 +17,6 @@ vars ==
       decompilation,
       decompilationUsedPdb,
       initialWindowElapsed,
-      authoredWindow,
       selection,
       cleanup,
       published>>
@@ -29,7 +27,6 @@ Init ==
     /\ decompilation = "not-started"
     /\ decompilationUsedPdb = FALSE
     /\ initialWindowElapsed = FALSE
-    /\ authoredWindow = "closed"
     /\ selection = "none"
     /\ cleanup = "live"
     /\ published = FALSE
@@ -43,7 +40,6 @@ PdbReady ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -57,7 +53,6 @@ PdbUnavailable ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -71,7 +66,6 @@ InitialWindowExpires ==
           authored,
           decompilation,
           decompilationUsedPdb,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -80,13 +74,13 @@ StartAuthored ==
     /\ selection = "none"
     /\ pdb = "ready"
     /\ authored = "not-started"
+    /\ decompilation # "available"
     /\ authored' = "running"
     /\ UNCHANGED
         <<pdb,
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -94,14 +88,15 @@ StartAuthored ==
 StartDecompilation ==
     /\ selection = "none"
     /\ decompilation = "not-started"
-    /\ (pdb # "pending" \/ initialWindowElapsed)
+    /\ (pdb = "unavailable"
+        \/ (pdb = "ready" /\ authored = "unavailable")
+        \/ (pdb = "pending" /\ initialWindowElapsed))
     /\ decompilation' = "running"
     /\ decompilationUsedPdb' = (pdb = "ready")
     /\ UNCHANGED
         <<pdb,
           authored,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -115,7 +110,6 @@ AuthoredAvailable ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -129,7 +123,6 @@ AuthoredUnavailable ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup,
           published>>
@@ -138,7 +131,6 @@ DecompilationAvailable ==
     /\ selection = "none"
     /\ decompilation = "running"
     /\ decompilation' = "available"
-    /\ authoredWindow' = "open"
     /\ UNCHANGED
         <<pdb,
           authored,
@@ -157,22 +149,6 @@ DecompilationUnavailable ==
           authored,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
-          selection,
-          cleanup,
-          published>>
-
-AuthoredWindowExpires ==
-    /\ selection = "none"
-    /\ authoredWindow = "open"
-    /\ authored # "available"
-    /\ authoredWindow' = "elapsed"
-    /\ UNCHANGED
-        <<pdb,
-          authored,
-          decompilation,
-          decompilationUsedPdb,
-          initialWindowElapsed,
           selection,
           cleanup,
           published>>
@@ -181,6 +157,7 @@ SelectAuthored ==
     /\ selection = "none"
     /\ authored = "available"
     /\ decompilation # "running"
+    /\ decompilation # "available"
     /\ selection' = "authored"
     /\ UNCHANGED
         <<pdb,
@@ -188,17 +165,15 @@ SelectAuthored ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           cleanup,
           published>>
 
 SelectDecompiled ==
     /\ selection = "none"
     /\ decompilation = "available"
-    /\ authored # "available"
-    /\ (authored = "unavailable"
+    /\ (decompilationUsedPdb
         \/ pdb = "unavailable"
-        \/ authoredWindow = "elapsed")
+        \/ initialWindowElapsed)
     /\ selection' = "decompiled"
     /\ UNCHANGED
         <<pdb,
@@ -206,14 +181,13 @@ SelectDecompiled ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           cleanup,
           published>>
 
 SelectUnavailable ==
     /\ selection = "none"
     /\ decompilation = "unavailable"
-    /\ (authored = "unavailable" \/ pdb = "unavailable")
+    /\ (pdb = "unavailable" \/ authored = "unavailable")
     /\ selection' = "unavailable"
     /\ UNCHANGED
         <<pdb,
@@ -221,7 +195,6 @@ SelectUnavailable ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           cleanup,
           published>>
 
@@ -236,7 +209,6 @@ SettleLosers ==
         <<decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           published>>
 
@@ -251,7 +223,6 @@ Publish ==
           decompilation,
           decompilationUsedPdb,
           initialWindowElapsed,
-          authoredWindow,
           selection,
           cleanup>>
 
@@ -265,7 +236,6 @@ Next ==
     \/ AuthoredUnavailable
     \/ DecompilationAvailable
     \/ DecompilationUnavailable
-    \/ AuthoredWindowExpires
     \/ SelectAuthored
     \/ SelectDecompiled
     \/ SelectUnavailable
@@ -282,7 +252,6 @@ TypeOK ==
         {"not-started", "running", "available", "unavailable"}
     /\ decompilationUsedPdb \in BOOLEAN
     /\ initialWindowElapsed \in BOOLEAN
-    /\ authoredWindow \in {"closed", "open", "elapsed"}
     /\ selection \in {"none", "authored", "decompiled", "unavailable"}
     /\ cleanup \in {"live", "settled"}
     /\ published \in BOOLEAN
@@ -301,14 +270,21 @@ SelectedResultExists ==
     /\ (selection = "decompiled" => decompilation = "available")
     /\ (selection = "unavailable" => decompilation = "unavailable")
 
-AuthoredSourceHasPriority ==
-    selection = "decompiled" => authored # "available"
+PdbAssistedDecompilationFollowsAuthoredFailure ==
+    decompilationUsedPdb =>
+        /\ pdb = "ready"
+        /\ authored = "unavailable"
 
-UnavailableWaitsForAuthored ==
+NoPdbDecompilationRequiresBoundary ==
+    decompilation = "running" /\ ~decompilationUsedPdb =>
+        pdb = "unavailable" \/ initialWindowElapsed
+
+UnavailableWaitsForRemainingSource ==
     selection = "unavailable" =>
-        (authored = "unavailable" \/ pdb = "unavailable")
+        pdb = "unavailable" \/ authored = "unavailable"
 
-PdbAssistedDecompilationRequiresReadyPdb ==
-    decompilationUsedPdb => pdb = "ready"
+ExpiredPdbPathDoesNotPreferLateAuthored ==
+    selection = "authored" /\ initialWindowElapsed =>
+        decompilation # "available"
 
-=====================================================================
+=================================================================

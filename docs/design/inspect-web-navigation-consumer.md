@@ -13,9 +13,9 @@ which subject, coordinate, or lens is rendered; that is
 ## Status
 
 Accepted design. The retained-realization posting handoff is implemented, but
-the location-intent arbitration defined below remains implementation work under
-[#7705](https://github.com/richlander/dotnet-inspect/issues/7705). Complete
-Saved Workspace Open and production entry-point adoption remain
+the location-intent arbitration is implemented as a typed declaration and pure
+effect classifier under [#7705](https://github.com/richlander/dotnet-inspect/issues/7705).
+Complete Saved Workspace Open and production entry-point adoption remain
 [#7709](https://github.com/richlander/dotnet-inspect/issues/7709).
 
 ## Ownership and boundaries
@@ -187,6 +187,10 @@ realigns that entry to the exact installed incumbent and closes the older
 location obligation. Only then may the newer intent become current. If
 realignment fails, the failure remains visible and the newer intent is not
 admitted.
+
+Publication applies and settles the classified effect as one synchronous
+operation. Settlement is not a separate caller action and cannot be completed
+independently from the Browser history effect.
 
 Every location effect is produced by one pure classification from the current
 location-intent declaration, the typed semantic outcome and synchronization
@@ -684,6 +688,30 @@ these named Inspect Web tests. Descriptor-rendering and widget-focus gates for
 this same test file are recorded in
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md#implementation-gates):
 
+- `navigation-location-intent.test.ts`:
+  `one location intent classifies every history effect`,
+  `browser traversal owns location across irreversible Workspace completion`,
+  `new intent repairs unresolved traversal before admission`,
+  `failed traversal realigns only its current selected entry`,
+  `delayed operation retains its originating location intent`, and
+  `publication revalidates intent after classification`, and
+  `successful publication consumes its location intent`, and
+  `publication claims its intent before writer reentry`,
+  `successful current no-write consumes its location intent`, and
+  `repair failure rejects reentrant intent admission`, and
+  `publication owns settlement across writer reentry`, and
+  `post-cutover history failure keeps the installed successor unresolved`
+  cover the typed declaration and pure push, replace, adopt, realign, or
+  no-write classifier. They preserve exact installed association separately
+  from canonical location and require synchronous repair before a later
+  non-browser intent is admitted.
+- `browser/navigation-location-intent.spec.ts`:
+  `browser traversal owns location across irreversible Workspace completion`
+  and `post-cutover history failure keeps the installed successor` run the
+  production arbiter and Browser history adapter in Firefox. They prove that
+  stale cutover completion preserves the selected and forward entries, and
+  that a thrown history write leaves exact successor association unresolved
+  until synchronous realignment precedes the next intent.
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,
@@ -825,9 +853,10 @@ The implementation fixture supplies typed product results through the normal
 navigation-consumer boundary. It does not construct a parallel host catalog or
 bypass effect-authority validation merely to observe the renderer.
 
-The location-intent gates are not implemented by this documentation-only
-design. Until they exist and pass, the prose and focused TLA+ model define the
-target contract but do not claim Inspect Web implementation conformance.
+The focused location-intent declaration, classification, Browser adapter, and
+Firefox gates are implemented. Complete production call-site adoption remains
+unimplemented until #7709 adopts the arbiter across Saved Workspace Open,
+traversal, deletion, and delayed ordinary operations.
 
 The first #5511 implementation slice replaces the retained-activation
 facade's reduced initial Navigation state with the exact handoff above and

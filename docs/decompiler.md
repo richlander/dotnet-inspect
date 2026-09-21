@@ -76,8 +76,10 @@ Key properties:
 - **Whole-type composition lives in the library.** `MemberBodyProducer` (in `ILInspector.Decompiler`) gives any front end per-type listings, using-hoisting, and forwarder-following without rebuilding them.
 - **Assembly-wide syntax search lives in the library.** `BodyShapeSearch` queries one exact `PrintedNodeSpan` C# kind from `SupportedKinds` across full-fidelity API-surface method bodies and returns stable source-facing member identity, MethodDef token, exact `PrintedExtent`, and selected text. Bodies the decompiler cannot fully reconstruct are reported as explicit failures rather than searched as compiler plumbing. Library callers may supply explicit `PrinterOptions` and an exact MethodDef-token scope. The CLI's `Body Shapes` section accepts `--where "Kind=<ID>"` at library, exact-type, and exact-member scope. Library-scope Performance Triage predicates narrow the token set through typed `(SourceOwner ?? Method)` identities; type scope uses the resolved type's MethodDef and accessor tokens; member scope uses the selected MethodDef. `vocabulary -S "C# Body Kinds"` projects the owner catalog without restating it. No Roslyn dependency or persistent index is required.
 - **Naming and declaration placement for reused names are a final pass over
-  fully-determined scopes**, as in ILSpy's `AssignVariableNames`. PDB local
-  scopes are its natural input. The
+  fully-determined scopes**, as in ILSpy's `AssignVariableNames`. The
+  [local declaration and binding plan](design/decompiler-local-binding-plan.md)
+  owns declaration placement and legal binding over the final raised body. PDB
+  local scopes are a natural input. The
   [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
   separates exact artifact-backed identity, authenticated generated-name
   recovery, honest synthesis, unrepresentable metadata identities, tracked
