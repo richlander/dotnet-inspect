@@ -488,7 +488,13 @@ hidden cross-operation state.
   wrapper, lease type, or result algebra.
 - Owner-specific Artifact, Library, Package Source, House, query, cache, or
   host algorithms.
-- Simultaneous queries spanning several Workspaces.
+- A general service framework that retains, discovers, or routes across several
+  Workspaces. A focused owner may define one operation with caller-supplied
+  source and destination Workspace arguments and access each only for its named,
+  operation-scoped role under
+  [cross-Workspace composition and sharing](artifact-acquisition-and-workspaces.md#cross-workspace-composition-and-sharing);
+  that does not establish a set of active Workspaces or let this pattern retain
+  or transfer their state.
 - Several materialized Workspaces retained for instant switching.
 - Transfer of live resources between replacement Workspaces.
 - Recursive dependency admission or whole-Workspace compatibility validation.

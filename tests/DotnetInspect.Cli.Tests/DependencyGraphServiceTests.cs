@@ -76,7 +76,7 @@ public class DependencyGraphServiceTests : IDisposable
             "unsupported.dll");
         File.WriteAllBytes(
             path,
-            TimelineCommandTests.BuildWindowsMetadataImage());
+            MetadataTestImages.BuildWindowsMetadataImage());
         using var httpClient = new HttpClient();
 
         TypeDependencyExecutionResult result =
