@@ -345,6 +345,33 @@ product command. The broader survey remains reproducible design evidence rather
 than a corpus gate. Domain, API, and other command families remain separate
 work under issue #3284.
 
+#### API type-list evidence
+
+The `type` command's assembly-list `@Surface` catalog groups public types by
+kind. Each kind table grows with matching type definitions and has no product
+row cap:
+
+| Section | `System.Runtime` rows | Classification |
+| --- | ---: | --- |
+| Classes | 500 | `Verbose` |
+| Structs | 123 | `Verbose` |
+| Interfaces | 97 | `Verbose` |
+| Enums | 98 | `Verbose` |
+| Delegates | 51 | `Verbose` |
+| Type Forwarders | 2 target-assembly groups; one per uncapped target assembly | `Verbose` |
+| Inspection Failures | 31 rows in a projection boundary | `Verbose` |
+
+The type-kind tables emit one row per matching type definition. Type Forwarders
+groups forwarded types by target assembly, whose distinct count is also
+package-authored, while Inspection Failures emits one row per rejected metadata
+subject. Neither producer has a row cap.
+
+All seven inventories remain the command's authored primary result and
+diagnostic context at `-v:m`. Their growth declarations remove them from the
+generic bounded `-v:n` preset; `-v:d`, exact section selection, and explicit
+`@Surface` selection retain the complete inventories. Exact-type/member
+sections and domain catalogs remain separate #3284 audit work.
+
 ### Cost
 
 `Cost` describes the work required to produce section content:

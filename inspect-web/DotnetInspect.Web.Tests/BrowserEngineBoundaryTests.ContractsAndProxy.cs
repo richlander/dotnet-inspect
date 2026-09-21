@@ -154,7 +154,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void DependencyPrefixPlanner_IsReachableFromBrowserConsumer()
+    public void DependencyStartsWithPlanner_IsReachableFromBrowserConsumer()
     {
         PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
             PackageQuery.Plan(
@@ -162,8 +162,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     "Microsoft.Extensions.Http",
                     [
                         new PortableQueryTerm(
-                            PackageQuery.DependsPrefixTermKey,
-                            PortableQueryOperator.Equal,
+                            PackageQuery.DependsTermKey,
+                            PortableQueryOperator.StartsWith,
                             "Microsoft.Extensions."),
                     ],
                     MaximumCandidates: 1))).Plan;
