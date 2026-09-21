@@ -510,7 +510,9 @@ public static class SelectedContextExactPackageInspectionOperation
         {
             return new InspectionPortableProjection.NonProjectable(
                 "workspace.package.version",
-                InspectionPortableProjectionFailureReason.NotSupported);
+                InspectionPortableProjectionFailureReason.NotSupported,
+                "An exact-version selector cannot be preserved by a "
+                    + "floating Workspace Package member.");
         }
 
         WorkspaceSharePacketProjectionResult projection =

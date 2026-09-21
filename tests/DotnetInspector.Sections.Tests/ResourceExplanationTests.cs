@@ -265,15 +265,25 @@ public class ResourceExplanationTests
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
             catalog.Resolve("library/sections/reference-hierarchy"));
 
-        ResourceExplanationDocument document =
+        InspectionEnvelope<ResourceExplanationDocument> inspection =
             catalog.Explain(
                 resolved,
                 new ResourceExplanationRequest(
                     depth: 0,
                     resourceLimit: 100,
-                    relationshipLimit: 100))
-                .Content;
+                    relationshipLimit: 100));
+        ResourceExplanationDocument document = inspection.Content;
 
+        Assert.Equal(InspectionContentKind.Document, inspection.ContentKind);
+        var projection =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                inspection.PortableProjection);
+        Assert.Equal(
+            InspectionPortableProjectionFailureReason.NotSupported,
+            projection.Reason);
+        Assert.Equal(
+            "Resource Explanation does not yet have a portable Workspace projection.",
+            projection.Explanation);
         Assert.Single(document.Resources);
         Assert.NotEmpty(document.Relationships);
         Assert.All(

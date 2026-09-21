@@ -611,9 +611,11 @@ public sealed class ResourceExplanationCatalog
                 relationships,
                 receipt);
         return new InspectionEnvelope<ResourceExplanationDocument>(
+            InspectionContentKind.Document,
             document,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 root.Path.Value,
+                InspectionPortableProjectionFailureReason.NotSupported,
                 "Resource Explanation does not yet have a portable "
                 + "Workspace projection."));
     }

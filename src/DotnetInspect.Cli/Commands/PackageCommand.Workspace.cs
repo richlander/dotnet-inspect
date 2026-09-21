@@ -450,7 +450,9 @@ public partial class PackageCommand
         {
             return new(
                 "package/lens",
-                InspectionPortableProjectionFailureReason.NotSupported);
+                InspectionPortableProjectionFailureReason.NotSupported,
+                "The requested Package lens has no portable Workspace "
+                    + "Package facet.");
         }
         if (options.IncludeSections is { Count: > 0 }
             && (options.IncludeSections.Count != 1
@@ -459,7 +461,9 @@ public partial class PackageCommand
         {
             return new(
                 "package/sections",
-                InspectionPortableProjectionFailureReason.NotSupported);
+                InspectionPortableProjectionFailureReason.NotSupported,
+                "The requested Package section selection has no portable "
+                    + "Workspace Package facet.");
         }
 
         return null;
