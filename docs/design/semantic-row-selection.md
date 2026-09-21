@@ -10,6 +10,8 @@ existing umbrella design. The
 and retires the umbrella assignment. The product implementation lives in
 `src/DotnetInspector.QueryEngine` under the existing
 `DotnetInspector.RowSelection` namespace.
+[QuerySpace Library Boundary](query-space-library.md) owns its target physical
+and namespace migration without changing this component's semantics.
 
 The executable Release gates in
 `tests/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
@@ -38,8 +40,9 @@ Related designs:
 
 ## Authority and scope
 
-This design is the authority for two distinct capabilities carried by the
-dependency-free `DotnetInspector.QueryEngine` assembly:
+This design is the authority for two distinct capabilities currently carried
+by the dependency-free `DotnetInspector.QueryEngine` assembly and targeted for
+the independent `QuerySpace` library:
 
 - the typed declaration language expressed by `RowSelectionStage` and
   `RowSelectionPlan`; and
