@@ -116,27 +116,38 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
 ): WorkspaceFeedActivationCoordinator {
   let controller: RetainedWorkspaceActivationController | null = null;
   let prompt: PendingWorkspaceCredentialPrompt | null = null;
-  let posted: BrowserRetainedWorkspacePosting | null = null;
-  let rollback: { readonly state: TRollback; readonly sourceUrl: string | null }
-    | null = null;
+  let posted: {
+    readonly value: BrowserRetainedWorkspacePosting;
+    readonly navigationSequence: number;
+  } | null = null;
+  let rollback: {
+    readonly retainedDefinitionId: string;
+    readonly navigationSequence: number;
+    readonly state: TRollback;
+    readonly sourceUrl: string | null;
+  } | null = null;
+  const activationSequences = new Map<string, number>();
   let activeUrl: string | null = null;
+  let lastFailure: string | null = null;
 
   function activationController(): RetainedWorkspaceActivationController {
     controller ??= createRetainedWorkspaceActivationController(
       dependencies.client,
       {
         post(posting) {
-          posted = posting;
+          const navigationSequence =
+            activationSequences.get(posting.retainedDefinitionId);
+          if (navigationSequence === undefined) {
+            throw new Error(
+              "The retained Workspace posting has no activation owner.");
+          }
+          posted = { value: posting, navigationSequence };
         },
         clear() {
-          if (posted !== null && rollback !== null) {
-            const prior = rollback;
-            dependencies.restoreRollback(prior.state);
-            activeUrl = prior.sourceUrl;
-            rollback = {
-              state: dependencies.captureRollback(),
-              sourceUrl: prior.sourceUrl,
-            };
+          if (posted !== null) {
+            reconcileRollback(
+              posted.value.retainedDefinitionId,
+              posted.navigationSequence);
           }
           posted = null;
         },
@@ -194,13 +205,16 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     }
 
     cancelPrompt(false);
-    rollback = {
-      state: dependencies.captureRollback(),
-      sourceUrl: activeUrl,
-    };
     const retainedDefinitionId = await retainDefinition(
       url.toString(),
       packet);
+    releaseRollback();
+    rollback = {
+      retainedDefinitionId,
+      navigationSequence,
+      state: dependencies.captureRollback(),
+      sourceUrl: activeUrl,
+    };
     const required = description.sources.filter(
       source => source.authentication === "AuthenticationRequired");
     if (required.length > 0) {
@@ -340,7 +354,8 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       }
       current.submitting = false;
       current.error = redactCredentialValues(
-        activationController().state.lastFailure
+        lastFailure
+          ?? activationController().state.lastFailure
           ?? "The Workspace could not be opened with those credentials.",
         secretValues);
       mountPrompt();
@@ -373,57 +388,104 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     commitHistory: boolean,
   ): Promise<boolean> {
     let projected = false;
+    let publicationAttempted = false;
     const currentController = activationController();
-    const result = await currentController.activate(
-      retainedDefinitionId,
-      preparation =>
-        dependencies.isCurrent(navigationSequence)
-        && preparation.packages.length + preparation.platforms.length
-          <= dependencies.maxVisibleModels,
-      async posting => {
-        if (!dependencies.isCurrent(navigationSequence)) {
-          throw new Error(
-            "Workspace activation was superseded before publication.");
-        }
-        const models = await loadRetainedWorkspaceModels(
-          dependencies.client,
-          posting);
-        if (!dependencies.isCurrent(navigationSequence)) {
-          throw new Error(
-            "Workspace activation was superseded before publication.");
-        }
-        if (posted !== posting) {
-          throw new Error(
-            "The retained Workspace posting changed before visible publication.");
-        }
-        dependencies.publish(posting, models);
-        projected = true;
-      },
-      () => {
-        if (dependencies.isCurrent(navigationSequence)
-          && !dependencies.hasVisibleWorkspace()) {
-          dependencies.setLoading();
-          if (prompt !== null) mountPrompt();
-        }
-      },
-      credentials,
-    );
-    if (!dependencies.isCurrent(navigationSequence)) return false;
-    if (result.status === "activated" && projected) {
-      activeUrl = canonicalLocation;
-      releaseRollback();
-      if (commitHistory) dependencies.pushLocation(canonicalLocation);
-      return true;
+    lastFailure = null;
+    activationSequences.set(retainedDefinitionId, navigationSequence);
+
+    async function projectPosting(
+      posting: BrowserRetainedWorkspacePosting,
+    ): Promise<void> {
+      if (!dependencies.isCurrent(navigationSequence)) {
+        throw new Error(
+          "Workspace activation was superseded before publication.");
+      }
+      const models = await loadRetainedWorkspaceModels(
+        dependencies.client,
+        posting);
+      if (!dependencies.isCurrent(navigationSequence)) {
+        throw new Error(
+          "Workspace activation was superseded before publication.");
+      }
+      if (posted?.value !== posting
+        || posted.navigationSequence !== navigationSequence) {
+        throw new Error(
+          "The retained Workspace posting changed before visible publication.");
+      }
+      publicationAttempted = true;
+      dependencies.publish(posting, models);
+      projected = true;
     }
-    if (prompt === null) {
-      releaseRollback();
-      dependencies.reportFailure(
-        result.failure?.message
-          ?? currentController.state.lastFailure
-          ?? "The shared Workspace could not be opened.",
-        () => retry(canonicalLocation, commitHistory));
+
+    try {
+      const result = await currentController.activate(
+        retainedDefinitionId,
+        preparation =>
+          dependencies.isCurrent(navigationSequence)
+          && preparation.packages.length + preparation.platforms.length
+            <= dependencies.maxVisibleModels,
+        projectPosting,
+        () => {
+          if (dependencies.isCurrent(navigationSequence)
+            && !dependencies.hasVisibleWorkspace()) {
+            dependencies.setLoading();
+            if (prompt !== null) mountPrompt();
+          }
+        },
+        credentials,
+      );
+      if (!dependencies.isCurrent(navigationSequence)) {
+        releaseRollback(retainedDefinitionId, navigationSequence);
+        return false;
+      }
+      if (result.status === "noEffect" && result.posting !== null) {
+        posted = {
+          value: result.posting,
+          navigationSequence,
+        };
+        await projectPosting(result.posting);
+      }
+      if ((result.status === "activated" || result.status === "noEffect")
+        && projected) {
+        activeUrl = canonicalLocation;
+        releaseRollback(retainedDefinitionId, navigationSequence);
+        if (commitHistory) dependencies.pushLocation(canonicalLocation);
+        return true;
+      }
+      lastFailure = result.failure?.message
+        ?? currentController.state.lastFailure
+        ?? "The shared Workspace could not be opened.";
+      if (prompt === null) {
+        releaseRollback(retainedDefinitionId, navigationSequence);
+        dependencies.reportFailure(
+          lastFailure,
+          () => retry(canonicalLocation, commitHistory));
+      }
+      return false;
+    } catch (error) {
+      lastFailure = dependencies.errorMessage(error);
+      if (publicationAttempted
+        && posted?.value.retainedDefinitionId === retainedDefinitionId
+        && posted.navigationSequence === navigationSequence) {
+        reconcileRollback(retainedDefinitionId, navigationSequence);
+        posted = null;
+      } else if (!dependencies.isCurrent(navigationSequence)
+        || prompt === null) {
+        releaseRollback(retainedDefinitionId, navigationSequence);
+      }
+      if (!dependencies.isCurrent(navigationSequence)) return false;
+      if (prompt === null) {
+        dependencies.reportFailure(
+          lastFailure,
+          () => retry(canonicalLocation, commitHistory));
+      }
+      return false;
+    } finally {
+      if (activationSequences.get(retainedDefinitionId)
+        === navigationSequence) {
+        activationSequences.delete(retainedDefinitionId);
+      }
     }
-    return false;
   }
 
   function retry(canonicalLocation: string, commitHistory: boolean): void {
@@ -436,8 +498,43 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       "Opening private Workspace");
   }
 
-  function releaseRollback(): void {
+  function reconcileRollback(
+    retainedDefinitionId: string,
+    navigationSequence: number,
+  ): void {
+    const prior = rollback;
+    if (prior === null
+      || prior.retainedDefinitionId !== retainedDefinitionId
+      || prior.navigationSequence !== navigationSequence) {
+      return;
+    }
+    rollback = null;
+    if (!dependencies.isCurrent(navigationSequence)) {
+      dependencies.releaseRollback(prior.state);
+      return;
+    }
+    dependencies.restoreRollback(prior.state);
+    activeUrl = prior.sourceUrl;
+    if (prompt?.retainedDefinitionId === retainedDefinitionId
+      && prompt.navigationSequence === navigationSequence) {
+      rollback = {
+        retainedDefinitionId,
+        navigationSequence,
+        state: dependencies.captureRollback(),
+        sourceUrl: prior.sourceUrl,
+      };
+    }
+  }
+
+  function releaseRollback(
+    retainedDefinitionId?: string,
+    navigationSequence?: number,
+  ): void {
     if (rollback === null) return;
+    if (retainedDefinitionId !== undefined
+      && rollback.retainedDefinitionId !== retainedDefinitionId) return;
+    if (navigationSequence !== undefined
+      && rollback.navigationSequence !== navigationSequence) return;
     dependencies.releaseRollback(rollback.state);
     rollback = null;
   }
