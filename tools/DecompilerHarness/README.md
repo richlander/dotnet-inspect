@@ -505,8 +505,10 @@ exact enrolled package assets, verifies every assembly SHA-256, and emits all
 four paths for the benchmark.
 
 The periodic authored-corpus Deep Inspect lane runs this perfection gate before
-the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
-is the non-vacuity gate for that workflow wiring.
+the separate EVIL regression ratchet. The Deep Inspect job and step conclusions
+are the operational evidence that preparation and the real source-oracle
+benchmark completed; local tests own the harness and manifest contracts rather
+than workflow or shell spelling.
 
 #### Source-oracle candidate ledger (`--source-oracle-candidates`)
 

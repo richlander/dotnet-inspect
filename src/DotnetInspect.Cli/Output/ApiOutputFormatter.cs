@@ -1219,7 +1219,7 @@ public static class ApiOutputFormatter
     }
 
     /// <summary>
-    /// Populates compact member summary sections for Minimal verbosity.
+    /// Populates compact grouped member summary sections.
     /// Groups members by name within each kind, with kind-specific columns
     /// matching the old QuietMemberFormatter design.
     /// </summary>

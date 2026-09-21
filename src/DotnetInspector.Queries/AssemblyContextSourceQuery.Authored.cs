@@ -81,7 +81,8 @@ public static partial class AssemblyContextSourceQuery
         AssemblyBindingPolicyVersion version,
         SourceHouseLimits limits,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retainLibrary = true)
     {
         var findingSubject = new FindingSubject(
             "type", request.Type.ToMetadataFullName());
@@ -89,8 +90,12 @@ public static partial class AssemblyContextSourceQuery
             group, participant, context, retained, version,
             new SourceHouseTarget.TypeTarget(request.Type, request.OriginalDocumentPath),
             operationName: "type-source", limits, timeout, cancellationToken,
-            retainLibrary: request.OriginalDocumentPath is null,
-            retainedOperationLimits: request.OriginalDocumentPath is null
+            retainLibrary:
+                retainLibrary
+                && request.OriginalDocumentPath is null,
+            retainedOperationLimits:
+                retainLibrary
+                && request.OriginalDocumentPath is null
                 ? context.TypeDecompilationLimits
                 : null).ConfigureAwait(false);
         try
@@ -555,9 +560,11 @@ public static partial class AssemblyContextSourceQuery
             {
                 { Stage: SourceHouseFailureStage.SourceCapability, Code: "StorageFailed" } =>
                     "The source-content store failed.",
-                { Stage: SourceHouseFailureStage.PortablePdbInspection
+                {
+                    Stage: SourceHouseFailureStage.PortablePdbInspection
                     or SourceHouseFailureStage.SourceLinkInspection
-                    or SourceHouseFailureStage.TargetMapping } =>
+                    or SourceHouseFailureStage.TargetMapping
+                } =>
                     $"Portable PDB type source mapping failed: "
                     + $"{failure.Failure.Detail ?? failure.Failure.Code}",
                 _ => $"{failure.Failure.Code}: {failure.Failure.Detail}",
@@ -746,6 +753,7 @@ public static partial class AssemblyContextSourceQuery
         public SourceHouseOutcome? HouseOutcome { get; init; }
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
         public AssemblyContextLibraryAdapterResult.Completed?
-            RetainedLibrary { get; init; }
+            RetainedLibrary
+        { get; init; }
     }
 }

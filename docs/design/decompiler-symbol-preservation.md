@@ -380,7 +380,7 @@ RUNTIME=artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILIns
 inspect_member() {
   dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
     member "$1" "$2" --library "$3" \
-    -S "Decompiled Source" --bare --tips q
+    -S "Decompiled Source" --tips q
 }
 ```
 
@@ -394,7 +394,7 @@ inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StackAllocGe
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
-  -S "Decompiled Source" --bare --tips q
+  -S "Decompiled Source" --tips q
 ```
 
 Expected name observations:
@@ -481,7 +481,7 @@ inspect_member ILInspector.Decompiler.Tests.CfgSampleClass TuplePair "$CFG"
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
-  -S "Decompiled Source" --bare --tips q
+  -S "Decompiled Source" --tips q
 ```
 
 Expected:
@@ -681,7 +681,7 @@ dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   RuntimeAsyncNoAwaitUnsafe \
   --library "$CFG" \
   --repo "$PWD" \
-  -S "PDB Source" --bare --tips q
+  -S "PDB Source" --tips q
 ```
 
 Expected boundary: `Decompiled Source` preserves `value` but has no `pointer`
@@ -783,7 +783,7 @@ inspect_member \
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Decompiler.Tests.PrimaryCtorSample \
   --library "$CFG" \
-  -S "Decompiled Source" --bare --tips q
+  -S "Decompiled Source" --tips q
 ```
 
 Current output maps `<Number>k__BackingField` to the property name `Number` and
