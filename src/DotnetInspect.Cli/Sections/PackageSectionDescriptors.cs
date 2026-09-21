@@ -246,7 +246,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.TargetFrameworks;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.TargetFrameworks is { Count: > 0 };
     }

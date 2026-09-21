@@ -129,7 +129,7 @@ public partial class SectionPipelineTests
     public void PackagePipeline_BaseInventoriesFollowMeasuredGrowthClasses()
     {
         Assert.Equal(
-            SectionSizeClass.Informative,
+            SectionSizeClass.Verbose,
             PackageSectionDescriptors.TargetFrameworks.SizeClass);
         Assert.Equal(
             SectionSizeClass.Verbose,
@@ -204,7 +204,6 @@ public partial class SectionPipelineTests
                 PackageSections.Summary,
                 PackageSections.PackageInfo,
                 PackageSections.FilesReadme,
-                PackageSections.TargetFrameworks,
                 PackageSections.FilesNuspec,
                 PackageSections.Signature,
                 PackageSections.Manifest,
@@ -243,6 +242,7 @@ public partial class SectionPipelineTests
     }
 
     [Theory]
+    [InlineData(PackageSections.TargetFrameworks)]
     [InlineData(PackageSections.Dependencies)]
     [InlineData(PackageSections.EcosystemDependencies)]
     [InlineData(PackageSections.RuntimeDependencies)]
