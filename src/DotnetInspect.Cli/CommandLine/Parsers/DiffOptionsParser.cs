@@ -30,6 +30,7 @@ public static class DiffOptionsParser
         Option<bool> HistoryOption,
         Option<string[]> AtOption,
         Option<int?> MaxProbesOption,
+        Option<int?> SamplePercentOption,
         Option<bool> PrereleaseOption,
         Option<bool> CountOption,
         Option<string[]> TypeFilterOption,
@@ -141,6 +142,8 @@ public static class DiffOptionsParser
             History = history,
             At = parseResult.GetValue(args.AtOption) ?? [],
             MaxProbes = parseResult.GetValue(args.MaxProbesOption),
+            SamplePercent =
+                parseResult.GetValue(args.SamplePercentOption),
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             Count = parseResult.GetValue(args.CountOption),
             SemanticRowSelection = semanticRowSelection,

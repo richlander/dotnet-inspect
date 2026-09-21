@@ -492,6 +492,8 @@ internal static class DiffHistoryOutput
                     ("Full population completed", null, null, null),
                 DiffHistoryTerminalOutcome.ExplicitCheckpointsCompleted =>
                     ("Explicit checkpoints completed", null, null, null),
+                DiffHistoryTerminalOutcome.RepresentativeSurveyCompleted =>
+                    ("Representative survey completed", null, null, null),
                 DiffHistoryTerminalOutcome.BoundariesResolved value =>
                     (
                         "Boundaries resolved",
