@@ -908,13 +908,44 @@ namespace DotnetInspect.Web.Interop.Package
             {
                 LibraryLiteralAssessments =
                 [
-                    .. document.LibraryLiteralAssessments.Select(Project),
+                    .. document.LibraryLiteralAssessments.Select(assessment =>
+                        Project(
+                            assessment,
+                            FindLibraryLiteralResult(document, assessment))),
                 ],
             };
         }
 
+        private static PackageQueryLibraryLiteralResult?
+            FindLibraryLiteralResult(
+                PackageQueryDocument document,
+                PackageQueryLibraryLiteralAssessment assessment)
+        {
+            if (assessment.Kind
+                is not PackageQueryLibraryLiteralAssessmentKind.Matched)
+            {
+                return null;
+            }
+
+            return document.Results
+                .Where(result =>
+                    string.Equals(
+                        result.Package.PackageId,
+                        assessment.PackageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        result.Package.Version,
+                        assessment.Version,
+                        StringComparison.Ordinal))
+                .Select(result => result.LibraryLiteral)
+                .SingleOrDefault(result => result is not null)
+                ?? throw new InvalidOperationException(
+                    "A matched library-literal assessment has no matching Package Query Result.");
+        }
+
         private static BrowserPackageAssemblySemanticCandidateOutcome Project(
-            PackageQueryLibraryLiteralAssessment assessment) =>
+            PackageQueryLibraryLiteralAssessment assessment,
+            PackageQueryLibraryLiteralResult? result = null) =>
             new(
                 assessment.Kind switch
                 {
@@ -937,7 +968,32 @@ namespace DotnetInspect.Web.Interop.Package
                 assessment.PackageId,
                 assessment.Version,
                 assessment.Source.Producer.Display.ToString(),
-                Result: null,
+                result is null
+                    ? null
+                    : new BrowserPackageAssemblySemanticResult(
+                        assessment.CandidateOrdinal,
+                        assessment.PackageId,
+                        assessment.Version,
+                        assessment.Source.Producer.Display.ToString(),
+                        new BrowserPackageAssemblySemanticSelectedAsset(
+                            result.SelectedAsset.Path,
+                            result.SelectedAsset.AssemblyName,
+                            result.SelectedAsset.TargetFramework,
+                            Sequence: "Implementation",
+                            Ordinal: 0,
+                            result.SelectedAsset.UnevaluatedSiblings,
+                            result.RootRequest.Encode()),
+                        [
+                            .. result.Occurrences.Select(occurrence =>
+                                new BrowserPackageAssemblySemanticOccurrence(
+                                    occurrence.Address.ModuleVersionId
+                                        .ToString("D"),
+                                    occurrence.Address.MethodDefinitionToken,
+                                    occurrence.Address.ILOffset,
+                                    occurrence.UserStringToken,
+                                    occurrence.LiteralCharacterCount,
+                                    occurrence.LiteralText.ToString())),
+                        ]),
                 assessment.SelectedAsset is { } selected
                     ? new BrowserPackageAssemblySemanticSelectedAsset(
                         selected.Path,

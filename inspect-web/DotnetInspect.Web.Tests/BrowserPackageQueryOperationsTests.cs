@@ -137,6 +137,10 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageAssemblySemanticCandidateOutcomeKind.Matched,
             projectedAssessment.Kind);
+        BrowserPackageAssemblySemanticResult projectedResult =
+            Assert.IsType<BrowserPackageAssemblySemanticResult>(
+                projectedAssessment.Result);
+        Assert.Equal(rootToken, projectedResult.SelectedAsset.RootRequest);
         Assert.Equal(rootToken, projectedAssessment.RootRequest);
         Assert.Equal(rootToken, projectedAssessment.SelectedAsset!.RootRequest);
         Assert.Equal(
