@@ -125,10 +125,10 @@ and `@agent` values, and use `issue=<number>` instead of `pr` in
 `@agent_state`; add `blocked`, `waiting`, and status-wait fields when
 applicable. Put `HELP` in `@agent` while awaiting a human decision and clear it
 immediately when answered; clear both options only when the window no longer
-owns work. Always announce the PR number and branch or expected head at start,
-resume, and each round start. Emit supporting status before opening a concise
-approval prompt. This command block, its cadence, and its required fields must
-remain directly in `AGENTS.md`; [Agent session
+owns work. At start, resume, and each round start, announce the current Issue
+or PR number plus branch or expected head. Emit supporting status before
+opening a concise approval prompt. This command block, its cadence, and its
+required fields must remain directly in `AGENTS.md`; [Agent session
 state](docs/agent-session-state.md) owns full naming, field, and lifecycle
 mechanics.
 
