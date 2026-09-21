@@ -1,4 +1,5 @@
-using DotnetInspector.QueryOperations;
+using QuerySpace.Composition;
+using QuerySpace.Operations;
 using QuerySpace.Rows;
 
 namespace DotnetInspector.PortableQueries.Tests;
@@ -493,6 +494,260 @@ public sealed class QueryOperationInfrastructureGateTests
                 [full, full]));
     }
 
+    [Fact]
+    public void QuerySpaceDescriptorPreservesExecutableRouteAndRowScope()
+    {
+        QueryOperationRoute<TestPredicate, TestPlan> route =
+            CreateRoute(
+                CreateOperation(new TestVocabulary()),
+                FullProfile);
+        QuerySpaceRowScopeDescriptor rowScope =
+            CreateRowScope();
+
+        QuerySpaceDescriptor descriptor =
+            QuerySpaceDescriptor.Create(
+                "test.space",
+                route,
+                [rowScope],
+                [
+                    QuerySpaceTerminalRequirement.Rows,
+                    QuerySpaceTerminalRequirement.Count,
+                ],
+                acceptsContinuation: true,
+                [
+                    new(
+                        QuerySpaceTerminalRequirement.Rows,
+                        "contract.rows"),
+                    new(
+                        QuerySpaceTerminalRequirement.Count,
+                        "contract.count"),
+                ]);
+
+        Assert.Equal("test.space", descriptor.Identity);
+        Assert.Equal(route.Identity, descriptor.Operation.Identity);
+        Assert.Equal(
+            route.Capabilities.Vocabulary,
+            descriptor.Operation.QueryVocabulary);
+        Assert.Equal(
+            route.Capabilities.Terms
+                .Select(static term => term.Binding.Key),
+            descriptor.Operation.Terms
+                .Select(static term => term.Key));
+        Assert.Equal(
+            route.Capabilities.Dimensions,
+            descriptor.Operation.Dimensions);
+        Assert.Equal(
+            ["row.sequence"],
+            Assert.Single(descriptor.RowScopes).Orders
+                .Select(static order => order.Identity));
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Window,
+            ],
+            Assert.Single(descriptor.RowScopes).Stages);
+        Assert.Equal(
+            ResultsRowSet,
+            Assert.Single(
+                Assert.Single(descriptor.RowScopes).RowSets));
+        Assert.True(descriptor.AcceptsContinuation);
+        Assert.Equal(
+            "contract.count",
+            Assert.Single(
+                descriptor.ResultContracts,
+                static contract =>
+                    contract.Terminal
+                    is QuerySpaceTerminalRequirement.Count).Identity);
+
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        "score",
+                        PortableQueryOperator.AtLeast,
+                        "2"),
+                ],
+                [],
+                [PortableQueryStage.Head(2)],
+                [
+                    PortableQueryOrderOperation.Named(
+                        PortableQueryOrderRole.Baseline,
+                        "row.sequence",
+                        PortableQueryDirection.Descending),
+                ]);
+        QuerySpaceRequest request =
+            QuerySpaceRequest.Create(
+                descriptor,
+                PortableQueryIntent.Create(
+                    [
+                        new(
+                            TestVocabulary.DependsKey,
+                            PortableQueryOperator.Equal,
+                            "Serilog"),
+                    ],
+                    [
+                        new(
+                            TestVocabulary.CandidatesDimension,
+                            20),
+                    ],
+                    [],
+                    []),
+                [ResultsRowSet],
+                [
+                    new(
+                        rowScope.Identity,
+                        rowIntent,
+                        [ResultsRowSet]),
+                ],
+                QuerySpaceTerminalRequirement.Count);
+
+        Assert.Equal(descriptor.Identity, request.QuerySpace);
+        Assert.Equal(
+            ResultsRowSet,
+            Assert.Single(request.ParticipatingRowSets));
+        QuerySpaceRowIntentAssociation association =
+            Assert.Single(request.RowIntents);
+        Assert.Same(rowIntent, association.Intent);
+        Assert.Equal(rowScope.Identity, association.Scope);
+        Assert.Equal("contract.count", request.ResultContract);
+    }
+
+    [Fact]
+    public void QuerySpaceCompositionRejectsAmbiguousOrMisplacedIntent()
+    {
+        QueryOperationRoute<TestPredicate, TestPlan> route =
+            CreateRoute(
+                CreateOperation(new TestVocabulary()),
+                FullProfile);
+        QuerySpaceRowScopeDescriptor rowScope =
+            CreateRowScope();
+        QuerySpaceDescriptor descriptor =
+            QuerySpaceDescriptor.Create(
+                "test.space",
+                route,
+                [rowScope],
+                [QuerySpaceTerminalRequirement.Rows],
+                acceptsContinuation: false,
+                []);
+
+        Assert.Throws<ArgumentException>(
+            () => QuerySpaceDescriptor.Create(
+                "test.duplicate-key",
+                route,
+                [
+                    new(
+                        "row.duplicate",
+                        "row.duplicate.vocabulary",
+                        [ResultsRowSet],
+                        [
+                            new(
+                                "row.depends",
+                                TestVocabulary.DependsKey,
+                                [PortableQueryOperator.Equal],
+                                "text",
+                                null,
+                                "Depends",
+                                [],
+                                "Duplicate operation key.",
+                                supportsOrdering: false),
+                        ],
+                        [],
+                        []),
+                ],
+                [QuerySpaceTerminalRequirement.Rows],
+                acceptsContinuation: false,
+                []));
+
+        Assert.Throws<ArgumentException>(
+            () => QuerySpaceRequest.Create(
+                descriptor,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Head(1)],
+                    []),
+                [ResultsRowSet],
+                [],
+                QuerySpaceTerminalRequirement.Rows));
+
+        Assert.Throws<ArgumentException>(
+            () => new QuerySpaceRowIntentAssociation(
+                rowScope.Identity,
+                PortableQueryIntent.Create(
+                    [],
+                    [new("rows", 1)],
+                    [],
+                    []),
+                [ResultsRowSet]));
+
+        QuerySpaceRowIntentAssociation association =
+            new(
+                rowScope.Identity,
+                PortableQueryIntent.Empty,
+                [ResultsRowSet]);
+        Assert.Throws<ArgumentException>(
+            () => QuerySpaceRequest.Create(
+                descriptor,
+                PortableQueryIntent.Empty,
+                [ResultsRowSet],
+                [association, association],
+                QuerySpaceTerminalRequirement.Rows));
+
+        QueryOperationRoute<TestPredicate, TestPlan> multiRowRoute =
+            QueryOperationRoute<TestPredicate, TestPlan>.Create(
+                "route.multi-row",
+                route.Operation,
+                PopulationRole,
+                PackageGrain,
+                [ResultsRowSet, DetailsRowSet],
+                FullProfile,
+                route.Capabilities.Dimensions,
+                route.Capabilities.Stages);
+        var detailsScope =
+            new QuerySpaceRowScopeDescriptor(
+                "row.details",
+                "row.details.vocabulary",
+                [DetailsRowSet],
+                [],
+                [],
+                []);
+        QuerySpaceDescriptor multiRowDescriptor =
+            QuerySpaceDescriptor.Create(
+                "test.multi-row-space",
+                multiRowRoute,
+                [rowScope, detailsScope],
+                [QuerySpaceTerminalRequirement.Rows],
+                acceptsContinuation: false,
+                []);
+
+        ArgumentException incompatibleScope =
+            Assert.Throws<ArgumentException>(
+                () => QuerySpaceRequest.Create(
+                    multiRowDescriptor,
+                    PortableQueryIntent.Empty,
+                    [ResultsRowSet],
+                    [
+                        new(
+                            detailsScope.Identity,
+                            PortableQueryIntent.Empty,
+                            [ResultsRowSet]),
+                    ],
+                    QuerySpaceTerminalRequirement.Rows));
+        Assert.Contains("is incompatible", incompatibleScope.Message);
+
+        ArgumentException incompleteCoverage =
+            Assert.Throws<ArgumentException>(
+                () => QuerySpaceRequest.Create(
+                    multiRowDescriptor,
+                    PortableQueryIntent.Empty,
+                    [ResultsRowSet, DetailsRowSet],
+                    [association],
+                    QuerySpaceTerminalRequirement.Rows));
+        Assert.Contains(
+            "has no explicit row-intent association",
+            incompleteCoverage.Message);
+    }
+
     private static QueryOperationDefinition<TestPredicate, TestPlan>
         CreateOperation(TestVocabulary vocabulary)
     {
@@ -575,6 +830,36 @@ public sealed class QueryOperationInfrastructureGateTests
                         []),
                 ]);
     }
+
+    private static QuerySpaceRowScopeDescriptor CreateRowScope() =>
+        new(
+            "row.results",
+            "row.results.vocabulary",
+            [ResultsRowSet],
+            [
+                new(
+                    "row.score",
+                    "score",
+                    [
+                        PortableQueryOperator.Equal,
+                        PortableQueryOperator.AtLeast,
+                    ],
+                    "integer",
+                    null,
+                    "Score",
+                    [],
+                    "Filter by score.",
+                    supportsOrdering: true),
+            ],
+            [
+                new(
+                    "row.sequence",
+                    ranking: false),
+            ],
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Window,
+            ]);
 
     private static QueryOperationRoute<TestPredicate, TestPlan>
         CreateRoute(

@@ -7,7 +7,6 @@ using System.Xml;
 using DotnetInspector.Packages;
 using QuerySpace;
 using DotnetInspector.Queries.Definitions;
-using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
