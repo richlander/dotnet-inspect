@@ -655,6 +655,41 @@ public class PackageQueryCliTests
             ["skill=true", "skill=true"],
             false, null, null, false, out options, out error), error.ToString());
         Assert.Single(options!.Plan.Terms);
+
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.Package",
+                [
+                    "library-literal=shared-literal-use-marker",
+                    "library-literal=shared-literal-use-marker",
+                ],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                targetFramework: "net10.0",
+                out options,
+                out error),
+            error.ToString());
+        Assert.Single(
+            options!.Plan.Terms,
+            term => term.Key == PackageQuery.LibraryLiteralTermKey);
+
+        Assert.False(
+            PackageQueryOptions.TryCreate(
+                "Contoso.Package",
+                [
+                    "library-literal=shared-literal-use-marker",
+                    "library-literal=different-literal",
+                ],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                targetFramework: "net10.0",
+                out _,
+                out error));
+        Assert.Contains("cannot be combined", error.Message);
     }
 
     [Theory]

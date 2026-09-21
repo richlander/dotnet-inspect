@@ -714,6 +714,31 @@ public partial class PackageQueryTests
             exclusiveNormalized.Intent.Terms,
             reverseExclusiveNormalized.Intent.Terms);
 
+        var literal = Term(
+            PackageQuery.LibraryLiteralTermKey,
+            "shared-literal-use-marker");
+        PackageQueryPlan literalNormalized = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.Package",
+                terms: [literal, literal],
+                targetFramework: "net10.0"));
+        Assert.Single(
+            literalNormalized.Terms,
+            term => term.Key == PackageQuery.LibraryLiteralTermKey);
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.Package",
+                terms:
+                [
+                    literal,
+                    Term(
+                        PackageQuery.LibraryLiteralTermKey,
+                        "different-literal"),
+                ],
+                targetFramework: "net10.0")).Reason);
+
         PackageQueryPlan structuralNormalized = Accepted(
             PackageQuery.PlanInput(
                 "Microsoft.Extensions.DependencyInjection",

@@ -257,7 +257,8 @@ internal sealed class PackageQueryVocabulary
             || firstKind is not (
                 PackageQueryPredicateKind.Downloads
                 or PackageQueryPredicateKind.DependencyDepth
-                or PackageQueryPredicateKind.Prerelease)
+                or PackageQueryPredicateKind.Prerelease
+                or PackageQueryPredicateKind.LibraryLiteral)
             || first.Predicate == second.Predicate;
     }
 

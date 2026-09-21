@@ -258,6 +258,32 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void PackagePlan_RejectsDistinctRepeatedLibraryLiterals()
+    {
+        var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.Package",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.LibraryLiteralTermKey,
+                        PortableQueryOperator.Equal,
+                        "shared-literal-use-marker"),
+                    new PortableQueryTerm(
+                        PackageQuery.LibraryLiteralTermKey,
+                        PortableQueryOperator.Equal,
+                        "different-literal"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1,
+                includePrerelease: false,
+                targetFramework: "net10.0"));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            rejected.Failure.Reason);
+    }
+
+    [Fact]
     public void PackagePlan_UsesProductPortableInspectionTermBoundary()
     {
         PortableQueryTerm[] maximum = InspectionTerms(
