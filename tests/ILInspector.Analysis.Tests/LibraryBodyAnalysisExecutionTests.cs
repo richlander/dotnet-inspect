@@ -260,14 +260,47 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 execution.ImplementationProfiles
                     .Coverage
                     .UnavailableBodies,
-                body => body.EvidenceMethod.MetadataToken == methodToken);
+                body => body.MethodToken == methodToken);
         Assert.Equal(
             ImplementationProfileUnavailableReason.AnalysisFailed,
             body.Reason);
+        Assert.NotNull(body.EvidenceMethod);
         Assert.NotNull(body.Diagnostic);
         Assert.Contains(
             nameof(BadImageFormatException),
             body.Diagnostic.Message);
+    }
+
+    [Fact]
+    public void ExecuteImage_ProfileCoverageRetainsTokenOnlyIdentityFailures()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+        int methodToken =
+            ReplaceMethodSignatureWithInvalidValue(image);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedProfileSignature.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles));
+
+        ImplementationProfilePopulationCoverageReceipt coverage =
+            execution.ImplementationProfiles.Coverage;
+        ImplementationProfileUnavailableBody body =
+            Assert.Single(
+                coverage.UnavailableBodies,
+                body => body.MethodToken == methodToken);
+        Assert.Equal(
+            ImplementationProfileUnavailableReason.AnalysisFailed,
+            body.Reason);
+        Assert.Null(body.EvidenceMethod);
+        Assert.NotNull(body.Diagnostic);
+        Assert.Equal(
+            coverage.ManagedMethodBodies.Length + 1,
+            coverage.ManagedMethodBodyCount);
     }
 
     [Fact]
@@ -319,6 +352,61 @@ public sealed class LibraryBodyAnalysisExecutionTests
             0x7F000000);
         return MetadataTokens.GetToken(methodHandle);
     }
+
+    static int ReplaceMethodSignatureWithInvalidValue(
+        byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(ArrayPoolLeakFixtures
+                        .ExternalReadBeforeReturn)));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        int methodToken = MetadataTokens.GetToken(methodHandle);
+        Assert.NotEqual(0, method.RelativeVirtualAddress);
+        int stringIndexSize = MetadataHeapIndexSize(
+            reader,
+            HeapIndex.String);
+        int blobIndexSize = MetadataHeapIndexSize(
+            reader,
+            HeapIndex.Blob);
+        int rowOffset =
+            reader.GetTableMetadataOffset(TableIndex.MethodDef)
+            + (MetadataTokens.GetRowNumber(methodHandle) - 1)
+                * reader.GetTableRowSize(TableIndex.MethodDef);
+        int signatureOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + rowOffset
+            + sizeof(uint)
+            + sizeof(ushort)
+            + sizeof(ushort)
+            + stringIndexSize;
+        if (blobIndexSize == sizeof(uint))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(signatureOffset, blobIndexSize),
+                0x7FFFFFFF);
+        }
+        else
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(signatureOffset, blobIndexSize),
+                0xFFFF);
+        }
+        return methodToken;
+    }
+
+    static int MetadataHeapIndexSize(
+        MetadataReader reader,
+        HeapIndex heap) =>
+        reader.GetHeapSize(heap) < 0x10000
+            ? sizeof(ushort)
+            : sizeof(uint);
 
     static int RvaToFileOffset(
         PEHeaders headers,

@@ -33,9 +33,23 @@ public enum ImplementationProfileUnavailableReason
 /// Physical managed body that did not issue an implementation profile.
 /// </summary>
 public sealed record ImplementationProfileUnavailableBody(
-    MethodIdentity EvidenceMethod,
+    MethodIdentity? EvidenceMethod,
+    int MethodToken,
     ImplementationProfileUnavailableReason Reason,
-    AnalysisDiagnostic? Diagnostic);
+    AnalysisDiagnostic? Diagnostic)
+{
+    public ImplementationProfileUnavailableBody(
+        MethodIdentity evidenceMethod,
+        ImplementationProfileUnavailableReason reason,
+        AnalysisDiagnostic? diagnostic)
+        : this(
+            evidenceMethod,
+            evidenceMethod.MetadataToken,
+            reason,
+            diagnostic)
+    {
+    }
+}
 
 /// <summary>
 /// Analysis-issued population receipt for implementation-profile evidence.
@@ -52,8 +66,14 @@ public sealed record ImplementationProfilePopulationCoverageReceipt(
     /// <summary>Number of declared method identities in the execution.</summary>
     public int DeclaredMethodCount => DeclaredMethods.Length;
 
-    /// <summary>Number of physical managed method bodies in the execution.</summary>
-    public int ManagedMethodBodyCount => ManagedMethodBodies.Length;
+    /// <summary>
+    /// Number of physical managed method bodies in the execution, including
+    /// token-only failed bodies whose identity could not be decoded.
+    /// </summary>
+    public int ManagedMethodBodyCount =>
+        ManagedMethodBodies.Length
+        + UnavailableBodies.Count(static body =>
+            body.EvidenceMethod is null);
 
     /// <summary>Number of physical bodies that issued implementation profiles.</summary>
     public int ProfiledEvidenceBodyCount => ProfiledEvidenceBodies.Length;
@@ -335,6 +355,12 @@ public sealed class LibraryBodyAnalysisExecution
                             diagnostic),
                         diagnostic);
                 }),
+            .. analysis.Methods.FailedMethodBodies
+                .Select(body => new ImplementationProfileUnavailableBody(
+                    null,
+                    body.MethodToken,
+                    ImplementationProfileUnavailableReason.AnalysisFailed,
+                    body.Diagnostic)),
         ];
 
         return new(
