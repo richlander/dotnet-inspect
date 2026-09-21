@@ -300,6 +300,48 @@ public class LibrarySourceAdapterTests
     }
 
     [Fact]
+    public async Task TypedArchiveWithoutNupkgSuffixDrivesAggregateAcquisition()
+    {
+        string root =
+            Directory.CreateTempSubdirectory(
+                "library-source-archive-aggregate-").FullName;
+        try
+        {
+            string archive = CreatePackage(
+                root,
+                "Local.Archive",
+                "1.0.0",
+                "local-package");
+            var options = new LibraryOptions
+            {
+                SourceIntent = SourceIntent.Create(
+                [
+                    new SourceSelector.PackageArchive(archive),
+                ]),
+                Select = ["Library Info"],
+            };
+
+            var (exit, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => LibraryCommand.ExecuteAsync(options));
+
+            Assert.True(
+                exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {error}{Environment.NewLine}"
+                    + $"Output: {output}");
+            Assert.Contains(
+                "## Library Info (lib/net11.0/DotnetInspect.Cli.Tests.dll)",
+                output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task
         TypedPackageReferenceEndingNupkgUsesReferenceAcquisition()
     {
