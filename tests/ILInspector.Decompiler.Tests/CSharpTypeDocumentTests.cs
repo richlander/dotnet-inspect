@@ -86,6 +86,98 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_RequiresManagedDeclarationBodyOwnership()
+    {
+        var input = Input();
+        CSharpTypeDeclaration constructor = input.Declarations[2];
+        input.Declarations[2] = constructor with
+        {
+            Parts = constructor.Parts.SetItem(
+                1,
+                constructor.Parts[1] with { OwnedBodies = [] }),
+        };
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => Create(input));
+
+        Assert.Contains("must be owned exactly once", error.Message);
+    }
+
+    [Fact]
+    public void Create_RejectsMixedContributionActivationOwners()
+    {
+        var input = Input();
+        MemberAnchor secondConstructor = Anchor(
+            ".ctor(int)",
+            "void Sample..ctor(int value)");
+        input.Artifacts.Insert(
+            5,
+            Artifact(
+                5,
+                secondConstructor,
+                0x06000004,
+                CSharpTypeArtifactKind.Method,
+                4));
+        input.Artifacts[6] = input.Artifacts[6] with { Id = 6 };
+        input.Bodies.Add(
+            Body(
+                3,
+                input.TypeAddress.ModuleVersionId,
+                0x06000004,
+                5,
+                CSharpTypeBodyRole.Method,
+                'D'));
+        input.Declarations.Add(
+            new(
+                4,
+                4,
+                secondConstructor,
+                0x06000004,
+                CSharpTypeDeclarationKind.Constructor,
+                CSharpTypeAccessibility.Public,
+                CSharpTypeDeclarationPlacement.Instance,
+                CSharpTypeOrigin.NonGenerated,
+                [
+                    Fixed(0, "public Sample(int value)"),
+                    Implementation(
+                        1,
+                        " { _a = value; }",
+                        " { }",
+                        CSharpTypeImplementationKind.Body,
+                        ownedBodies:
+                        [
+                            new(3, new(1, 15)),
+                        ]),
+                ]));
+        CSharpTypeDeclaration field = input.Declarations[0];
+        CSharpTypeRenderPart initializer = field.Parts[1];
+        input.Declarations[0] = field with
+        {
+            Parts = field.Parts.SetItem(
+                1,
+                initializer with
+                {
+                    FullText = " = 1 + value",
+                    Contributions =
+                    [
+                        initializer.Contributions[0],
+                        new(
+                            3,
+                            CSharpTypeBodyContributionRole.FieldInitializer,
+                            new(7, 5)),
+                    ],
+                }),
+        };
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => Create(input));
+
+        Assert.Contains(
+            "different Selected-body activation",
+            error.Message);
+    }
+
+    [Fact]
     public void Create_RejectsAggregateNodeBudgetExhaustion()
     {
         var input = Input();

@@ -451,6 +451,11 @@ static class CSharpTypeDocumentValidator
         ValidateFrameBodyReferences(data.Frame, data.Bodies);
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
         ValidateArtifactCompleteness(data.Artifacts, data.Bodies, data.Declarations);
+        ValidateBodyOwnershipAndContributionActivation(
+            data.Frame,
+            data.Artifacts,
+            data.Bodies,
+            data.Declarations);
         ValidateCapabilities(data);
         ValidateTextBudget(data);
         ValidateProjectionTextBudget(data);
@@ -710,6 +715,85 @@ static class CSharpTypeDocumentValidator
         {
             throw new ArgumentException(
                 "Contract relationships are unavailable in document schema version 1.");
+        }
+    }
+
+    static void ValidateBodyOwnershipAndContributionActivation(
+        CSharpTypeFrame frame,
+        ImmutableArray<CSharpTypePhysicalArtifact> artifacts,
+        ImmutableArray<CSharpTypePhysicalBody> bodies,
+        ImmutableArray<CSharpTypeDeclaration> declarations)
+    {
+        int[] ownerByBody = Enumerable.Repeat(-1, bodies.Length).ToArray();
+        foreach (CSharpTypeDeclaration declaration in declarations)
+        {
+            foreach (CSharpTypeOwnedBodyReference reference
+                in declaration.Parts.SelectMany(static part => part.OwnedBodies))
+            {
+                if (ownerByBody[reference.BodyId] != -1)
+                {
+                    throw new ArgumentException(
+                        $"Physical body {reference.BodyId} is owned more than once.");
+                }
+                ownerByBody[reference.BodyId] = declaration.Id;
+            }
+        }
+
+        foreach (CSharpTypePhysicalBody body in bodies)
+        {
+            CSharpTypeArtifactRepresentation representation =
+                artifacts[body.ArtifactId].Representation;
+            if (body.HasManagedBody
+                && representation.Kind
+                    == CSharpTypeArtifactRepresentationKind.Declaration)
+            {
+                int expectedOwner = representation.TargetId!.Value;
+                if (ownerByBody[body.Id] != expectedOwner)
+                {
+                    throw new ArgumentException(
+                        $"Managed physical body {body.Id} must be owned exactly once by declaration {expectedOwner}.");
+                }
+            }
+        }
+
+        ValidateContributionActivation(
+            frame.PrefixParts,
+            "Type frame",
+            ownerByBody);
+        foreach (CSharpTypeDeclaration declaration in declarations)
+        {
+            ValidateContributionActivation(
+                declaration.Parts,
+                $"Declaration {declaration.Id}",
+                ownerByBody);
+        }
+
+        static void ValidateContributionActivation(
+            ImmutableArray<CSharpTypeRenderPart> parts,
+            string owner,
+            int[] ownerByBody)
+        {
+            foreach (CSharpTypeRenderPart part in parts)
+            {
+                int? activationOwner = null;
+                bool hasContribution = false;
+                foreach (CSharpTypeBodyContribution contribution
+                    in part.Contributions)
+                {
+                    int activationOwnerId =
+                        ownerByBody[contribution.BodyId];
+                    if (!hasContribution)
+                    {
+                        activationOwner = activationOwnerId;
+                        hasContribution = true;
+                    }
+                    else if (activationOwner != activationOwnerId)
+                    {
+                        throw new ArgumentException(
+                            $"{owner} implementation part {part.Id} combines contributions requiring different Selected-body activation.");
+                    }
+                }
+            }
         }
     }
 
