@@ -6,7 +6,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;

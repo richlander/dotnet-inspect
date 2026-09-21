@@ -18,7 +18,7 @@ using ILInspector.Research;
 using Markout;
 using System.Collections.Immutable;
 using System.Text.Json;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Commands;
 

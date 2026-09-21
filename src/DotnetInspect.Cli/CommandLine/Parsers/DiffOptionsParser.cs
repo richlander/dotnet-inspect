@@ -5,7 +5,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
