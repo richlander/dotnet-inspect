@@ -911,6 +911,23 @@ local names` choice, off by default. The setting is byte-preserving (names do
 not affect IL), so it is not part of the oracle-endorsed
 [taste](#style-configuration) aggregate and carries its own tool-owned key.
 
+Set `dotnet_inspect_style_approximate_pdb_local_names = true` to prefer a
+familiar PDB-derived name when exact row-and-scope identity cannot be emitted.
+The exact allocator always runs first. For a declined physical slot, the
+printer deterministically chooses the earliest usable, non-hidden PDB
+declaration, resolves C# collisions with a suffix, and records an
+`approximate-pdb-local-name` decision. This changes only the displayed
+identifier: the exact naming cause and `Partial` fidelity remain visible.
+Incomplete method-wide symbol evidence and unusable rows decline to the normal
+readable or `V_index` fallback.
+
+The declared and revealed runtime style oracles are silent on decompiler PDB
+identity policy. ILSpy, dnSpyEx, and the published JustDecompile engine provide
+the analogous ecosystem convention: they flatten scoped PDB records into a
+slot-level name before reconstructing C# declarations. The option deliberately
+offers that familiar presentation while the shipped default remains stricter.
+It is not selected by `--taste` or `dotnet_inspect_style_full_taste`.
+
 ## Shared enum case-label order
 
 When multiple named enum labels share one `switch` section body, their authored

@@ -88,6 +88,64 @@ public sealed partial class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void InterfaceConstantAcceptsTypedFieldInitializer()
+    {
+        var field = new ApiMember
+        {
+            Name = "Answer",
+            Kind = "field",
+            ReturnType = "int",
+            IsConst = true,
+            IsStatic = true,
+        };
+        var type = CreateEmptyType("Samples", "IConstants");
+        type.Kind = "interface";
+        type.Members.Add(field);
+
+        CSharpTypePrintResult result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        field,
+                        CSharpBodyPolicy.Full,
+                        new CSharpFieldInitializer("42")),
+                ]));
+
+        Assert.Contains(
+            "public const int Answer = 42;",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InterfaceMethodStillRejectsExecutableBody()
+    {
+        ApiMember method = CreateMethod("Observe");
+        var type = CreateEmptyType("Samples", "IConstants");
+        type.Kind = "interface";
+        type.Members.Add(method);
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            _printer.Print(
+                new CSharpTypePrintRequest(
+                    type,
+                    memberPolicyOverrides:
+                    [
+                        new CSharpMemberPolicy(
+                            method,
+                            CSharpBodyPolicy.Full,
+                            new CSharpBlockBody("return;")),
+                    ])));
+
+        Assert.Contains(
+            "must use skeleton body policy",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void StubPropertyRequiresExplicitAccessorBodyShape()
     {
         var property = new ApiMember
