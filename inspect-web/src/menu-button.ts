@@ -23,7 +23,12 @@ export function continueMenuButtonDocumentOrder(
   const target = event.shiftKey
     ? focusable[buttonIndex - 1]
     : focusable[buttonIndex + 1];
+  if (!target) {
+    closeMenu();
+    button.focus({ preventScroll: true });
+    return;
+  }
   event.preventDefault();
   closeMenu();
-  target?.focus();
+  target.focus();
 }

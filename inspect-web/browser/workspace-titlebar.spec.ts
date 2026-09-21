@@ -143,6 +143,36 @@ test("product navigation Tab closes and continues to the actual next tab stop", 
   await expect(page.locator("[data-native-next-focus='true']")).toBeFocused();
 });
 
+test("product navigation reverse Tab matches native document order", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?type=1");
+
+  const focusState = () => page.evaluate(() => {
+    const active = document.activeElement;
+    return {
+      id: active?.id ?? "",
+      tag: active?.tagName ?? "",
+      body: active === document.body,
+    };
+  });
+  const brand = page.locator("[data-product-navigation-button]");
+  await brand.focus();
+  await page.keyboard.press("Shift+Tab");
+  const nativePreviousFocus = await focusState();
+
+  await brand.focus();
+  await brand.press("ArrowUp");
+  await expect(page.locator("[data-product-destination='activity']"))
+    .toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+
+  await expect(page.locator(".product-navigation-menu")).toBeHidden();
+  await expect(page.locator(".product-navigation-menu :focus")).toHaveCount(0);
+  await expect.poll(focusState).toEqual(nativePreviousFocus);
+});
+
 test("the data bar occupies its fixed row when the notice stack is empty", async ({
   page,
 }) => {
