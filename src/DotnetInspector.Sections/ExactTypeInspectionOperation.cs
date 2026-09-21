@@ -7,8 +7,8 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Executes one exact package Type inspection through a fresh active Workspace
-/// realization and returns only its detached terminal envelope.
+/// Executes one exact package Type inspection through a fresh directly owned
+/// Workspace and returns only its detached terminal envelope.
 /// </summary>
 public static class ExactTypeInspectionOperation
 {
@@ -52,8 +52,6 @@ public static class ExactTypeInspectionOperation
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(capabilities);
 
-        await using var coordinator =
-            new WorkspaceRealizationCoordinator();
         WorkspaceContextInput input = new()
         {
             Framework = request.TargetFramework,
@@ -66,94 +64,52 @@ public static class ExactTypeInspectionOperation
             ],
         };
         var plan = new WorkspacePlan([], [input]);
-        WorkspaceRealizationCandidateStartResult start =
-            await coordinator.BeginCandidateAsync(plan)
-                .ConfigureAwait(false);
-        if (start
-            is not WorkspaceRealizationCandidateStartResult.Prepared prepared)
+        var workspace = new InspectionWorkspace(plan);
+        InspectionEnvelope<ExactTypeInspectionResult> result;
+        try
         {
-            return Envelope(
-                ExactTypeInspectionResult.RuntimeUnavailable(
-                    request,
-                    "The exact Type Workspace realization could not be prepared."),
-                request);
-        }
-
-        WorkspaceContextLoadOutcome load;
-        using (WorkspaceRealizationConstructionLease construction =
-            prepared.Candidate.EnterConstruction())
-        {
-            load = await WorkspaceContextLoader.LoadAsync(
-                    construction.Workspace,
+            WorkspaceContextLoadOutcome load =
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
                     input,
                     capabilities,
                     cancellationToken)
                 .ConfigureAwait(false);
-        }
-        if (load is WorkspaceContextLoadOutcome.Failed failed)
-        {
-            WorkspaceRealizationCandidateRetirementResult retirement =
-                coordinator.AbandonCandidate(prepared.Candidate);
-            if (retirement
-                is WorkspaceRealizationCandidateRetirementResult.Retiring
-                    retiring)
+            result = load switch
             {
-                await retiring.Retirement.Completion.ConfigureAwait(false);
-            }
-            return Envelope(
-                ExactTypeInspectionResult.ContextUnavailable(
-                    request,
-                    failed.Failures),
-                request);
+                WorkspaceContextLoadOutcome.Failed failed =>
+                    Envelope(
+                        ExactTypeInspectionResult.ContextUnavailable(
+                            request,
+                            failed.Failures),
+                        request),
+                WorkspaceContextLoadOutcome.Loaded loaded =>
+                    ExecuteCore(
+                        workspace,
+                        loaded,
+                        request,
+                        projectionLimits),
+                _ => Envelope(
+                    ExactTypeInspectionResult.RuntimeUnavailable(
+                        request,
+                        "The exact Type Workspace load returned an unsupported result."),
+                    request),
+            };
         }
-
-        WorkspaceRealizationCandidateCompletionResult completion =
-            await coordinator.CompleteCandidateAsync(
-                    prepared.Candidate,
-                    cancellationToken)
+        catch (Exception failure)
+        {
+            await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
+                    workspace,
+                    failure)
                 .ConfigureAwait(false);
-        if (completion
-            is not WorkspaceRealizationCandidateCompletionResult.Ready)
-        {
-            return Envelope(
-                ExactTypeInspectionResult.RuntimeUnavailable(
-                    request,
-                    "The exact Type Workspace realization did not become ready."),
-                request);
-        }
-        WorkspaceRealizationCutoverResult cutover =
-            coordinator.CutOver(prepared.Candidate);
-        if (cutover is not WorkspaceRealizationCutoverResult.Activated)
-        {
-            return Envelope(
-                ExactTypeInspectionResult.RuntimeUnavailable(
-                    request,
-                    "The exact Type Workspace realization did not become active."),
-                request);
+            throw;
         }
 
-        WorkspaceRealizationOperationAdmission admission =
-            await coordinator.EnterOperationAsync(cancellationToken)
-                .ConfigureAwait(false);
-        if (admission
-            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
-        {
-            return Envelope(
-                ExactTypeInspectionResult.RuntimeUnavailable(
-                    request,
-                    "The active exact Type Workspace realization did not admit the operation."),
-                request);
-        }
-
-        using (WorkspaceRealizationOperationLease authority =
-            admitted.Lease)
-        {
-            return ExecuteCore(
-                authority,
-                (WorkspaceContextLoadOutcome.Loaded)load,
-                request,
-                projectionLimits);
-        }
+        await DirectWorkspaceOperationLifetime.CloseAsync(
+                workspace,
+                "Exact Type inspection")
+            .ConfigureAwait(false);
+        return result;
     }
 
     /// <summary>
@@ -192,6 +148,19 @@ public static class ExactTypeInspectionOperation
         Envelope(
             ExactTypeInspectionQuery.Execute(
                 authority,
+                new ExactTypeInspectionContext(loaded),
+                request,
+                projectionLimits),
+            request);
+
+    static InspectionEnvelope<ExactTypeInspectionResult> ExecuteCore(
+        InspectionWorkspace workspace,
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits) =>
+        Envelope(
+            ExactTypeInspectionQuery.Execute(
+                workspace,
                 new ExactTypeInspectionContext(loaded),
                 request,
                 projectionLimits),

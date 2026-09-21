@@ -186,6 +186,73 @@ public static class WorkspaceTopLevelInventoryOperation
 {
     const string SharePath = "workspace-top-level-inventory/share";
 
+    public static async ValueTask<WorkspaceTopLevelInventoryExecution>
+        ExecuteAsync(
+            InspectionWorkspace workspace,
+            WorkspaceTopLevelInventoryRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(request);
+
+        ArtifactRootResult<WorkspaceRealizationOperationSnapshot> captured =
+            await workspace.CaptureRealizationOperationSnapshotAsync(
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (captured
+            is not ArtifactRootResult<WorkspaceRealizationOperationSnapshot>
+                .Available available)
+        {
+            return Complete(
+                WorkspaceTopLevelInventoryQuery.Unavailable(
+                    WorkspaceTopLevelInventoryUnavailableReason
+                        .InvalidAuthority),
+                request,
+                shareBasis: null);
+        }
+
+        return Execute(
+            available.Value.Definition,
+            available.Value.Scope,
+            request,
+            WorkspaceTopLevelInventoryShareBasis.CreateRealizedWorkspace(
+                available.Value.Definition));
+    }
+
+    public static async ValueTask<WorkspaceTopLevelInventoryExecution>
+        ExecuteAsync(
+            InspectionWorkspace workspace,
+            WorkspaceTopLevelInventoryRequest request,
+            WorkspaceTopLevelInventoryShareBasis shareBasis,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(shareBasis);
+
+        ArtifactRootResult<WorkspaceRealizationOperationSnapshot> captured =
+            await workspace.CaptureRealizationOperationSnapshotAsync(
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (captured
+            is not ArtifactRootResult<WorkspaceRealizationOperationSnapshot>
+                .Available available)
+        {
+            return Complete(
+                WorkspaceTopLevelInventoryQuery.Unavailable(
+                    WorkspaceTopLevelInventoryUnavailableReason
+                        .InvalidAuthority),
+                request,
+                shareBasis);
+        }
+
+        return Execute(
+            available.Value.Definition,
+            available.Value.Scope,
+            request,
+            shareBasis);
+    }
+
     public static WorkspaceTopLevelInventoryExecution Execute(
         WorkspaceRealizationOperationLease authority,
         WorkspaceTopLevelInventoryRequest request,
@@ -196,9 +263,22 @@ public static class WorkspaceTopLevelInventoryOperation
         ArgumentNullException.ThrowIfNull(shareBasis);
 
         using WorkspaceRealizationOperationUse use = authority.EnterUse();
-        if (!WorkspaceTopLevelInventoryQuery.IsValidAuthority(
+        return Execute(
             use.Definition,
-            use.Scope))
+            use.Scope,
+            request,
+            shareBasis);
+    }
+
+    static WorkspaceTopLevelInventoryExecution Execute(
+        WorkspaceDefinitionSnapshot definition,
+        WorkspaceScopeSnapshot scope,
+        WorkspaceTopLevelInventoryRequest request,
+        WorkspaceTopLevelInventoryShareBasis shareBasis)
+    {
+        if (!WorkspaceTopLevelInventoryQuery.IsValidAuthority(
+            definition,
+            scope))
         {
             return Complete(
                 WorkspaceTopLevelInventoryQuery.Unavailable(
@@ -208,7 +288,7 @@ public static class WorkspaceTopLevelInventoryOperation
                 shareBasis);
         }
 
-        if (!shareBasis.Matches(use.Definition))
+        if (!shareBasis.Matches(definition))
         {
             return Complete(
                 WorkspaceTopLevelInventoryQuery.Unavailable(
@@ -220,8 +300,8 @@ public static class WorkspaceTopLevelInventoryOperation
 
         return Complete(
             WorkspaceTopLevelInventoryQuery.Execute(
-                use.Definition,
-                use.Scope,
+                definition,
+                scope,
                 request),
             request,
             shareBasis);
@@ -230,7 +310,7 @@ public static class WorkspaceTopLevelInventoryOperation
     static WorkspaceTopLevelInventoryExecution Complete(
         WorkspaceTopLevelInventoryQueryExecution execution,
         WorkspaceTopLevelInventoryRequest request,
-        WorkspaceTopLevelInventoryShareBasis shareBasis)
+        WorkspaceTopLevelInventoryShareBasis? shareBasis)
     {
         var inspection =
             new InspectionEnvelope<WorkspaceTopLevelInventoryOutcome>(
@@ -243,7 +323,7 @@ public static class WorkspaceTopLevelInventoryOperation
     static InspectionShare ProjectShare(
         WorkspaceTopLevelInventoryOutcome outcome,
         WorkspaceTopLevelInventoryRequest request,
-        WorkspaceTopLevelInventoryShareBasis shareBasis)
+        WorkspaceTopLevelInventoryShareBasis? shareBasis)
     {
         if (outcome
             is WorkspaceTopLevelInventoryOutcome.Unavailable unavailable)
@@ -277,7 +357,10 @@ public static class WorkspaceTopLevelInventoryOperation
                 "Workspace packets do not represent inventory kind filters.");
         }
 
-        return shareBasis.Projection switch
+        return (shareBasis
+            ?? throw new InvalidOperationException(
+                "Available Workspace inventory requires one Share basis."))
+            .Projection switch
         {
             WorkspaceTopLevelInventoryShareProjection.Projectable projected =>
                 new InspectionShare.Available(

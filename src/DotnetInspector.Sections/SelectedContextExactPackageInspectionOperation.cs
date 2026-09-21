@@ -234,6 +234,32 @@ public static class SelectedContextExactPackageInspectionOperation
                 .Completed(new(result.Envelope!, result.Evidence));
     }
 
+    public static async ValueTask<
+        SelectedContextExactPackageEvidenceOperationResult<TContent>>
+        ExecuteWithEvidenceAsync<TContent>(
+            InspectionWorkspace workspace,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactPackageInspectionRequest request,
+            Func<
+                SelectedContextExactPackageLiveTarget,
+                ValueTask<TContent>> inspect,
+            ViewFacetId? facet = null,
+            InspectionShare.NonProjectable? shareRefusal = null)
+    {
+        CoreResult<TContent> result = await ExecuteCoreAsync(
+            workspace,
+            activation,
+            request,
+            inspect,
+            facet,
+            shareRefusal).ConfigureAwait(false);
+        return result.Failure is { } failure
+            ? new SelectedContextExactPackageEvidenceOperationResult<TContent>
+                .Failed(failure)
+            : new SelectedContextExactPackageEvidenceOperationResult<TContent>
+                .Completed(new(result.Envelope!, result.Evidence));
+    }
+
     static async ValueTask<CoreResult<TContent>> ExecuteCoreAsync<TContent>(
         WorkspaceRealizationOperationLease authority,
         CompleteWorkspaceActivation activation,
@@ -245,6 +271,28 @@ public static class SelectedContextExactPackageInspectionOperation
         InspectionShare.NonProjectable? shareRefusal)
     {
         ArgumentNullException.ThrowIfNull(authority);
+        using WorkspaceRealizationOperationUse operation =
+            authority.EnterUse();
+        return await ExecuteCoreAsync(
+            operation.Workspace,
+            activation,
+            request,
+            inspect,
+            facet,
+            shareRefusal).ConfigureAwait(false);
+    }
+
+    static async ValueTask<CoreResult<TContent>> ExecuteCoreAsync<TContent>(
+        InspectionWorkspace workspace,
+        CompleteWorkspaceActivation activation,
+        SelectedContextExactPackageInspectionRequest request,
+        Func<
+            SelectedContextExactPackageLiveTarget,
+            ValueTask<TContent>> inspect,
+        ViewFacetId? facet,
+        InspectionShare.NonProjectable? shareRefusal)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(activation);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -266,7 +314,7 @@ public static class SelectedContextExactPackageInspectionOperation
                 considered: 0,
                 []);
         }
-        if (!ReferenceEquals(authority.Workspace.Identity, activation.Workspace)
+        if (!ReferenceEquals(workspace.Identity, activation.Workspace)
             || !ReferenceEquals(loaded.Workspace, activation.Workspace))
         {
             return Failed<TContent>(
@@ -394,7 +442,7 @@ public static class SelectedContextExactPackageInspectionOperation
 
         ResolvedCandidate selected = exactMatches[0];
         InspectionWorkspacePackageOccurrenceView occurrenceView =
-            authority.Workspace.CreatePackageOccurrenceView(
+            workspace.CreatePackageOccurrenceView(
                 [selected.Root]);
         InspectionWorkspacePackageOccurrenceActivation occurrenceActivation =
             occurrenceView.Activate(

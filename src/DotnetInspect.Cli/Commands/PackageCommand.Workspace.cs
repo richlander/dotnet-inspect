@@ -88,8 +88,8 @@ public partial class PackageCommand
             WorkspacePackageInspectionContent> operation =
                 await SelectedContextExactPackageInspectionOperation
                     .ExecuteWithEvidenceAsync(
-                        restoration.Authority,
                         restoration.Workspace,
+                        restoration.Activation,
                         request!,
                         target => ExecuteWorkspaceTargetAsync(
                             options,

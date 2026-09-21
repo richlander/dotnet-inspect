@@ -150,7 +150,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                 restored).Value;
         var resolved =
             Assert.IsType<CompleteRestorationResolvedState.Version4>(
-                restoration.Workspace.Snapshot.Resolved);
+                restoration.Activation.Snapshot.Resolved);
         CompleteRestorationResolvedViewState state =
             resolved.States.Single(candidate =>
                 candidate.NavigationId == "t0");

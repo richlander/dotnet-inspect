@@ -1153,8 +1153,8 @@ public static class TypeCommand
         SelectedContextExactTypeLiveTarget? liveTarget = null;
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
             SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
-                restoration.Authority,
                 restoration.Workspace,
+                restoration.Activation,
                 new SelectedContextExactTypeInspectionRequest(
                     options.TypeName!),
                 target => liveTarget = target,

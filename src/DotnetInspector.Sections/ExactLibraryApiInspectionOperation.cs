@@ -48,8 +48,6 @@ public static class ExactLibraryApiInspectionOperation
         ArgumentNullException.ThrowIfNull(capabilities);
         ArgumentNullException.ThrowIfNull(projectionLimits);
 
-        await using var coordinator =
-            new WorkspaceRealizationCoordinator();
         WorkspaceContextInput input = new()
         {
             Framework = request.TargetFramework,
@@ -62,99 +60,57 @@ public static class ExactLibraryApiInspectionOperation
             ],
         };
         var plan = new WorkspacePlan([], [input]);
-        WorkspaceRealizationCandidateStartResult start =
-            await coordinator.BeginCandidateAsync(plan)
-                .ConfigureAwait(false);
-        if (start
-            is not WorkspaceRealizationCandidateStartResult.Prepared prepared)
+        var workspace = new InspectionWorkspace(plan);
+        ExactLibraryApiInspectionExecution result;
+        try
         {
-            return UnavailableExecution(
-                request,
-                "The exact Library API Workspace realization could not be prepared.");
-        }
-
-        WorkspacePackageRootAcquisitionOutcome acquisition =
-            await WorkspaceContextLoader.AcquirePackageRootAsync(
+            WorkspacePackageRootAcquisitionOutcome acquisition =
+                await WorkspaceContextLoader.AcquirePackageRootAsync(
                     input,
                     capabilities,
                     cancellationToken)
                 .ConfigureAwait(false);
-        if (acquisition
-            is WorkspacePackageRootAcquisitionOutcome.Failed failed)
-        {
-            await AbandonAsync(coordinator, prepared.Candidate)
-                .ConfigureAwait(false);
-            return UnavailableExecution(
-                request,
-                string.Join(
-                    Environment.NewLine,
-                    failed.Failures.Select(failure => failure.Message)));
-        }
-
-        PackageRootBinding root =
-            ((WorkspacePackageRootAcquisitionOutcome.Acquired)acquisition).Root;
-        PackageAssemblyContextRealization realization;
-        using (WorkspaceRealizationConstructionLease construction =
-            prepared.Candidate.EnterConstruction())
-        {
-            realization =
-                await construction.Workspace
+            if (acquisition
+                is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+            {
+                result = UnavailableExecution(
+                    request,
+                    string.Join(
+                        Environment.NewLine,
+                        failed.Failures.Select(failure => failure.Message)));
+            }
+            else
+            {
+                PackageRootBinding root =
+                    ((WorkspacePackageRootAcquisitionOutcome.Acquired)
+                        acquisition).Root;
+                using PackageAssemblyContextRealization realization =
+                    await workspace
                     .RealizePackageAssemblyContextRolesAsync(
                         root,
                         cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
+                result = Execute(
+                    root,
+                    realization,
+                    request,
+                    projectionLimits);
+            }
         }
-        using (realization)
+        catch (Exception failure)
         {
-            WorkspaceRealizationCandidateCompletionResult completion =
-                await coordinator.CompleteCandidateAsync(
-                        prepared.Candidate,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            if (completion
-                is not WorkspaceRealizationCandidateCompletionResult.Ready)
-            {
-                return UnavailableExecution(
-                    request,
-                    "The exact Library API Workspace realization did not become ready.");
-            }
-            WorkspaceRealizationCutoverResult cutover =
-                coordinator.CutOver(prepared.Candidate);
-            if (cutover is not WorkspaceRealizationCutoverResult.Activated)
-            {
-                return UnavailableExecution(
-                    request,
-                    "The exact Library API Workspace realization did not become active.");
-            }
-
-            WorkspaceRealizationOperationAdmission admission =
-                await coordinator.EnterOperationAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            if (admission
-                is not WorkspaceRealizationOperationAdmission.Admitted admitted)
-            {
-                return UnavailableExecution(
-                    request,
-                    "The active exact Library API Workspace realization did not admit the operation.");
-            }
-
-            using WorkspaceRealizationOperationLease authority =
-                admitted.Lease;
-            using WorkspaceRealizationOperationUse operation =
-                authority.EnterUse();
-            if (!ReferenceEquals(
-                    operation.Realization,
-                    prepared.Candidate.Realization))
-            {
-                throw new InvalidOperationException(
-                    "The exact Library API operation authority does not match its realization.");
-            }
-            return Execute(
-                root,
-                realization,
-                request,
-                projectionLimits);
+            await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
+                    workspace,
+                    failure)
+                .ConfigureAwait(false);
+            throw;
         }
+
+        await DirectWorkspaceOperationLifetime.CloseAsync(
+                workspace,
+                "Exact Library API inspection")
+            .ConfigureAwait(false);
+        return result;
     }
 
     /// <summary>
@@ -322,16 +278,4 @@ public static class ExactLibraryApiInspectionOperation
             Envelope(Unavailable(request, detail), request),
             Surface: null);
 
-    static async Task AbandonAsync(
-        WorkspaceRealizationCoordinator coordinator,
-        WorkspaceRealizationCandidate candidate)
-    {
-        WorkspaceRealizationCandidateRetirementResult retirement =
-            coordinator.AbandonCandidate(candidate);
-        if (retirement
-            is WorkspaceRealizationCandidateRetirementResult.Retiring retiring)
-        {
-            await retiring.Retirement.Completion.ConfigureAwait(false);
-        }
-    }
 }

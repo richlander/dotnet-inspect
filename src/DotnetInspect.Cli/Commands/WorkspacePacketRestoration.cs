@@ -19,22 +19,19 @@ internal abstract record WorkspacePacketRestorationResult
 
 internal sealed class WorkspacePacketRestoration : IAsyncDisposable
 {
-    readonly WorkspaceCommandRestorationHost _host;
-    readonly WorkspaceRealizationOperationLease _authority;
+    readonly InspectionWorkspace _workspace;
 
     WorkspacePacketRestoration(
-        WorkspaceCommandRestorationHost host,
-        WorkspaceRealizationOperationLease authority,
-        CompleteWorkspaceActivation workspace)
+        InspectionWorkspace workspace,
+        CompleteWorkspaceActivation activation)
     {
-        _host = host;
-        _authority = authority;
-        Workspace = workspace;
+        _workspace = workspace;
+        Activation = activation;
     }
 
-    internal WorkspaceRealizationOperationLease Authority => _authority;
+    internal InspectionWorkspace Workspace => _workspace;
 
-    internal CompleteWorkspaceActivation Workspace { get; }
+    internal CompleteWorkspaceActivation Activation { get; }
 
     internal static async Task<WorkspacePacketRestorationResult> RestoreAsync(
         string input,
@@ -66,7 +63,7 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot executableEntries =
             CurrentCatalogEntriesExecutable(registry);
-        CompleteRestorationResult<WorkspaceRealizationOperationLease> result =
+        CompleteRestorationResult<InspectionWorkspace> result =
             await CompleteRestorationCoordinator.RestoreAsync(
                 preparation,
                 intent,
@@ -81,25 +78,23 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         if (result
             is CompleteRestorationResult<
-                WorkspaceRealizationOperationLease>.Activated activated)
+                InspectionWorkspace>.Activated activated)
         {
             return new WorkspacePacketRestorationResult.Restored(
                 new WorkspacePacketRestoration(
-                    host,
                     activated.Activation,
                     activated.Workspace));
         }
 
-        await host.DisposeAsync().ConfigureAwait(false);
         return new WorkspacePacketRestorationResult.Failed(
             "The Workspace packet could not be restored.",
             result switch
             {
                 CompleteRestorationResult<
-                    WorkspaceRealizationOperationLease>.Failed failed =>
+                    InspectionWorkspace>.Failed failed =>
                     RestorationFailureDetails(failed.Failure),
                 CompleteRestorationResult<
-                    WorkspaceRealizationOperationLease>.Superseded =>
+                    InspectionWorkspace>.Superseded =>
                     ["The restoration request was superseded."],
                 _ => ["The restoration returned an unsupported result."],
             });
@@ -159,7 +154,12 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _authority.Dispose();
-        await _host.DisposeAsync().ConfigureAwait(false);
+        InspectionWorkspaceCloseReport report =
+            await _workspace.CloseAsync().ConfigureAwait(false);
+        if (!report.Succeeded)
+        {
+            throw new InvalidOperationException(
+                "The restored Workspace could not release every participant.");
+        }
     }
 }
