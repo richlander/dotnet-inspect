@@ -2118,7 +2118,9 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceNodeText(Coerce coerce)
     {
-        var rendered = RenderCoercion(coerce.Operand, coerce.Target);
+        var rendered = coerce.Kind == CoercionKind.ReferenceWitness
+            ? new CoercedText($"({TypeText(coerce.Target)}){Operand(coerce.Operand)}", "ConversionExpression")
+            : RenderCoercion(coerce.Operand, coerce.Target);
         return WithNodeKind(
             coerce,
             rendered.Text,
