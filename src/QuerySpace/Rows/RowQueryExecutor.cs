@@ -3,6 +3,39 @@ namespace QuerySpace.Rows;
 
 public static class RowQueryExecutor
 {
+    private static bool CanApplyCount<TRow>(
+        ResolvedRowQueryPlan<TRow> plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (plan.Predicates.Count != 0
+            || plan.BaselineOrder is not null)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool TryApplyCount<TRow>(
+        int sourceCount,
+        ResolvedRowQueryPlan<TRow> plan,
+        out RowSelectionCountResult result)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(sourceCount);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        if (!CanApplyCount(plan))
+        {
+            result = default;
+            return false;
+        }
+
+        return RowSelectionCountExecutor.TryApply(
+            sourceCount,
+            plan.SelectionPlan,
+            out result);
+    }
+
     public static RowSelectionResult<TRow> Apply<TRow>(
         IReadOnlyList<TRow> rows,
         ResolvedRowQueryPlan<TRow> plan)

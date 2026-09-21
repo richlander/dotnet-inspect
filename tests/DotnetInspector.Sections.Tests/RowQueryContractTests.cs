@@ -255,6 +255,83 @@ public sealed class RowQueryContractTests
     }
 
     [Fact]
+    public void CountAccelerationAdmitsOnlyPredicateFreeUnorderedPlans()
+    {
+        VocabularyFixture fixture = Vocabulary();
+        ResolvedRowQueryPlan<QueryRow> selection =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Tail(2)
+                        ])));
+
+        Assert.True(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                selection,
+                out RowSelectionCountResult count));
+        Assert.True(count.IsSuccess);
+        Assert.Equal(2, count.Count);
+
+        ResolvedRowQueryPlan<QueryRow> predicate =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        predicates:
+                        [
+                            Predicate(
+                                "score",
+                                RowQueryOperator.GreaterOrEqual,
+                                "2")
+                        ])));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                predicate,
+                out _));
+
+        ResolvedRowQueryPlan<QueryRow> baseline =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        baseline:
+                            RowQueryOrderIntent.Named(
+                                "score-order",
+                                RowQueryOrderDirection.Ascending))));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                baseline,
+                out _));
+
+        ResolvedRowQueryPlan<QueryRow> top =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                2,
+                                RowQueryOrderIntent.Named(
+                                    "score-order",
+                                    RowQueryOrderDirection.Ascending))
+                        ])));
+        Assert.False(
+            RowQueryExecutor.TryApplyCount(
+                5,
+                top,
+                out _));
+    }
+
+    [Fact]
     public void EffectiveBaselineOrderFollowsPrecedence()
     {
         QueryRow[] rows =

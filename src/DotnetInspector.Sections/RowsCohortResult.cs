@@ -34,6 +34,56 @@ public sealed class RowsCohortSemanticFailure<TIdentity>
     public RowWindowFailure Failure { get; }
 }
 
+internal sealed class CountedRowSet<TIdentity>
+    where TIdentity : notnull
+{
+    public CountedRowSet(
+        TIdentity identity,
+        int count)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        Identity = identity;
+        Count = count;
+    }
+
+    public TIdentity Identity { get; }
+
+    public int Count { get; }
+}
+
+internal sealed class RowsCohortCountResult<TIdentity>
+    where TIdentity : notnull
+{
+    private RowsCohortCountResult(
+        IReadOnlyList<CountedRowSet<TIdentity>> rowSets,
+        RowsCohortSemanticFailure<TIdentity>? failure)
+    {
+        RowSets = rowSets;
+        Failure = failure;
+    }
+
+    public bool IsSuccess => Failure is null;
+
+    public IReadOnlyList<CountedRowSet<TIdentity>> RowSets
+    { get; }
+
+    public RowsCohortSemanticFailure<TIdentity>? Failure { get; }
+
+    public static RowsCohortCountResult<TIdentity> Success(
+        CountedRowSet<TIdentity>[] rowSets) =>
+        new(
+            SectionContractSnapshot.Own(rowSets),
+            null);
+
+    public static RowsCohortCountResult<TIdentity> Failed(
+        RowsCohortSemanticFailure<TIdentity> failure) =>
+        new(
+            SectionContractSnapshot.Empty<
+                CountedRowSet<TIdentity>>(),
+            failure);
+}
+
 public sealed class RowsCohortResult<TIdentity, T>
     where TIdentity : notnull
 {

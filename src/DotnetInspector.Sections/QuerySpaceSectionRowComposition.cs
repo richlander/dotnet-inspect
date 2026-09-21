@@ -51,13 +51,26 @@ public sealed class SectionQuerySpaceRowScopeBinding<TRow> :
         }
 
         ResolvedRowQueryPlan<TRow> plan = resolution.Plan!;
+        bool canApplyCount =
+            RowQueryExecutor.TryApplyCount(
+                0,
+                plan,
+                out _);
         var schemaBinding =
             new SectionRowSchemaBinding<string, TRow>(
                 TypedSchema,
                 sequences =>
                     RowsCohortExecutor.ApplyResolved(
                         sequences,
-                        plan));
+                        plan),
+                canApplyCount
+                    ? rowSets =>
+                        RowsCohortExecutor.ApplyResolvedCount<
+                            string,
+                            TRow>(
+                                rowSets,
+                                plan)
+                    : null);
         return SectionQuerySpaceScopeResolution.Success(
             schemaBinding,
             new ResolvedQuerySpaceRowAssociation<TRow>(
@@ -471,8 +484,7 @@ public static class QuerySpaceSectionRowResolver
                 nameof(scopeBinding));
         }
 
-        IReadOnlyList<
-            SectionRowSetDeclaration<string, TProjection>>
+        SectionRowSetDeclaration<string, TProjection>[]
             participating =
                 OrderParticipatingRowSets(
                     validatedRequest,
@@ -501,6 +513,16 @@ public static class QuerySpaceSectionRowResolver
                     resolution.Failure));
         }
 
+        bool countOnly =
+            validatedRequest.Terminal
+                is QuerySpaceTerminalRequirement.Count
+            && resolution.SchemaBinding!
+                .CanExecuteCountWithoutRows;
+        for (int index = 0; index < participating.Length; index++)
+        {
+            participating[index] =
+                participating[index].ResolveSnapshot(countOnly);
+        }
         var sectionAssociation =
             new SectionRowIntentAssociation<string>(
                 association.RowSets,
@@ -517,8 +539,7 @@ public static class QuerySpaceSectionRowResolver
                 resolution.Association!));
     }
 
-    private static IReadOnlyList<
-        SectionRowSetDeclaration<string, TProjection>>
+    private static SectionRowSetDeclaration<string, TProjection>[]
         OrderParticipatingRowSets<TProjection>(
             QuerySpaceRequest request,
             IReadOnlyList<
@@ -574,7 +595,7 @@ public static class QuerySpaceSectionRowResolver
                 nameof(rowSets));
         }
 
-        return Array.AsReadOnly(participating);
+        return participating;
     }
 }
 
