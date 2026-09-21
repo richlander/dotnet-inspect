@@ -101,6 +101,13 @@ one, and Mermaid. Inspect Web consumes the same typed operation through its
 graph viewer and may use host-specific interaction without reconstructing
 selection or evidence in TypeScript.
 
+The
+[Copilot App canvas](https://github.com/richlander/dotnet-inspect/issues/7757)
+consumes the complete public envelope. It may request a mapped Mermaid
+representation for first paint or export, but it navigates and invokes
+follow-up operations through the typed graph subjects and document-local
+targets rather than parsing Mermaid, Markdown, labels, or warning text.
+
 The planned reporting skill:
 
 1. requests dense typed report artifacts from dotnet-inspect;
@@ -145,6 +152,9 @@ No external code or architecture is transferred.
 | Exact call topology and physical occurrences | [Call Graph Projection](call-graph-projection.md) and [Call Graph Characteristics](call-graph-characteristics.md) | Supplies member nodes, directed call edges, call-site receipts, modality, loop state, and completeness |
 | Graph subjects, relationships, occurrences, characteristics, limits, and failures | [Inspection Graph Document](inspection-graph-document.md) | Carries the selected spine without adding a second graph envelope |
 | Single-seed, peer-seed, induced-set, and bounded neighborhood semantics | [Inspection Graph Modes](inspection-graph-modes.md) | Supplies the request population and seed roles; spine is an authored Graph profile, not a new mode family |
+| One authoritative multi-part content value and its projections | [Multi-part Inspection Documents](multi-part-inspection-documents.md) | Keeps selection, graph, completeness, and receipts in one domain-owned Document while renderings remain projections |
+| Shared Content, Share, and diagnostics | [Inspection Envelope](inspection-envelope.md) | Carries the completed spine Document or typed non-available outcome to CLI, Browser/Wasm, Canvas, and automation |
+| Complete content JSON and public envelope transport | [Output shapes](output-shapes.md) and [Projected JSON](projected-json.md) | Own CLI option interactions, transport framing, and the distinction between complete typed JSON and Markout-lowered JSON |
 | Implementation profiles and coverage | [Library Metrics report](library-structural-report.md) and Analysis | Supplies descriptive annotations; complexity does not select the first spine methodology |
 | Research identity, admission, correspondence, and evidence composition | [Inspection Layers](inspection-layers.md) and focused Research owners | Supplies the owner-issued identities and detached composition boundary |
 
@@ -524,11 +534,80 @@ ImplementationSpineSelection
   Failures[]
 ```
 
-Queries binds this selection to the same owner-issued subjects and
-occurrences in an `InspectionGraphDocument`. The completed host-neutral
-operation exposes an `InspectionEnvelope<TContent>` whose Content preserves
-both the selection explanation and the graph projection. No host reparses
-labels or recomputes the vector, SCCs, or paths.
+Queries binds this selection to the same owner-issued subjects and occurrences
+in an `InspectionGraphDocument`. The spine owner then issues one resource-free
+multi-part `ImplementationSpineDocument`:
+
+```text
+ImplementationSpineDocument
+  Subject
+  Methodology
+    Identity
+    Version
+    InterpretationBoundary
+  Population
+    PopulationReceipt
+    Ownership
+    Completion
+  Selection
+    SelectedComponents[]
+    ConnectorWitnesses[]
+    ConnectorFrontier?
+  Graph: InspectionGraphDocument
+  Limits[]
+  Failures[]
+```
+
+`Selection` explains why the bounded topology was retained. `Graph` is the
+authoritative structured topology, physical-occurrence, characteristic, and
+target model used by every host. `Population`, limits, failures, and
+methodology remain in Content because omitting any of them could make the
+selected graph appear exhaustive, runtime-observed, or quality-scored.
+
+The completed host-neutral operation exposes:
+
+```text
+InspectionEnvelope<ImplementationSpineOutcome>
+  Content
+    Available(ImplementationSpineDocument)
+    SelectionUnavailable(
+      Population,
+      Methodology,
+      DetachedCallCensus,
+      Limits,
+      Failures)
+  Share
+  Diagnostics
+```
+
+`SelectionUnavailable` is used only when no valid spine Document can be
+constructed, including component-admission exhaustion before complete ranking.
+Its `DetachedCallCensus` is the exact owner-issued census result that selection
+admitted, including its physical evidence, receipts, completion, limits, and
+failures; the spine outcome references that type rather than copying or
+reinterpreting it.
+
+A bounded or partial but valid Document remains `Available` and carries its
+limits, frontier, and failures. Envelope diagnostics do not replace semantic
+non-success or repair incomplete Content.
+
+The public `--envelope` transport uses the common discriminator shape:
+
+```text
+schema_version
+result_kind = implementation_spine
+content
+share
+diagnostics
+```
+
+Unprojected complete `--json` serializes the same Content value as
+`--envelope.content`. Section, row, field, column, Count, and competing format
+requests are rejected by `--envelope`; a host never receives a presentation-
+filtered value under the complete envelope contract.
+
+No host reparses labels or recomputes the selection vector, SCCs, paths,
+identities, completeness, or failure meaning.
 
 `CallOccurrenceReference` is owner-issued and bound to the exact call-census
 receipt and assembly-group/catalog generation. It is never a dense projection
@@ -543,6 +622,41 @@ document remains `SessionBound`; labels are never substituted.
 cross-command report orchestration must be `Portable`, carry the spine
 methodology and population receipts, and reject a join to artifacts with a
 different subject, traversal, call-census, or methodology receipt.
+
+### Canvas delivery and rendered representations
+
+The baseline envelope is the preferred Canvas input and is sufficient for an
+interactive graph renderer. Canvas-owned state such as layout, zoom, expanded
+groups, active selection, navigation history, and panel arrangement does not
+enter the spine Document.
+
+When a caller also requests a pre-rendered representation, the delivery is a
+named composition around the exact unchanged envelope:
+
+```text
+ImplementationSpineCanvasDelivery
+  Inspection: InspectionEnvelope<ImplementationSpineOutcome>
+  Representation
+    Mermaid(Document, NodeMappings[], EdgeMappings[])
+    NotRequested
+    Unavailable(Reason)
+```
+
+The Mermaid document is useful for immediate display, chat embedding, and
+export. The envelope's `ImplementationSpineDocument` remains the source of
+truth. Each mapping joins one renderer-local identifier to one exact
+Inspection Graph target in that same Document revision. It is not a portable
+subject identity.
+
+Representation absence or failure never becomes missing or failed inspection
+Content. The Canvas may render directly from `Graph`, fall back from Mermaid
+to its own graph view, and issue bounded follow-up operations from retained
+owner-issued subjects. It never parses diagram text to recover nodes, edges,
+limits, or identities.
+
+This document defines the spine-side Content and representation invariants.
+The focused Canvas owner in #7757 retains request and action schemas, selection
+lifetime, replacement behavior, restoration, and host interaction.
 
 ## Service-oriented prerequisite inventory
 
@@ -643,9 +757,139 @@ independently compiled assemblies. `Microsoft.Azure.SignalR` remains the
 real-package package-graph probe and should become pinned corpus evidence when
 the ordinary package operation exists.
 
+## Oracle and confidence strategy
+
+The aggregate Implementation Spine has no known high-fidelity external oracle.
+Another tool's importance graph or architectural score answers a different
+question and cannot certify this methodology. Confidence therefore comes from
+decomposing the result into dimensions that admit exact or comparative
+references, then preserving the residual aggregate judgment as explicitly
+unverified by an external oracle.
+
+This section composes validation expectations. It does not take ownership of
+call decoding, Metadata resolution, package traversal, structural metrics, or
+their gates from the producers named above.
+
+### Evidence classes
+
+Each comparison is classified before its result is interpreted:
+
+- **Exact oracle** — the independent reference has the same input domain,
+  identity, and semantic claim. Equality or a precisely documented difference
+  is a correctness verdict.
+- **Differential reference** — the other implementation observes the same
+  broad phenomenon but has different admission, resolution, or aggregation
+  semantics. Agreement raises confidence; disagreement triggers
+  investigation, not an automatic product failure.
+- **Invariant oracle** — exhaustive enumeration, a deliberately simple
+  reference algorithm, or metamorphic relation proves an algorithmic property
+  without depending on another product.
+- **Corpus sensor** — a pinned real asset detects drift and preserves
+  reproducible examples but does not decide correctness by itself.
+- **No external oracle** — the owner relies on component gates, explicit
+  methodology, real-asset review, and cross-host equality without claiming
+  independent aggregate certification.
+
+The harness records the pinned tool/version, asset identity, command, admitted
+population, normalized comparison currency, result, and every semantic
+difference that prevents an exact comparison. It never reports “oracle
+approved” from a nearby metric with different meaning.
+
+### Component matrix
+
+| Spine dimension | Candidate oracle or reference | Evidence class and boundary |
+| --- | --- | --- |
+| Physical call-site census | `ildasm` or another independently implemented ECMA-335 instruction decoder over pinned methods | Exact for caller MethodDef, IL offset, opcode family, and operand token after normalization; target binding remains a separate claim |
+| Static call-target correspondence | ILSpy Analyze, NDepend queries, or another independently implemented resolver over the same closed assembly set | Differential unless its binding policy, forwarded-type handling, and unresolved-target algebra match exactly |
+| SCC partition | Exhaustive mutual-reachability enumeration over bounded generated and fixture graphs | Exact invariant oracle |
+| Upstream/downstream reach | Exhaustive path enumeration over bounded graphs | Exact invariant oracle for the sealed compiled-call graph |
+| Shortest connector depth and canonical witness | Exhaustive enumeration of all simple paths within the declared depth on small fixtures | Exact invariant oracle, including equal-length ties and boundary-crossing depth |
+| Selection vector and ordering | Hand-authored vectors plus input-permutation and identity-renumbering metamorphic tests | Exact contract oracle; does not judge whether the policy is aesthetically ideal |
+| Package and restored-Project population | NuGet restore assets, owner-issued package traversal evidence, and `dotnet package list --include-transitive` where scopes align | Exact only for matching restored-target semantics; otherwise differential with target and pruning differences disclosed |
+| Library/package ownership boundaries | Package archive contents, realized Workspace occurrences, and assembly provenance | Exact when coordinates, asset paths, and generations match |
+| Instruction and local structural measures | Independent disassembly counts; NDepend or Visual Studio metrics where definitions are documented | Exact for normalized instruction counts; differential for cyclomatic and aggregate metrics whose CFG definitions differ |
+| Cross-Library topology shape | NDepend dependency/call queries or ILSpy Analyze over a pinned multi-Library asset such as `Microsoft.Azure.SignalR` | Differential sensor for direction, endpoints, and broad component shape; no implied equality of cluster or spine selection |
+| Final selected spine | No known external equivalent | No external oracle; confidence is composed from the exact dimensions above, deterministic policy gates, pathological fixtures, and pinned corpus observations |
+
+Tool licensing, redistribution, supported platforms, and reproducibility must
+be established before a candidate becomes a required gate. A proprietary or
+host-specific tool can remain an operator-run comparative sensor without
+becoming a build or contributor prerequisite.
+
+### Gate placement
+
+Small exact algorithmic oracles belong in ordinary Release tests. They should
+use independently implemented exhaustive algorithms rather than calling the
+product helper under test through another wrapper.
+
+Expensive cross-tool and corpus comparisons belong in
+[Deep Inspect](../../.github/skills/deep-inspect/SKILL.md) or a focused
+certification harness:
+
+- the `test` and `platform-test` lanes own required `ildasm` acquisition and
+  can host bounded physical-call differential checks;
+- the `census` lane can publish observational call, component, and structural
+  comparison artifacts;
+- the `package-sweep` lane can discover real multi-Library packages whose
+  topology exposes new unsupported or divergent shapes; and
+- promoted stable cases become pinned ordinary or slow fixtures only after the
+  observed difference is accepted for ongoing coverage.
+
+Broad sensors do not enter PR CI merely because they exist. A release or PR
+claim names the exact lane, pinned head, artifact, and verdict it relies on.
+
+### Budget calibration
+
+The request-level limits above have no normative product defaults in this
+specification. Adoption step 9 publishes a versioned
+`ImplementationSpineBudgetProfile` only after a diagnostic census reports, for
+each operation:
+
+- configured limit, consumed work, remaining work when knowable, utilization,
+  elapsed time, and retained-result size for every budget dimension;
+- the first exhausted limit and the exact atomic task that was not retained;
+- whether the result was complete, resumable, or a non-resumable portable
+  boundary; and
+- the subject, population, methodology, and call-census receipts needed to
+  reproduce the measurement.
+
+The initial calibration set contains every pathological fixture, the
+single-Library and explicit multi-Library `Microsoft.Azure.SignalR` scenarios,
+one realized Package dependency closure, and one restored Project closure.
+Ordinary target scenarios must complete under the candidate profile. Each
+pathological fixture must exhaust its intended budget before a later limit,
+proving both termination and precedence. Deep Inspect `census` and
+`package-sweep` artifacts report completion rate and per-budget utilization
+distributions over the broader corpus.
+
+No universal utilization percentage establishes correctness. The first
+budget-profile PR publishes the measurements and candidate values, then either
+justifies those values with visible headroom for the target scenarios or
+revises them before support is claimed. The no-limit CLI examples in this
+design depend on that profile and cannot ship before it. Later default changes
+name the motivating corpus evidence and preserve the same visible truncation
+contract.
+
+### Result confidence boundary
+
+`ImplementationSpineDocument.Methodology` identifies the exact methodology
+version and its interpretation boundary. It may name a versioned validation
+profile describing which dimensions have exact gates, differential sensors, or
+no external oracle. It does not embed mutable CI status, external-tool output,
+or an “accuracy” percentage.
+
+The envelope always carries the per-result facts required to interpret this
+execution: population, positive observations, physical receipts,
+completeness, limits, failures, and diagnostics. Build or release
+certification is separate evidence about the implementation. A Canvas or skill
+may explain the methodology and its known limits, but it may not convert
+component oracle coverage into a claim that the aggregate spine is objectively
+the Library's true architecture.
+
 ## Rendering
 
-The typed result uses the existing Inspection Graph rendering strategy.
+The authoritative envelope and typed Document come before rendering. The typed
+result uses the existing Inspection Graph rendering strategy.
 Markout remains the CLI lowering substrate:
 
 - Markdown explains the methodology, population, selection observations,
@@ -664,9 +908,12 @@ Inspect Web may provide interactive expansion, collapse, characteristic
 selection, and navigation. It consumes the same typed selection and graph and
 does not implement another ranking or connector algorithm.
 
+Canvas follows the same rule. Mermaid is a useful representation, not the data
+contract; the complete envelope is the preferred input.
+
 ## Adoption plan
 
-The program has eleven counted production steps:
+The program has fourteen counted production steps:
 
 1. Lock this focused composition and methodology contract.
 2. Migrate pairwise call-use acquisition and local root paths from
@@ -681,27 +928,35 @@ The program has eleven counted production steps:
    call-graph service.
 6. Compose restored Project dependency facts and traversal with a focused
    Project-output artifact realization and Workspace admission.
-7. Implement the Research spine selection and detached result, then bind it to
-   the Inspection Graph through the ResearchQueries companion.
-8. Add the `graph spine` CLI operation for Library and Package subjects,
-   subject-backed sections, Markout
-   lowering, JSON artifacts, Mermaid demo, help, and relationship-skill
-   guidance.
-9. Add Project CLI execution after step 6 supplies exact output and dependency
+7. Add the independent algorithmic oracle harness and the first bounded
+   cross-tool Deep Inspect sensors, recording exact, differential, corpus, and
+   no-oracle dimensions separately.
+8. Implement the Research spine selection and detached result, then bind it to
+   the Inspection Graph through the ResearchQueries companion. Tests and
+   harnesses supply every limit explicitly until the default profile exists.
+9. Exercise that product implementation through the calibration harness and
+   publish the first versioned budget profile.
+10. Add the `graph spine` CLI operation for Library and Package subjects,
+   subject-backed sections, Markout lowering, complete JSON, `--envelope`,
+   Mermaid demo, help, and relationship-skill guidance.
+11. Add Project CLI execution after step 6 supplies exact output and dependency
    participants.
-10. Add Inspect Web Library, Package, and Project spine visualization through
-   the shared
-   managed operation.
-11. Add the layered reporting skill, with manually reproducible commands and
+12. Add Inspect Web Library, Package, and Project spine visualization through
+    the shared managed operation.
+13. Add the Copilot App canvas consumer from #7757 over the same envelope,
+    including optional mapped Mermaid delivery and fixed bounded follow-up
+    actions.
+14. Add the layered reporting skill, with manually reproducible commands and
    automated typed-artifact orchestration for Library, Package, Dependency,
    and Project reports.
 
-Steps 2 through 6 remain focused owner adoptions and may split further. This
-composition does not authorize one implementation PR to change Analysis,
+Steps 2 through 9 remain focused owner or harness adoptions and may split
+further. This composition does not authorize one implementation PR to change
+Analysis,
 Metadata, Workspace, Research, Graph, CLI, Browser, and skills together.
 
 The alternative architecture is direct skill-side orchestration over tables
-and rendered graphs. It retires when step 10 consumes the owner-issued spine
+and rendered graphs. It retires when step 14 consumes the owner-issued spine
 operation; no compatibility obligation preserves skill-derived ranking,
 joins, or paths.
 
@@ -718,7 +973,8 @@ production path must eventually establish:
 - SCC condensation retains all internal and external exact occurrences;
 - the selection vector and ordering are deterministic under input permutation;
 - component admission exhaustion returns `SelectionUnavailable` rather than
-  ordering partial observations;
+  ordering partial observations, and preserves the exact detached call-census
+  evidence through complete JSON and the envelope;
 - reach counts retain their exact population and graph-generation receipts and
   qualifications;
 - equal shortest connector alternatives use the documented deterministic
@@ -728,13 +984,30 @@ production path must eventually establish:
 - connector member, boundary, depth, search-node, search-edge, witness,
   projected-node, and projected-edge limits have the documented ordering and
   frontier outcomes;
+- budget diagnostics expose configured, consumed, and remaining work plus the
+  first omitted atomic task for each exhausted dimension;
+- the calibration fixtures and pinned target scenarios establish intended
+  limit precedence and ordinary completion before defaults are supported;
 - disconnected selected populations remain disconnected;
 - positive evidence survives acquisition, Analysis, and result boundaries
   without creating a complete absence claim;
 - a selection never joins by dense call-site id, display name, or input order;
 - portable output either retains durable artifact and physical instruction
   identity or fails visibly;
-- CLI and Browser consume one owner-issued selection and graph result;
+- complete unprojected JSON equals `--envelope.content` under the spine
+  serializer;
+- CLI, Browser, and Canvas consume one owner-issued spine Document and graph
+  result;
+- mapped Mermaid delivery retains the exact unchanged baseline envelope, and
+  representation absence or failure does not alter valid Content;
+- every renderer-local node or edge mapping resolves to one target in the same
+  Inspection Graph revision;
+- Canvas follow-up requests resolve owner-issued identities rather than parsing
+  Mermaid, labels, or document-local ids as portable identity;
+- every external comparison records its input and tool identities, semantic
+  overlap, evidence class, known differences, and disagreement disposition;
+- the aggregate spine remains explicitly classified as having no external
+  oracle;
 - JSON artifact joins reject mismatched subject or generation receipts; and
 - the reporting skill computes no semantic fact that the tool did not issue.
 
@@ -753,6 +1026,7 @@ This design does not:
 - rank packages by popularity, downloads, or ecosystem importance;
 - require network work for an already admitted local Library request;
 - make exhaustive package traversal or expensive Analysis a default operation;
+- claim that one comparative external tool certifies the aggregate spine;
 - replace direct Calls, Callers, Top Leverage, Member Metrics, Library Metrics,
   Depends, Graph Libraries, or member Call Graph
   surfaces before their useful workflows have replacement parity; or
