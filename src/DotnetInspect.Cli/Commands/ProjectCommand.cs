@@ -638,7 +638,6 @@ public class ProjectCommand
                 options.Format == OutputFormat.Json,
                 options.Format == OutputFormat.Jsonl,
                 options.JsonArray,
-                options.Bare,
                 new ProjectionDestination(
                     options.OutputPath,
                     options.Rows,

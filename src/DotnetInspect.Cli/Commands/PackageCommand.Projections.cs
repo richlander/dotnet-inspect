@@ -192,7 +192,6 @@ public partial class PackageCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                options.Bare,
                 PackagePayloadDestination(options),
                 row => PackagePayloadDestination(
                     options,

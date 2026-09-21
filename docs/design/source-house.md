@@ -429,10 +429,12 @@ existing wire shape, source-failure visibility, and viewer. CLI ordinary
 whole-type Decompiled Source consumes the decompiled-only path through
 `TypeSourceInspection.DecompileAsync`; it renders only an available native
 attempt, treats failed or incomplete settlement as a visible command failure,
-and retains true absence as an empty selected section. This intentionally
+and passes true absence to the selected renderer without fabricating text.
+The CLI's [native source default](rendering-model.md#native-type-and-source-defaults)
+does not change that shared settlement. This intentionally
 changes the earlier CLI behavior that omitted non-public members by default.
 An `API Declarations` view, planned as
-`type ... -S "API Declarations" [--all] [--bare]`, is a separate future
+`type ... -S "API Declarations" [--all] [--markdown]`, is a separate future
 contract tracked by [#7984](https://github.com/richlander/dotnet-inspect/issues/7984)
 and is not introduced by this delivery. Implementation Diff's C# lane and
 cross-version authored member pairs remain separate consumers.
