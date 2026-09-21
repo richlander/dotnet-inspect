@@ -54,10 +54,10 @@ owns the names and semantic extents carried as `TContent`. This adoption
 consumes that contract; it does not define a competing Diff-specific content
 taxonomy.
 
-This is **specification only**. Existing top-level `diff` remains current and
-is retained by the composition owner; `timeline` remains current until focused
-Diff adoption retires it. Other root operations such as `match`, `find`,
-`depends`, and `graph` are not relocated by this adoption.
+This is a composition specification. Existing top-level `diff` remains current
+and is retained by the composition owner; its shared History mode has retired
+the standalone `timeline` predecessor. Other root operations such as `match`,
+`find`, `depends`, and `graph` are not relocated by this adoption.
 
 Related docs:
 
@@ -638,12 +638,12 @@ Current multi-address operations are operation-first:
 ```bash
 dotnet-inspect diff --package System.Text.Json@8.0.0..9.0.0 \
   --type System.Text.Json.JsonSerializer
-dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
+dotnet-inspect diff --history --package System.Text.Json@8.0.0..9.0.0 \
   --type System.Text.Json.JsonSerializer --finding api.member --at all
 ```
 
-The current `timeline` command changes arity, acquisition, failure topology,
-and the content from a subject Document to an ordered History Document.
+The `--history` mode changes arity, acquisition, failure topology, and the
+content from a pairwise Diff Document to an ordered History Document.
 Top-level Diff preserves its own operation identity. A subject-first Diff
 section reuses that operation without turning comparison into an ordinary
 unary observation. Native temporal evidence remains owned by
@@ -827,11 +827,11 @@ body-diff lowering requires its own explicit rendering boundary.
 Top-level `diff` is a permanent part of the go-forward command architecture,
 not a migration bridge or retirement candidate. Migration changes how its
 shared operations and subject sections compose around it; it does not plan the
-command's removal. Existing routes remain until their shared operation or
-explicit disposition is complete. `timeline` retires only after the shared
-History operation provides replacement parity for its population, evaluation,
-sparse and failed evidence, Count, output, discovery, and sharing behavior. No
-compatibility alias or second History algorithm is introduced.
+command's removal. Existing routes remain until their shared operation or explicit disposition is
+complete. Shared History provides replacement parity for population,
+evaluation, sparse and failed evidence, Count, output, discovery, and sharing
+behavior; the standalone predecessor is retired without a compatibility alias
+or second History algorithm.
 
 Before changing a route, inventory existing API, multi-Library,
 Type/Member-filtered, Analysis, Implementation, PDB/source, Finding
@@ -856,7 +856,7 @@ Production adoption is tracked by
    subject sections, using the same owner-resolved identity and semantic plan
    without converting filters or display text into subject identity.
 5. Adopt Type and Member History and changed-version Count through the shared
-   result from #7229; retire `timeline` only after complete parity.
+   result from #7229; retire the standalone predecessor after complete parity.
 6. Migrate Analysis, Implementation, PDB/source, and Finding routes in focused
    owner slices.
 7. Reconcile CLI help, completion, README, skills, Share, structured output,
@@ -885,7 +885,7 @@ It does not by itself authorize payload acquisition, choose a cell, compare
 endpoints, or infer monotonic history.
 
 Operations do not have to materialize that address space in the same way.
-`package --versions`, addressed unary inspection, and `timeline` need the
+`package --versions`, addressed unary inspection, and Diff History need the
 published interior vector and resolve it through `PackageVersionVector`.
 `diff` needs only the two literal endpoints, so it currently acquires those
 endpoints without enumerating or validating the interior vector first. Endpoint
@@ -900,10 +900,10 @@ The selected lens or operation supplies the payload-acquisition contract:
 | Select version Vector | 0 | `package Package@A..B --versions` resolves and renders range metadata without acquiring package payloads. |
 | Inspect | 1 | `type` and `member` require one explicit `--at <version\|#N\|first\|last>` and acquire only that exact package. |
 | Compare | 2 | `diff --package Package@A..B` acquires and compares the two endpoints. |
-| Correlate | N explicit cells | `timeline` resolves the full address space but acquires only repeated `--at` probe cells; `--at all` explicitly authorizes every cell. |
+| Correlate | N policy-authorized cells | `diff --history` resolves the full address space; full population evaluates every cell, repeated `--at` selects checkpoints, and `--max-probes N` bounds adaptive evaluation. |
 
 The first row is a package lens and output-shape selection. It is not an
-operation peer of `diff` and `timeline`.
+operation peer of `diff`.
 
 ### Acquisition cardinality versus output shape
 
@@ -954,9 +954,9 @@ Shape reducers do not revise operation arity. In particular:
   not silently transition from version-address rows to package artifact
   inspection. The explicit transition remains `package Package@version`.
 
-The same rule applies to `timeline`. `--count` can reduce an already assembled
-Timeline table and cannot probe additional cells; semantic item/range
-composition follows
+The same rule applies to Diff History. `--count` reduces the already authorized
+Changed Versions evidence and cannot probe additional cells; semantic
+item/range composition follows
 [Section-row shaping](section-row-shaping.md#count-semantics), while final CLI
 conflicts remain L3-owned. `--print` can print only payloads already carried or
 explicitly referenced by evaluated rows; it cannot turn unevaluated rows into
@@ -1394,15 +1394,15 @@ ambiguous target and can carry a metadata exception's message. JSON escaping is
 not containment: a parser restores the original control character, so an escaped
 bidi override would reach a JSON consumer intact.
 
-## Timeline and bisect consequences
+## History and bisect consequences
 
-`timeline` and `diff` are peers. Both are multi-address operations over the same
+Pairwise Diff and Diff History are modes of the same operation over the same
 source and focus selectors:
 
-- `diff` has exactly two evaluated cells and emits pair transitions;
-- `timeline` has an ordered address space, evaluates a caller-selected dense or
-  sparse set of cells, and emits correlation states plus transitions between
-  evaluated censuses.
+- pairwise `diff` has exactly two evaluated cells and emits pair transitions;
+- `diff --history` has an ordered address space, evaluates full, checkpoint, or
+  bounded adaptive cells, and emits correlation states plus transitions
+  between evaluated censuses.
 
 The most informative initial composition is not necessarily a timeline of one
 type or one member. It is a type-focused timeline over a member census:
@@ -1440,15 +1440,14 @@ native identity key and currently reports `Present`, `Missing`,
 `SubjectAbsent`, and `Failed` cells. The shared
 [Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
 also retains `NoApplicableInput` and narrows `SubjectAbsent` to proven
-exact-subject absence. The current timeline projection renders both typed
-absence kinds as `SubjectAbsent` pending a focused CLI migration. With
+exact-subject absence. Diff History preserves those typed outcomes in complete
+Content while its Evaluations projection gives each a distinct state. With
 `analysis.allocation`, `analysis.call-site`, or `analysis.unsafety`, the
 selected member is the Analysis subject and the correlated values are its
-producer-native occurrence censuses. The compatibility projection is gated by
-`AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`:
+producer-native occurrence censuses.
 
 ```bash
-dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
+dotnet-inspect diff --history --package Foo@1.0.0..2.0.0 \
   --type Foo.Parser --member Parse \
   --finding analysis.unsafety --at all
 ```
@@ -1456,9 +1455,9 @@ dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
 This is the cross-family composition proof: Metadata resolves the structural
 member focus, Analysis supplies the selected observation census, and Findings
 owns the N-address correlation. The command does not introduce a Research-owned
-timeline model.
+History model.
 
-### Dense timeline
+### Dense History
 
 A bounded, explicit full-range traversal may evaluate every version in the
 address space. Comparing each pair of adjacent complete censuses then yields
@@ -1564,8 +1563,7 @@ This model does not:
 - add session state that implicitly carries source/focus between commands;
 - authorize implicit or unbounded range scans;
 - turn sections into operation substitutes;
-- define the final `timeline` syntax before its bounded producer/view contract
-  is designed.
+- define operation-specific policy or projection contracts owned by focused
+  designs.
 
-The immediate purpose is to make that future syntax derivable rather than
-ad hoc.
+The purpose is to make operation syntax derivable rather than ad hoc.

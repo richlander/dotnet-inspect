@@ -17,7 +17,7 @@ contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
-`vocabulary` value rendering, `timeline`, `package query`, package activity,
+`vocabulary` value rendering, `diff --history`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's layout lens, `Package files`, or
 `SourceLink: Files` section,
@@ -1323,34 +1323,36 @@ Predicate and ranking adoption waits for the shared row-query owner rather than
 adding a vocabulary-local implementation. Structural `-D` output remains
 outside this adoption and keeps the existing discovery projection behavior.
 
-## Timeline adoption
+## Diff History adoption
 
-`timeline` declares two independent row sets in version-vector order:
-Evaluations use the stable package-version address as row identity, while
-Transitions use the ordered evaluated endpoint pair and producer-native
-Finding identity. Head/Tail and Window stages apply independently to every
-selected row set after the command completes its explicitly authorized
-package-cell evaluation. One strict Window failure withholds the complete
-timeline document.
+`diff --history` declares five independent row sets. Outcome is the terminal
+knowledge row, Probe Trace follows chronological evaluation order, Evaluations
+and Changed Versions follow version-vector order, and Transitions follow
+ordered evaluated endpoint pairs with producer-native Finding identity.
+Head/Tail and Window stages apply independently to every selected rendered row
+set after the command completes its policy-authorized package-cell evaluation.
+One strict Window failure withholds the complete projected document.
 
 ```console
-$ dotnet-inspect timeline \
+$ dotnet-inspect diff --history \
     --package Markout@0.33.0..0.35.2 \
     --type Markout.MarkoutWriterOptions \
-    --members --at all \
+    --finding api.member --at all \
     -S Transitions -n 10 --tail
 ```
 
-`--at` remains traversal authorization: no selector acquires no package
-payloads, repeated selectors authorize sparse cells, and `--at all` authorizes
-the complete vector. Semantic row selection never reduces those acquired
-cells. Markdown, table, TSV, JSONL, typed JSON, and Count consume the same
-selected rows.
+History policy remains traversal authorization: no policy option selects full
+population evaluation, repeated `--at` selectors authorize sparse checkpoints,
+`--at all` explicitly spells full traversal, and `--max-probes N` bounds
+adaptive evaluation. Semantic row selection never reduces those acquired
+cells. Markdown, table, TSV, JSONL, and projected JSON consume the same selected
+rows. Count admits only Changed Versions and is bound by the shared service
+before rendering.
 
 The command exposes explicit rendered-line selection but does not expose Top,
 `--order-by`, or predicates. Complete JSON rejects line selection before
 package acquisition. The remaining capabilities require their owning
-row-query adoption rather than a timeline-local implementation.
+row-query adoption rather than a History-local implementation.
 
 ## Required gates
 

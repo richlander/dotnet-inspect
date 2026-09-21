@@ -129,7 +129,7 @@ public partial class CommandExecutionTests
             $"depends-absent-{Guid.NewGuid():N}.dll");
         File.WriteAllBytes(
             unsupported,
-            TimelineCommandTests.BuildWindowsMetadataImage());
+            MetadataTestImages.BuildWindowsMetadataImage());
         try
         {
             var (exit, _, error) = await RunAppAsync(
@@ -169,7 +169,7 @@ public partial class CommandExecutionTests
             $"depends-unsupported-{Guid.NewGuid():N}.dll");
         File.WriteAllBytes(
             unsupported,
-            TimelineCommandTests.BuildWindowsMetadataImage());
+            MetadataTestImages.BuildWindowsMetadataImage());
         try
         {
             var (exit, output, error) = await RunAppAsync(

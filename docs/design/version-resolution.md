@@ -102,9 +102,8 @@ sparse or dense cells without rediscovery while every cell remains restricted
 to authorities that reported its version.
 
 The initial production bridge is online configured-source composition.
-Top-level Diff History, its operation-backed subject sections, and package
-version Count are the target consumers. Current API-range and top-level
-`timeline` execution, offline extraction, History coordination, and
+Top-level `diff --history` and package version Count consume it. API-range
+inspection, offline extraction, operation-backed subject sections, and
 Browser/Wasm adoption remain separate slices.
 
 ## Resolution receipt
@@ -413,7 +412,7 @@ dotnet-inspect type JsonSerializer \
   --package System.Text.Json@8.0.0..8.0.5 --at '#4'
 dotnet-inspect member JsonSerializer Serialize \
   --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
-dotnet-inspect timeline \
+dotnet-inspect diff --history \
   --package System.Text.Json@8.0.0..8.0.5 \
   --type System.Text.Json.JsonSerializer \
   --finding api.member --at first --at last
@@ -425,9 +424,9 @@ Resolving the vector reads version metadata only. The command downloads or
 opens a package only after the caller selects an address, so an agent can probe
 previous, midpoint, or adjacent versions without triggering an unbounded scan.
 
-Online API and timeline commands use complete, fresh configured-authority
+Online API and Diff History commands use complete, fresh configured-authority
 discovery and retain its reporting authorities through selected payload
-acquisition. Each timeline invocation keeps one vector for all its selected
+acquisition. Each History invocation keeps one vector for all its selected
 cells. An unreadable eligible source fails discovery before any payload
 acquisition, rather than silently shortening the vector. Local payload caches
 are authority-scoped; HTTP payloads are temporary and downloaded again in a
@@ -435,25 +434,26 @@ later invocation. Remaining consumer migration stays in step 6 of the
 [source adoption plan](package-source-model.md#implementation-boundary).
 Ordinary `package` payload inspection does not accept a range or `--at`.
 
-API and timeline vectors remain listed-only. Unlisted endpoints cannot be
+API and History vectors remain listed-only. Unlisted endpoints cannot be
 selected unless another authority independently reports that coordinate as
 listed; use an exact caller pin to inspect an unlisted package. Metadata-only
 `package --versions --include-unlisted` can enumerate those rows, but their
-ordinals are not addresses in the listed-only API/timeline vector.
+ordinals are not addresses in the listed-only API/History vector.
 
-`timeline` uses the same vector without changing that authorization rule. With
-no `--at`, it renders every address as `Unevaluated` and recommends a probe
-without downloading package payloads. Repeated `--at` selectors perform sparse
-correlation; `--at all` is the explicit dense-traversal opt-in. Type focus may
-select the type-presence (`api.type`), owned-member (`api.member`), or applied
-attribute (`api.attribute`) census. Adding `--member` to `api.member` selects
-one exact member identity track. The same member focus composes with
+`diff --history` uses the same vector without changing that authorization
+rule. With no policy option, it evaluates the full population. Repeated
+`--at` selectors perform sparse checkpoint correlation; `--at all` explicitly
+spells the same dense traversal, while `--max-probes N` authorizes bounded
+adaptive bisection. Type focus may select the type-presence (`api.type`),
+owned-member (`api.member`), or applied-attribute (`api.attribute`) census.
+Adding `--member` to `api.member` selects one exact member identity track. The
+same member focus composes with
 `analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`; only the
 selected method body is decoded at each evaluated address. Sparse transitions
 spanning unevaluated cells are labeled as gaps and do not claim the exact
 version of a change.
 
-Online timeline recommendations retain source and configuration arguments,
+Online History actions retain source and configuration arguments,
 including an absolute `--nugetconfig-directory` for ambient configuration.
 They also retain TFM, prerelease, and visibility choices. Exact `match --similar`
 replay retains the reporting configured sources for the selected coordinate,
@@ -461,7 +461,7 @@ not a transient extraction path. Credential-sensitive sources must be selected
 through configuration when their URLs cannot be safely disclosed.
 
 ```bash
-dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
+dotnet-inspect diff --history --package Foo@1.0.0..2.0.0 \
   --type Foo.Parser --member Parse \
   --finding analysis.unsafety --at first --at last
 ```

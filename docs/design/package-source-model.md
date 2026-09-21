@@ -973,10 +973,9 @@ composition, or callback. This substrate is online-only in its first adoption.
 Offline range discovery remains a host-selected legacy capability and does not
 cause PackageHouse to inspect process-global offline state.
 
-The API and top-level `timeline` consumers below have not yet migrated to the
-House population substrate. Their behavior remains current product evidence
-until top-level Diff History and package version Count adopt the new operation
-and the command-placement owner performs the atomic cutover.
+API range inspection below has not yet migrated to the House population
+substrate. `diff --history` uses the House population operation and selected
+cell execution directly.
 
 Online API inspection with an omitted version, `@latest`, or a wildcard uses
 the same complete current selection and reporting-authority handoff as ordinary
@@ -987,14 +986,15 @@ retain their separate acquisition paths. Local archives and offline API
 inspection remain on the legacy extractor.
 
 Online API range inspection (`type`, `member`, and `match` with `--at`) and
-`timeline` retain one complete configured-authority discovery together with
+Diff History retain one complete configured-authority discovery together with
 their immutable version vector. Every selected address consumes that same
 evidence; an address is not converted into an unrestricted caller pin or a
-producer-key restriction. Sparse and dense timeline evaluation do not
-rediscover the vector between cells. Incomplete discovery prevents payload
-acquisition, even when a healthy peer or a non-reporter's cache has bytes.
+producer-key restriction. Full, checkpoint, and adaptive History evaluation
+do not rediscover the vector between cells. Incomplete discovery prevents
+payload acquisition, even when a healthy peer or a non-reporter's cache has
+bytes.
 
-These vectors preserve the existing listed-only API/timeline policy. An
+These vectors preserve the existing listed-only API/History policy. An
 unlisted observation does not admit an endpoint or authorize its acquisition;
 another authority's listed observation can independently admit it. Local and
 V3 authorities without Gallery listing semantics retain their existing visible

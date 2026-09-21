@@ -6,10 +6,44 @@ using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Output;
 
-internal sealed record InspectionEnvelopeJsonContract<TContent>(
-    string ResultKind,
-    int SchemaVersion,
-    JsonTypeInfo<TContent> ContentTypeInfo);
+internal sealed record InspectionEnvelopeJsonContract<TContent>
+{
+    internal InspectionEnvelopeJsonContract(
+        string resultKind,
+        int schemaVersion,
+        JsonTypeInfo<TContent> contentTypeInfo)
+    {
+        ResultKind = resultKind;
+        SchemaVersion = schemaVersion;
+        ContentTypeInfo = contentTypeInfo;
+    }
+
+    internal InspectionEnvelopeJsonContract(
+        string resultKind,
+        int schemaVersion,
+        Action<Utf8JsonWriter, TContent> writeContent)
+    {
+        ResultKind = resultKind;
+        SchemaVersion = schemaVersion;
+        WriteContent = writeContent;
+    }
+
+    internal string ResultKind { get; }
+    internal int SchemaVersion { get; }
+    internal JsonTypeInfo<TContent>? ContentTypeInfo { get; }
+    internal Action<Utf8JsonWriter, TContent>? WriteContent { get; }
+
+    internal void Write(Utf8JsonWriter writer, TContent content)
+    {
+        if (WriteContent is not null)
+        {
+            WriteContent(writer, content);
+            return;
+        }
+
+        JsonSerializer.Serialize(writer, content, ContentTypeInfo!);
+    }
+}
 
 internal static class InspectionEnvelopeOutput
 {
@@ -104,10 +138,7 @@ internal static class InspectionEnvelopeOutput
             if (includeEnvelope)
                 WriteEnvelope(writer, envelope, contract);
             else
-                JsonSerializer.Serialize(
-                    writer,
-                    envelope.Content,
-                    contract.ContentTypeInfo);
+                contract.Write(writer, envelope.Content);
 
             writer.Flush();
             payload = CompletePayload(buffer);
@@ -160,10 +191,7 @@ internal static class InspectionEnvelopeOutput
         writer.WriteString("result_kind", contract.ResultKind);
 
         writer.WritePropertyName("content");
-        JsonSerializer.Serialize(
-            writer,
-            envelope.Content,
-            contract.ContentTypeInfo);
+        contract.Write(writer, envelope.Content);
 
         writer.WritePropertyName("share");
         JsonSerializer.Serialize(

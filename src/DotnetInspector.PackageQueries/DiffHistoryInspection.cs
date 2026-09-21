@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -239,6 +240,22 @@ public sealed record DiffHistoryResolvedAssembly(
     AssemblyResolutionProvenance Provenance);
 
 /// <summary>Detached resolution of one Type focus within a Version cell.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "resolution")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.Resolved),
+    "resolved")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.SubjectAbsent),
+    "subjectAbsent")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.NoApplicableInput),
+    "noApplicableInput")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.Ambiguous),
+    "ambiguous")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiMemberSubjectResolution.Failed),
+    "failed")]
 public abstract record DiffHistoryApiMemberSubjectResolution
 {
     private protected DiffHistoryApiMemberSubjectResolution()
@@ -286,6 +303,16 @@ public abstract record DiffHistoryApiMemberSubjectResolution
 }
 
 /// <summary>Detached API projection evidence for one Version participant.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiParticipantEvidence.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiParticipantEvidence.Rejected),
+    "rejected")]
+[JsonDerivedType(
+    typeof(DiffHistoryApiParticipantEvidence.Failed),
+    "failed")]
 public abstract record DiffHistoryApiParticipantEvidence
 {
     private protected DiffHistoryApiParticipantEvidence(
@@ -748,6 +775,18 @@ public sealed class DiffHistoryApiMemberDocument
 }
 
 /// <summary>One producer-specific document arm of shared Diff History.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "document")]
+[JsonDerivedType(typeof(DiffHistoryDocument.ApiMembers), "apiMembers")]
+[JsonDerivedType(typeof(DiffHistoryDocument.ApiTypes), "apiTypes")]
+[JsonDerivedType(
+    typeof(DiffHistoryDocument.ApiAttributes),
+    "apiAttributes")]
+[JsonDerivedType(
+    typeof(DiffHistoryDocument.ExactApiMember),
+    "exactApiMember")]
+[JsonDerivedType(typeof(DiffHistoryDocument.Allocations), "allocations")]
+[JsonDerivedType(typeof(DiffHistoryDocument.CallSites), "callSites")]
+[JsonDerivedType(typeof(DiffHistoryDocument.Unsafety), "unsafety")]
 public abstract partial record DiffHistoryDocument
 {
     private protected DiffHistoryDocument()
@@ -767,6 +806,11 @@ public abstract partial record DiffHistoryDocument
 }
 
 /// <summary>Shared terminal outcome for one constructed Diff History.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(typeof(DiffHistoryOutcome.Available), "available")]
+[JsonDerivedType(
+    typeof(DiffHistoryOutcome.ExactApiMemberUnavailable),
+    "exactApiMemberUnavailable")]
 public abstract record DiffHistoryOutcome
 {
     private protected DiffHistoryOutcome()

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -281,6 +282,19 @@ public static class PackageVersionCellWorkspaceExceptionEvidence
 /// <summary>
 /// Closed result of one PackageHouse cell realization and Metadata inspection.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(PackageVersionCellMetadataInspectionOutcome.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageVersionCellMetadataInspectionOutcome.NoContribution),
+    "noContribution")]
+[JsonDerivedType(
+    typeof(PackageVersionCellMetadataInspectionOutcome.WorkspaceFailure),
+    "workspaceFailure")]
+[JsonDerivedType(
+    typeof(PackageVersionCellMetadataInspectionOutcome.CleanupFailure),
+    "cleanupFailure")]
 public abstract record PackageVersionCellMetadataInspectionOutcome
 {
     private protected PackageVersionCellMetadataInspectionOutcome(

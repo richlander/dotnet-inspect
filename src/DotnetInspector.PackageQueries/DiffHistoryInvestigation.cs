@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -14,6 +15,16 @@ public enum DiffHistoryEvaluationPolicy
 }
 
 /// <summary>One evaluation policy over a settled Diff History population.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "plan")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.FullPopulation),
+    "fullPopulation")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.ExplicitCheckpoints),
+    "explicitCheckpoints")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.AdaptiveBisect),
+    "adaptiveBisect")]
 public abstract record DiffHistoryEvaluationPlan
 {
     private protected DiffHistoryEvaluationPlan()
@@ -263,6 +274,25 @@ public sealed record DiffHistoryApiMemberProbe
 }
 
 /// <summary>One settled terminal interpretation of completed History work.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.FullPopulationCompleted),
+    "fullPopulationCompleted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.ExplicitCheckpointsCompleted),
+    "explicitCheckpointsCompleted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.BoundariesResolved),
+    "boundariesResolved")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.EqualEndpoints),
+    "equalEndpoints")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.BudgetExhausted),
+    "budgetExhausted")]
+[JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.BlockedByFailure),
+    "blockedByFailure")]
 public abstract record DiffHistoryTerminalOutcome
 {
     private protected DiffHistoryTerminalOutcome()
@@ -409,6 +439,11 @@ public abstract record DiffHistoryTerminalOutcome
 }
 
 /// <summary>One typed follow-up over the completed History evidence.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+[JsonDerivedType(typeof(DiffHistoryNextAction.Probe), "probe")]
+[JsonDerivedType(
+    typeof(DiffHistoryNextAction.PairwiseDiff),
+    "pairwiseDiff")]
 public abstract record DiffHistoryNextAction
 {
     private protected DiffHistoryNextAction()

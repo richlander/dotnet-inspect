@@ -1119,7 +1119,6 @@ public static class CommandLineBuilder
 
         // Diff command
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
-        rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateTimelineCommand(opts));
 
         // Inspection graph command
         rootCommand.Subcommands.Add(

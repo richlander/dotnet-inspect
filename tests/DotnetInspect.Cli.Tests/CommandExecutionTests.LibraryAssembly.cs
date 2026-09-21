@@ -181,15 +181,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task DiffHelp_UsesPdbSourceAndHidesLegacyAuthoredSourceFlag()
+    public async Task DiffHelp_ExposesHistoryAndPdbSourceWithoutLegacyAuthoredSource()
     {
         var (exit, output, error) = await RunAppAsync("diff", "--help");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("--pdb-source", output);
+        Assert.Contains("--history", output);
+        Assert.Contains("--at", output);
+        Assert.Contains("--max-probes", output);
+        Assert.Contains("--count", output);
         Assert.DoesNotContain("--authored-source", output);
-        Assert.DoesNotContain("--count", output);
     }
 
     [Fact]

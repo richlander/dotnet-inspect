@@ -53,7 +53,7 @@ To confirm whether one definite unsafe operation appeared at an adjacent
 version boundary, first correlate caller-selected package cells:
 
 ```bash
-dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package MyLib@1.0.0..2.0.0 \
   -t MyType -m Method \
   --finding analysis.unsafety --at first --at last
 ```

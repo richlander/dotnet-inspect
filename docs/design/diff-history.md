@@ -818,9 +818,9 @@ no implementation step or gate.
 The
 [operation/section composition](operation-command-and-subject-section-composition.md)
 retains top-level `diff` and owns the subject-section equivalence obligation.
-Focused Diff adoption owns atomic retirement of `timeline`, migration of
-existing top-level Diff routes into the unified operation, obsolete-input
-handling, replacement coverage, and active guidance. This History adoption
+Focused Diff adoption atomically retires `timeline`, migrates its History route
+into the unified operation, covers obsolete input, and updates active guidance.
+This History adoption
 supplies the shared semantic implementation and authored section presets; it
 does not preserve a second algorithm or route. The proposed `--timeline` and
 `--pairwise` spellings do not become aliases.
@@ -833,8 +833,8 @@ in the same focused adoption. There is no separately shipped
 `TimelineInvestigationDocument`, `@Timeline` category, or temporary Browser
 Timeline surface.
 
-This specification PR changes no runtime behavior. Current README/skills remain
-truthful until the cutover; they must not advertise the new consumers early.
+The CLI cutover implements this contract for `diff --history`; Browser/Wasm
+adoption remains a subsequent host slice.
 
 ## Counted adoption and evidence
 
