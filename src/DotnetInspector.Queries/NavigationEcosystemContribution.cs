@@ -31,6 +31,36 @@ public sealed class NavigationEcosystemLibraryContribution
         WorkspaceLibraryAdmissionReceipt admission,
         WorkspaceLibraryOccurrence library)
     {
+        ArgumentNullException.ThrowIfNull(historicalRevision);
+        ArgumentNullException.ThrowIfNull(currentRevision);
+        ArgumentNullException.ThrowIfNull(ecosystemRelation);
+        ArgumentNullException.ThrowIfNull(admission);
+        ArgumentNullException.ThrowIfNull(library);
+        if (!ReferenceEquals(
+                historicalRevision.Workspace,
+                currentRevision.Workspace)
+            || !ReferenceEquals(
+                currentRevision.Workspace,
+                ecosystemRelation.Workspace)
+            || !currentRevision.EcosystemContributions.Contains(
+                ecosystemRelation)
+            || !historicalRevision.Registrations.Any(
+                registration =>
+                    registration is WorkspaceRegistration.Ecosystem ecosystem
+                    && ReferenceEquals(
+                        ecosystem.Declaration,
+                        ecosystemRelation.Ecosystem.Declaration))
+            || !ReferenceEquals(
+                admission.RegistrationRevision,
+                historicalRevision)
+            || !admission.Occurrences.Contains(library))
+        {
+            throw new ArgumentException(
+                "Navigation Ecosystem contribution evidence must preserve one"
+                + " exact Workspace, registration, relation, admission, and"
+                + " Library association.");
+        }
+
         HistoricalRevision = historicalRevision;
         CurrentRevision = currentRevision;
         EcosystemRelation = ecosystemRelation;
@@ -38,7 +68,7 @@ public sealed class NavigationEcosystemLibraryContribution
         Library = library;
     }
 
-    public InspectionWorkspaceIdentity Workspace => CurrentRevision.Workspace;
+    public InspectionWorkspaceIdentity Workspace => EcosystemRelation.Workspace;
 
     public WorkspaceRegistrationRevision HistoricalRevision { get; }
 

@@ -393,6 +393,12 @@ public sealed class EcosystemPopulationLoadingTests
                     ]));
         WorkspaceEcosystemContributionRelation currentRelation =
             Assert.Single(workspace.Revision.EcosystemContributions);
+        WorkspaceEcosystemContributionRelation neighboringRelation =
+            Assert.Single(
+                changed.Revision.EcosystemContributions,
+                relation => ReferenceEquals(
+                    relation.Ecosystem.Declaration,
+                    neighboring));
 
         EcosystemPopulationNavigationContribution projected =
             Assert.Single(
@@ -437,6 +443,13 @@ public sealed class EcosystemPopulationLoadingTests
             property => property.Name.Contains(
                 "Package",
                 StringComparison.Ordinal));
+        Assert.Throws<ArgumentException>(
+            () => new NavigationEcosystemLibraryContribution(
+                workspace.Revision,
+                changed.Revision,
+                neighboringRelation,
+                contribution.Admission,
+                contribution.Library));
     }
 
     [Fact]
