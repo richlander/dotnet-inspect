@@ -459,25 +459,21 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 
 ### Clean reviews are not spent by main moving
 
-For a review-clean `main`-targeting PR, base movement alone does not spend the
-reviews or justify integration. Before an agent-driven merge or mutation,
-classify the landed range as no interaction, trivial interaction, significant
-interaction, or conflict; report and apply that outcome before changing labels
-or dispatching reviewers. Upper stack slices follow their parent and must
-restack. The full procedure lives in
+For a `main`-targeting PR with clean reviews or a pending/approved
+trivial-interaction waiver, base movement alone does not spend that evidence or
+justify integration. Before an agent-driven merge or mutation, classify the
+landed range as no interaction, trivial interaction, significant interaction,
+or conflict; report and apply that outcome before changing labels or
+dispatching reviewers. Upper stack slices follow their parent and must restack.
+The full procedure lives in
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 ### How many reviewers, and from which models
 
-| Tier | Requirement |
-| --- | --- |
-| Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol** by default, one seat. |
-
-Use GPT-6 Astra for complex changes. GPT-5.6 Terra or Luna may review relatively
-simple changes that still require review. Full selection and substitution rules
-live in [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch
-IDs live in [Agent model mapping](docs/agent-models.md).
+Trivial changes need no review; state why. Everything else gets one GPT seat:
+GPT-5.6 Sol by default, GPT-6 Astra for complex work, or Terra/Luna for
+relatively simple work. Selection, substitution, and dispatch rules live in
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster).
 
 ### Running the round
 
@@ -521,9 +517,8 @@ The detailed classification and recommendation rules remain in
 
 ### Keep review proportional to the contract
 
-The prompt's finding-admission and trust-boundary rules are binding. A
-reviewer concern outside them is a scope proposal, not a landing requirement,
-unless the operator explicitly approves it.
+The canonical prompt's finding-admission and trust-boundary rules are binding;
+anything outside them is a scope proposal unless the operator approves it.
 
 ### Stop after six rounds
 
@@ -534,7 +529,8 @@ replacement within an authorized block dispatches without asking, setting
 
 At each block boundary, reviewer dispatch waits for approval after fresh green
 current-head CI and positive mergeability; round 12 and later presume splitting
-unless the user approves keeping the PR intact. Full checkpoint mechanics:
+unless the checkpoint establishes a strong reason and the user explicitly
+approves keeping the PR intact. Full checkpoint mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## Lead with the demo
