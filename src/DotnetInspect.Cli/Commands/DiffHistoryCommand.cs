@@ -137,12 +137,13 @@ internal static class DiffHistoryCommand
                 CommandError.Write(error!);
                 return 1;
             }
-            int authorizedEvaluations =
-                plan!.ResolveAuthorizedEvaluationCount(population.Vector);
-            if (authorizedEvaluations > MaximumHistoryEvaluations)
+            int maximumEvaluations = Math.Min(
+                plan!.ResolveAuthorizedEvaluationCount(population.Vector),
+                population.Vector.Addresses.Length);
+            if (maximumEvaluations > MaximumHistoryEvaluations)
             {
                 CommandError.Write(
-                    $"Diff History selected {authorizedEvaluations} "
+                    $"Diff History selected {maximumEvaluations} "
                     + $"evaluations, exceeding the "
                     + $"{MaximumHistoryEvaluations}-evaluation work limit. "
                     + "Narrow the package range or evaluation policy.");

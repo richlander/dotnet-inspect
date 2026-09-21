@@ -85,6 +85,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [InlineData("full", 3)]
     [InlineData("checkpoints", 2)]
     [InlineData("adaptive", 2)]
+    [InlineData("adaptive-large-budget", 2)]
     [InlineData("survey", 2)]
     [InlineData("all", 3)]
     [InlineData("endpoints", 2)]
@@ -102,6 +103,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             args.AddRange(["--at", "first", "--at", "last"]);
         else if (selection == "adaptive")
             args.AddRange(["--max-probes", "2"]);
+        else if (selection == "adaptive-large-budget")
+            args.AddRange(["--max-probes", "4097"]);
         else if (selection == "survey")
             args.AddRange(["--sample-percent", "50"]);
         else if (selection == "all")
@@ -121,7 +124,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         {
             Assert.DoesNotContain("Unevaluated", result.Output);
         }
-        if (selection == "adaptive")
+        if (selection is "adaptive" or "adaptive-large-budget")
             Assert.Contains("## Outcome", result.Output);
     }
 
