@@ -131,6 +131,8 @@ internal static class NativePasses
     public static ParameterNameAllocationPass ParameterNameAllocation => new();
     [Native(NativeCategory.EmitArtifact, "decided synthetic stack slots (one testified type, all stores at it) materialized as typed locals, retiring their slot nodes from the printer")]
     public static SlotMaterializationPass SlotMaterialization => new();
+    [Native(NativeCategory.EmitArtifact, "reference-coalesce assignment testimony and no-IL object argument conversions decided before emission")]
+    public static ReferenceCoalesceBindingPass ReferenceCoalesceBinding => new();
     [Native(NativeCategory.IlErasure, "bool marshalled as int (cgt against 0) normalized")]
     public static BoolToIntNormalizationPass BoolToIntNormalization => new();
     [Native(NativeCategory.IlErasure, "a bool operand of integer arithmetic (erased to i4 on the IL stack) materialized back to (cond ? 1 : 0) so the mix is not CS0019 int + bool")]
