@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
   testMatch: ["worker-cpu-isolation.spec.ts"],
+  outputDir: "test-results/worker-cpu",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   timeout: 120_000,
