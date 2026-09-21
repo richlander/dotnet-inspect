@@ -1110,7 +1110,10 @@ function renderChangeRows(
 ): string {
   if (changes.length === 0) return "";
   return `<ol class="library-api-diff-changes" aria-label="${escapeHtml(label)}">${changes.map(change => {
-    const values = change.oldValue !== null || change.newValue !== null
+    // Identical old and new text (a modifier change the producer spells in
+    // its message) adds nothing beside the message, so it stays out.
+    const values = (change.oldValue !== null || change.newValue !== null)
+      && change.oldValue !== change.newValue
       ? `<span class="library-api-diff-change-values"><code>${escapeHtml(change.oldValue ?? "—")}</code> → <code>${escapeHtml(change.newValue ?? "—")}</code></span>`
       : "";
     return `<li class="library-api-diff-change">
