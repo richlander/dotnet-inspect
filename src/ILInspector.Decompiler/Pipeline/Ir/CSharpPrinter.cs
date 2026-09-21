@@ -6631,6 +6631,12 @@ public sealed partial class CSharpPrinter
             }
             taken.UnionWith(exact.DisplayNames.OfType<string>());
 
+            // Exact source names may legally shadow non-captured enclosing or
+            // descendant binders. Approximate and generated names remain
+            // conservative so they do not introduce avoidable shadowing.
+            taken.UnionWith(_reservedScopeNames);
+            AddDescendantBinderNames(taken);
+
             if (_options.ApproximatePdbLocalNames)
             {
                 for (int i = 0; i < count; i++)
@@ -6660,12 +6666,6 @@ public sealed partial class CSharpPrinter
                             $"{_labelScopeSuffix}\0{i.ToString(CultureInfo.InvariantCulture)}");
                 }
             }
-
-            // Exact source names may legally shadow non-captured enclosing or
-            // descendant binders. Generated names remain conservative so they do
-            // not introduce new, avoidable shadowing into reconstructed source.
-            taken.UnionWith(_reservedScopeNames);
-            AddDescendantBinderNames(taken);
 
             var synthesizedNames = _function.SynthesizedLocalNames;
             for (int i = 0; i < count && i < synthesizedNames.Length; i++)
