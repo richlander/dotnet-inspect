@@ -232,10 +232,13 @@ public static class PrintProjectionOutput
     TitleProperty = nameof(Title))]
 internal sealed record PrintProjectionMarkdownView(
     string Title,
-    [property: MarkoutSection(Headless = true)] CodeSection Content)
+    CodeSection Content)
 {
     [MarkoutIgnore]
     public string Title { get; init; } = CSharpIdentifier.ContainRenderedText(Title);
+
+    [MarkoutSection(Headless = true)]
+    public CodeSection Content { get; init; } = Content;
 }
 
 [MarkoutContext(typeof(PrintProjectionMarkdownView))]
