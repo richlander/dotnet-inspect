@@ -14,10 +14,11 @@ The focused claim is:
 This is one Decompiler responsibility moving out of `CSharpPrinter`. It does
 not create a new storage, PDB, C# language, or host owner.
 
-Today the pipeline's exact-name and PDB-scope decisions ask the printer to
-reconstruct declaration scopes, while the printer also allocates final names.
-That reverses the intended dependency and makes the chosen binding unavailable
-to non-text consumers.
+Before the first production adoption, the pipeline's exact-name and PDB-scope
+decisions asked the printer to reconstruct declaration scopes, while the
+printer also allocated final names. That reversed the intended dependency and
+made the chosen binding unavailable to non-text consumers. The adoption below
+retires that dependency for materialized locals.
 
 ## Boundaries
 
