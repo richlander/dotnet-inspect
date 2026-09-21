@@ -553,11 +553,12 @@ public class RenderAbSensorTests
     [Fact]
     public void RenderAbChangedCompilerMethod_UsesExactProductDocuments()
     {
-        var type = typeof(AuthoredCorpusRatchetTests);
-        string methodName =
-            nameof(AuthoredCorpusRatchetTests
-                .DeepInspect_RunsAuthoredCorpusDailyAndKeepsPackageDiscoveryWeekly);
-        int methodToken = type.GetMethod(methodName)!.MetadataToken;
+        var type = typeof(RenderAbSensorTests);
+        string methodName = nameof(ReadableLocalNameFixture);
+        int methodToken = type.GetMethod(
+            methodName,
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .MetadataToken;
         using var source = MetadataSource.Open(type.Assembly.Location);
         var function = IrImporter.Import(source, methodToken);
         Assert.NotNull(function);
@@ -648,6 +649,16 @@ public class RenderAbSensorTests
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
+    }
+
+    static string ReadableLocalNameFixture(string text)
+    {
+        // Repeated range lowering leaves a compiler temporary for the readable-name A/B comparison.
+        int firstStart = text.IndexOf("first", StringComparison.Ordinal);
+        int secondStart = text.IndexOf("second", StringComparison.Ordinal);
+        string first = text[firstStart..text.IndexOf(":", firstStart, StringComparison.Ordinal)];
+        string second = text[secondStart..text.IndexOf(":", secondStart, StringComparison.Ordinal)];
+        return first + second;
     }
 
     [Fact]
