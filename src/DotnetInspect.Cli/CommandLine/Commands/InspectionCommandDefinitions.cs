@@ -58,7 +58,11 @@ public static class InspectionCommandDefinitions
         };
         var maxProbesOption = new Option<int?>("--max-probes")
         {
-            Description = "History adaptive-bisection probe budget (minimum 2)",
+            Description = "History probe cap (minimum 2); selects adaptive bisection unless --sample-percent selects a survey",
+        };
+        var samplePercentOption = new Option<int?>("--sample-percent")
+        {
+            Description = "History representative positional sample (1-100 percent), optionally capped by --max-probes",
         };
         var prereleaseOption = new Option<bool>("--preview")
         {
@@ -104,6 +108,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
+        diffCommand.Options.Add(samplePercentOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -131,7 +136,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
             diffCommand,
-            opts.Discover, opts.Select, opts.Verbosity,
+            opts.Discover, opts.Verbosity,
             nameOnlyOption,
             breakingOption, additiveOption, changedOption,
             allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
@@ -167,12 +172,33 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(historyOption))
                 return;
 
+            string? selector = result.GetValue(opts.Select);
+            bool implementationTransport =
+                string.Equals(
+                    selector,
+                    DiffSections.ImplementationDiff.Name,
+                    StringComparison.OrdinalIgnoreCase);
+            if (!implementationTransport)
+            {
+                if (result.GetResult(opts.Select) is { Implicit: false })
+                {
+                    result.AddError(
+                        "--envelope cannot be combined with --select unless "
+                            + "Implementation Diff is selected by itself.");
+                }
+                if (result.GetResult(typeFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --type.");
+                if (result.GetResult(memberFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --member.");
+            }
+
             bool explicitSource =
                 result.GetValue(packageOption) is not null
                 || result.GetValue(platformOption) is not null
                 || result.GetValue(libraryOption) is not null;
             int positionalCount = result.GetValue(argsArg)?.Length ?? 0;
-            if (positionalCount > (explicitSource ? 0 : 1))
+            if (!implementationTransport
+                && positionalCount > (explicitSource ? 0 : 1))
             {
                 result.AddError(
                     "--envelope cannot be combined with positional type filters.");
@@ -181,7 +207,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, prereleaseOption, opts.Count,
+            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>

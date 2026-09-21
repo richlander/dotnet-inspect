@@ -256,6 +256,83 @@ public sealed class SectionRowExecutionRequest<TIdentity, TProjection>
             identitiesByKey);
     }
 
+    internal SectionRowExecutionRequest<TIdentity, TProjection>?
+        CreateSubset(
+            IReadOnlySet<TIdentity> includedRowSets)
+    {
+        ArgumentNullException.ThrowIfNull(includedRowSets);
+        if (includedRowSets.Count == 0)
+        {
+            return null;
+        }
+
+        var rowSets =
+            new List<
+                SectionRowSetDeclaration<TIdentity, TProjection>>();
+        var schemas =
+            new HashSet<SectionRowSchemaIdentity>(
+                ReferenceEqualityComparer.Instance);
+        var keysByIdentity =
+            new Dictionary<TIdentity, RowSequenceKey>();
+        var identitiesByKey =
+            new Dictionary<RowSequenceKey, TIdentity>();
+        foreach (SectionRowSetDeclaration<TIdentity, TProjection>
+            rowSet in RowSets)
+        {
+            if (!includedRowSets.Contains(rowSet.Identity))
+            {
+                continue;
+            }
+
+            rowSets.Add(rowSet);
+            schemas.Add(rowSet.Schema);
+            RowSequenceKey key =
+                _keysByIdentity[rowSet.Identity];
+            keysByIdentity.Add(rowSet.Identity, key);
+            identitiesByKey.Add(key, rowSet.Identity);
+        }
+
+        if (rowSets.Count != includedRowSets.Count)
+        {
+            throw new ArgumentException(
+                "A section-row subset names an unknown declared row set.",
+                nameof(includedRowSets));
+        }
+
+        var cohorts =
+            new List<
+                SectionRowCohort<TIdentity, TProjection>>();
+        foreach (SectionRowCohort<TIdentity, TProjection> cohort
+            in ExecutableCohorts)
+        {
+            SectionRowCohort<TIdentity, TProjection>? subset =
+                cohort.CreateSubset(includedRowSets);
+            if (subset is not null)
+            {
+                cohorts.Add(subset);
+            }
+        }
+
+        var association =
+            new SectionRowIntentAssociation<TIdentity>(
+                Association.RowSets
+                    .Where(includedRowSets.Contains)
+                    .ToArray(),
+                Association.SchemaBindings
+                    .Where(binding => schemas.Contains(binding.Schema))
+                    .ToArray());
+        return new(
+            SectionContractSnapshot.Copy(rowSets),
+            association,
+            IntentBinding,
+            SectionContractSnapshot.Copy(
+                cohorts.Select(static cohort => cohort.Descriptor)
+                    .ToArray()),
+            SectionContractSnapshot.Copy(cohorts),
+            keysByIdentity,
+            identitiesByKey);
+    }
+
     public bool TryGetSequenceKey(
         TIdentity identity,
         [NotNullWhen(true)] out RowSequenceKey? key)

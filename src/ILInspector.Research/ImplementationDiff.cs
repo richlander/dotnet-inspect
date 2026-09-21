@@ -214,7 +214,7 @@ public sealed record PdbSourceComparisonInput(
 /// Product-owned implementation diff projection that joins C# source-shape and
 /// IL/body changes by Research member identity.
 /// </summary>
-public static class ImplementationDiff
+public static partial class ImplementationDiff
 {
     public static readonly FindingDescriptor PdbSourceFailureDescriptor =
         new("source.pdb.failed", "PDB source acquisition failed");

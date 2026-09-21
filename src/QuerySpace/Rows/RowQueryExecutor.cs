@@ -10,6 +10,15 @@ public static class RowQueryExecutor
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(plan);
 
+        if (plan.Predicates.Count == 0
+            && plan.BaselineOrder is null)
+        {
+            return RowSelectionExecutor.Apply(
+                rows,
+                plan.SelectionPlan,
+                plan.ResolveOrder);
+        }
+
         List<TRow> selected =
             Filter(rows, plan);
         ApplyBaselineOrder(
@@ -28,6 +37,15 @@ public static class RowQueryExecutor
     {
         ArgumentNullException.ThrowIfNull(sequences);
         ArgumentNullException.ThrowIfNull(plan);
+
+        if (plan.Predicates.Count == 0
+            && plan.BaselineOrder is null)
+        {
+            return RowSelectionExecutor.ApplyNamed(
+                sequences,
+                plan.SelectionPlan,
+                plan.ResolveOrder);
+        }
 
         var prepared =
             new NamedRowSequence<TRow>[sequences.Count];
