@@ -138,9 +138,12 @@ substrates, and inspection producers that will extend that space.
   reachability.   The
   [realized package dependency context](design/realized-package-dependency-context.md)
   query binds one physical Package Root selection to dependency evidence
-  projected from that exact retained content and selection intent, producing
-  detached source evidence for realized-package traversal without moving asset,
-  group, or traversal policy. The
+  projected from that exact retained content and selection intent. Package
+  Dependency Traversal retains that complete context as a typed root source
+  without moving its package-local asset or group selection, retains one
+  traversal target for compatible candidate-manifest selection, and leaves
+  Platform-pruned route composition to the Workspace operation that selected
+  the relevant ecosystem. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
@@ -549,6 +552,9 @@ substrates, and inspection producers that will extend that space.
   [Research Finding census projection](design/research-finding-census-projection.md)
   owns preservation of one producer-sealed body-fact receipt and its instance
   keys across those projections.
+  The proposed [Library Structural Report](design/library-structural-report.md)
+  separately owns one exact library's qualified compiled-IL structural
+  population document without assigning a score or source-level meaning.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind

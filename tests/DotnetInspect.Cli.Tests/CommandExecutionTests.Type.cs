@@ -2138,7 +2138,7 @@ public partial class CommandExecutionTests
     // A flattened table retains the selected section's identity even when its view heading is
     // the generic table title.
     [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--tsv", "--rows", "1" }, "System.")]
-    [InlineData(new[] { "--columns", "Type,Members", "--table", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "-S", "Classes", "--columns", "Type,Members", "--table", "--rows", "1" }, "System.")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
     // renders exactly as it did before and must keep exiting 0.
     [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
@@ -4020,7 +4020,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("m")]
-    [InlineData("n")]
     [InlineData("d")]
     public async Task TypeListing_RendersInspectionFailuresAtRaisedVerbosity(
         string verbosity)
@@ -4051,6 +4050,41 @@ public partial class CommandExecutionTests
                 "inventory assembly adjacency",
                 result.Output,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task TypeListing_NormalOmitsInspectionFailuresButKeepsWarning()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-list-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-v:n",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.DoesNotContain(
+                "## Inspection Failures",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "rejected 1 metadata row",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

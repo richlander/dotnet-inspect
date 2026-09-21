@@ -560,12 +560,16 @@ public class QueryDiscoveryTests
                 facet.GetProperty("name").GetString()
                     == PackageQuery.ReferencesTermKey)
                 .GetProperty("execution_class").GetString());
+        JsonElement depends = facets.Single(facet =>
+            facet.GetProperty("name").GetString()
+                == PackageQuery.DependsTermKey);
         Assert.Equal(
-            "NuGet package ID",
-            facets.Single(facet =>
-                facet.GetProperty("name").GetString()
-                    == PackageQuery.DependsTermKey)
-                .GetProperty("value_kind").GetString());
+            "NuGet package ID or prefix",
+            depends.GetProperty("value_kind").GetString());
+        Assert.Equal(
+            ["=", "starts-with"],
+            depends.GetProperty("comparisons").EnumerateArray()
+                .Select(value => value.GetString()));
         Assert.Equal(
             ["any", "MIT", "OSMF"],
             facets.Single(facet =>
@@ -883,6 +887,11 @@ public class QueryDiscoveryTests
             PerformanceTriageOptions.TryBindPredicateOperator(
                 key,
                 RowPredicateOperator.GreaterOrEqual,
+                out _));
+        Assert.False(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                key,
+                RowPredicateOperator.StartsWith,
                 out _));
     }
 
