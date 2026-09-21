@@ -91,6 +91,7 @@ test.describe("published authored Source comparison transport", () => {
             type.assemblyId,
             type.definitionId,
             "[]",
+            "source",
           );
           return {
             assembly: type.assemblyId,
@@ -119,12 +120,16 @@ test.describe("published authored Source comparison transport", () => {
           upstreamStallMilliseconds,
         );
         expect(evidence.result.kind).toBe("Succeeded");
-        expect(evidence.result.value?.provider).toBe("decompiled");
-        expect(evidence.result.value?.text)
+        expect(evidence.result.value?.kind).toBe("source");
+        if (evidence.result.value?.kind !== "source") {
+          throw new Error("Type Source did not return a source view.");
+        }
+        expect(evidence.result.value.value.provider).toBe("decompiled");
+        expect(evidence.result.value.value.text)
           .toContain("enum HexConverter.Casing");
-        expect(evidence.result.value?.pdbSourceLimitation)
+        expect(evidence.result.value.value.pdbSourceLimitation)
           .toContain("Portable PDB");
-        expect(evidence.result.value?.url).toBeNull();
+        expect(evidence.result.value.value.url).toBeNull();
       } finally {
         clearTimeout(releaseTimer);
         pdbResponseReleased = true;

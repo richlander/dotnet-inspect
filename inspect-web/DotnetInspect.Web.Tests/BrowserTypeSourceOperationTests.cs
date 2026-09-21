@@ -201,14 +201,93 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         Assert.Equal(1, result.Version);
         Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
         Assert.NotNull(result.Value);
-        BrowserSource source = Assert.IsType<BrowserTypeCodeView.Source>(result.Value).Value;
+        var sourceView =
+            Assert.IsType<BrowserTypeCodeView.Source>(result.Value);
+        BrowserSource source = sourceView.Value;
         Assert.Equal("decompiled", source.Provider);
         Assert.Contains("JsExportRootAttribute", source.Text);
         Assert.Contains(packageId, source.Provenance.ToString());
         Assert.Null(source.Url);
         Assert.NotNull(source.PdbSourceLimitation);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            sourceView.Share);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(sourceView.Diagnostics);
+        Assert.StartsWith(
+            "type-source.portable-pdb.",
+            diagnostic.Code,
+            StringComparison.Ordinal);
         await AssertReleased(id, packageId);
     }
+
+#if DEBUG
+    [Fact]
+    public async Task
+        EvidenceExport_PreservesInspectionAndSerializesPdbAcquisition()
+    {
+        const string packageId = "Type.Source.Bridge.Evidence";
+        await RegisterSourcePackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        string json = await SourceExports.QueryTypeSourceEvidence(
+            id,
+            packageId,
+            "1.0.0",
+            "net11.0",
+            "TsJsExport.Contracts.dll",
+            "TsJsExport.JsExportRootAttribute",
+            "[]");
+        BrowserTypeSourceEvidenceResult result =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserSourceJsonContext.Default
+                    .BrowserTypeSourceEvidenceResult)!;
+
+        Assert.Equal(
+            BrowserTypeSourceResultKind.Succeeded,
+            result.Kind);
+        BrowserTypeSourceEvidenceAttachment attachment =
+            Assert.IsType<
+                BrowserTypeSourceEvidenceAttachment>(
+                    result.Value);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(
+                attachment.Inspection.Diagnostics);
+        switch (attachment.Evidence.Disposition)
+        {
+            case DotnetInspector.Queries
+                .TypeSourcePortablePdbDisposition.Unavailable:
+                Assert.Equal(
+                    "type-source.portable-pdb.unavailable",
+                    diagnostic.Code);
+                Assert.Equal(
+                    DotnetInspector.Packages
+                        .PortablePdbExternalAcquisitionOutcome.Unavailable,
+                    attachment.Evidence.ExternalAcquisition.Outcome);
+                break;
+            case DotnetInspector.Queries
+                .TypeSourcePortablePdbDisposition
+                    .PreferenceWindowElapsed:
+                Assert.Equal(
+                    "type-source.portable-pdb.preference-window-elapsed",
+                    diagnostic.Code);
+                Assert.Equal(
+                    DotnetInspector.Packages
+                        .PortablePdbExternalAcquisitionOutcome.Canceled,
+                    attachment.Evidence.ExternalAcquisition.Outcome);
+                break;
+            default:
+                Assert.Fail(
+                    $"Unexpected PDB disposition "
+                    + $"{attachment.Evidence.Disposition}.");
+                break;
+        }
+        Assert.Contains(
+            "\"externalAcquisition\"",
+            json,
+            StringComparison.Ordinal);
+        await AssertReleased(id, packageId);
+    }
+#endif
 
     [Fact]
     public async Task MissingType_IsExpectedFailureAndReleasesScope()

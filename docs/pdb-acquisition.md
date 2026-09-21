@@ -444,6 +444,43 @@ library sections. It does not catch unrelated acquisition failures.
 `CommandExecutionTests.LibraryCommand_InvalidCachedPdbPreservesLibraryInspection`
 gates that command boundary.
 
+## Acquisition evidence
+
+`SymbolPackageDownloader.AcquirePdbAsync` accepts an optional
+`PortablePdbAcquisitionEvidenceCollector`. The ordinary path supplies no
+collector and does not allocate attempt records or capture elapsed timing.
+Evidence-enabled callers receive one immutable
+`PortablePdbAcquisitionEvidenceDocument` after the acquisition task has
+settled.
+
+The document records the external-acquisition outcome, selected symbol server,
+cache origin, Windows-PDB detection, PDB-store failure, and the ordered network
+attempts made by that acquisition. Each network attempt identifies the MSDL,
+symbol-package, or symbol-server route and records:
+
+- a credential-redacted inert URL;
+- the number of HTTP requests, including retries;
+- the terminal transport outcome and HTTP status when available;
+- bytes read across attempts; and
+- monotonic elapsed duration.
+
+`Acquired` is emitted only after the downloaded or cached content has passed
+Portable PDB format and identity validation and has been retained by the
+configured store. `Unavailable` means no route produced retained matching
+content; `WindowsPdbDetected` and `StoreFailure` preserve the corresponding
+validation and persistence distinctions. A cache hit records `FromCache` and
+does not fabricate a network attempt.
+
+This operation-scoped evidence is captured directly in the downloader rather
+than reconstructed from process-global `NetworkTelemetry` subscriptions.
+`NetworkTelemetry` remains appropriate for request-start logging, aggregate
+counts, and policy observation, but it does not own response, retry, body,
+validation, or store settlement and can include concurrent unrelated work.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_InMemoryStoreSupportsRepeatedReads`
+gates network acquisition evidence and the no-network cache-hit document;
+`HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`
+gates retry-count accounting.
+
 ## Error handling
 
 When PDB acquisition fails, we report the reason:

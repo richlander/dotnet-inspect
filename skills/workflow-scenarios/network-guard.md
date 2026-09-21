@@ -1,20 +1,29 @@
-# Network Guard
+# Network observation
 
-> How to use the DEBUG-only network guard to catch unexpected HTTP requests in dotnet-inspect.
+> How to observe Debug HTTP request starts and use offline mode when a workflow
+> must prohibit network access.
 
 ## Why it matters
 
-Many dotnet-inspect commands should be fully offline — they read from platform assemblies or cached NuGet packages. Accidental network access (e.g., PDB downloads from MSDL) adds 700ms+ latency and breaks the offline promise. The network guard catches these violations during development.
+Many dotnet-inspect commands should be fully offline because they read from
+platform assemblies or cached NuGet packages. Unexpected PDB, SourceLink, or
+package requests can add substantial latency. Debug request logging reveals
+those paths; `--offline` enforces the no-network boundary.
 
 ## How it works
 
-- **DEBUG builds only** — the guard is compiled out in Release builds (zero overhead).
-- `HttpClientFactory.DenyNetwork()` is called at startup; any HTTP request throws `NetworkGuardException`.
-- Commands that legitimately need network (e.g., `-v:d` for SourceLink/PDB) call `AllowNetwork()` to opt out.
+- **Debug observation** — online Debug CLI builds call
+  `HttpClientFactory.EnableNetworkTrafficLogging(...)`.
+- **Request-start events** — `NetworkTelemetry` records a credential-redacted
+  URL, client kind, traffic kind, and current request purpose.
+- **No completion claim** — the global observation does not report response
+  status, retries, body bytes, or duration.
+- **Offline enforcement** — `--offline` or
+  `DOTNET_INSPECT_OFFLINE=1` blocks HTTP in every build configuration.
 
 ## Quick start
 
-Build DEBUG and run a command that should be offline:
+Build Debug and run a command whose network behavior you want to inspect:
 
 ```bash
 set -e -o pipefail
@@ -27,80 +36,62 @@ test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
 "$INSPECT" library System.Text.Json -v:q
 ```
 
-If you see `Network guard violation` in the output, something is making an unexpected HTTP request.
+Any `Network traffic [...]` line identifies a managed request that started.
+Use `--offline` when the operation must be prevented rather than observed.
 
 ## When network access is expected
 
-| Verbosity | Network? | Why |
+| Verbosity | Typical network use | Why |
 | --- | --- | --- |
-| `-v:q` | No | Summary only |
-| `-v:m` | No | Metadata from local assembly |
-| default | No | Full signatures and docs from local data |
-| `-v:d` | Yes | Fetches PDB/SourceLink from MSDL |
+| `-v:q` | None for a warm local or platform query | Summary only |
+| `-v:m` | None for a warm local or platform query | Metadata from local assembly |
+| default | Depends on the requested subject and cache state | Package and documentation acquisition may be required |
+| `-v:d` | Often | PDB and SourceLink acquisition may be required |
 
-## `dotnet run` also triggers the guard
+## Enforce offline execution
 
-Since `dotnet run` compiles in DEBUG by default, you can use it to exercise the guard without building separately:
+Use the product's offline mode rather than relying on Debug logging:
 
 ```bash
-dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- library System.Text.Json -v:q
+dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- \
+  library System.Text.Json -v:q --offline
 ```
 
-## Offline mode vs network guard
+## Observation versus enforcement
 
 These are complementary mechanisms:
 
 | Mechanism | Build | Behavior |
 | --- | --- | --- |
-| Network guard | DEBUG only | Throws on unexpected HTTP — catches bugs |
-| `--offline` flag | Any build | Blocks all HTTP — user-facing feature |
+| Debug request logging | Debug | Reports managed request starts |
+| `--offline` flag | Any build | Blocks HTTP through the product transport |
 
-Use the guard during development. Use `--offline` in production when you want cache-only operation.
+Use logging to diagnose routing and latency. Use `--offline` for a deterministic
+cache-only operation.
 
 ## Implementation details
 
-The network guard is implemented in `HttpClientFactory.cs`:
-
-```csharp
-internal sealed class NetworkGuardHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
-{
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-#if DEBUG
-        if (HttpClientFactory.IsNetworkDenied)
-        {
-            var message = $"Network guard violation: {request.Method} {request.RequestUri}";
-            Debug.Fail(message);
-            throw new NetworkGuardException(message);
-        }
-#endif
-        return base.SendAsync(request, cancellationToken);
-    }
-}
-```
-
-The guard is enabled by default in `Program.cs`:
+Debug request logging is enabled in `Program.cs`:
 
 ```csharp
 #if DEBUG
-// Network guard is always on to catch unintended network access.
-// Disabled for offline mode (OfflineHandler handles it) and detailed verbosity.
 if (!offline)
-    DotnetInspector.Networking.HttpClientFactory.DenyNetwork();
+{
+    HttpClientFactory.EnableNetworkTrafficLogging(
+        CSharpIdentifier.ContainRenderedText);
+}
 #endif
 ```
 
-Commands opt out when they legitimately need network (`AssemblyCommand.cs`):
-
-```csharp
-#if DEBUG
-// Detailed verbosity legitimately needs network for PDB/SourceLink
-if (options.Verbosity >= Verbosity.Detailed || options.IncludeSourcelinkAudit)
-    DotnetInspector.Networking.HttpClientFactory.AllowNetwork();
-#endif
-```
+`NetworkTelemetry.Scope(...)` classifies request purpose.
+`NetworkTelemetry.Subscribe(...)` supports aggregate or diagnostic observers.
+Operation-specific evidence must be captured by the owning operation instead
+of reconstructing completion facts from this process-global request-start
+stream.
 
 ## Validation scenarios
 
-The [network guard workflow](../../docs/workflows/advanced/network-guard.md) validates the guard across verbosity levels using the apphost and `dotnet run`. The [offline usage workflow](../../docs/workflows/advanced/offline-usage.md) validates the `--offline` flag for platform and NuGet packages.
+The [network observation workflow](../../docs/workflows/advanced/network-guard.md)
+shows Debug logging and offline enforcement. The
+[offline usage workflow](../../docs/workflows/advanced/offline-usage.md)
+validates `--offline` for platform and NuGet packages.

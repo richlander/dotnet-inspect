@@ -188,6 +188,8 @@ public class SymbolPackageDownloaderTests : IDisposable
         using var client = new HttpClient(handler);
         var store = new InMemoryPdbStore();
         var downloader = new SymbolPackageDownloader(client, store);
+        var firstEvidence =
+            new PortablePdbAcquisitionEvidenceCollector();
 
         PortablePdbAcquisitionResult first =
             await downloader.AcquirePdbAsync(
@@ -199,7 +201,8 @@ public class SymbolPackageDownloaderTests : IDisposable
                 packageName: "Example.Package",
                 packageVersion: "1.0.0",
                 cancellationToken:
-                    TestContext.Current.CancellationToken);
+                    TestContext.Current.CancellationToken,
+                evidence: firstEvidence);
 
         var acquired =
             Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
@@ -217,11 +220,34 @@ public class SymbolPackageDownloaderTests : IDisposable
                 TestContext.Current.CancellationToken);
             Assert.Equal(pdbBytes, buffer.ToArray());
         }
+        PortablePdbAcquisitionEvidenceDocument firstDocument =
+            firstEvidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            firstDocument.Outcome);
+        Assert.Equal("nuget.org", firstDocument.SymbolServer);
+        Assert.False(firstDocument.FromCache);
+        Assert.Collection(
+            firstDocument.NetworkAttempts,
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute.SymbolPackage,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Succeeded,
+                    attempt.Outcome);
+                Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
+                Assert.Equal(1, attempt.RequestCount);
+                Assert.True(attempt.BodyBytesRead > 0);
+            });
 
         using var offlineClient =
             new HttpClient(new ThrowingHandler());
         var cachedDownloader =
             new SymbolPackageDownloader(offlineClient, store);
+        var cachedEvidence =
+            new PortablePdbAcquisitionEvidenceCollector();
         PortablePdbAcquisitionResult second =
             await cachedDownloader.AcquirePdbAsync(
                 guid,
@@ -233,13 +259,21 @@ public class SymbolPackageDownloaderTests : IDisposable
                 packageVersion: "1.0.0",
                 cacheOnly: true,
                 cancellationToken:
-                    TestContext.Current.CancellationToken);
+                    TestContext.Current.CancellationToken,
+                evidence: cachedEvidence);
 
         var cached =
             Assert.IsType<PortablePdbAcquisitionResult.Acquired>(
                 second);
         Assert.True(cached.Pdb.FromCache);
         Assert.Equal("nuget.org", cached.Pdb.SymbolServer);
+        PortablePdbAcquisitionEvidenceDocument cachedDocument =
+            cachedEvidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            cachedDocument.Outcome);
+        Assert.True(cachedDocument.FromCache);
+        Assert.Empty(cachedDocument.NetworkAttempts);
     }
 
     [Fact]

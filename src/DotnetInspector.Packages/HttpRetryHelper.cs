@@ -52,7 +52,8 @@ public static class HttpRetryHelper
         byte[]? Bytes,
         HttpBodyFetchStatus Status,
         HttpStatusCode? StatusCode = null,
-        long BodyBytesRead = 0);
+        long BodyBytesRead = 0,
+        int RequestCount = 1);
 
     public readonly record struct HttpRetryResult(HttpResponseMessage? Response, HttpStatusCode? StatusCode)
     {
@@ -380,7 +381,8 @@ public static class HttpRetryHelper
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
         long maxDownloadSize = 500_000_000,
         Action<HttpRequestMessage>? configureRequest = null,
-        bool preservePathAndQuery = false)
+        bool preservePathAndQuery = false,
+        Action<int>? requestStarted = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -388,6 +390,7 @@ public static class HttpRetryHelper
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadSize);
 
         int attempts = 0;
+        int requestCount = 0;
         long bodyBytesRead = 0;
 
         while (true)
@@ -412,6 +415,8 @@ public static class HttpRetryHelper
                         request.Headers.Authorization = auth;
                     configureRequest?.Invoke(request);
                     request.Options.Set(BrowserStreamingResponse, true);
+                    requestCount++;
+                    requestStarted?.Invoke(requestCount);
 
                     using var response = await client.SendAsync(
                         request,
@@ -426,7 +431,8 @@ public static class HttpRetryHelper
                                 null,
                                 HttpBodyFetchStatus.ResponseRejected,
                                 response.StatusCode,
-                                bodyBytesRead);
+                                bodyBytesRead,
+                                requestCount);
                         }
 
                         readingBody = true;
@@ -439,7 +445,8 @@ public static class HttpRetryHelper
                             bytes,
                             HttpBodyFetchStatus.Success,
                             response.StatusCode,
-                            bodyBytesRead);
+                            bodyBytesRead,
+                            requestCount);
                     }
 
                     HttpStatusCode statusCode = response.StatusCode;
@@ -449,7 +456,8 @@ public static class HttpRetryHelper
                             null,
                             HttpBodyFetchStatus.Unavailable,
                             statusCode,
-                            bodyBytesRead);
+                            bodyBytesRead,
+                            requestCount);
                     }
 
                     if (!IsRetryableStatus(statusCode))
@@ -460,7 +468,8 @@ public static class HttpRetryHelper
                             null,
                             HttpBodyFetchStatus.Unavailable,
                             statusCode,
-                            bodyBytesRead);
+                            bodyBytesRead,
+                            requestCount);
                     }
 
                     log?.Invoke($"HTTP GET {(int)statusCode} (retryable).");
@@ -470,7 +479,8 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.TooLarge,
-                        BodyBytesRead: bodyBytesRead);
+                        BodyBytesRead: bodyBytesRead,
+                        RequestCount: requestCount);
                 }
                 catch (HttpRequestException ex)
                 {
@@ -485,7 +495,8 @@ public static class HttpRetryHelper
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable,
-                            BodyBytesRead: bodyBytesRead);
+                            BodyBytesRead: bodyBytesRead,
+                            RequestCount: requestCount);
                     }
 
                     log?.Invoke(readingBody
@@ -502,7 +513,8 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable,
-                        BodyBytesRead: bodyBytesRead);
+                        BodyBytesRead: bodyBytesRead,
+                        RequestCount: requestCount);
                 }
                 catch (OfflineException)
                 {
@@ -510,7 +522,8 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable,
-                        BodyBytesRead: bodyBytesRead);
+                        BodyBytesRead: bodyBytesRead,
+                        RequestCount: requestCount);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -528,7 +541,8 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable,
-                        BodyBytesRead: bodyBytesRead);
+                        BodyBytesRead: bodyBytesRead,
+                        RequestCount: requestCount);
                 }
             }
 

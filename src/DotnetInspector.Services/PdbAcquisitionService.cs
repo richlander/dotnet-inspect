@@ -76,7 +76,8 @@ public static class PdbAcquisitionService
         CancellationToken cancellationToken,
         IPdbStore? pdbStore,
         IPackageSourceAuthorization? sourceAuthorization,
-        SymbolAcquisitionLimits? limits = null)
+        SymbolAcquisitionLimits? limits = null,
+        PortablePdbAcquisitionEvidenceCollector? evidence = null)
     {
         var downloader = pdbStore is null
             ? new SymbolPackageDownloader(httpClient)
@@ -108,7 +109,8 @@ public static class PdbAcquisitionService
                 cacheOnly,
                 sourceOptions,
                 cancellationToken,
-                context.PdbId.Stamp).ConfigureAwait(false);
+                context.PdbId.Stamp,
+                evidence).ConfigureAwait(false);
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
@@ -205,7 +207,8 @@ public static class PdbAcquisitionService
         CancellationToken cancellationToken = default,
         SymbolAcquisitionLimits? limits = null,
         string? fallbackPackageName = null,
-        string? fallbackPackageVersion = null)
+        string? fallbackPackageVersion = null,
+        PortablePdbAcquisitionEvidenceCollector? evidence = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -235,7 +238,8 @@ public static class PdbAcquisitionService
             cancellationToken,
             pdbStore,
             sourceAuthorization,
-            limits);
+            limits,
+            evidence);
     }
 
     private static (

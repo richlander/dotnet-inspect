@@ -14,6 +14,7 @@ public partial class SymbolPackageDownloader
         bool isPortable,
         Action<string>? log,
         bool cacheOnly,
+        PortablePdbAcquisitionEvidenceCollector? evidence,
         CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
@@ -69,16 +70,15 @@ public partial class SymbolPackageDownloader
         try
         {
             var httpResult =
-                await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                    _client,
+                await FetchPdbBytesWithEvidenceAsync(
+                    PortablePdbAcquisitionNetworkRoute
+                        .MicrosoftSymbolServer,
                     url,
-                    static _ => true,
-                    log: log,
-                    cancellationToken: cancellationToken,
-                    trafficKind: NetworkTrafficKind.SymbolDownload,
-                    maxDownloadSize:
-                        _limits?.MaxPortablePdbBytes
-                        ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
+                    log,
+                    _limits?.MaxPortablePdbBytes
+                        ?? DefaultMaximumSymbolBytes,
+                    evidence,
+                    cancellationToken).ConfigureAwait(false);
             if (httpResult.Bytes is not { } pdbBytes)
             {
                 CacheMissIfDefinitive(
@@ -196,6 +196,7 @@ public partial class SymbolPackageDownloader
         bool isPortable,
         Action<string>? log,
         bool cacheOnly,
+        PortablePdbAcquisitionEvidenceCollector? evidence,
         CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
@@ -261,16 +262,15 @@ public partial class SymbolPackageDownloader
             try
             {
                 var httpResult =
-                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                        _client,
+                    await FetchPdbBytesWithEvidenceAsync(
+                        PortablePdbAcquisitionNetworkRoute
+                            .SymbolServer,
                         url,
-                        static _ => true,
-                        log: log,
-                        cancellationToken: cancellationToken,
-                        trafficKind: NetworkTrafficKind.SymbolDownload,
-                        maxDownloadSize:
-                            _limits?.MaxPortablePdbBytes
-                            ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
+                        log,
+                        _limits?.MaxPortablePdbBytes
+                            ?? DefaultMaximumSymbolBytes,
+                        evidence,
+                        cancellationToken).ConfigureAwait(false);
                 if (httpResult.Bytes is not { } pdbBytes)
                 {
                     CacheMissIfDefinitive(

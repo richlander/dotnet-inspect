@@ -46,6 +46,7 @@ public partial class SymbolPackageDownloader
         bool isPortable,
         Action<string>? log,
         bool cacheOnly,
+        PortablePdbAcquisitionEvidenceCollector? evidence,
         CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
@@ -109,16 +110,15 @@ public partial class SymbolPackageDownloader
             try
             {
                 httpResult =
-                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
-                        _client,
+                    await FetchPdbBytesWithEvidenceAsync(
+                        PortablePdbAcquisitionNetworkRoute
+                            .SymbolPackage,
                         snupkgUrl,
-                        static _ => true,
-                        log: log,
-                        cancellationToken: cancellationToken,
-                        trafficKind: NetworkTrafficKind.SymbolDownload,
-                        maxDownloadSize:
-                            _limits?.MaxSymbolPackageBytes
-                            ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
+                        log,
+                        _limits?.MaxSymbolPackageBytes
+                            ?? DefaultMaximumSymbolBytes,
+                        evidence,
+                        cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

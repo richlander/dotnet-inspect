@@ -101,9 +101,11 @@ public static partial class SourceExports
                     try
                     {
                         return new BrowserManagedOperationBodyResult<BrowserTypeCodeView, string, string>.Succeeded(
-                            await QueryTypeSourceCore(
+                            (await QueryTypeSourceCore(
                                 packageId, version, targetFramework, assemblyName,
-                                typeIdentity, styleOptionsJson, view, token));
+                                typeIdentity, styleOptionsJson, view,
+                                requestEvidence: false,
+                                cancellationToken: token)).View);
                     }
                     catch (TypeSourceUnavailableException error)
                     {
@@ -117,7 +119,81 @@ public static partial class SourceExports
             BrowserSourceJsonContext.Default.BrowserTypeSourceResult);
     }
 
-    static async Task<BrowserTypeCodeView> QueryTypeSourceCore(
+#if DEBUG
+    [JSExport]
+    public static async Task<string> QueryTypeSourceEvidence(
+        string operationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string styleOptionsJson)
+    {
+        BrowserManagedOperationId id =
+            BrowserManagedOperationId.From(operationId);
+        BrowserManagedOperationResult<
+            BrowserTypeSourceEvidenceAttachment,
+            string,
+            string> result =
+            await TypeSourceOperations.RunAsync<
+                BrowserTypeSourceEvidenceAttachment,
+                string,
+                string,
+                object>(
+                id,
+                eventCallback: null,
+                async (token, _) =>
+                {
+                    using BrowserSourceOperationLease operation =
+                        await BrowserSourceOperationCoordinator
+                            .BeginAsync(
+                                token,
+                                reason =>
+                                    TypeSourceOperations
+                                        .RequestCancellation(
+                                            id,
+                                            reason));
+                    try
+                    {
+                        BrowserTypeSourceExecution execution =
+                            await QueryTypeSourceCore(
+                                packageId,
+                                version,
+                                targetFramework,
+                                assemblyName,
+                                typeIdentity,
+                                styleOptionsJson,
+                                view: "source",
+                                requestEvidence: true,
+                                cancellationToken: token);
+                        return new BrowserManagedOperationBodyResult<
+                            BrowserTypeSourceEvidenceAttachment,
+                            string,
+                            string>.Succeeded(
+                                execution.Evidence
+                                ?? throw new InvalidOperationException(
+                                    "Debug Type Source evidence was not captured."));
+                    }
+                    catch (TypeSourceUnavailableException error)
+                    {
+                        return new BrowserManagedOperationBodyResult<
+                            BrowserTypeSourceEvidenceAttachment,
+                            string,
+                            string>.Failed(
+                                error.Message,
+                                error.ToString());
+                    }
+                },
+                error => new(error.Message, error.ToString()));
+        return JsonSerializer.Serialize(
+            BrowserTypeSourceEvidenceResult.From(result),
+            BrowserSourceJsonContext.Default
+                .BrowserTypeSourceEvidenceResult);
+    }
+#endif
+
+    static async Task<BrowserTypeSourceExecution> QueryTypeSourceCore(
         string packageId,
         string version,
         string targetFramework,
@@ -125,17 +201,20 @@ public static partial class SourceExports
         string typeIdentity,
         string styleOptionsJson,
         string view,
+        bool requestEvidence,
         CancellationToken cancellationToken)
     {
         if (view is "api-declarations" or "all-declarations")
         {
-            return await QueryTypeApiDeclarationsCore(
-                packageId, version, targetFramework, assemblyName,
-                typeIdentity,
-                view == "all-declarations"
-                    ? TypeApiDeclarationScope.All
-                    : TypeApiDeclarationScope.ApiVisible,
-                cancellationToken);
+            return new(
+                await QueryTypeApiDeclarationsCore(
+                    packageId, version, targetFramework, assemblyName,
+                    typeIdentity,
+                    view == "all-declarations"
+                        ? TypeApiDeclarationScope.All
+                        : TypeApiDeclarationScope.ApiVisible,
+                    cancellationToken),
+                Evidence: null);
         }
         if (view != "source")
             throw new ArgumentException($"Unknown type code view '{view}'.", nameof(view));
@@ -157,19 +236,74 @@ public static partial class SourceExports
             var request = AssemblyTypeSourceRequest.From(
                 type,
                 BrowserStyleOptions.Resolve(styleOptionsJson));
-            InspectionEnvelope<AssemblyTypeSourceEntry> inspection = await scope.UseImplementationParticipant(
-                participant,
-                (group, member) => TypeSourceInspection.ExecuteWithPdbLatencyHedgeAsync(
-                    group,
-                    member,
-                    request,
-                    CreateSourceContext(),
-                    BrowserTypeSourcePdbLatencyHedge,
-                    cancellationToken));
+            var builder =
+                new EvidenceInspectionBuilder<
+                    AssemblyTypeSourceEntry,
+                    TypeSourcePdbAcquisitionEvidence>();
+            builder.RequestEvidence(requestEvidence);
+            (
+                InspectionEnvelope<AssemblyTypeSourceEntry> inspection,
+                EvidenceInspectionEnvelope<
+                    AssemblyTypeSourceEntry,
+                    TypeSourcePdbAcquisitionEvidence>? evidence) =
+                await scope.UseImplementationParticipant(
+                    participant,
+                    (group, member) =>
+                        builder.BuildAsync(
+                            (
+                                Group: group,
+                                Participant: member,
+                                Request: request,
+                                Context: CreateSourceContext(),
+                                Hedge:
+                                    BrowserTypeSourcePdbLatencyHedge),
+                            static (state, token) =>
+                                new ValueTask<
+                                    InspectionEnvelope<
+                                        AssemblyTypeSourceEntry>>(
+                                    TypeSourceInspection
+                                        .ExecuteWithPdbLatencyHedgeAsync(
+                                            state.Group,
+                                            state.Participant,
+                                            state.Request,
+                                            state.Context,
+                                            state.Hedge,
+                                            token)),
+                            static (state, token) =>
+                                new ValueTask<
+                                    EvidenceInspectionEnvelope<
+                                        AssemblyTypeSourceEntry,
+                                        TypeSourcePdbAcquisitionEvidence>>(
+                                    TypeSourceInspection
+                                        .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
+                                            state.Group,
+                                            state.Participant,
+                                            state.Request,
+                                            state.Context,
+                                            state.Hedge,
+                                            token)),
+                            cancellationToken));
 
-            return new BrowserTypeCodeView.Source(Adapt(inspection.Content, participant));
+            var browserInspection =
+                new BrowserTypeCodeView.Source(
+                    Adapt(
+                        inspection.Content,
+                        participant),
+                    inspection.Share,
+                    inspection.Diagnostics);
+            return new(
+                browserInspection,
+                evidence is null
+                    ? null
+                    : new(
+                        browserInspection,
+                        evidence.Evidence));
         }
     }
+
+    private sealed record BrowserTypeSourceExecution(
+        BrowserTypeCodeView View,
+        BrowserTypeSourceEvidenceAttachment? Evidence);
 
     static async Task<BrowserTypeCodeView> QueryTypeApiDeclarationsCore(
         string packageId,

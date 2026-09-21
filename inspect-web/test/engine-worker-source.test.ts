@@ -6,6 +6,7 @@ import type {
   BrowserSource,
   BrowserTypeCodeView,
   BrowserTypeSourceResult,
+  Source as BrowserTypeSourceView,
 } from "../src/facades/inspect-web-source.d.ts";
 import type {
   OperationFeatureEvent,
@@ -57,6 +58,26 @@ const source: BrowserSource = {
   text: "public sealed class Widget {}",
 };
 
+function sourceView(value: BrowserSource = source): BrowserTypeSourceView {
+  return {
+    kind: "source",
+    value,
+    share: {
+      kind: "nonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "type-source/share",
+      reason: inertStringFixture("No portable Workspace Share representation."),
+    },
+    diagnostics: [{
+      code: "type-source.portable-pdb.unavailable",
+      severity: 0,
+      summary: inertStringFixture("Portable PDB information was unavailable."),
+      correspondence: null,
+    }],
+  };
+}
+
 const request: TypeSourceLoadRequest = {
   packageId: "Example.Package",
   version: "1.2.3",
@@ -99,7 +120,7 @@ function succeeded(value: BrowserSource = source): BrowserTypeSourceResult {
   return {
     version: 1,
     kind: "Succeeded",
-    value: { kind: "source", value },
+    value: sourceView(value),
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -258,7 +279,10 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   const { handle } = startSource(harness.adapter);
   await harness.environment.flushAsync();
 
-  assert.deepEqual(await handle.outcome, { kind: "succeeded", value: { kind: "source", value: source } });
+  assert.deepEqual(await handle.outcome, {
+    kind: "succeeded",
+    value: sourceView(),
+  });
   await handle.quiesced;
   assert.deepEqual(calls, [[
     "source-operation",
@@ -364,7 +388,7 @@ test("Type Source Worker operation forwards keyed cancellation", async () => {
 test("Type Source managed terminal results map without losing failure kind", () => {
   assert.deepEqual(mapEngineWorkerTypeSourceResult(succeeded()), {
     kind: "succeeded",
-    value: { kind: "source", value: source },
+    value: sourceView(),
   });
   assert.deepEqual(mapEngineWorkerTypeSourceResult({
     version: 1,
@@ -425,7 +449,7 @@ test("Type Source managed result and cancellation validators reject drift", () =
   assert.throws(
     () => mapEngineWorkerTypeSourceResult({
       ...succeeded(),
-      value: { kind: "source", value: { ...source, text: undefined } },
+      value: { ...sourceView(), value: { ...source, text: undefined } },
     }),
     /Expected Type Source text/,
   );
@@ -481,7 +505,7 @@ test("Type Source codecs enforce request, result, and no-progress bounds", () =>
   assert.equal(engineWorkerTypeSourceInput.decode(request).kind, "rejected");
 
   const oversizedValue = engineWorkerTypeSourceValue.decode({
-    kind: "source",
+    ...sourceView(),
     value: { ...source, provenance: "P".repeat(64 * 1024) },
   });
   assert.equal(oversizedValue.kind, "rejected");
@@ -489,7 +513,7 @@ test("Type Source codecs enforce request, result, and no-progress bounds", () =>
     assert.equal(oversizedValue.reason, "oversized");
 
   const oversizedText = engineWorkerTypeSourceValue.decode({
-    kind: "source",
+    ...sourceView(),
     value: { ...source, text: "S".repeat(32_000_001) },
   });
   assert.equal(oversizedText.kind, "rejected");
@@ -549,7 +573,7 @@ test("Page adapter rejects a malformed Worker settlement as boundary failure", a
       }),
       invoke: (): ManagedOperationSettlement<unknown, string, string> => ({
         kind: "succeeded",
-        value: { kind: "source", value: { ...source, text: 42 } },
+        value: { ...sourceView(), value: { ...source, text: 42 } },
       }),
     });
   });

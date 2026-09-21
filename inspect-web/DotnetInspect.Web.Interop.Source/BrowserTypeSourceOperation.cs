@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Source;
@@ -10,7 +12,11 @@ public abstract record BrowserTypeCodeView
 {
     private BrowserTypeCodeView() { }
 
-    public sealed record Source(BrowserSource Value) : BrowserTypeCodeView;
+    public sealed record Source(
+        BrowserSource Value,
+        InspectionShare Share,
+        ImmutableArray<InspectionDiagnostic> Diagnostics)
+        : BrowserTypeCodeView;
 
     public sealed record ApiDeclarations(
         InspectionEnvelope<TypeApiDeclarationResult> Inspection) : BrowserTypeCodeView;
@@ -66,6 +72,75 @@ public sealed record BrowserTypeSourceResult(
             BrowserManagedOperationResult<BrowserTypeCodeView, string, string>.Canceled canceled =>
                 new(1, BrowserTypeSourceResultKind.Canceled, null, null, null, null,
                     BrowserTypeSourceCancellation.FormatReason(canceled.Reason)),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+}
+
+public sealed record BrowserTypeSourceEvidenceAttachment(
+    BrowserTypeCodeView.Source Inspection,
+    TypeSourcePdbAcquisitionEvidence Evidence);
+
+public sealed record BrowserTypeSourceEvidenceResult(
+    int Version,
+    BrowserTypeSourceResultKind Kind,
+    BrowserTypeSourceEvidenceAttachment? Value,
+    BrowserTypeSourceFailureKind? FailureKind,
+    string? Error,
+    string? Diagnostic,
+    string? Reason)
+{
+    internal static BrowserTypeSourceEvidenceResult From(
+        BrowserManagedOperationResult<
+            BrowserTypeSourceEvidenceAttachment,
+            string,
+            string> result) =>
+        result switch
+        {
+            BrowserManagedOperationResult<
+                BrowserTypeSourceEvidenceAttachment,
+                string,
+                string>.Succeeded succeeded =>
+                new(
+                    1,
+                    BrowserTypeSourceResultKind.Succeeded,
+                    succeeded.Value,
+                    null,
+                    null,
+                    null,
+                    null),
+            BrowserManagedOperationResult<
+                BrowserTypeSourceEvidenceAttachment,
+                string,
+                string>.Failed failed =>
+                new(
+                    1,
+                    BrowserTypeSourceResultKind.Failed,
+                    null,
+                    failed.FailureKind switch
+                    {
+                        BrowserManagedOperationFailureKind.Expected =>
+                            BrowserTypeSourceFailureKind.Expected,
+                        BrowserManagedOperationFailureKind.Unexpected =>
+                            BrowserTypeSourceFailureKind.Unexpected,
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(result)),
+                    },
+                    failed.Error,
+                    failed.Diagnostic,
+                    null),
+            BrowserManagedOperationResult<
+                BrowserTypeSourceEvidenceAttachment,
+                string,
+                string>.Canceled canceled =>
+                new(
+                    1,
+                    BrowserTypeSourceResultKind.Canceled,
+                    null,
+                    null,
+                    null,
+                    null,
+                    BrowserTypeSourceCancellation.FormatReason(
+                        canceled.Reason)),
             _ => throw new ArgumentOutOfRangeException(nameof(result)),
         };
 }
