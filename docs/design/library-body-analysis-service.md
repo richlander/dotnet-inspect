@@ -19,7 +19,7 @@ The first typed-result migration breaks that compatibility pattern.
 `LibraryImplementationProfileAnalysisResult` values. The second adds
 `LibraryOptimizationAnalysisResult`, which owns completed optimization
 opportunities, opt-in lazy allocation fanout, and generated-framework type
-identities. The Library Unsafe Evidence, Implementation Profiles, and
+identities. The Library Unsafe Evidence, Member Metrics, and
 Optimization Opportunities queries consume those focused types directly. One
 service invocation may still coordinate several producers over one body
 acquisition; that does not make their answers one semantic type.
@@ -209,7 +209,7 @@ shared semantic input.
 
 | Sequence | Production consumer | Focused Analysis result |
 | --- | --- | --- |
-| 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
+| 1 | Library Unsafe Evidence and Member Metrics sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
 | 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
 | 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
 | 4 | Library Resource Triage section under #6731 | `LibraryResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
@@ -228,7 +228,7 @@ Every slice:
    single-acquisition behavior.
 
 The first implementation slice migrated both Unsafe Evidence and
-Implementation Profiles because they already projected cohesive internal
+Member Metrics because they already projected cohesive internal
 result families and exercised the library section system directly. The second
 slice moves optimization completion from the index into
 `LibraryOptimizationAnalysisResult`. That result retains the exact

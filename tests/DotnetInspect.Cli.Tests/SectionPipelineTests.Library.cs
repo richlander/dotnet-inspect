@@ -286,7 +286,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.UnsafeMembers,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,

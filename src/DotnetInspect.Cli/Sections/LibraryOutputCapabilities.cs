@@ -18,7 +18,7 @@ internal static class LibraryOutputCapabilities
                         OutputCapabilityCatalog.StandardSectionFormats),
                     StringComparer.OrdinalIgnoreCase);
 
-        sections[SectionNames.ImplementationProfiles] =
+        sections[SectionNames.MemberMetrics] =
             SectionOutputCapabilities.Create(
                 OutputCapabilityCatalog.StandardSectionFormats
                     .Where(format =>
