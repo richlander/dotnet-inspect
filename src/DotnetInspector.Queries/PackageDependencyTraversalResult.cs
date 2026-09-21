@@ -256,9 +256,11 @@ public sealed record PackageDependencyTraversalSummary(
 
 /// <summary>
 /// The immutable, depth-bounded directed graph produced by one package dependency
-/// traversal operation: root-relative reachability, typed failures, and completion.
+/// traversal operation: its governing target, root-relative reachability, typed
+/// failures, and completion.
 /// </summary>
 public sealed record PackageDependencyTraversalOutcome(
+    TraversalTargetFrameworkPolicy TraversalTargetPolicy,
     ImmutableArray<PackageDependencyTraversalRootResult> Roots,
     ImmutableArray<PackageDependencyTraversalReachability> RootReachability,
     ImmutableArray<PackageDependencyTraversalNode> Nodes,
