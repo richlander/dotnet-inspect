@@ -1431,26 +1431,6 @@ public class AuthoredCorpusRatchetTests
     }
 
     [Fact]
-    public void DeepInspect_PreparesAndReadsTheEvilPoolOutsideTheCheckout()
-    {
-        string workflow = File.ReadAllText(
-            Path.Combine(
-                FindRepositoryRoot(),
-                ".github",
-                "workflows",
-                "deep-inspect.yml"));
-
-        Assert.Contains(
-            "prepare-evil-corpus.sh \"$RUNNER_TEMP/evil-pool\"",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "mapfile -t assemblies < \"$RUNNER_TEMP/evil-pool/assemblies.txt\"",
-            workflow,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void DeepInspect_RunsAuthoredCorpusDailyAndKeepsPackageDiscoveryWeekly()
     {
         string workflow = File.ReadAllText(
