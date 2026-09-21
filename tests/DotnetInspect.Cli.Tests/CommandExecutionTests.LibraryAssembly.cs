@@ -2893,6 +2893,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryCommand_NpgsqlPackage_PreservesMeasuredEcosystemDependencyRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Npgsql@8.0.4",
+            "--library",
+            "-S",
+            SectionNames.EcosystemDependencies,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("31", output.Trim());
+    }
+
+    [Fact]
     public async Task LibraryCommand_IntegrationOpportunities_TraceShowsIntegrationsPrerequisite()
     {
         var (exit, output, error) = await RunAppAsync(
