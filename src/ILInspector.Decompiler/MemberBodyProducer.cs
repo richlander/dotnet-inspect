@@ -1000,12 +1000,20 @@ public static class MemberBodyProducer
                     tracker,
                     includeContainingContext: true);
             tracker.ObserveSymbols(source.Symbols);
+            var propertySource = tracker.Detach()
+                .SingleOrDefault(body => body.ContributesToOutput && body.PropertySource is not null)
+                ?.PropertySource;
             return new CSharpServiceCompositionResult(
                 rendered.Status,
-                rendered.Text,
+                rendered.Text is { } declaration
+                    ? propertySource?.FormatContainingContext(type, declaration) ?? declaration
+                    : null,
                 [.. rendered.Namespaces],
                 rendered.Failure,
-                source.Symbols);
+                source.Symbols)
+            {
+                MemberDeclarationText = rendered.Text,
+            };
         }
         catch (DecompilerProjectionException projection)
         {
@@ -1623,7 +1631,8 @@ public static class MemberBodyProducer
                             attributes: attributes,
                             includeSignatureAttributes: attributeMode == MemberRenderAttributeMode.All,
                             wrapExpressionBodyArrow: WrapExpressionBodyArrow(printerOptions),
-                            indent: 4));
+                            indent: 4,
+                            includeContainingContext: false));
                         break;
                     }
 

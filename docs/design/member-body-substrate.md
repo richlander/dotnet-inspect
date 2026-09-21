@@ -590,6 +590,12 @@ formatter. `MemberBodyProducer.ProduceMember` remains a member-fragment API,
 and whole-type composition retains its explicit constructor: neither acquires
 a second containing declaration or duplicate initializer. Independent
 body-only documents retain their existing text and evidence scope.
+The standalone result also carries its separately composed
+`MemberDeclarationText`, including an admitted initializer but not its outer
+context. Source Diff consumes that declaration fragment so both comparison
+endpoints remain complete members; it must not parse a containing type as the
+selected member. Property attributes remain inside the containing declaration,
+attached to the property.
 
 `SelectedPropertySourceTests.SelectedInitializerCarriesCompilableContainingContext`
 and `PublishedDocoptSelectedInitializerPreservesConstructorAndGetter` compile
@@ -605,6 +611,8 @@ unchanged fragment/whole-type composition.
 gates joint and separate CLI views, with an independent body-document control.
 `MemberSourceInspection_SelectedInitializerCarriesItsScope` gates the completed
 shared Source query and its body accounting.
+`MemberSourceDiffPresentationTests.ContainingContextUsesSeparateMemberDeclarationEndpoint`
+gates the comparison consumer's choice of that product-issued fragment.
 `BrowserSourceComparisonOperationTests.MemberSourceExport_PreservesProvenInitializerContext`
 gates the actual managed export for admitted and calculated-initializer
 neighbors. The published-Wasm `cataloged Source-only` scenario in

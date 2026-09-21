@@ -494,15 +494,25 @@ public sealed class SelectedPropertyAccessorSource
         string? declarationTrailingComment = null,
         bool includeSignatureAttributes = true,
         bool wrapExpressionBodyArrow = false,
-        int indent = 0)
+        int indent = 0,
+        bool includeContainingContext = true)
     {
         if (_initializationFailure is not null)
             throw new InvalidOperationException(_initializationFailure);
         string property = FormatProperty(
             type, body, bodyIsSingleExpressionBody, preferExpressionBodied, attributes,
             leadingBodyComments, declarationTrailingComment, includeSignatureAttributes,
-            wrapExpressionBodyArrow, _initializer is null ? indent : indent + 4,
+            wrapExpressionBodyArrow,
+            _initializer is null || !includeContainingContext ? indent : indent + 4,
             _initializer?.Expression);
+        return includeContainingContext
+            ? FormatContainingContext(type, property, includeSignatureAttributes, indent)
+            : property;
+    }
+
+    internal string FormatContainingContext(
+        ApiType type, string property, bool includeSignatureAttributes = true, int indent = 0)
+    {
         if (_initializer is not { } initializer)
             return property;
 

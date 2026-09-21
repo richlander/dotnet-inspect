@@ -20,6 +20,7 @@ public sealed partial class SelectedPropertySourceTests
     [InlineData("ConstructorGetterKeywordParameter", "Value", "@event")]
     [InlineData("ConstructorGetterOptional", "Value", "value")]
     [InlineData("ConstructorGetterReturnAttribute", "Value", "value")]
+    [InlineData("ConstructorGetterPropertyAttribute", "Value", "System")]
     [InlineData("ConstructorGetterAnnotationName", "Value", "arg")]
     public void SelectedInitializerCarriesCompilableContainingContext(
         string typeName, string propertyName, string parameter)
@@ -30,6 +31,9 @@ public sealed partial class SelectedPropertySourceTests
 
         Assert.Equal(CSharpDecompilationStatus.Available, attempt.Status);
         Assert.Contains($"= {parameter};", attempt.Text);
+        Assert.Contains($"= {parameter};", attempt.MemberDeclarationText);
+        Assert.DoesNotContain("namespace ", attempt.MemberDeclarationText);
+        Assert.DoesNotContain("struct ", attempt.MemberDeclarationText);
         Assert.Equal(2, attempt.BodyProjectionsAttempted);
         Assert.Single(attempt.BodyProjections, body => body.ContributesToOutput);
         Assert.Contains(attempt.BodyProjections,
@@ -56,7 +60,7 @@ public sealed partial class SelectedPropertySourceTests
         var attempt = ProduceSelectedSource(path, type, accessor);
 
         Assert.Equal(CSharpDecompilationStatus.Available, attempt.Status);
-        Assert.Contains("readonly struct ReadOnlyList<T>(IList<T> list)", attempt.Text);
+        Assert.Contains("readonly struct ReadOnlyList<T>(System.Collections.Generic.IList<T> list)", attempt.Text);
         Assert.Contains("get => field ?? Array.Empty<T>();", attempt.Text);
         Assert.Contains("} = list;", attempt.Text);
         Assert.DoesNotContain("get_List(", attempt.Text);
