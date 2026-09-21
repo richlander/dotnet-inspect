@@ -328,7 +328,7 @@ public static class CoercionSinks
                     when slotTypes.GetValueOrDefault(slotStore.Slot) is { } slotType:
                     yield return new(slotValue, slotType,
                         CoercionRendering.CanSpellSlotCoercion(
-                            slotValue.ResultType,
+                            slotValue.AssignmentType,
                             slotType,
                             function.TypeShapes,
                             function.EnumUnderlyingTypes)
@@ -445,7 +445,7 @@ public static class CoercionDomain
             || CoercionRendering.IsEnum(target, shapes);
 
     public static bool IsAtTarget(IrExpression value, TypeRef target)
-        => value.ResultType is { } resultType && resultType.Equals(target);
+        => value.AssignmentType is { } resultType && resultType.Equals(target);
 }
 
 /// <summary>

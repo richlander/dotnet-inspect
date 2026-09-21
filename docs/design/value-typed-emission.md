@@ -50,6 +50,41 @@ Instance 3 is noted where it sits and deferred. A second, orthogonal axis of
 thinness — the writer's *output* being structure rather than strings — is scoped
 in [the output half](#the-output-half--structure-not-strings) below.
 
+### Reference-coalesce assignment testimony
+
+Reference-coalesce assignment is a pre-print decision (#8105). Its evidence
+is an assignment type, not the left operand's IL result type and not a promise
+that every expression has a known C# natural type. The bounded relation admits
+null with a proven reference, equal proven reference types, and a proven
+reference paired with `object`. Unknown reference shapes, hierarchy
+conversions, variance, boxing, and user-defined conversions do not acquire
+proof from this rule. Nullable/value coalesces retain their existing contract.
+
+The expression carries the decision into ordinary assignment and storage
+admission. Binding runs after expression reconstruction and before slot
+materialization, then refreshes the decision at the final coercion boundary.
+Both raised and lowered pipelines, including nested bodies, use that shared
+path. Printing consumes the issued type rather than inspecting coalesce arms.
+An object-typed call or construction argument whose proven coalesce assignment
+type is narrower retains an explicit reference-conversion witness; allowing
+assignment is not permission to rebind an overload (#3135).
+
+The motivating published input is dotnet-inspect.any 0.14.0,
+`ApiOutputFormatter.FormatCallGraphAnnotation` (`0x06000ED9`). Its coalesce
+producer and object-typed null share a string-observed slot. Deciding the
+coalesce does not, by itself, authorize materializing the separate null
+producer. Printer decision retirement and slot-count reduction are distinct
+measurements.
+
+The focused Release gate is `ReferenceCoalesceBindingTests`, covering
+compiler-produced reference/null and reference-to-object cases, the pinned
+producer shape, overload binding, nested bodies, lowered output, and unknown
+non-actions, plus Roslyn's real `AnalyzerImageReference.Display` coalesce.
+Native product-artifact compile-back checks the direct binding outcomes;
+nested lambda and local-function cases retain their measured generated-identity
+limits rather than claiming exact fidelity. Fixed-input residual/unifier
+censuses and Render A/B measure the population effect separately.
+
 ## Instance 1 — coercion: the missing member of the type system
 
 The decompiler has a rich vocabulary for **what a value is**: `TypeRef`
