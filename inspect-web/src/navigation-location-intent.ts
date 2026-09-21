@@ -87,7 +87,7 @@ export interface NavigationLocationIntentArbiter {
     declaration: LocationIntentDeclaration,
     result: LocationResult,
   ): LocationEffect;
-  publish(effect: LocationEffect, history: BrowserHistoryWriter): void;
+  publish(effect: LocationEffect, history: BrowserHistoryWriter): boolean;
   settle(effect: LocationEffect, succeeded: boolean): void;
 }
 
@@ -153,6 +153,11 @@ NavigationLocationIntentArbiter {
     readonly retainedDefinitionId: string | null;
     readonly incumbent: InstalledLocationAssociation | null;
   }): LocationIntentDeclaration {
+    if (publicationInProgress) {
+      throw new Error(
+        "A Browser-selected intent cannot be admitted while location publication is in progress.",
+      );
+    }
     const declaration: LocationIntentDeclaration = {
       id: issueId(),
       source: "browser",
@@ -177,6 +182,11 @@ NavigationLocationIntentArbiter {
     installed: InstalledLocationAssociation | null,
     history: BrowserHistoryWriter | null,
   ): LocationIntentDeclaration {
+    if (publicationInProgress) {
+      throw new Error(
+        "A non-browser intent cannot be admitted while location publication is in progress.",
+      );
+    }
     if (unresolved !== null) {
       if (installed === null || history === null) {
         throw new Error(
@@ -189,7 +199,11 @@ NavigationLocationIntentArbiter {
         association: cloneAssociation(installed)!,
         selectedEntry: unresolved.selectedEntry,
       };
-      publish(repair, history);
+      if (!publish(repair, history)) {
+        throw new Error(
+          "Location realignment did not settle before admitting the new intent.",
+        );
+      }
     }
 
     const declaration: LocationIntentDeclaration = {
@@ -232,8 +246,10 @@ NavigationLocationIntentArbiter {
   function publish(
     effect: LocationEffect,
     history: BrowserHistoryWriter,
-  ): void {
-    if (effect.intentId !== currentIntentId || publicationInProgress) return;
+  ): boolean {
+    if (effect.intentId !== currentIntentId || publicationInProgress) {
+      return false;
+    }
     publicationInProgress = true;
     try {
       applyLocationEffect(effect, history);
@@ -244,6 +260,7 @@ NavigationLocationIntentArbiter {
     } finally {
       publicationInProgress = false;
     }
+    return true;
   }
 
   return {

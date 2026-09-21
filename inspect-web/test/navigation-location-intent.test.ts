@@ -267,10 +267,11 @@ test("publication claims its intent before writer reentry", () => {
   const intent = arbiter.admitNonBrowser("push", null, null);
   const effect = arbiter.classify(intent, result(association("workspace-a")));
   let writes = 0;
+  const nestedPublications: boolean[] = [];
   const history = {
     pushState() {
       writes++;
-      arbiter.publish(effect, history);
+      nestedPublications.push(arbiter.publish(effect, history));
     },
     replaceState() {
       assert.fail("A push effect cannot replace history.");
@@ -280,6 +281,7 @@ test("publication claims its intent before writer reentry", () => {
   arbiter.publish(effect, history);
 
   assert.equal(writes, 1);
+  assert.deepEqual(nestedPublications, [false]);
   assert.equal(arbiter.currentIntentId, null);
   assert.equal(arbiter.unresolved, null);
 });
@@ -309,6 +311,35 @@ test("successful current no-write consumes its location intent", () => {
       synchronization: "synchronization-required",
     })),
     { kind: "none", intentId: intent.id, reason: "stale" });
+});
+
+test("repair failure rejects reentrant intent admission", () => {
+  const arbiter = createNavigationLocationIntentArbiter();
+  const incumbent = association("incumbent");
+  const traversal = arbiter.selectBrowserEntry({
+    url: "/?w=selected",
+    historyState: { workspace: "selected" },
+    retainedDefinitionId: "selected",
+    incumbent,
+  });
+
+  assert.throws(
+    () => arbiter.admitNonBrowser("push", incumbent, {
+      pushState() {},
+      replaceState() {
+        assert.throws(
+          () => arbiter.admitNonBrowser("replace", incumbent, {
+            pushState() {},
+            replaceState() {},
+          }),
+          /cannot be admitted while location publication is in progress/);
+        throw new Error("repair failed after reentry");
+      },
+    }),
+    /repair failed after reentry/);
+
+  assert.equal(arbiter.currentIntentId, traversal.id);
+  assert.equal(arbiter.unresolved?.intentId, traversal.id);
 });
 
 test("post-cutover history failure keeps the installed successor unresolved", () => {

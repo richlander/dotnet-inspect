@@ -694,6 +694,7 @@ this same test file are recorded in
   `successful publication consumes its location intent`, and
   `publication claims its intent before writer reentry`,
   `successful current no-write consumes its location intent`, and
+  `repair failure rejects reentrant intent admission`, and
   `post-cutover history failure keeps the installed successor unresolved`
   cover the typed declaration and pure push, replace, adopt, realign, or
   no-write classifier. They preserve exact installed association separately
