@@ -256,10 +256,14 @@ public sealed partial class AssemblyContextSourceQueryTests
     }
 
     // PR-fast: an upstream PDB stall cannot hold an available decompilation
-    // beyond the initial and authored preference windows.
-    [Fact]
+    // beyond the initial and authored preference windows, but binding-policy
+    // invalidation retains terminal precedence before publication.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task
-        TypeSourceLatencyHedge_PdbStallPublishesNoPdbDecompilation()
+        TypeSourceLatencyHedge_PdbStallPublishesNoPdbDecompilation(
+            bool rotateBindingPolicy)
     {
         TestAssembly assembly =
             TestAssembly.Create(
@@ -326,10 +330,32 @@ public sealed partial class AssemblyContextSourceQueryTests
         await time.WaitForTimerAsync(
             TimeSpan.FromMilliseconds(250),
             TestContext.Current.CancellationToken);
+        if (rotateBindingPolicy)
+        {
+            assembly.Policy.ChangeVersion();
+        }
         time.Advance(
             TimeSpan.FromMilliseconds(250));
         await symbolCancelled.Task.WaitAsync(
             TestContext.Current.CancellationToken);
+
+        if (rotateBindingPolicy)
+        {
+            InspectionEnvelope<AssemblyTypeSourceEntry>
+                invalidated = await operation;
+            var unavailable =
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Unavailable>(
+                        invalidated.Content);
+            InvalidOperationException error =
+                Assert.IsType<InvalidOperationException>(
+                    unavailable.Failure.Error);
+            Assert.Contains(
+                "binding-policy snapshot changed",
+                error.Message);
+            Assert.Empty(host.SourceRequests);
+            return;
+        }
 
         InspectionEnvelope<AssemblyTypeSourceEntry>
             inspection = await operation;

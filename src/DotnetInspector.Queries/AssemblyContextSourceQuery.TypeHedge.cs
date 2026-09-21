@@ -240,6 +240,10 @@ public static partial class AssemblyContextSourceQuery
             }
             else
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureBindingPolicyVersion(
+                    participant,
+                    bindingPolicyVersion);
                 ThrowCleanupFailures(failures);
             }
         }
