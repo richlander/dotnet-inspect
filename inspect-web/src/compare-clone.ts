@@ -46,7 +46,7 @@ export interface CompareCloneSelection {
   readonly seed: BrowserCloneCandidateSeedRequest;
 }
 
-export interface CompareCloneOperationInput {
+interface CompareCloneOperationInput {
   readonly packageModel: object;
   readonly request: BrowserCloneCandidateRequest;
   readonly requestJson: string;

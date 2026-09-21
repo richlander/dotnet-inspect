@@ -10,17 +10,17 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
-export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
-
-export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
-
-export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
-
 export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
 
 export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | number;
 
 export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | number;
+
+export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
+
+export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
 
 export type BrowserLibraryApiDiffMemberPairKind = "Changed" | "Added" | "Removed" | number;
 
@@ -145,6 +145,15 @@ export interface BrowserLibraryApiDiffCancellation {
   readonly reason: string | null;
 }
 
+export interface BrowserLibraryApiDiffChange {
+  readonly kind: BrowserLibraryApiDiffChangeKind;
+  readonly classification: BrowserLibraryApiDiffChangeClassification;
+  readonly category: BrowserLibraryApiDiffChangeCategory;
+  readonly message: string;
+  readonly oldValue: string | null;
+  readonly newValue: string | null;
+}
+
 export interface BrowserLibraryApiDiffCompileAsset {
   readonly id: string;
   readonly path: string;
@@ -180,15 +189,6 @@ export interface BrowserLibraryApiDiffInspectionFailure {
   readonly detail: string;
   readonly subjectAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
   readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
-}
-
-export interface BrowserLibraryApiDiffChange {
-  readonly kind: BrowserLibraryApiDiffChangeKind;
-  readonly classification: BrowserLibraryApiDiffChangeClassification;
-  readonly category: BrowserLibraryApiDiffChangeCategory;
-  readonly message: string;
-  readonly oldValue: string | null;
-  readonly newValue: string | null;
 }
 
 export interface BrowserLibraryApiDiffMember {

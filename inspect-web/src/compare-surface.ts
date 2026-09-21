@@ -29,7 +29,7 @@ const modes: readonly (readonly [CompareMode, string])[] = [
   ["clone", "Clone"],
 ];
 
-export function compareTargetLabel(mode: CompareMode): string {
+function compareTargetLabel(mode: CompareMode): string {
   return mode === "diff" ? "Diff baseline" : "Clone scope";
 }
 
