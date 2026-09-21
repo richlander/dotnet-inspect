@@ -1250,6 +1250,22 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task PackageQueryRejectsUnsupportedPresentationFormat()
+    {
+        var result = await Run(
+            "package",
+            "query",
+            "-D",
+            "--format=mermaid");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "query does not support '--format mermaid'.",
+            result.Error);
+    }
+
+    [Fact]
     public void EnvelopeAdmissionRejectsPostServiceShaping()
     {
         var root = CommandLineBuilder.CreateRootCommand();
