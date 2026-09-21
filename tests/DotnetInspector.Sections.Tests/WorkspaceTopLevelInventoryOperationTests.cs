@@ -254,20 +254,20 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
     sealed class RealizationFixture : IAsyncDisposable
     {
         RealizationFixture(
-            WorkspaceRealizationCoordinator coordinator,
+            WorkspaceReplacementCoordinator coordinator,
             WorkspaceRealizationOperationLease lease)
         {
             Coordinator = coordinator;
             Lease = lease;
         }
 
-        WorkspaceRealizationCoordinator Coordinator { get; }
+        WorkspaceReplacementCoordinator Coordinator { get; }
 
         internal WorkspaceRealizationOperationLease Lease { get; }
 
         internal static async Task<RealizationFixture> CreateAsync()
         {
-            var coordinator = new WorkspaceRealizationCoordinator();
+            var coordinator = new WorkspaceReplacementCoordinator();
             try
             {
                 WorkspaceRealizationCandidateStartResult start =
