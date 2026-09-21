@@ -90,7 +90,6 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
-        memberCommand.Options.Add(opts.Bare);
         memberCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
@@ -371,20 +370,6 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
-    public async Task ExplicitPackage_WithMermaidAndBare_IsRejected()
-    {
-        var (root, opts, cmdArgs) = CreateTestCommand();
-        var parseResult = root.Parse(
-            ["member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid", "--bare"]);
-        Assert.Empty(parseResult.Errors);
-
-        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
-
-        var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
-        Assert.Contains("--mermaid cannot be combined with --bare.", error.Error.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task ExplicitPackage_WithMermaidAndVerbosity_SetsEmbeddedMarkdownOutput()
     {
         var options = await ParseSuccessAsync(
@@ -458,47 +443,6 @@ public class MemberOptionsParserTests
             Assert.False(options.Tabular);
             Assert.False(options.TabularExplicitlySet);
             Assert.Equal(TipLevel.Quiet, options.TipLevel);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
-        }
-    }
-
-    [Fact]
-    public async Task ExplicitPackage_WithBareAndEnvironmentTable_SuppressesTabularOutput()
-    {
-        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
-        try
-        {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
-            var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--bare");
-
-            Assert.False(options.Tabular);
-            Assert.False(options.Tsv);
-            Assert.False(options.Jsonl);
-            Assert.False(options.TabularExplicitlySet);
-            Assert.True(options.FormatExplicitlySet);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
-        }
-    }
-
-    [Fact]
-    public void ResolveFormat_WithBareJsonAndEnvironmentTable_UsesExplicitJson()
-    {
-        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
-        try
-        {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "table");
-            var (root, opts, _) = CreateTestCommand();
-            var parseResult = root.Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "--bare", "--format=json"]);
-
-            Assert.Empty(parseResult.Errors);
-            Assert.Equal(OutputFormat.Json, opts.ResolveFormat(parseResult));
-            Assert.False(opts.ResolveTabular(parseResult));
         }
         finally
         {

@@ -502,7 +502,6 @@ public static class TypeOptionsParser
             Format = outputFormat,
             MarkdownExplicitlySet = opts.IsMarkdownOutput(parseResult),
             PlainText = !envelopeOutput && opts.IsPlainTextOutput(parseResult),
-            Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Print = parseResult.GetValue(opts.Print),

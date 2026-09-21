@@ -1755,6 +1755,20 @@ Three rules keep the surface flat:
    both-or-neither shape is precisely the loose-parameter smell this design removes; it invites
    callers to pass a path and re-open. Prefer one required, typed input.
 
+One narrower construction boundary applies when an acquisition owner already
+holds one exact synchronous content stream and cannot issue a repeatable
+descriptor without copying or retaining a callback.
+`AssemblyInspectionSession.OpenPrefetched(Stream)` accepts ownership of that
+stream, eagerly retains the complete image in the Metadata owner, and closes
+the transferred stream before returning or throwing. The resulting session is
+the only inspection-time currency; no reader, independently supplied identity,
+format classification, opener, or stream escapes construction. This is the
+composition seam used by Library-owned synchronous snapshots, not an alternate
+resolution path or permission for downstream scanners to accept streams. The
+factory adds no second byte budget or cancellation boundary: the acquisition
+owner applies its finite byte limit before transfer, then the Metadata owner
+completes synchronous prefetch and format admission as one construction step.
+
 The only sanctioned duplication is **transitional**: during migration a service may expose both
 `Open(path)` and `Open(ResolvedAssemblyReference)` (see the path-backed adapter in
 [Method Body Inspection](method-body-inspection.md)'s migration) — but the path overload is
@@ -1923,6 +1937,18 @@ target artifact design moves source records to their adapters and designation
 to authorized workspace-role evidence instead of widening this hierarchy;
 either way, adding a field requires a named consumer rather than turning
 provenance into a grab bag.
+
+The focused transferred-stream construction gate
+`OpenPrefetched_TransfersStreamOwnershipAndPostsDetachedDeclarations` uses the
+real Metadata test assembly to prove that construction closes the input before
+returning, the returned owner remains usable for declaration inventory, and
+the detached inventory survives session retirement. Existing admission-cleanup
+gates preserve unsupported-image disposal and primary-failure precedence. The
+first production consumer is LibraryMetadata issue #7932, which opens and
+retires the session wholly inside one exact Library content snapshot before
+posting detached correspondence; PlatformHouse issue #7933 then consumes that
+correspondence in step 7 of its existing ten-step host-adoption and retirement
+plan.
 
 ## Open questions
 

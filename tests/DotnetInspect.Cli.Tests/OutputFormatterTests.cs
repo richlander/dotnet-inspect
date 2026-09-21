@@ -48,7 +48,6 @@ public partial class OutputFormatterTests
                     JsonOutput: false,
                     Jsonl: true,
                     JsonArray: false,
-                    Bare: false,
                     Destination: new ProjectionDestination(printPath)));
 
             Assert.Equal(0, printExit);
@@ -154,7 +153,6 @@ public partial class OutputFormatterTests
                             JsonOutput: false,
                             Jsonl: false,
                             JsonArray: false,
-                            Bare: true,
                             Destination: new ProjectionDestination(path, ExactTransfer: true)))));
 
             var absent = await RunAsync(absentPath);

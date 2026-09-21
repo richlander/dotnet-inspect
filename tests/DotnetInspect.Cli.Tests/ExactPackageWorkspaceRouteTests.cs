@@ -28,6 +28,283 @@ public sealed class ExactPackageWorkspaceRouteTests
     static readonly PackageSource Source = new("test", SourceUrl);
 
     [Fact]
+    public async Task LibraryHelpAdvertisesWorkspaceAndNamesakeNarrowing()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(
+                root.Parse(["library", "--help"]).InvokeAsync().Result));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("--workspace", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            "--namesake-library",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceRequiresExplicitPackageSubject()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] arguments =
+        [
+            "library",
+            "--workspace",
+            "packet",
+        ];
+
+        var result = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(arguments),
+                arguments));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--workspace on library requires --package",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceRouteDefaultsToPackageAggregate()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"lib/{Framework}/{SelectedPackage}.dll",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"lib/{Framework}/support.library.dll",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Libraries",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "tool.library.dll",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceAggregateIntegrationsReuseRetainedPackageRoot()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            Select = ["Integrations"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "matched sections have no data across all libraries",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceRouteNarrowsToExactLibrary()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            AssemblyName = "support.library.dll",
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"# support.library.dll ({Framework})",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"# {SelectedPackage}.dll ({Framework})",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceExactDiscoveryPreservesDetails()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            AssemblyName = "support.library.dll",
+            Discover = ["Library Info"],
+            DiscoverDetails = true,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "| Name | Kind | Formats |",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceRouteNarrowsToNamesakeLibrary()
+    {
+        const string namesakePackage =
+            "ILInspector.Metadata";
+        var store = await LibraryStoreAsync(namesakePackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(namesakePackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = namesakePackage,
+            NamesakeLibrary = true,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"# {namesakePackage}.dll ({Framework})",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Name | ILInspector.Metadata |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"lib/{Framework}/support.library.dll",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryWorkspaceCompatibleAssetSupportsNarrowing(
+        bool namesake)
+    {
+        const string packageId = "ILInspector.Metadata";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            packageId,
+            Archive(
+                ($"lib/{CompatibleAssetFramework}/{packageId}.dll", assembly),
+                ($"{packageId}.nuspec", Nuspec(packageId))));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(packageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = packageId,
+            AssemblyName = namesake ? null : $"{packageId}.dll",
+            NamesakeLibrary = namesake,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"# {packageId}.dll ({CompatibleAssetFramework})",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PackageHelpAdvertisesWorkspaceAndShare()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -1213,6 +1490,27 @@ public sealed class ExactPackageWorkspaceRouteTests
                     assemblyPaths[index % assemblyPaths.Length]));
         }
 
+        return store;
+    }
+
+    static async Task<InMemoryPackageStore> LibraryStoreAsync(
+        string packageId = SelectedPackage)
+    {
+        byte[] namesake = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] support = await File.ReadAllBytesAsync(
+            typeof(PackageCommand).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            packageId,
+            Archive(
+                ($"lib/{Framework}/{packageId}.dll", namesake),
+                ($"lib/{Framework}/support.library.dll", support),
+                ($"tools/{Framework}/any/tool.library.dll", support),
+                ($"{packageId}.nuspec", Nuspec(packageId))));
         return store;
     }
 

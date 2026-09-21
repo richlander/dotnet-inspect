@@ -26,8 +26,9 @@ Discovery (`-D`) lists available sections and category doors. Section
 selection (`-S`, with lowercase `-s` as an alias) filters to specific sections;
 bare `-S` requests the compact network-free overview. Tips are suppressed when
 sections are selected. `--count` with exactly one selected section returns a
-single integer count, while `--bare` is a presentation-only modifier that
-strips framing from an already-selected payload.
+single integer count. One selected type/member source payload prints its
+content by default; use `--format markdown` for document presentation. Mixed section
+selections remain Markdown documents.
 
 ## Preconditions
 

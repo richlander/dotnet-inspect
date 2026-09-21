@@ -17,8 +17,9 @@ areas: [output, limiting, count, agents]
 > projected rows one JSON document; `--row N` chooses a projected or printable
 > row. `-t` and `-m` filter Type and Member names; numeric values are ordinary
 > filter input rather than counts. `--count`
-> reduces a selected section/vector to one integer row count, while `--bare`
-> stays a presentation-only modifier for already-selected payloads. These are
+> reduces a selected section/vector to one integer row count. One selected
+> type/member source payload prints its content by default; use `--format markdown`
+> for document presentation. These are
 > essential for agents that need compact, predictable output.
 
 ## Preconditions

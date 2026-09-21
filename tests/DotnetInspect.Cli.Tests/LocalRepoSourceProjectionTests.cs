@@ -33,7 +33,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 "type", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
                 "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
                 "-S", "Source Files", "--print", "--row", row,
-                "--repo", repositoryRoot, "--bare", "--tips", "q",
+                "--repo", repositoryRoot, "--tips", "q",
                 .. preferRenderedUrls ? new[] { "--prefer-rendered-urls" } : [],
             ]);
 
@@ -63,7 +63,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             repositoryRoot,
             "-v:n",
             "--trace-mermaid",
-            "--bare",
             "--tips",
             "q");
 
@@ -79,6 +78,71 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         Assert.DoesNotContain(
             "source-fetch",
             result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeSourceFilesPrint_EnvironmentMarkdownFramesDocument()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
+
+            var result = await RunCliAsync(
+                "type",
+                typeof(CommandLineBuilder).FullName!,
+                "--library",
+                ProductAssemblyPath(),
+                "-S",
+                "Source Files",
+                "--print",
+                "--row",
+                "first",
+                "--repo",
+                FindRepositoryRoot(),
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.StartsWith("# ", result.Output);
+            Assert.Contains("```csharp", result.Output);
+            Assert.Contains("public static class CommandLineBuilder", result.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task TypeSourceFilesPrint_ExplicitMarkdownFramesDocument()
+    {
+        var result = await RunCliAsync(
+            "type",
+            typeof(CommandLineBuilder).FullName!,
+            "--library",
+            ProductAssemblyPath(),
+            "-S",
+            "Source Files",
+            "--print",
+            "--row",
+            "first",
+            "--repo",
+            FindRepositoryRoot(),
+            "--format=markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.StartsWith("# ", result.Output);
+        Assert.Contains("```csharp", result.Output);
+        Assert.Contains(
+            "public static class CommandLineBuilder",
+            result.Output,
             StringComparison.Ordinal);
     }
 
@@ -100,7 +164,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
                 member,
                 "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
                 "-S", "Source Locations", "--print", "--row", "first",
-                "--repo", repositoryRoot, "--bare", "--tips", "q",
+                "--repo", repositoryRoot, "--tips", "q",
                 .. preferRenderedUrls ? new[] { "--prefer-rendered-urls" } : [],
             ]);
 
@@ -128,7 +192,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--repo",
             FindRepositoryRoot(),
             "-v:n",
-            "--bare",
             "--tips",
             "q"
         ];
@@ -159,7 +222,6 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--print",
             "--row",
             "first",
-            "--bare",
             "--tips",
             "q");
 
@@ -171,6 +233,35 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         Assert.DoesNotContain(
             "failed to fetch verified source",
             result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberSourceLocationsPrint_ExplicitMarkdownFramesDocument()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(CommandLineBuilder).FullName!,
+            "--library",
+            ProductAssemblyPath(),
+            "-m",
+            nameof(CommandLineBuilder.TryGetStaleArgumentError),
+            "-S",
+            "Source Locations",
+            "--print",
+            "--row",
+            "first",
+            "--format=markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.StartsWith("# ", result.Output);
+        Assert.Contains("```csharp", result.Output);
+        Assert.Contains(
+            "public static bool TryGetStaleArgumentError",
+            result.Output,
             StringComparison.Ordinal);
     }
 
@@ -193,7 +284,8 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
-        Assert.Contains("## PDB Source", result.Output);
+        Assert.DoesNotContain("## PDB Source", result.Output);
+        Assert.DoesNotContain("```", result.Output);
         Assert.Contains(
             "public static string? ExtractMemberText(",
             result.Output,
@@ -227,10 +319,11 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
-        Assert.Contains("## Source Diff", result.Output);
-        Assert.Contains("PDB source:", result.Output);
-        Assert.Contains("Integrity:", result.Output);
-        Assert.Contains("Changed lines:", result.Output);
+        Assert.DoesNotContain("## Source Diff", result.Output);
+        Assert.DoesNotContain("```", result.Output);
+        Assert.Contains("PDB source", result.Output);
+        Assert.Contains("Integrity", result.Output);
+        Assert.Contains("Changed lines", result.Output);
     }
 
     // PR-fast: bounded offline parts requests against the repository's compiled source.

@@ -55,6 +55,29 @@ omitted from the generic bounded `-v:n` preset, and return at `-v:d`. Exact
 section selection and explicit `@Surface` selection retain the complete
 inventories.
 
+For broad exact-type `@Member` output, the authored `Info` inventories remain
+visible at `-v:m` even when their measured size is `Verbose`: Values,
+Interfaces, Constructors, Fields, Properties, Method Groups, Operators,
+Explicit Interface Implementations, Extension Methods, and Events. Generic
+`-v:n` omits those inventories and the non-`Info` Methods inventory, while
+`-v:d` restores them. Type Parameters remains at `-v:n` as `Informative`.
+Baseclass and Finalizer are `Fixed`; when applicable they participate in the
+broad fixed overview, while Type Info remains exact-selection-only.
+
+For the named-member overload route, Methods remains the authored `-v:m`
+inventory, is omitted from generic `-v:n`, and returns at `-v:d`. The shared
+Custom Attributes and source/IL documents likewise require `-v:d` when
+applicable. Exact selection promotes every `Verbose` base section to the
+required detailed verbosity without changing its rows. For an exact member,
+the automatic fixed overview remains exactly Signature: generic `-v:n` no
+longer adds Custom Attributes, Decompiled Source, or IL, and `-v:d` restores
+those sections plus applicable PDB Source. Explicit selection retains each
+complete section.
+
+This focused audit changes only the broad, named-overload, and exact-member
+base `@Member` behavior. Domain and uncategorized member catalogs remain later
+issue #3284 work.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are

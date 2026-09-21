@@ -653,7 +653,6 @@ public static class MemberOptionsParser
             PlainText = opts.IsPlainTextOutput(parseResult),
             MermaidOutput = outputFormat == OutputFormat.Mermaid,
             EmbeddedMermaid = embeddedMermaid,
-            Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
@@ -968,13 +967,6 @@ public static class MemberOptionsParser
         {
             return new OptionError(
                 "--mermaid embeds diagrams in Markdown and requires --format markdown.");
-        }
-
-        if (parseResult.GetValue(options.Mermaid)
-            && parseResult.GetValue(options.Bare))
-        {
-            return new OptionError(
-                "--mermaid cannot be combined with --bare.");
         }
 
         return null;
