@@ -548,7 +548,8 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    that boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
    attribution consumed by `--slot-residual-census`; each decision identifies
    its exact body scope and slot number, and the census fails unless those
-   identities equal the post-F2 and retained web sets. The former
+   identities equal the materialization-entry and retained web sets. Raises
+   between late F2 and that entry receive separate census accounting. The former
    conditional-single-load veto is retired: the late expression-inlining pass
    has already consumed every conditional store that it can safely move into
    its sole consumer, while the remaining post-F2 stores render as standalone
