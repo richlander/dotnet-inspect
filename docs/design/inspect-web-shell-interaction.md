@@ -473,6 +473,19 @@ Surface Composition's later placement adoption owns the geometry proving that
 the control remains outside the subject and inspector region and visible
 beside overflowing content.
 
+### Application menu Tab continuation
+
+The motivating repository asset is
+[`shell-controls.ts` at `b1c67a908`](https://github.com/richlander/dotnet-inspect/blob/b1c67a908/inspect-web/src/shell-controls.ts):
+its manual Tab-order scan includes native buttons with `tabindex="-1"` and
+cancels traversal even when there is no adjacent page control. These cases
+violate the Application menu's ordinary-document-order contract.
+`workspace-titlebar.spec.ts` preserves both cases using the production shell
+binding: `Application menu Tab follows native document order` and its
+Shift+Tab counterpart compare with traversal from the closed trigger, while
+the `preserves native document-boundary traversal` cases exercise a trigger
+with no adjacent page tab stop. These are PR-fast browser gates.
+
 ## Non-claims
 
 This document does not decide which subject, coordinate, or lens is active,

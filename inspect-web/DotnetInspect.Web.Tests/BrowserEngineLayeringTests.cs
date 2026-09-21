@@ -526,6 +526,10 @@ public sealed class BrowserEngineLayeringTests
             // Operate on semantic product-resource paths, not filesystem paths.
             "DotnetInspector.Sections.ResourceExplanationCatalog",
             "DotnetInspector.Sections.ResourcePath",
+            // Operate on packet-local Workspace component paths.
+            "DotnetInspector.Queries.Definitions.WorkspaceContextComponentPath",
+            "DotnetInspector.Queries.Definitions.WorkspacePackageComponentEditor",
+            "DotnetInspector.Queries.Definitions.WorkspacePackageComponentPath",
             // Constructs a PDB document selector, not a filesystem inspection entry point.
             "DotnetInspector.Queries.AssemblyTypeSourceRequest",
             "DotnetInspector.Services.DepsJsonParser",

@@ -1547,6 +1547,66 @@ test("Member Overview responds to constrained pane widths", async ({
     .toBeLessThanOrEqual(declarationHeader.y + declarationHeader.height);
 });
 
+// PR-fast: exercise the production shell binding in the existing browser harness.
+for (const key of ["Tab", "Shift+Tab"]) {
+  test(`Application menu ${key} follows native document order`, async ({ page }) => {
+    await page.goto("/browser/workspace-titlebar.html?member=1");
+    const button = page.locator("#application-menu-button");
+    await button.evaluate(element => {
+      for (const position of ["beforebegin", "afterend"] as const) {
+        const excluded = document.createElement("button");
+        excluded.tabIndex = -1;
+        excluded.textContent = "Programmatic focus only";
+        element.insertAdjacentElement(position, excluded);
+      }
+    });
+    await button.focus();
+    await page.keyboard.press(key);
+    const expected = await page.evaluateHandle(() => document.activeElement);
+    expect(await expected.evaluate(element => element?.tagName)).not.toBe("BODY");
+
+    await button.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press(key);
+
+    await expect(page.locator("#application-menu")).toBeHidden();
+    expect(await expected.evaluate(element => element === document.activeElement))
+      .toBe(true);
+    await expected.dispose();
+  });
+
+  test(`Application menu ${key} preserves native document-boundary traversal`, async ({ page }) => {
+    await page.goto("/browser/workspace-titlebar.html?member=1");
+    const button = page.locator("#application-menu-button");
+    // Retain the actual product binding, with its trigger as the only page tab stop.
+    await button.evaluate(element => {
+      const menu = document.querySelector("#application-menu");
+      if (!menu) throw new Error("Application menu is missing");
+      document.body.replaceChildren(element, menu);
+    });
+    await button.focus();
+    await page.keyboard.press(key);
+    const expected = await page.evaluate(() => ({
+      tag: document.activeElement?.tagName,
+      id: document.activeElement?.id,
+      documentFocused: document.hasFocus(),
+    }));
+
+    await button.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press(key);
+
+    await expect(page.locator("#application-menu")).toBeHidden();
+    expect(await page.evaluate(() => ({
+      tag: document.activeElement?.tagName,
+      id: document.activeElement?.id,
+      documentFocused: document.hasFocus(),
+    }))).toEqual(expected);
+  });
+}
+
 test("the Application menu owns global actions and modal focus return", async ({
   page,
 }) => {

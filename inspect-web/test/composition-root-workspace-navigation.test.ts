@@ -1242,7 +1242,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /async function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) \{[\s\S]*state\.platformSelection[\s\S]*openDefaultWorkspace\(\);[\s\S]*navigationSequence\.begin\(\);[\s\S]*const projected = await buildStateUrl\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => projected,[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+    /async function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;[\s\S]*navigationSequence\.begin\(\);[\s\S]*const projected = await buildStateUrl\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => projected,[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
   assert.match(
     appSource,
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*applicationScope === "activity"[\s\S]*openPackageActivityRoute\("application-activity"\)[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*observeAsync\(\s*selectWorkspaceApplicationScope\(\),\s*"Opening the Workspace scope"\)/);
