@@ -61,9 +61,9 @@ public sealed class AssemblyContextSourceQueryContext
         CSharpDecompilerService.DefaultMaxBodyProjections;
 
     /// <summary>Independent finite bounds for shared member decompilation.</summary>
-    public SourceHouseMemberDecompilationLimits
+    public SourceHouseDecompilationLimits
         MemberDecompilationLimits { get; init; } =
-            DefaultMemberDecompilationLimits();
+            DefaultDecompilationLimits();
 
     /// <summary>Authored settlement bounds for member Source and same-member comparison.</summary>
     public SourceHouseLimits MemberSourceLimits { get; init; } = DefaultSourceLimits();
@@ -76,6 +76,11 @@ public sealed class AssemblyContextSourceQueryContext
 
     /// <summary>Type authored settlement time after upstream PDB acquisition.</summary>
     public TimeSpan TypeSourceTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Independent finite bounds for shared type decompilation.</summary>
+    public SourceHouseDecompilationLimits
+        TypeDecompilationLimits { get; init; } =
+            DefaultDecompilationLimits();
 
     /// <summary>Authored settlement bounds for the selected-member pair query only.</summary>
     public SourceHouseLimits MemberSourcePairLimits { get; init; } = DefaultSourceLimits();
@@ -108,8 +113,8 @@ public sealed class AssemblyContextSourceQueryContext
         maximumSourceBytes: 64 * 1024 * 1024,
         maximumSourceTextCharacters: 64 * 1024 * 1024);
 
-    static SourceHouseMemberDecompilationLimits
-        DefaultMemberDecompilationLimits()
+    static SourceHouseDecompilationLimits
+        DefaultDecompilationLimits()
     {
         SourceHouseLimits source = DefaultSourceLimits();
         return new(
@@ -335,12 +340,37 @@ public abstract record AssemblyTypeSource(string Text)
         : AssemblyTypeSource(Text);
 }
 
+/// <summary>The result-selection path taken by one type-source latency hedge.</summary>
+public enum TypeSourceLatencyHedgeSelection
+{
+    AuthoredBeforeDecompilation,
+    AuthoredAfterDecompilation,
+    DecompiledAfterAuthoredUnavailable,
+    DecompiledAfterPreferenceWindow,
+    Unavailable,
+}
+
+/// <summary>Detached scheduling evidence for one completed type-source hedge.</summary>
+public sealed record TypeSourceLatencyHedgeEvidence(
+    bool PdbReadyBeforeDecompilation,
+    bool DecompilationStarted,
+    bool DecompilationUsedPdb,
+    TypeSourceLatencyHedgeSelection Selection)
+{
+    /// <summary>Terminal from the independent authored Library admission.</summary>
+    public AssemblyContextLibraryAdapterResult.Terminal?
+        AuthoredLibraryFailure { get; init; }
+    /// <summary>Terminal from the independent decompilation Library admission.</summary>
+    public AssemblyContextLibraryAdapterResult.Terminal?
+        DecompilationLibraryFailure { get; init; }
+}
+
 public abstract record AssemblyMemberSourceEntry(
     AssemblyContextSubject Subject,
     AssemblyMemberSourceRequest Request)
 {
     public SourceHouseOutcome? HouseOutcome { get; init; }
-    public SourceHouseMemberDecompilationOutcome?
+    public SourceHouseDecompilationOutcome?
         DecompilationHouseOutcome { get; init; }
     public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
 
@@ -382,7 +412,7 @@ public abstract record AssemblyMemberPdbSourceAttempt
 
 public abstract record AssemblyMemberDecompiledSourceAttempt
 {
-    public SourceHouseMemberDecompilationOutcome? HouseOutcome { get; init; }
+    public SourceHouseDecompilationOutcome? HouseOutcome { get; init; }
 
     public sealed record Available(
         CSharpDecompilationAttempt Result)
@@ -442,7 +472,11 @@ public abstract record AssemblyTypeSourceEntry(
     AssemblyTypeSourceRequest Request)
 {
     public SourceHouseOutcome? HouseOutcome { get; init; }
+    public SourceHouseDecompilationOutcome?
+        DecompilationHouseOutcome { get; init; }
     public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+    /// <summary>Present only for the opt-in latency-hedged operation.</summary>
+    public TypeSourceLatencyHedgeEvidence? LatencyHedgeEvidence { get; init; }
 
     public sealed record Available(
         AssemblyContextSubject Subject,
@@ -694,12 +728,50 @@ public static partial class AssemblyContextSourceQuery
         }
     }
 
-    public static async Task<AssemblyTypeSourceEntry> ExecuteTypeAsync(
+    public static Task<AssemblyTypeSourceEntry> ExecuteTypeAsync(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         AssemblyTypeSourceRequest request,
         AssemblyContextSourceQueryContext context,
         CancellationToken cancellationToken = default)
+        => ExecuteTypeCoreAsync(
+            group,
+            participant,
+            request,
+            context,
+            latencyHedge: null,
+            cancellationToken);
+
+    /// <summary>
+    /// Executes ordinary type source with bounded PDB and authored-source
+    /// preference windows. Explicit document requests use the serial operation.
+    /// </summary>
+    public static Task<AssemblyTypeSourceEntry>
+        ExecuteTypeWithLatencyHedgeAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            TypeSourceLatencyHedge latencyHedge,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(latencyHedge);
+        return ExecuteTypeCoreAsync(
+            group,
+            participant,
+            request,
+            context,
+            latencyHedge,
+            cancellationToken);
+    }
+
+    static async Task<AssemblyTypeSourceEntry> ExecuteTypeCoreAsync(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyTypeSourceRequest request,
+        AssemblyContextSourceQueryContext context,
+        TypeSourceLatencyHedge? latencyHedge,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
@@ -747,7 +819,7 @@ public static partial class AssemblyContextSourceQuery
             throw new InvalidOperationException(
                 "Unknown assembly image access result.");
         }
-        if (available.Value.Target is not { } target)
+        if (available.Value.Target is null)
         {
             return new AssemblyTypeSourceEntry.Unavailable(
                 subject,
@@ -758,16 +830,31 @@ public static partial class AssemblyContextSourceQuery
 
         try
         {
+            if (latencyHedge is not null
+                && request.OriginalDocumentPath is null)
+            {
+                return await InspectTypeWithLatencyHedgeAsync(
+                        group,
+                        subject,
+                        participant,
+                        request,
+                        context,
+                        available.Value.Retained,
+                        bindingPolicyVersion,
+                        latencyHedge,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return await InspectTypeAsync(
-                    group,
-                    subject,
-                    participant,
-                    request,
-                    context,
-                    target,
-                    available.Value.Retained,
-                    bindingPolicyVersion,
-                    cancellationToken)
+                group,
+                subject,
+                participant,
+                request,
+                context,
+                available.Value.Retained,
+                bindingPolicyVersion,
+                cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (IsInspectionFailure(ex))
@@ -863,15 +950,21 @@ public static partial class AssemblyContextSourceQuery
             }
 
             (CSharpDecompilationAttempt decompiled,
-                SourceHouseMemberDecompilationOutcome houseOutcome) =
-                await DecompileMemberAsync(
+                SourceHouseDecompilationOutcome houseOutcome) =
+                await DecompileAsync(
                     participant,
-                    request,
+                    new SourceHouseTarget.MemberTarget(
+                        request.Type,
+                        request.Member,
+                        request.MetadataToken),
+                    request.PrinterOptions,
                     pdb.RetainedLibrary
                         ?? throw new InvalidOperationException(
                             "Decompiler fallback requires one retained SourceHouse Library."),
                     bindingPolicyVersion,
+                    context.MemberDecompilationLimits,
                     context,
+                    "member-decompilation",
                     cancellationToken)
                     .ConfigureAwait(false);
             if (decompiled.IsAvailable
@@ -964,15 +1057,21 @@ public static partial class AssemblyContextSourceQuery
             }
 
             (CSharpDecompilationAttempt decompiled,
-                SourceHouseMemberDecompilationOutcome houseOutcome) =
-                await DecompileMemberAsync(
+                SourceHouseDecompilationOutcome houseOutcome) =
+                await DecompileAsync(
                     participant,
-                    request,
+                    new SourceHouseTarget.MemberTarget(
+                        request.Type,
+                        request.Member,
+                        request.MetadataToken),
+                    request.PrinterOptions,
                     pdb.RetainedLibrary
                         ?? throw new InvalidOperationException(
                             "Member source comparison requires one retained SourceHouse Library."),
                     bindingPolicyVersion,
+                    context.MemberDecompilationLimits,
                     context,
+                    "member-decompilation",
                     cancellationToken)
                     .ConfigureAwait(false);
             AssemblyMemberDecompiledSourceAttempt decompiledAttempt =
@@ -1031,12 +1130,15 @@ public static partial class AssemblyContextSourceQuery
 
     static async ValueTask<(
         CSharpDecompilationAttempt Attempt,
-        SourceHouseMemberDecompilationOutcome Outcome)> DecompileMemberAsync(
+        SourceHouseDecompilationOutcome Outcome)> DecompileAsync(
         AssemblyContextParticipant participant,
-        AssemblyMemberSourceRequest request,
+        SourceHouseTarget target,
+        PrinterOptions? printerOptions,
         AssemblyContextLibraryAdapterResult.Completed completed,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
+        SourceHouseDecompilationLimits limits,
         AssemblyContextSourceQueryContext context,
+        string operationName,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1046,25 +1148,22 @@ public static partial class AssemblyContextSourceQuery
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
                 participant.BindingPolicy);
-        var plan = new SourceHouseMemberDecompilationPlan(
+        var plan = new SourceHouseDecompilationPlan(
             SourceHouseOperationPlanIdentity.Create(
-                "member-decompilation"),
+                operationName),
             SourceHousePolicyGeneration.Create(
-                "member-decompilation-v1"),
-            context.MemberDecompilationLimits,
+                $"{operationName}-v1"),
+            limits,
             bindingPolicy,
-            request.PrinterOptions,
+            printerOptions,
             context.MaxDecompilerBodyProjections);
         var houseRequest =
-            new SourceHouseMemberDecompilationRequest(
+            new SourceHouseDecompilationRequest(
                 SourceHouseRequestIdentity.Create(
-                    "member-decompilation"),
+                    operationName),
                 completed.Reference,
                 completed.Reference.ImplementationAssembly!,
-                new SourceHouseTarget.MemberTarget(
-                    request.Type,
-                    request.Member,
-                    request.MetadataToken),
+                target,
                 plan);
         if (completed.Owner.IssueOperationLease(completed.Reference)
             is not LibraryOperationLeaseIssueOutcome.Issued issued)
@@ -1072,9 +1171,9 @@ public static partial class AssemblyContextSourceQuery
             throw new InvalidOperationException(
                 "The admitted Library could not issue its decompilation operation lease.");
         }
-        SourceHouseMemberDecompilationOutcome outcome =
+        SourceHouseDecompilationOutcome outcome =
             await DotnetInspector.SourceHouse.SourceHouse
-                .ExecuteMemberDecompilationAsync(
+                .ExecuteDecompilationAsync(
                     houseRequest,
                     issued.Lease,
                     cancellationToken)
@@ -1088,25 +1187,25 @@ public static partial class AssemblyContextSourceQuery
     }
 
     static CSharpDecompilationAttempt DecompilationAttempt(
-        SourceHouseMemberDecompilationOutcome outcome) =>
+        SourceHouseDecompilationOutcome outcome) =>
         outcome switch
         {
-            SourceHouseMemberDecompilationOutcome.Completed completed =>
+            SourceHouseDecompilationOutcome.Completed completed =>
                 completed.Attempt,
-            SourceHouseMemberDecompilationOutcome.Incomplete incomplete =>
+            SourceHouseDecompilationOutcome.Incomplete incomplete =>
                 HouseAttempt(
                     CSharpDecompilationStatus.Incomplete,
-                    $"SourceHouse member decompilation exceeded its {incomplete.Boundary} boundary."),
-            SourceHouseMemberDecompilationOutcome.Rejected rejected =>
+                    $"SourceHouse decompilation exceeded its {incomplete.Boundary} boundary."),
+            SourceHouseDecompilationOutcome.Rejected rejected =>
                 HouseAttempt(
                     CSharpDecompilationStatus.Failed,
-                    $"SourceHouse member decompilation rejected the request: {rejected.Rejection.Kind}."),
-            SourceHouseMemberDecompilationOutcome.Failed failed =>
+                    $"SourceHouse decompilation rejected the request: {rejected.Rejection.Kind}."),
+            SourceHouseDecompilationOutcome.Failed failed =>
                 HouseAttempt(
                     CSharpDecompilationStatus.Failed,
-                    $"SourceHouse member decompilation failed: {failed.Failure.Code}: {failed.Failure.Detail}"),
+                    $"SourceHouse decompilation failed: {failed.Failure.Code}: {failed.Failure.Detail}"),
             _ => throw new InvalidOperationException(
-                "Unknown SourceHouse member decompilation outcome."),
+                "Unknown SourceHouse decompilation outcome."),
         };
 
     static CSharpDecompilationAttempt HouseAttempt(
@@ -1129,7 +1228,6 @@ public static partial class AssemblyContextSourceQuery
         AssemblyContextParticipant participant,
         AssemblyTypeSourceRequest request,
         AssemblyContextSourceQueryContext context,
-        ApiType target,
         ResolvedAssemblyReference retained,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
@@ -1144,89 +1242,120 @@ public static partial class AssemblyContextSourceQuery
                     bindingPolicyVersion,
                     context.TypeSourceLimits,
                     context.TypeSourceTimeout,
-                    cancellationToken,
-                    retainSymbols: request.OriginalDocumentPath is null)
+                    cancellationToken)
                 .ConfigureAwait(false);
-        if (pdb.Inspection.IsComplete
-            && pdb.Inspection.Text is { } pdbText
-            && pdb.Provenance is { } provenance)
+        Exception? primaryFailure = null;
+        AssemblyTypeSourceEntry result;
+        try
         {
-            return new AssemblyTypeSourceEntry.Available(
-                subject,
-                request,
-                new AssemblyTypeSource.Pdb(
-                    pdbText,
-                    pdb.Inspection,
-                    provenance))
+            if (pdb.Inspection.IsComplete
+                && pdb.Inspection.Text is { } pdbText
+                && pdb.Provenance is { } provenance)
             {
-                HouseOutcome = pdb.HouseOutcome,
-                LibraryFailure = pdb.LibraryFailure,
-            };
+                result = new AssemblyTypeSourceEntry.Available(
+                    subject,
+                    request,
+                    new AssemblyTypeSource.Pdb(
+                        pdbText,
+                        pdb.Inspection,
+                        provenance))
+                {
+                    HouseOutcome = pdb.HouseOutcome,
+                    LibraryFailure = pdb.LibraryFailure,
+                };
+            }
+            else if (request.OriginalDocumentPath is not null)
+            {
+                result = new AssemblyTypeSourceEntry.Unavailable(
+                    subject,
+                    request,
+                    new(
+                        AssemblySourceFailureKind.AuthoredDocumentUnavailable,
+                        "The selected authored source document is unavailable."),
+                    pdb.Inspection)
+                {
+                    HouseOutcome = pdb.HouseOutcome,
+                    LibraryFailure = pdb.LibraryFailure,
+                };
+            }
+            else if (pdb.LibraryFailure is { } libraryFailure)
+            {
+                result = new AssemblyTypeSourceEntry.Unavailable(
+                    subject,
+                    request,
+                    LibraryAdmissionUnavailable(libraryFailure),
+                    pdb.Inspection)
+                {
+                    HouseOutcome = pdb.HouseOutcome,
+                    LibraryFailure = libraryFailure,
+                };
+            }
+            else
+            {
+                (CSharpDecompilationAttempt decompiled,
+                    SourceHouseDecompilationOutcome houseOutcome) =
+                    await DecompileAsync(
+                        participant,
+                        new SourceHouseTarget.TypeTarget(
+                            request.Type),
+                        request.PrinterOptions,
+                        pdb.RetainedLibrary
+                            ?? throw new InvalidOperationException(
+                                "Type decompiler fallback requires one retained SourceHouse Library."),
+                        bindingPolicyVersion,
+                        context.TypeDecompilationLimits,
+                        context,
+                        "type-decompilation",
+                        cancellationToken)
+                        .ConfigureAwait(false);
+                result = decompiled.IsAvailable
+                    && decompiled.Text is { } decompiledText
+                        ? new AssemblyTypeSourceEntry.Available(
+                            subject,
+                            request,
+                            new AssemblyTypeSource.Decompiled(
+                                decompiledText,
+                                decompiled,
+                                pdb.Inspection))
+                        {
+                            HouseOutcome = pdb.HouseOutcome,
+                            DecompilationHouseOutcome = houseOutcome,
+                            LibraryFailure = pdb.LibraryFailure,
+                        }
+                        : new AssemblyTypeSourceEntry.Unavailable(
+                            subject,
+                            request,
+                            BothUnavailable(),
+                            pdb.Inspection,
+                            decompiled)
+                        {
+                            HouseOutcome = pdb.HouseOutcome,
+                            DecompilationHouseOutcome = houseOutcome,
+                            LibraryFailure = pdb.LibraryFailure,
+                        };
+            }
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            if (pdb.RetainedLibrary is { } completed)
+            {
+                await RetireSourceHouseLibraryAsync(
+                        completed,
+                        primaryFailure)
+                    .ConfigureAwait(false);
+            }
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
             participant,
             bindingPolicyVersion);
-        if (request.OriginalDocumentPath is not null)
-        {
-            return new AssemblyTypeSourceEntry.Unavailable(
-                subject,
-                request,
-                new(
-                    AssemblySourceFailureKind.AuthoredDocumentUnavailable,
-                    "The selected authored source document is unavailable."),
-                pdb.Inspection)
-            {
-                HouseOutcome = pdb.HouseOutcome,
-                LibraryFailure = pdb.LibraryFailure,
-            };
-        }
-        var bindingPolicy =
-            new CancellationObservingBindingPolicy(
-                participant.BindingPolicy);
-        ResolvedAssemblyReference decompilerAssembly =
-            retained.WithoutLocalPath();
-        CSharpDecompilationAttempt decompiled =
-            CSharpDecompilerService.ProduceType(
-                target,
-                decompilerAssembly,
-                bindingPolicy,
-                pdbImage: pdb.PdbImage,
-                printerOptions: request.PrinterOptions,
-                maxBodyProjections: context.MaxDecompilerBodyProjections,
-                cancellationToken: cancellationToken);
-        bindingPolicy.ThrowIfObserved();
-        cancellationToken.ThrowIfCancellationRequested();
-        EnsureBindingPolicyVersion(
-            participant,
-            bindingPolicyVersion);
-        if (decompiled.IsAvailable
-            && decompiled.Text is { } decompiledText)
-        {
-            return new AssemblyTypeSourceEntry.Available(
-                subject,
-                request,
-                new AssemblyTypeSource.Decompiled(
-                    decompiledText,
-                    decompiled,
-                    pdb.Inspection))
-            {
-                HouseOutcome = pdb.HouseOutcome,
-                LibraryFailure = pdb.LibraryFailure,
-            };
-        }
-
-        return new AssemblyTypeSourceEntry.Unavailable(
-            subject,
-            request,
-            BothUnavailable(),
-            pdb.Inspection,
-            decompiled)
-        {
-            HouseOutcome = pdb.HouseOutcome,
-            LibraryFailure = pdb.LibraryFailure,
-        };
+        return result;
     }
 
     static Task AcquirePdbAsync(
@@ -1674,11 +1803,12 @@ public static partial class AssemblyContextSourceQuery
 
     internal sealed record TypePdbInspection(
         PdbTypeSourceInspection Inspection,
-        AssemblyPdbSourceProvenance? Provenance,
-        ImmutableArray<byte>? PdbImage)
+        AssemblyPdbSourceProvenance? Provenance)
     {
         public SourceHouseOutcome? HouseOutcome { get; init; }
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+        public AssemblyContextLibraryAdapterResult.Completed?
+            RetainedLibrary { get; init; }
     }
 
     sealed record TypeInspectionSeed(

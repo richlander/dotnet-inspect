@@ -60,29 +60,6 @@ public sealed partial class InspectionWorkspace
             occurrence: null,
             realizationOptions: null);
 
-    internal ValueTask<WorkspaceScopeOperationResult>
-        ReplaceScopeWithRealizationOptionsAsync(
-            WorkspaceScopeRevision expectedRevision,
-            ImmutableArray<PackageRootBinding> packages,
-            PackageAssemblyContextRealizationOptions realizationOptions,
-            DateTimeOffset deadline,
-            CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(realizationOptions);
-        realizationOptions.Validate();
-        return SubmitScopeRequestAsync(IssueScopeRequest(
-            expectedRevision,
-            expectedPublicationBase: null,
-            requirePublicationBase: false,
-            packages,
-            deadline,
-            WorkspaceScopeOperationKind.Replace,
-            target: null,
-            occurrence: null,
-            realizationOptions),
-            cancellationToken);
-    }
-
     /// <summary>
     /// Commits a fresh empty closed revision and supersedes current preparation
     /// without waiting for previously admitted queries to drain.
@@ -126,6 +103,29 @@ public sealed partial class InspectionWorkspace
         SubmitScopeRequestAsync(
             IssueAddPackagesRequest(expectedRevision, packages, deadline),
             cancellationToken);
+
+    internal ValueTask<WorkspaceScopeOperationResult>
+        AddPackagesWithRealizationOptionsAsync(
+            WorkspaceScopeRevision expectedRevision,
+            ImmutableArray<PackageRootBinding> packages,
+            PackageAssemblyContextRealizationOptions realizationOptions,
+            DateTimeOffset deadline,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(realizationOptions);
+        realizationOptions.Validate();
+        return SubmitScopeRequestAsync(IssueScopeRequest(
+            expectedRevision,
+            expectedPublicationBase: null,
+            requirePublicationBase: false,
+            packages,
+            deadline,
+            WorkspaceScopeOperationKind.Add,
+            target: null,
+            occurrence: null,
+            realizationOptions),
+            cancellationToken);
+    }
 
     /// <summary>
     /// Issues an inert all-or-failure Package addition request, optionally

@@ -1,5 +1,6 @@
 using DotnetInspector.Cache;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.MetadataRendering;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
@@ -8,6 +9,7 @@ using ILInspector.Research;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using NuGetFetch;
@@ -21,6 +23,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.SourceSelection;
 using Markout;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -509,7 +512,7 @@ public partial class LibraryCommand
             && !options.Count
             && options.IncludeSections is { Count: > 0 }
             && !LibraryOutputCapabilities.Catalog.Supports(
-                OutputMode.Json,
+                DiscoveryOutputMode.Json,
                 options.IncludeSections))
         {
             if (options.IncludeSections.Contains(
@@ -550,7 +553,7 @@ public partial class LibraryCommand
         if (options.Tree && options.Discover == null)
         {
             if (!LibraryOutputCapabilities.Catalog.Supports(
-                    OutputMode.Tree,
+                    DiscoveryOutputMode.Tree,
                     options.IncludeSections))
             {
                 CommandError.Write(
@@ -567,7 +570,7 @@ public partial class LibraryCommand
             && options.Discover == null
             && !options.Count
             && !LibraryOutputCapabilities.Catalog.Supports(
-                OutputMode.Mermaid,
+                DiscoveryOutputMode.Mermaid,
                 options.IncludeSections))
         {
             CommandError.Write(
@@ -777,7 +780,7 @@ public partial class LibraryCommand
                 options.IncludeSections,
                 sections =>
                     LibraryOutputCapabilities.Catalog.Supports(
-                        OutputMode.Table,
+                        DiscoveryOutputMode.Table,
                         sections)))
             return 1;
 
@@ -815,6 +818,12 @@ public partial class LibraryCommand
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
                 : options.FixedOverview);
+        bool wantsEcosystemDependencies =
+            sectionPlan.Demands.Any(
+                static demand =>
+                    demand.Section == SectionNames.LibraryInfo
+                    || demand.Section
+                        == SectionNames.EcosystemDependencies);
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && options.BodyKindQuery.HasFilter
             && options.PerformanceTriage.HasCandidateFilters)
@@ -992,6 +1001,12 @@ public partial class LibraryCommand
 
                 inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
+                ApplyLibraryEcosystemDependencies(
+                    inspection,
+                    subject,
+                    wantsEcosystemDependencies,
+                    RequiresLibraryEcosystemDiagnosticDisclosure(options),
+                    logger);
                 if (!discoveryInspection)
                 {
                     await PopulateReferenceHierarchyAsync(
@@ -1022,6 +1037,12 @@ public partial class LibraryCommand
                         inspectedContentHash: inspectedContentHash);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
+                if (!TrySelectLibraryEcosystemDependencies(
+                        inspection,
+                        options.EcosystemDependencyRowSelection))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1211,6 +1232,21 @@ public partial class LibraryCommand
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
+                if (wantsEcosystemDependencies)
+                {
+                    for (int index = 0;
+                         index < inspections.Count;
+                         index++)
+                    {
+                        ApplyLibraryEcosystemDependencies(
+                            inspections[index],
+                            collection.Subjects[index],
+                            wantsEcosystemDependencies: true,
+                            RequiresLibraryEcosystemDiagnosticDisclosure(
+                                options),
+                            logger);
+                    }
+                }
                 if (!discoveryInspection)
                 {
                     for (int index = 0;
@@ -1268,6 +1304,13 @@ public partial class LibraryCommand
                     && !TrySelectAssemblyReferences(
                         inspections[0],
                         options.ReferenceRowSelection))
+                {
+                    return 1;
+                }
+                if (inspections.Count == 1
+                    && !TrySelectLibraryEcosystemDependencies(
+                        inspections[0],
+                        options.EcosystemDependencyRowSelection))
                 {
                     return 1;
                 }
@@ -1431,6 +1474,12 @@ public partial class LibraryCommand
                 }
 
                 inspection.Source = SourceKind.File;
+                ApplyLibraryEcosystemDependencies(
+                    inspection,
+                    subject,
+                    wantsEcosystemDependencies,
+                    RequiresLibraryEcosystemDiagnosticDisclosure(options),
+                    logger);
                 if (!discoveryInspection)
                 {
                     await PopulateReferenceHierarchyAsync(
@@ -1461,6 +1510,12 @@ public partial class LibraryCommand
                         inspectedContentHash: inspectedContentHash);
                 if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
                     return 1;
+                if (!TrySelectLibraryEcosystemDependencies(
+                        inspection,
+                        options.EcosystemDependencyRowSelection))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -2324,6 +2379,168 @@ public partial class LibraryCommand
         return true;
     }
 
+    private static bool TrySelectLibraryEcosystemDependencies(
+        LibraryInspection inspection,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+            inspection.EcosystemDependencyRecognitionInspection?.Content
+                switch
+                {
+                    EcosystemDependencyRecognitionOutcome.Complete complete =>
+                        complete.Document.Classification.Recognized,
+                    EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                        incomplete.Document.Classification.Recognized,
+                    _ => [],
+                };
+        if (!CliSemanticRowSelection.TrySelect(
+                intent,
+                rows,
+                "Library ecosystem dependencies",
+                failure =>
+                    $"Library ecosystem dependency row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} "
+                    + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
+                out IReadOnlyList<
+                    EcosystemDependencyRecognitionEntry> selected))
+        {
+            return false;
+        }
+
+        inspection.EcosystemDependencyRows = selected;
+        return true;
+    }
+
+    private static void ApplyLibraryEcosystemDependencies(
+        LibraryInspection inspection,
+        LibraryInspectionSubject subject,
+        bool wantsEcosystemDependencies,
+        bool discloseEmptyDetailDiagnostics,
+        VerboseLogger logger)
+    {
+        if (!wantsEcosystemDependencies)
+            return;
+
+        if (inspection.AssemblyReferencesQueryResult is not { } references)
+        {
+            throw new InvalidOperationException(
+                "Library ecosystem recognition requires the assembly-reference query result.");
+        }
+        if (subject.AssemblyReference is not { } assembly)
+        {
+            CommandError.WriteWarning(
+                "Library ecosystem recognition is unavailable because the "
+                + "selected input is not an assembly.");
+            return;
+        }
+        if (!TryCreateExactLibrarySourceCoordinate(
+                assembly,
+                out ExactLibrarySourceCoordinate? source))
+        {
+            CommandError.WriteWarning(
+                "Library ecosystem recognition is unavailable because the "
+                + "selected source does not have an exact Library coordinate.");
+            return;
+        }
+
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> result =
+            LibraryEcosystemDependencyRecognitionInspection.Execute(
+                source,
+                references);
+        inspection.EcosystemDependencyRecognitionInspection = result;
+        bool discloseDiagnostics =
+            discloseEmptyDetailDiagnostics
+            && result.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized.IsEmpty,
+                EcosystemDependencyRecognitionOutcome.Unavailable => true,
+                _ => false,
+            };
+        foreach (InspectionDiagnostic diagnostic in result.Diagnostics)
+        {
+            string message = $"{diagnostic.Code}: {diagnostic.Summary}";
+            if (discloseDiagnostics)
+                CommandError.WriteWarning(message);
+            else
+                logger.Log(message);
+        }
+    }
+
+    private static bool TryCreateExactLibrarySourceCoordinate(
+        ResolvedAssemblyReference assembly,
+        [NotNullWhen(true)]
+        out ExactLibrarySourceCoordinate? source)
+    {
+        var identity = new ManagedMetadataIdentity.Assembly(
+            assembly.Identity);
+        try
+        {
+            source = assembly.Provenance switch
+            {
+                AssemblyResolutionProvenance.PackageAsset package =>
+                    new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(
+                            package.PackageId,
+                            package.PackageVersion),
+                        identity),
+                AssemblyResolutionProvenance.PlatformAsset platform
+                    when TryGetPlatformFamily(
+                        platform.Framework,
+                        out PlatformFamily family) =>
+                    new ExactLibrarySourceCoordinate.Platform(
+                        new PlatformLibraryPopulationDeclaration(family),
+                        identity),
+                AssemblyResolutionProvenance.ProjectAsset =>
+                    new ExactLibrarySourceCoordinate.Project(identity),
+                AssemblyResolutionProvenance.LocalAsset
+                    or AssemblyResolutionProvenance.DesignatedAsset =>
+                    new ExactLibrarySourceCoordinate.Local(identity),
+                _ => null,
+            };
+            return source is not null;
+        }
+        catch (ArgumentException)
+        {
+            source = null;
+            return false;
+        }
+    }
+
+    private static bool TryGetPlatformFamily(
+        string value,
+        out PlatformFamily family)
+    {
+        if (value.Equals(
+                "runtime",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            family = PlatformFamily.DotNetRuntime;
+            return true;
+        }
+        if (value.Equals(
+                "aspnetcore",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            family = PlatformFamily.AspNetCore;
+            return true;
+        }
+
+        family = default;
+        return false;
+    }
+
+    private static bool RequiresLibraryEcosystemDiagnosticDisclosure(
+        LibraryOptions options) =>
+        options.IncludeSections is { } sections
+        && sections.Contains(SectionNames.EcosystemDependencies)
+        && !sections.Contains(SectionNames.LibraryInfo);
+
     /// <summary>
     /// Rewrites hex table spellings in <c>-S</c> and <c>-D</c> to canonical section names, so
     /// <c>-S "Metadata: 0x02"</c> and <c>-S "Metadata: TypeDef"</c> reach the same section.
@@ -2949,7 +3166,6 @@ public partial class LibraryCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                Bare: false,
                 Destination: new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 

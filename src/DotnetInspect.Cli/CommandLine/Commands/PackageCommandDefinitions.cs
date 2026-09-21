@@ -30,6 +30,22 @@ public static class PackageCommandDefinitions
             Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
             Arity = ArgumentArity.ZeroOrMore
         };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description =
+                "Source: canonical Base64URL Workspace packet string",
+        };
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit the resolved Package scenario as a canonical Workspace packet or complete URL");
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched Package envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+#endif
 
         var dependenciesOption = new Option<bool>("--dependencies")
         {
@@ -104,6 +120,11 @@ public static class PackageCommandDefinitions
         typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
         packageCommand.Arguments.Add(packageNameArg);
+        packageCommand.Options.Add(workspaceOption);
+        packageCommand.Options.Add(shareOption);
+#if DEBUG
+        packageCommand.Options.Add(evidenceEnvelopeOption);
+#endif
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
         packageCommand.Options.Add(pathOption);
@@ -135,7 +156,14 @@ public static class PackageCommandDefinitions
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, rootsOption, opts.NoHeaders);
+            skipEmptyOption, rootsOption, opts.NoHeaders,
+            workspaceOption, shareOption,
+#if DEBUG
+            evidenceEnvelopeOption
+#else
+            null
+#endif
+            );
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);

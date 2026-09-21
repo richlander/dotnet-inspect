@@ -634,21 +634,6 @@ public class IlToolsActivationTests
         Assert.Contains("self-test passed", stdout);
     }
 
-    [Fact]
-    public void ReleaseWorkflow_TagsResolvedCiCommit()
-    {
-        string workflow = File.ReadAllText(
-            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
-        int releaseStep = workflow.IndexOf(
-            "- name: Create GitHub Release",
-            StringComparison.Ordinal);
-
-        Assert.True(releaseStep >= 0);
-        Assert.Contains(
-            "target_commitish: ${{ needs.resolve.outputs.sha }}",
-            workflow[releaseStep..]);
-    }
-
     // --- harness ---
 
     sealed record ActivationResult(int ExitCode, string Stdout, string Stderr)

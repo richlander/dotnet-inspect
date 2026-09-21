@@ -5,6 +5,10 @@ use the smallest sufficient set of claims and gates, inherit existing contracts
 unless the change calls them into question, and add only evidence needed by the
 resulting claims. This document owns the detailed practices.
 
+For section-system changes, [Section test evidence](design/section-test-evidence.md)
+defines the three-layer split between synthetic mechanism tests, product
+catalog conformance, and production smoke tests.
+
 ## Matching evidence to claims
 
 Begin with the stated user goal and the exact boundaries or contracts owned by

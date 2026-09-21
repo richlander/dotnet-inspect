@@ -2113,7 +2113,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string id,
         Func<HttpContent> payload,
         ConcurrentQueue<string> requests,
-        Func<CancellationToken, Task>? beforeResponse = null) : HttpMessageHandler
+        Func<CancellationToken, Task>? beforeResponse = null,
+        string version = Version,
+        Func<HttpContent>? vulnerabilityPage = null) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -2123,19 +2125,40 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             if (beforeResponse is not null)
                 await beforeResponse(cancellationToken);
             string flat = new Uri(new Uri(source), "flat2/").AbsoluteUri;
-            string packageUrl = $"{flat}{id.ToLowerInvariant()}/{Version}/{id.ToLowerInvariant()}.{Version}.nupkg";
+            string vulnerabilityIndex =
+                new Uri(new Uri(source), "vulnerability/index.json").AbsoluteUri;
+            string vulnerabilityPageUrl =
+                new Uri(new Uri(source), "vulnerability/page.json").AbsoluteUri;
+            string packageUrl = $"{flat}{id.ToLowerInvariant()}/{version}/{id.ToLowerInvariant()}.{version}.nupkg";
             HttpContent content;
             if (url == source)
             {
+                string vulnerabilityResource = vulnerabilityPage is null
+                    ? ""
+                    : $$"""
+                      ,{"@id":"{{vulnerabilityIndex}}","@type":"VulnerabilityInfo/6.7.0"}
+                      """;
                 content = new StringContent($$"""
                     {"version":"3.0.0","resources":[
-                      {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}
+                      {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}{{vulnerabilityResource}}
                     ]}
                     """);
             }
             else if (url == packageUrl)
             {
                 content = payload();
+            }
+            else if (vulnerabilityPage is not null
+                && url == vulnerabilityIndex)
+            {
+                content = new StringContent($$"""
+                    [{"@id":"{{vulnerabilityPageUrl}}"}]
+                    """);
+            }
+            else if (vulnerabilityPage is not null
+                && url == vulnerabilityPageUrl)
+            {
+                content = vulnerabilityPage();
             }
             else
             {

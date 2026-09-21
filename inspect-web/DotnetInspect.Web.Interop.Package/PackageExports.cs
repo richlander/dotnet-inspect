@@ -6,7 +6,9 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
+using QuerySpace;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;
@@ -204,6 +206,217 @@ public static partial class PackageExports
         return JsonSerializer.Serialize(
             dependencies,
             BrowserPackageJsonContext.Default.BrowserPackageDependencies);
+    }
+
+    /// <summary>
+    /// Qualifies the current package surface population by direct AssemblyRef
+    /// simple names through the shared Library Query envelope.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibraries(
+        string packageId,
+        string version,
+        string targetFramework,
+        string admittedAssetIdsJson,
+        string requiredReferencesJson)
+    {
+        BrowserLibraryQueryInspection inspection =
+            await QueryLibrariesAsync(
+                packageId,
+                version,
+                targetFramework,
+                admittedAssetIdsJson,
+                requiredReferencesJson);
+        return JsonSerializer.Serialize(
+            inspection,
+            BrowserPackageJsonContext.Default
+                .BrowserLibraryQueryInspection);
+    }
+
+    private static async Task<BrowserLibraryQueryInspection>
+        QueryLibrariesAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string admittedAssetIdsJson,
+        string requiredReferencesJson)
+    {
+        string[] admittedAssetIds =
+            JsonSerializer.Deserialize(
+                admittedAssetIdsJson,
+                BrowserPackageJsonContext.Default.StringArray)
+            ?? throw new ArgumentException(
+                "The admitted Browser Library roster is required.",
+                nameof(admittedAssetIdsJson));
+        string[] requiredReferences =
+            JsonSerializer.Deserialize(
+                requiredReferencesJson,
+                BrowserPackageJsonContext.Default.StringArray)
+            ?? throw new ArgumentException(
+                "Library Query references are required.",
+                nameof(requiredReferencesJson));
+        LibraryQueryPlanResult planResult = LibraryQuery.Plan(
+            new(
+                [
+                    .. requiredReferences.Select(reference =>
+                        new PortableQueryTerm(
+                            LibraryQuery.ReferencesTermKey,
+                            PortableQueryOperator.Equal,
+                            reference)),
+                ]));
+        if (planResult is LibraryQueryPlanResult.Rejected rejected)
+        {
+            throw new ArgumentException(
+                $"Library Query intent was rejected: "
+                + $"{rejected.Failure.Reason} at "
+                + $"{rejected.Failure.Location}.",
+                nameof(requiredReferencesJson));
+        }
+
+        LibraryQueryPlan plan =
+            ((LibraryQueryPlanResult.Accepted)planResult).Plan;
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserWorkspaceParticipant[] population =
+            LibraryQueryPopulation(scope, admittedAssetIds);
+        InspectionEnvelope<LibraryQueryDocument> envelope =
+            population.Length == 0
+                ? LibraryQueryInspection.ExecuteParticipants(
+                    group: null,
+                    population: [],
+                    plan: plan)
+                : scope.UseSurface(group =>
+                    LibraryQueryInspection.ExecuteParticipants(
+                        group,
+                        [
+                            .. population.Select(participant =>
+                                new LibraryQueryParticipant(
+                                    participant.Participant,
+                                    participant.Asset.Path,
+                                    participant.Coordinate.PackageId,
+                                    participant.Coordinate.Version,
+                                    AssemblySetSourceKind.Package,
+                                    participant.Asset.TargetFramework)),
+                        ],
+                        plan));
+        BrowserLibraryQueryInspection inspection =
+            ProjectLibraryQuery(population, envelope);
+        return inspection;
+    }
+
+    private static BrowserWorkspaceParticipant[] LibraryQueryPopulation(
+        BrowserInspectionScope scope,
+        IReadOnlyList<string> admittedAssetIds)
+    {
+        var participantsById =
+            scope.SurfaceParticipants.ToDictionary(
+                participant => participant.Asset.Id,
+                StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var population =
+            new List<BrowserWorkspaceParticipant>(admittedAssetIds.Count);
+        foreach (string assetId in admittedAssetIds)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                assetId,
+                nameof(admittedAssetIds));
+            if (!seen.Add(assetId))
+            {
+                throw new ArgumentException(
+                    "The admitted Browser Library roster contains a duplicate asset ID.",
+                    nameof(admittedAssetIds));
+            }
+            if (!participantsById.TryGetValue(
+                    assetId,
+                    out BrowserWorkspaceParticipant? participant))
+            {
+                throw new ArgumentException(
+                    "The admitted Browser Library roster contains an asset outside the current package surface.",
+                    nameof(admittedAssetIds));
+            }
+            population.Add(participant);
+        }
+        return [.. population];
+    }
+
+    private static BrowserLibraryQueryInspection ProjectLibraryQuery(
+        IReadOnlyList<BrowserWorkspaceParticipant> population,
+        InspectionEnvelope<LibraryQueryDocument> envelope)
+    {
+        Dictionary<string, BrowserWorkspaceParticipant> participantsByPath =
+            population.ToDictionary(
+                participant => participant.Asset.Path,
+                StringComparer.Ordinal);
+
+        BrowserWorkspaceParticipant Participant(string path)
+        {
+            if (!participantsByPath.TryGetValue(
+                    path,
+                    out BrowserWorkspaceParticipant? participant))
+            {
+                throw new InvalidOperationException(
+                    "Library Query returned a path outside the current "
+                    + "package surface population.");
+            }
+
+            return participant;
+        }
+
+        LibraryQueryDocument content = envelope.Content;
+        return new(
+            new(
+                [
+                    .. content.Results.Select(result =>
+                    {
+                        BrowserWorkspaceParticipant participant =
+                            Participant(result.Path.ToString());
+                        return new BrowserLibraryQueryRow(
+                            participant.Asset.Id,
+                            result.Library.ToString(),
+                            result.Path.ToString(),
+                            result.Source.ToString(),
+                            result.Version?.ToString(),
+                            result.SourceKind.ToString(),
+                            result.TargetFramework?.ToString(),
+                            [
+                                .. result.MatchedReferences.Select(
+                                    reference => reference.ToString()),
+                            ]);
+                    }),
+                ],
+                [
+                    .. content.Failures.Select(failure =>
+                        new BrowserLibraryQueryFailure(
+                            failure.Path is not { } path
+                                ? null
+                                : Participant(path.ToString()).Asset.Id,
+                            failure.Library?.ToString(),
+                            failure.Path?.ToString(),
+                            failure.Source?.ToString(),
+                            failure.Kind.ToString(),
+                            failure.Message.ToString())),
+                ],
+                new(
+                    content.Summary.PopulationCandidates,
+                    content.Summary.CandidateLimit,
+                    content.Summary.Candidates,
+                    content.Summary.Matches,
+                    content.Summary.Failures,
+                    content.Summary.IncompleteReasons.ToString(),
+                    content.Summary.IsComplete)),
+            BrowserPackageQueryOperations.Project(envelope.Share),
+            [
+                .. envelope.Diagnostics.Select(diagnostic =>
+                    new BrowserInspectionDiagnostic(
+                        diagnostic.Code,
+                        diagnostic.Severity.ToString(),
+                        diagnostic.Summary.ToString(),
+                        diagnostic.Correspondence?.ToString())),
+            ]);
     }
 
     static async Task<BrowserPackageDependencies> PackageDependenciesAsync(

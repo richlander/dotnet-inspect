@@ -13,7 +13,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
@@ -151,6 +151,30 @@ public sealed partial class BrowserEngineBoundaryTests
             term => term.Key == PackageQuery.DependsTransitiveTermKey
                 && term.ExecutionClass
                     == PackageQueryExecutionClass.NuspecExpensive);
+    }
+
+    [Fact]
+    public void DependencyStartsWithPlanner_IsReachableFromBrowserConsumer()
+    {
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Microsoft.Extensions.Http",
+                    [
+                        new PortableQueryTerm(
+                            PackageQuery.DependsTermKey,
+                            PortableQueryOperator.StartsWith,
+                            "Microsoft.Extensions."),
+                    ],
+                    MaximumCandidates: 1))).Plan;
+
+        BoundPackageQueryTerm term = Assert.Single(plan.BoundTerms);
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            term.Predicate.PackagePrefix!.Prefix);
+        Assert.Equal(
+            PackageQueryExecutionClass.Nuspec,
+            term.Descriptor.ExecutionClass);
     }
 
     [Fact]

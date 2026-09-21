@@ -48,7 +48,10 @@ public static class PackageOptionsParser
         Option<string?> PathMatchOption,
         Option<bool> SkipEmptyOption,
         Option<bool> RootsOption,
-        Option<bool> NoHeaderOption);
+        Option<bool> NoHeaderOption,
+        Option<string?> WorkspaceOption,
+        Option<string?> ShareOption,
+        Option<string?>? EvidenceEnvelopeOption);
 
     /// <summary>
     /// Result of parsing package command options.
@@ -376,6 +379,14 @@ public static class PackageOptionsParser
         {
             PackageArgs = packageArgs,
             ExplicitVersion = explicitVersion,
+            WorkspacePacket = parseResult.GetValue(args.WorkspaceOption),
+            ShareFormat = WorkspaceShareOption.Parse(
+                parseResult,
+                args.ShareOption),
+#if DEBUG
+            EvidenceEnvelopePath =
+                parseResult.GetValue(args.EvidenceEnvelopeOption!),
+#endif
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             DependencyQueryPlan = dependencyQueryPlan,

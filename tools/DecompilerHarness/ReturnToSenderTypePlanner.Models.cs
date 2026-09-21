@@ -14,6 +14,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using PropertyInitializationConstructor = ILInspector.Decompiler.SelectedPropertyAccessorSource.PropertyInitializationConstructor;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -119,7 +120,10 @@ internal sealed record PropertyGetterArtifactRequest(
         Overload,
         SignatureText,
         ClosureRoots,
-        ClosureFacts);
+        ClosureFacts)
+{
+    internal PropertyInitializationConstructor? InitializationConstructor { get; init; }
+}
 
 internal sealed record PropertySetterArtifactRequest(
     string AssemblyPath,
@@ -399,7 +403,10 @@ public sealed record CompileBackMemberRequirement(
     int? SetterToken = null,
     int? AdderToken = null,
     int? RemoverToken = null,
-    bool IsReadOnly = false)
+    bool IsReadOnly = false,
+    CSharpBlockBody? CompanionBody = null,
+    string? PropertyInitializer = null,
+    string? PropertyGetterExpression = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -415,7 +422,8 @@ internal sealed record ProductTargetBody(
     bool RequiresAsyncModifier = false,
     bool RequiresUnsafeModifier = false,
     DecompilationFidelity Fidelity = DecompilationFidelity.Full,
-    bool UsesAutomaticGetterBody = false);
+    bool UsesAutomaticGetterBody = false,
+    string? SingleLineExpression = null);
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)

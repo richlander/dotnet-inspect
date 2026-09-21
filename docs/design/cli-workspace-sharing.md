@@ -452,6 +452,14 @@ and tracked by #6540 but remains unverified until its CLI-to-Browser production
 slice lands. Existing-adopter migration is tracked by
 [#6725](https://github.com/richlander/dotnet-inspect/issues/6725).
 
+The Package packet-context adoption under
+[#7765](https://github.com/richlander/dotnet-inspect/issues/7765) implements
+the additive contract for exact Package inspection. Its focused Release gates
+prove selected-context routing independent of focus, unchanged ordinary stdout,
+schema-3 and schema-4 derived Package packets, visible non-projectable
+refusals, and reuse of restoration-issued Package content without feed
+fallback.
+
 Each adoption must add focused Release gates proving:
 
 - appending `--share` consumes the same normalized source, context, subject,

@@ -203,6 +203,96 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        MemberCommand_DecompiledSourceRetainsInvalidAdjacentPdbFailure()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-member-decompilation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string dllPath =
+                Path.Combine(tempDir, "MemberDecompilation.dll");
+            File.Copy(TestAssemblyPath, dllPath);
+            await File.WriteAllTextAsync(
+                Path.ChangeExtension(dllPath, ".pdb"),
+                "not-a-portable-pdb",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) =
+                await RunAppAsync(
+                    "member",
+                    "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+                    ".ctor:1",
+                    "--library",
+                    dllPath,
+                    "--all",
+                    "-S",
+                    "Decompiled Source",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "terminal Library admission: Portable PDB companion rejected",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "ConstructorChainTarget(int value) : base(value)",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        MemberCommand_SharedAccessorProjectionPreservesPhysicalModifiers()
+    {
+        var readOnly =
+            await RunAppAsync(
+                "member",
+                "ILInspector.Decompiler.Fixtures.ReadonlyPropertySamples",
+                "--library",
+                FixtureCatalog.DecompilerUnsafeLegacy
+                    .AssemblyPath(),
+                "Count:1",
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+        var unsafeAccessor =
+            await RunAppAsync(
+                "member",
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitAccessorFixture",
+                "--library",
+                FixtureCatalog.DecompilerUnsafeNew
+                    .AssemblyPath(),
+                "explicit:ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.get_Value:1",
+                "--all",
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, readOnly.Exit);
+        Assert.Empty(readOnly.Error);
+        Assert.Contains(
+            "public readonly int Count => _count;",
+            readOnly.Output);
+        Assert.Equal(0, unsafeAccessor.Exit);
+        Assert.Empty(unsafeAccessor.Error);
+        Assert.Contains(
+            "unsafe int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
+            unsafeAccessor.Output);
+    }
+
+    [Fact]
     public async Task InitializerOnlyConstructor_ProjectsThroughMemberAndTypeCommands()
     {
         string typeName = typeof(CommandInitializerOnlyFixture).FullName!;
@@ -2182,6 +2272,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_IL_Default_RendersNativePayload()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            "CallsInterfaceItem:1", "-S", "IL", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## IL", output);
+        Assert.DoesNotContain("```", output);
+        Assert.Contains("IL_", output);
+        Assert.Contains("ret", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFacts_RendersHiddenFactSection()
     {
         var options = new MemberOptions
@@ -2270,13 +2375,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_FindingCensusBare_RendersEnvelope()
+    public async Task Member_SelectedOverload_FindingCensusDefault_RendersEnvelope()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "Finding Census", "--bare", "--tips", "q");
+            "-S", "Finding Census", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3173,11 +3278,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_CostOverlay_BareRendersPayload()
+    public async Task Member_SelectedOverload_CostOverlay_DefaultRendersPayload()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--bare", "--tips", "q");
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-S", "Cost Overlay", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3227,11 +3332,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_SemanticsOverlay_BareRendersPayload()
+    public async Task Member_SelectedOverload_SemanticsOverlay_DefaultRendersPayload()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsStackalloc), "--index", "1", "--all", "-S", "Semantics Overlay", "--bare", "--tips", "q");
+            nameof(CostOverlayFixture.CallsStackalloc), "--index", "1", "--all", "-S", "Semantics Overlay", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3275,7 +3380,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_NormalShowsLocalImplementationSections()
+    public async Task Member_SelectedOverload_NormalShowsSignatureOnly()
     {
         var options = new MemberOptions
         {
@@ -3284,6 +3389,30 @@ public partial class CommandExecutionTests
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
             OverloadIndex = 1,
             Verbosity = Verbosity.Normal
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.DoesNotContain("## Custom Attributes", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
+        Assert.DoesNotContain("## IL", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DetailedShowsLocalImplementationSections()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
+            OverloadIndex = 1,
+            Verbosity = Verbosity.Detailed
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(

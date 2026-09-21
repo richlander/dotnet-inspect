@@ -4,6 +4,8 @@ using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -26,14 +28,26 @@ public abstract record EcosystemDependencySubject
     public sealed record Library : EcosystemDependencySubject
     {
         public Library(
-            RealizedMemberCoordinate source,
+            ExactLibrarySourceCoordinate source,
             PortableLibraryIdentity identity)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
             Identity = identity ?? throw new ArgumentNullException(nameof(identity));
+            if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    source.LibraryIdentity.Identity,
+                    new AssemblyReferenceIdentity(
+                        identity.Name,
+                        Version.Parse(identity.Version),
+                        identity.Culture,
+                        identity.PublicKeyToken)))
+            {
+                throw new ArgumentException(
+                    "The portable Library identity must match the exact source coordinate.",
+                    nameof(identity));
+            }
         }
 
-        public RealizedMemberCoordinate Source { get; }
+        public ExactLibrarySourceCoordinate Source { get; }
 
         public PortableLibraryIdentity Identity { get; }
     }

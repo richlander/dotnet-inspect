@@ -8,6 +8,7 @@ import {
   assemblyDescriptorForType,
   memberRequestKey,
   packageIdentityKey,
+  workspacePackageRemovalKey,
 } from "../src/data.ts";
 import {
   createCallGraphInspectionCoordinator,
@@ -38,6 +39,7 @@ interface RemovalPackage {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   source: { kind: "nuget.org" | "platform" };
   isRuntimePack?: boolean;
 }
@@ -101,6 +103,30 @@ test("removing an inactive coordinate preserves active selection and other versi
   assert.deepEqual(h.activated, []);
   assert.deepEqual(h.released, [otherAlpha]);
   assert.equal(h.state.recentPackages.some(entry => entry.id === "Alpha"), false);
+});
+
+test("removing a runtime-specific coordinate preserves its otherwise identical peer", () => {
+  const linux = { ...alpha, runtimeIdentifier: "linux-x64" };
+  const windows = { ...alpha, runtimeIdentifier: "win-x64" };
+  const h = harness([linux, windows]);
+
+  assert.equal(workspacePackageRemovalKey(alpha), packageIdentityKey(alpha));
+  assert.throws(
+    () => h.removal.removeLoaded(packageIdentityKey(windows)),
+    /no longer removable/);
+  h.removal.removeLoaded(workspacePackageRemovalKey(windows));
+
+  assert.deepEqual(h.state.packages, [linux]);
+  assert.equal(h.state.package, linux);
+  assert.deepEqual(h.activated, []);
+  assert.deepEqual(h.released, [windows]);
+
+  const active = harness([linux, windows]);
+  active.removal.removeLoaded(workspacePackageRemovalKey(linux));
+  assert.deepEqual(active.state.packages, [windows]);
+  assert.equal(active.state.package, windows);
+  assert.deepEqual(active.activated, [windows]);
+  assert.deepEqual(active.released, [linux]);
 });
 
 test("active and last removal use the existing successor and release each removed model", () => {

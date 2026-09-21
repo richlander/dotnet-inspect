@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
+using QuerySpace;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.QueryOperations;
 

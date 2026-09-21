@@ -4,7 +4,7 @@ using System.Text.Json;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;

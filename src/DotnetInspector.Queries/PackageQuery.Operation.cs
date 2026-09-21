@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 

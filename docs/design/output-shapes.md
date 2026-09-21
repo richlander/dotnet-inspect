@@ -13,6 +13,12 @@ semantic
 [inspection Document](host-observable-content-kinds.md#document)
 may render through that shape, but the two terms are not equivalent.
 
+Default-renderer policy is owned by
+[Native type and source defaults](rendering-model.md#native-type-and-source-defaults).
+In particular, `type`/`member` source payloads do not require or accept
+`--bare`; other content owners retain their existing gestures. Shape selection
+and payload acquisition are unchanged by that presentation choice.
+
 The item-limit, projection-role, typed-L2 result, and multi-item print passages
 describe historical
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
@@ -683,6 +689,10 @@ shape, plus any mode that requires the section to be the complete selection.
 The command also declares any section family that forms one homogeneous Table
 when multiple members are selected.
 
+The shared `DiscoveryOutputMode` enum carries semantic mode identity in the
+host-neutral Discovery Document. Exact spellings such as `--tree` and
+`--mermaid` are CLI lowering owned by the host.
+
 Detailed structural discovery evaluates each listed section, or the complete
 expansion of a listed category, against that metadata. A category supports a
 mode only when every expanded member supports it and the complete selection
@@ -694,7 +704,9 @@ The resulting capability list describes the complete requested selection. It
 must not choose the first compatible section, remove incompatible members, or
 otherwise let a presentation modifier change semantic section selection.
 [`schema-query.md`](schema-query.md) owns the structural discovery surface that
-reports these owner-issued capabilities through `-D --details`.
+retains these capabilities in `DiscoveryDocument`. Library currently reports
+them through the temporary `-D --details` bridge; #7814 replaces that bridge
+with structural `explain`.
 
 ### Coordinate carriers sit before the ladder
 
@@ -1399,9 +1411,11 @@ longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
 unchanged.
 
-Every command that exposes `--print` also exposes and wires unary `--bare` and
-`--out`; this makes the payload-only and exact-destination paths properties of
-the projection rather than accidents of its parent command. Structured
+The historical target gives `--print` unary `--bare` and `--out` companions;
+this is not a universal statement of implemented command options. In particular,
+the adopted `type`/`member` source paths use native payload output by default
+and explicit `--markdown` for document presentation, as defined by the rendering
+owner above. Structured
 multi-item `--out` is a different mode: after atomic preflight it may publish
 complete result records incrementally, including typed row failures, as
 described by the historical #4677 target. It remains pending focused L3
@@ -1543,7 +1557,7 @@ library MyLib.dll -S "Top Leverage" --fields Member --tsv
 # Scalar: collapse the table to a count …
 library MyLib.dll -S "Top Leverage" --count
 # … or render a blob payload without decoration
-member MyType Method:1 --library MyLib.dll -S "Decompiled Source" --bare > Method.cs
+member MyType Method:1 --library MyLib.dll -S "Decompiled Source" > Method.cs
 ```
 
 ### Case study: IL offset as a shape catalogue

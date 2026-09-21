@@ -1219,7 +1219,7 @@ public static class ApiOutputFormatter
     }
 
     /// <summary>
-    /// Populates compact member summary sections for Minimal verbosity.
+    /// Populates compact grouped member summary sections.
     /// Groups members by name within each kind, with kind-specific columns
     /// matching the old QuietMemberFormatter design.
     /// </summary>
@@ -1835,7 +1835,9 @@ public static class ApiOutputFormatter
             sourceAssembly,
             request.RequiresResearchProjection && overloadIndex.HasValue
                 ? analysisInspection.ResearchAnalysis
-                : null))
+                : null,
+            (options as MemberOptions)?
+                .MemberDecompilationInspection))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {

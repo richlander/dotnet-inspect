@@ -60,18 +60,27 @@ public sealed class PackageToolDeclarationEvidence
                     PackageExtractor.MaxNuspecBytes,
                     cancellationToken)
                 .ConfigureAwait(false);
-            string? packageType = bytes is null
+            return bytes is null
                 ? null
-                : ParseDeclaredToolPackageType(
-                    bytes,
-                    payload.Coordinate);
-            return packageType is null
-                ? null
-                : new(
+                : TryCreate(
                     payload.Coordinate,
-                    payload.Content.GenerationIdentity,
-                    packageType);
+                    payload.Content,
+                    bytes);
         }
+    }
+
+    public static PackageToolDeclarationEvidence? TryCreate(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        ReadOnlyMemory<byte> nuspecBytes)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        string? packageType = ParseDeclaredToolPackageType(
+            nuspecBytes,
+            coordinate);
+        return packageType is null
+            ? null
+            : new(coordinate, content.GenerationIdentity, packageType);
     }
 
     private static string? ParseDeclaredToolPackageType(
@@ -394,10 +403,24 @@ public static class PackageToolSliceMeasurementProjection
         string? requestedTargetFramework = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
+        return Project(
+            payload.Coordinate,
+            payload.Content,
+            declaration,
+            requestedTargetFramework);
+    }
+
+    public static PackageToolSliceMeasurementOutcome Project(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content,
+        PackageToolDeclarationEvidence declaration,
+        string? requestedTargetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(declaration);
-        if (!payload.Coordinate.Equals(declaration.Coordinate)
+        if (!coordinate.Equals(declaration.Coordinate)
             || !ReferenceEquals(
-                payload.Content.GenerationIdentity,
+                content.GenerationIdentity,
                 declaration.Generation))
         {
             throw new ArgumentException(
@@ -405,7 +428,7 @@ public static class PackageToolSliceMeasurementProjection
                 nameof(declaration));
         }
 
-        string[] entries = [.. payload.Content.EnumerateEntries()];
+        string[] entries = [.. content.EnumerateEntries()];
         ImmutableArray<string> frameworks =
         [
             .. entries
@@ -423,7 +446,7 @@ public static class PackageToolSliceMeasurementProjection
             frameworks);
 
         if (!PackageHouseCompileSliceMeasurementProjection.TryGetArchiveLength(
-                payload.Content,
+                content,
                 out long compressedPackageBytes,
                 out PackageHouseCompileSliceMeasurementUnavailableReason
                     archiveFailure))
@@ -471,7 +494,7 @@ public static class PackageToolSliceMeasurementProjection
                 packageMeasurements,
                 "The selected tool slice contains ambiguous entry paths.");
         }
-        if (payload.Content is not IPackageContentEntryManifest manifest)
+        if (content is not IPackageContentEntryManifest manifest)
         {
             return new PackageToolSliceMeasurementOutcome.Unavailable(
                 evidence,
@@ -523,7 +546,7 @@ public static class PackageToolSliceMeasurementProjection
             selectedFramework,
             PackageHouseCompileSliceMeasurementProjection
                 .SelectTargetFrameworkFolders(
-                    payload.Content,
+                    content,
                     selectedFramework),
             [.. selectedEntries.Order(StringComparer.Ordinal)],
             selectedPayloadBytes);

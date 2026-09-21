@@ -599,7 +599,11 @@ internal static class CSharpLexer
         int maxTokenCount)
     {
         significant = '\0';
-        int i = 0;
+        int i = lineIndex == 0
+            && line.Length > 0
+            && line[0] == '\uFEFF'
+                ? 1
+                : 0;
 
         void Emit(int atDepth, ScanTokenKind kind, int column, int length) =>
             EmitAt(atDepth, state.BracketDepth, kind, column, length);

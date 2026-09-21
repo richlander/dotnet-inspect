@@ -2,6 +2,7 @@ using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using Inspector.Findings;
 using ILInspector.Research;
+using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -39,6 +40,35 @@ public partial class SectionPipelineTests
             references);
 
         Assert.Equal([AssemblyReferencesQuery.Definition], required);
+    }
+
+    [Fact]
+    public void LibraryInfoAndEcosystemDependenciesShareAssemblyReferencesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        string[] boundSections = pipeline.QueryBoundSections
+            .Where(binding => ReferenceEquals(
+                binding.Query,
+                AssemblyReferencesQuery.Definition))
+            .Select(binding => binding.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Contains(SectionNames.LibraryInfo, boundSections);
+        Assert.Contains(SectionNames.EcosystemDependencies, boundSections);
+        HashSet<InspectionQueryDefinition> required =
+            pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.LibraryInfo,
+                    SectionNames.EcosystemDependencies,
+                });
+        Assert.Single(
+            required,
+            query => ReferenceEquals(
+                query,
+                AssemblyReferencesQuery.Definition));
     }
 
     [Fact]
@@ -99,6 +129,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -135,6 +166,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -171,6 +203,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -207,6 +240,7 @@ public partial class SectionPipelineTests
             boundSections);
         Assert.Equal(
             [
+                AssemblyReferencesQuery.Definition,
                 ClassifiedMethodsQuery.Definition,
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
@@ -498,14 +532,14 @@ public partial class SectionPipelineTests
     public void ClassifiedMethodsQuery_ReturnsMetadataOrderedMethodsFromBorrowedContent()
     {
         using var session = AssemblyInspectionSession.Open(
-            typeof(SampleUnsafeClass).Assembly.Location);
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
 
         var result = Assert.IsType<ClassifiedMethodsResult.Available>(
             ClassifiedMethodsQuery.Execute(session));
 
         Assert.Contains(
             result.Methods,
-            method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod)
+            method => method.MethodName == "PointerNoneMethod"
                 && method.Classification == MethodClassification.Unsafe);
         Assert.Equal(session.ClassifiedMethods(), result.Methods);
     }
@@ -517,7 +551,7 @@ public partial class SectionPipelineTests
             Path.GetTempPath(),
             $"missing-{Guid.NewGuid():N}.dll");
         using var metadataContext = PdbContext.Open(
-            typeof(SampleUnsafeClass).Assembly.Location);
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
         using var context = new InspectionQueryContext
         {
             AssemblyPath = missingPath,
@@ -534,7 +568,7 @@ public partial class SectionPipelineTests
 
         Assert.Contains(
             methods.Methods,
-            method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod));
+            method => method.MethodName == "PointerNoneMethod");
         Assert.Equal(1, context.SharedQueryCount);
     }
 
@@ -580,14 +614,14 @@ public partial class SectionPipelineTests
     {
         using var metadataContext = PdbContext.Open(
             typeof(LibraryInspection).Assembly.Location);
-        string reopenCanary = typeof(SampleUnsafeClass).Assembly.Location;
+        string reopenCanary = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         using (var canarySession = AssemblyInspectionSession.Open(reopenCanary))
         {
             var canary = Assert.IsType<ClassifiedMethodsResult.Available>(
                 ClassifiedMethodsQuery.Execute(canarySession));
             Assert.Contains(
                 canary.Methods,
-                method => method.MethodName == nameof(SampleUnsafeClass.UnsafePointerMethod));
+                method => method.MethodName == "PointerNoneMethod");
         }
 
         using var context = new InspectionQueryContext

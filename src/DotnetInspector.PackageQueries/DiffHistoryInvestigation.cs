@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.PackageQueries;
 
@@ -463,6 +464,8 @@ public abstract record DiffHistoryNextAction
             DiffHistoryInterval boundary,
             string packageId,
             string typeFullName,
+            MemberAnchor? member,
+            PackageCompileAsset? sourceAsset,
             string finding,
             ApiSurfaceScope scope,
             PackageHouseTargetContext targetContext,
@@ -478,12 +481,30 @@ public abstract record DiffHistoryNextAction
             }
             ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
             ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
+            if (member is not null
+                && !string.Equals(
+                    member.TypeFullName,
+                    typeFullName,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "A pairwise Diff Member must belong to the selected Type.",
+                    nameof(member));
+            }
+            if (sourceAsset is not null && member is null)
+            {
+                throw new ArgumentException(
+                    "A pairwise Diff source asset requires an exact Member.",
+                    nameof(sourceAsset));
+            }
             ArgumentException.ThrowIfNullOrWhiteSpace(finding);
             if (!Enum.IsDefined(scope))
                 throw new ArgumentOutOfRangeException(nameof(scope));
 
             PackageId = packageId;
             TypeFullName = typeFullName;
+            Member = member;
+            SourceAsset = sourceAsset;
             Finding = finding;
             Scope = scope;
             TargetContext = targetContext
@@ -496,6 +517,10 @@ public abstract record DiffHistoryNextAction
         public string PackageId { get; }
 
         public string TypeFullName { get; }
+
+        public MemberAnchor? Member { get; }
+
+        public PackageCompileAsset? SourceAsset { get; }
 
         public string Finding { get; }
 

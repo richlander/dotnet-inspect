@@ -11,6 +11,9 @@ export interface LibrarySubjectNavItem {
 export interface LibrarySubjectNavOptions {
   libraries: readonly LibrarySubjectNavItem[];
   selectedLibraryId: string | null;
+  matchingLibraryIds?: ReadonlySet<string>;
+  queryControlsHtml?: string;
+  queryStatusHtml?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -39,20 +42,38 @@ export function librarySubjectDisplayLabels(
 export function renderLibrarySubjectNav(
   options: LibrarySubjectNavOptions,
 ): string {
-  const { libraries, selectedLibraryId, escapeHtml } = options;
+  const {
+    libraries,
+    selectedLibraryId,
+    matchingLibraryIds,
+    queryControlsHtml = "",
+    queryStatusHtml = "",
+    escapeHtml,
+  } = options;
   const displayLabels = librarySubjectDisplayLabels(libraries);
+  const visibleLibraries = matchingLibraryIds === undefined
+    ? libraries
+    : libraries.filter(library =>
+      matchingLibraryIds.has(library.id)
+      || library.id === selectedLibraryId);
   const subjects = [
     {
       value: aggregateValue,
       name: "All libraries",
       detail: `${libraries.length} admitted`,
       selected: selectedLibraryId === null,
+      retained: false,
     },
-    ...libraries.map(library => ({
+    ...visibleLibraries.map(library => ({
       value: library.id,
       name: displayLabels.get(library.id) ?? library.name,
-      detail: `${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members`,
+      detail: `${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members${matchingLibraryIds !== undefined
+        && !matchingLibraryIds.has(library.id)
+        ? " · current selection"
+        : ""}`,
       selected: library.id === selectedLibraryId,
+      retained: matchingLibraryIds !== undefined
+        && !matchingLibraryIds.has(library.id),
     })),
   ];
   const selectedIndex = Math.max(
@@ -68,9 +89,15 @@ export function renderLibrarySubjectNav(
         </div>
         ${renderContentNavigationCloseButton()}
       </div>
+      ${queryControlsHtml || queryStatusHtml
+        ? `<div class="library-query-nav">
+            ${queryControlsHtml}
+            ${queryStatusHtml}
+          </div>`
+        : ""}
       <div class="type-list library-subject-list" role="listbox" aria-label="Libraries" tabindex="0" aria-activedescendant="library-subject-option-${selectedIndex}" data-nav-scope="libraries" data-nav-selection="library:${escapeHtml(subjects[selectedIndex]?.value ?? aggregateValue)}">
         ${subjects.map((subject, index) =>
-          `<div id="library-subject-option-${index}" class="type-row library-subject-row${subject.selected ? " selected active" : ""}" role="option" aria-selected="${subject.selected}" data-library-subject="${escapeHtml(subject.value)}" title="${subject.value === aggregateValue ? "Inspect all admitted libraries" : `Inspect ${escapeHtml(subject.name)}`}">
+          `<div id="library-subject-option-${index}" class="type-row library-subject-row${subject.selected ? " selected active" : ""}${subject.retained ? " retained-current" : ""}" role="option" aria-selected="${subject.selected}" data-library-subject="${escapeHtml(subject.value)}" title="${subject.value === aggregateValue ? "Inspect all admitted libraries" : `Inspect ${escapeHtml(subject.name)}`}">
             <span class="kind-icon">${subject.value === aggregateValue ? "◫" : "L"}</span>
             <span class="type-name">${escapeHtml(subject.name)}</span>
             <small>${escapeHtml(subject.detail)}</small>

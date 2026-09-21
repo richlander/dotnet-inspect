@@ -1047,6 +1047,14 @@ public static class StructuralViewRegistry
         DocumentSchema schema = projection.Schema;
         if (request.Details)
         {
+            if (request.Discover is { Length: > 1 })
+            {
+                CommandError.Write(
+                    "--details supports bare -D or one exact category or "
+                    + "section selector in this Library adoption.");
+                return 1;
+            }
+
             if (request.Select is not null
                 || request.SelectDefault
                 || request.IncludeSections is { Count: > 0 })
@@ -1064,21 +1072,35 @@ public static class StructuralViewRegistry
                 return 1;
             }
 
-            return DetailedDiscoverOutput.Execute(
-                request.Discover,
-                schema,
-                projection.SelectableSectionNames,
-                projection.SectionCategories,
-                projection.CatalogHiddenSections,
-                projection.ListedCategoryDoors,
-                projection.OutputCapabilities,
+            DiscoveryOutputRequest detailedRequest =
                 DiscoveryOutputRequest.Create(
                     request.Format,
                     request.Tree,
                     request.TableExplicitlySet,
                     request.NoHeader,
                     (int)request.Verbosity,
-                    request.Projection));
+                    request.Projection);
+            if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
+                return 1;
+
+            DiscoveryDocument? document =
+                DiscoveryDocumentFactory.Create(
+                    "library",
+                    request.Discover,
+                    schema,
+                    projection.SectionCategories,
+                    projection.CatalogHiddenSections,
+                    projection.ListedCategoryDoors,
+                    projection.SectionCostAnnotations,
+                    projection.ExactOnlySections,
+                    projection.OutputCapabilities,
+                    requireExactSelection: true);
+            if (document is null)
+                return 1;
+
+            return DetailedDiscoverOutput.Write(
+                document,
+                detailedRequest);
         }
 
         var selectedSections =
@@ -1110,6 +1132,25 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
+        DiscoveryDocument? discoveryDocument = null;
+        if (projection.OutputCapabilities is not null)
+        {
+            discoveryDocument = DiscoveryDocumentFactory.Create(
+                "library",
+                request.Discover,
+                schema,
+                projection.SectionCategories,
+                request.Schema
+                    ? null
+                    : projection.CatalogHiddenSections,
+                projection.ListedCategoryDoors,
+                projection.SectionCostAnnotations,
+                projection.ExactOnlySections,
+                projection.OutputCapabilities);
+            if (discoveryDocument is null)
+                return 1;
+        }
+
         return DiscoverOutput.Execute(
             request.Discover,
             schema,
@@ -1128,7 +1169,8 @@ public static class StructuralViewRegistry
                 : projection.CatalogHiddenSections,
             listedCategoryDoors:
                 projection.ListedCategoryDoors,
-            exactOnlySections: projection.ExactOnlySections);
+            exactOnlySections: projection.ExactOnlySections,
+            document: discoveryDocument);
     }
 
     public static int Execute(

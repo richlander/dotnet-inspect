@@ -62,6 +62,64 @@ public partial class SectionPipelineTests
         Assert.Equal([SectionCategoryNames.Surface], pipeline.GetBaseCategoryDoors());
     }
 
+    [Theory]
+    [InlineData("Classes")]
+    [InlineData("Structs")]
+    [InlineData("Interfaces")]
+    [InlineData("Enums")]
+    [InlineData("Delegates")]
+    [InlineData(SectionNames.TypeForwarders)]
+    [InlineData(SectionNames.InspectionFailures)]
+    public void ApiTypePipeline_SurfaceInventoriesDeclareMeasuredGrowth(
+        string section)
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var include =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                section,
+            };
+
+        Assert.Contains(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.DoesNotContain(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Normal));
+        Assert.Contains(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Detailed));
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(include));
+    }
+
+    [Fact]
+    public void ApiTypePipeline_SurfaceInventoryDescriptorsAreVerbose()
+    {
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Classes.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Structs.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Interfaces.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Enums.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Delegates.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.TypeForwarders.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.InspectionFailures.SizeClass);
+    }
+
     [Fact]
     public void ApiTypePipeline_ShowsClassesWhenPresent()
     {
@@ -126,9 +184,66 @@ public partial class SectionPipelineTests
             ]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Equal(5, effective.Count);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_NormalOmitsVerboseSurfaceInventories()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Name = "C", Kind = "class" },
+                new ApiType { Name = "S", Kind = "struct" },
+                new ApiType { Name = "I", Kind = "interface" },
+                new ApiType { Name = "E", Kind = "enum" },
+                new ApiType { Name = "D", Kind = "delegate" },
+            ],
+        };
+
+        Assert.Empty(
+            pipeline.GetEffectiveSections(model, Verbosity.Normal));
+    }
+
+    [Fact]
+    public void ApiTypePipeline_ForwarderAndFailureRowsCanExceedInformativeRange()
+    {
+        var model = new ApiSurface
+        {
+            TypeForwarders =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    new TypeForwarder
+                    {
+                        TypeName = $"Forwarded{index}",
+                        TargetAssembly = $"Target{index}",
+                    }),
+            ],
+            InspectionFailures =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    new ApiSurfaceInspectionFailure(
+                        "decode type",
+                        0x02000001 + index,
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        "MalformedMetadata",
+                        $"Failure {index}")),
+            ],
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            model,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Detailed,
+            });
+
+        Assert.Equal(31, view.TypeForwarders!.Count);
+        Assert.Equal(31, view.InspectionFailures!.Count);
     }
 
     // ===== API member pipeline tests =====
@@ -147,6 +262,22 @@ public partial class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
 
         Assert.Equal(["Library Info"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void LibraryPipeline_RegistersEcosystemDependencies()
+    {
+        var catalog = LibrarySections.CreateCatalog().Sections;
+
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectableSectionNames);
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectionCategoryMap[SectionCategoryNames.Library]);
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectionCategoryMap[SectionCategoryNames.Dependencies]);
     }
 
     [Fact]
@@ -179,6 +310,256 @@ public partial class SectionPipelineTests
         Assert.Contains("Custom Attributes", names);
         Assert.Contains("Called Types", names);
         Assert.Contains("Top Leverage", names);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_DescriptorsDeclareAuditedGrowth()
+    {
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            ApiMemberSectionDescriptors.TypeInfo.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Values.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Informative,
+            ApiMemberSectionDescriptors.TypeParameters.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.TypeInterfaces.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            ApiMemberSectionDescriptors.Baseclass.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Constructors.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            ApiMemberSectionDescriptors.Finalizer.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Fields.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Properties.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.MethodGroups.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Methods.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Operators.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors
+                .ExplicitInterfaceImplementations
+                .SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.ExtensionMethods.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.Events.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.MethodAttributes.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.DecompiledSource.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.PdbSource.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberSectionDescriptors.ILBody.SizeClass);
+    }
+
+    [Fact]
+    public void ApiMemberOverloadPipeline_MethodsDeclareAuditedGrowth()
+    {
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberOverloadSectionDescriptors.Methods.SizeClass);
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_DescriptorsDeclareAuditedGrowth()
+    {
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            ApiMemberDetailSectionDescriptors.Signature.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberDetailSectionDescriptors.MethodAttributes.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberDetailSectionDescriptors.DecompiledSource.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberDetailSectionDescriptors.PdbSource.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiMemberDetailSectionDescriptors.ILBody.SizeClass);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.Values)]
+    [InlineData(SectionNames.TypeInterfaces)]
+    [InlineData(SectionNames.Constructors)]
+    [InlineData(SectionNames.Fields)]
+    [InlineData(SectionNames.Properties)]
+    [InlineData(SectionNames.MethodGroups)]
+    [InlineData(SectionNames.Operators)]
+    [InlineData(SectionNames.ExplicitInterfaceImplementations)]
+    [InlineData(SectionNames.ExtensionMethods)]
+    [InlineData(SectionNames.Events)]
+    public void
+        ApiMemberPipeline_InfoVerboseSectionsStayMinimalSkipNormalReturnDetailed(
+            string section)
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+
+        Assert.Contains(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.DoesNotContain(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Normal));
+        Assert.Contains(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Detailed));
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    section,
+                }));
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_InformativeAndFixedSectionsStayBounded()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+
+        foreach (string section in new[]
+        {
+            SectionNames.TypeParameters,
+            SectionNames.Baseclass,
+            SectionNames.Finalizer,
+        })
+        {
+            Assert.Contains(
+                section,
+                pipeline.GetCandidateSections(Verbosity.Minimal));
+            Assert.Contains(
+                section,
+                pipeline.GetCandidateSections(Verbosity.Normal));
+            Assert.Contains(
+                section,
+                pipeline.GetCandidateSections(Verbosity.Detailed));
+            Assert.Equal(
+                Verbosity.Minimal,
+                pipeline.GetRequiredVerbosity(
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        section,
+                    }));
+        }
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_NonInfoVerboseSectionsRequireDetailed()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+
+        foreach (string section in new[]
+        {
+            SectionNames.Methods,
+            SectionNames.CustomAttributes,
+            SectionNames.DecompiledSource,
+            SectionNames.PdbSource,
+            SectionNames.IL,
+        })
+        {
+            Assert.Equal(
+                Verbosity.Detailed,
+                pipeline.GetRequiredVerbosity(
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        section,
+                    }));
+        }
+
+        Assert.DoesNotContain(
+            SectionNames.Methods,
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.DoesNotContain(
+            SectionNames.Methods,
+            pipeline.GetCandidateSections(Verbosity.Normal));
+        Assert.Contains(
+            SectionNames.Methods,
+            pipeline.GetCandidateSections(Verbosity.Detailed));
+    }
+
+    [Fact]
+    public void
+        ApiMemberPipeline_InfoVerboseSectionsPreserveAuthoredMinimalBehavior()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Interfaces = ["ISample"],
+            Members =
+            [
+                new ApiMember { Name = "Field", Kind = "field" },
+                new ApiMember { Name = ".ctor", Kind = "constructor" },
+                new ApiMember { Name = "Property", Kind = "property" },
+                new ApiMember { Name = "Method", Kind = "method" },
+                new ApiMember { Name = "op_Addition", Kind = "operator" },
+                new ApiMember
+                {
+                    Name = "ISample.Run",
+                    Kind = "explicit-interface-implementation",
+                },
+                new ApiMember
+                {
+                    Name = "Extend",
+                    Kind = "extension-method",
+                },
+                new ApiMember { Name = "Changed", Kind = "event" },
+            ],
+        };
+        string[] sections =
+        [
+            SectionNames.TypeInterfaces,
+            SectionNames.Constructors,
+            SectionNames.Fields,
+            SectionNames.Properties,
+            SectionNames.MethodGroups,
+            SectionNames.Operators,
+            SectionNames.ExplicitInterfaceImplementations,
+            SectionNames.ExtensionMethods,
+            SectionNames.Events,
+        ];
+
+        var minimal =
+            pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var normal =
+            pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var detailed =
+            pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+
+        foreach (string section in sections)
+        {
+            Assert.Contains(section, minimal);
+            Assert.DoesNotContain(section, normal);
+            Assert.Contains(section, detailed);
+        }
     }
 
     [Fact]
@@ -295,14 +676,16 @@ public partial class SectionPipelineTests
 
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
         var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var atDetailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         // Values is an authored minimal member overview for enums.
         Assert.Contains("Values", atMinimal);
-        Assert.Contains("Values", atNormal);
+        Assert.DoesNotContain("Values", atNormal);
+        Assert.Contains("Values", atDetailed);
     }
 
     [Fact]
-    public void ApiMemberPipeline_TypeParameters_ShowsAtMinimal()
+    public void ApiMemberPipeline_TypeParameters_ShowsThroughNormal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -312,13 +695,15 @@ public partial class SectionPipelineTests
         };
 
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
         // Generic identity is part of the authored member overview.
         Assert.Contains("Type Parameters", atMinimal);
+        Assert.Contains("Type Parameters", atNormal);
     }
 
     [Fact]
-    public void ApiMemberPipeline_Interfaces_ShowsAtMinimal()
+    public void ApiMemberPipeline_Interfaces_SkipsGenericNormal()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -328,13 +713,17 @@ public partial class SectionPipelineTests
         };
 
         var atMinimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var atNormal = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var atDetailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         // Interfaces is an authored minimal member overview.
         Assert.Contains("Interfaces", atMinimal);
+        Assert.DoesNotContain("Interfaces", atNormal);
+        Assert.Contains("Interfaces", atDetailed);
     }
 
     [Fact]
-    public void ApiMemberPipeline_Baseclass_RequiresDetailedAndNonTrivial()
+    public void ApiMemberPipeline_Baseclass_IsFixedAndRequiresNonTrivialBase()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
 
@@ -343,14 +732,18 @@ public partial class SectionPipelineTests
         var trivialEffective = pipeline.GetEffectiveSections(trivialModel, Verbosity.Detailed);
         Assert.DoesNotContain("Baseclass", trivialEffective);
 
-        // Real base should render at Detailed
+        // A real base is fixed identity evidence and remains in bounded views.
         var realModel = new ApiType { Name = "Foo", Kind = "class", BaseType = "MyBase" };
-        var realEffective = pipeline.GetEffectiveSections(realModel, Verbosity.Detailed);
-        Assert.Contains("Baseclass", realEffective);
+        Assert.Contains(
+            "Baseclass",
+            pipeline.GetEffectiveSections(realModel, Verbosity.Minimal));
+        Assert.Contains(
+            "Baseclass",
+            pipeline.GetEffectiveSections(realModel, Verbosity.Normal));
     }
 
     [Fact]
-    public void ApiMemberPipeline_MemberSections_AtNormal()
+    public void ApiMemberPipeline_NormalOmitsGrowingMemberInventories()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -367,24 +760,54 @@ public partial class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
 
-        Assert.Contains("Constructors", effective);
-        Assert.Contains("Properties", effective);
-        Assert.Contains("Method Groups", effective);
-        Assert.Contains("Methods", effective);
-        Assert.Contains("Operators", effective);
+        Assert.DoesNotContain("Constructors", effective);
+        Assert.DoesNotContain("Properties", effective);
+        Assert.DoesNotContain("Method Groups", effective);
+        Assert.DoesNotContain("Methods", effective);
+        Assert.DoesNotContain("Operators", effective);
         Assert.DoesNotContain("Fields", effective);
         Assert.DoesNotContain("Events", effective);
     }
 
     [Fact]
-    public void ApiMemberPipeline_VerbosityAutoPromote_ForInterfaces()
+    public void ApiMemberPipeline_FixedOverviewAddsApplicableIdentityRows()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            BaseType = "Base",
+            Members =
+            [
+                new ApiMember { Name = ".ctor", Kind = "constructor" },
+                new ApiMember { Name = "Finalize", Kind = "finalizer" },
+            ],
+        };
 
-        // Interfaces is an authored overview section.
-        var required = pipeline.GetRequiredVerbosity(new HashSet<string> { "Interfaces" });
+        Assert.Equal(
+            [
+                SectionNames.TypeInfo,
+                SectionNames.Baseclass,
+                SectionNames.Finalizer,
+            ],
+            pipeline.FixedOverviewSectionNames);
+        Assert.Equal(
+            [
+                SectionNames.Baseclass,
+                SectionNames.Finalizer,
+            ],
+            pipeline.BareSelectSectionNames);
 
-        Assert.Equal(Verbosity.Minimal, required);
+        Assert.Equal(
+            [
+                SectionNames.Baseclass,
+                SectionNames.Finalizer,
+            ],
+            pipeline.GetEffectiveSections(
+                model,
+                Verbosity.Normal,
+                fixedOverview: true));
     }
 
     [Fact]
@@ -458,7 +881,57 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void ApiMemberDetailPipeline_NormalIncludesLocalImplementationSections()
+    public void ApiMemberOverloadPipeline_MethodsStayMinimalSkipNormalReturnDetailed()
+    {
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Run", Kind = "method" }],
+        };
+
+        Assert.Contains(
+            SectionNames.Methods,
+            pipeline.GetEffectiveSections(model, Verbosity.Minimal));
+        Assert.DoesNotContain(
+            SectionNames.Methods,
+            pipeline.GetEffectiveSections(model, Verbosity.Normal));
+        Assert.Contains(
+            SectionNames.Methods,
+            pipeline.GetEffectiveSections(model, Verbosity.Detailed));
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.Methods,
+                }));
+    }
+
+    [Theory]
+    [InlineData(SectionNames.CustomAttributes)]
+    [InlineData(SectionNames.DecompiledSource)]
+    [InlineData(SectionNames.PdbSource)]
+    [InlineData(SectionNames.IL)]
+    public void
+        ApiMemberOverloadPipeline_ReusedGrowingSectionsRequireDetailed(
+            string section)
+    {
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+
+        Assert.Contains(section, pipeline.AllSectionNames);
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    section,
+                }));
+    }
+
+    [Fact]
+    public void ApiMemberDetailPipeline_NormalRetainsOnlySignature()
     {
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
         var model = new ApiType
@@ -474,13 +947,17 @@ public partial class SectionPipelineTests
         Assert.Contains("Signature", minimal);
         Assert.DoesNotContain("Decompiled Source", minimal);
         Assert.DoesNotContain("PDB Source", minimal);
-        Assert.Contains("Decompiled Source", normal);
-        Assert.Contains("IL", normal);
+        Assert.Equal(
+            [SectionNames.Summary, SectionNames.Signature],
+            normal);
         Assert.DoesNotContain("Annotated Source", normal);
-        Assert.DoesNotContain("PDB Source", normal);
+        Assert.DoesNotContain("Custom Attributes", normal);
+        Assert.DoesNotContain("Decompiled Source", normal);
+        Assert.DoesNotContain("IL", normal);
         Assert.Contains("Decompiled Source", detailed);
         Assert.Contains("PDB Source", detailed);
         Assert.Contains("IL", detailed);
+        Assert.Contains("Custom Attributes", detailed);
         Assert.DoesNotContain("Annotated Source", detailed);
         var annotations = pipeline.GetCostAnnotations();
         Assert.DoesNotContain("Calls", annotations);
@@ -503,6 +980,25 @@ public partial class SectionPipelineTests
         Assert.DoesNotContain("Unsafe Operations", detailed);
     }
 
+    [Theory]
+    [InlineData(SectionNames.CustomAttributes)]
+    [InlineData(SectionNames.DecompiledSource)]
+    [InlineData(SectionNames.PdbSource)]
+    [InlineData(SectionNames.IL)]
+    public void ApiMemberDetailPipeline_GrowingBaseSectionsRequireDetailed(
+        string section)
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    section,
+                }));
+    }
+
     [Fact]
     public void ApiMemberDetailPipeline_InfoPreset_HasDenseSections()
     {
@@ -517,6 +1013,38 @@ public partial class SectionPipelineTests
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
 
         Assert.Equal([SectionNames.Signature], pipeline.FixedOverviewSectionNames);
+    }
+
+    [Fact]
+    public void ApiMemberPipeline_EventProjectionCanExceedInformativeRange()
+    {
+        var type = new ApiType
+        {
+            Name = "EventSource",
+            Kind = "class",
+            Members =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    new ApiMember
+                    {
+                        Name = $"Event{index}",
+                        Kind = "event",
+                        ReturnType = "System.EventHandler",
+                    }),
+            ],
+        };
+        var events = new EventsView();
+
+        var (truncated, _) =
+            ApiOutputFormatter.PopulateMemberSummarySections(
+                new TypeView(),
+                new MethodGroupsView(),
+                events,
+                type,
+                new ApiOptions());
+
+        Assert.Equal(0, truncated);
+        Assert.Equal(31, events.SummaryRows!.Count);
     }
 
     [Fact]

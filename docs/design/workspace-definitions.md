@@ -679,7 +679,7 @@ Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
 #### Package packet-context adoption
 
-The second noun-command adoption is specified by
+The second noun-command adoption is implemented under
 [#7765](https://github.com/richlander/dotnet-inspect/issues/7765). Its exact CLI
 shape is:
 

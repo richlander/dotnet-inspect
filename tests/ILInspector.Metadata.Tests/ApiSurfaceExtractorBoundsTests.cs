@@ -328,6 +328,22 @@ public sealed partial class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void MalformedModuleMvid_PrecedesMetadataRowBudget()
+    {
+        byte[] image = BuildInvalidModuleMvidImage();
+
+        Assert.Throws<BadImageFormatException>(
+            () => Extract(
+                image,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    maxMetadataRows: 0)));
+    }
+
+    [Fact]
     public void RetainedTextBudget_IsExact()
     {
         var generous = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(

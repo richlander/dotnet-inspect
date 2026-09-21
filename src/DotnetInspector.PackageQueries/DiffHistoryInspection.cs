@@ -792,4 +792,22 @@ public abstract record DiffHistoryOutcome
             DiffHistoryCountCohort,
             DiffHistoryChangedVersionCountEvidence>? Count { get; }
     }
+
+    public sealed record ExactApiMemberUnavailable : DiffHistoryOutcome
+    {
+        internal ExactApiMemberUnavailable(
+            DiffHistoryExactApiMemberSelection selection)
+        {
+            if (selection.State
+                == DiffHistoryExactApiMemberSelectionState.Selected)
+            {
+                throw new ArgumentException(
+                    "Unavailable exact-Member History requires selection non-success.",
+                    nameof(selection));
+            }
+            Selection = selection;
+        }
+
+        public DiffHistoryExactApiMemberSelection Selection { get; }
+    }
 }

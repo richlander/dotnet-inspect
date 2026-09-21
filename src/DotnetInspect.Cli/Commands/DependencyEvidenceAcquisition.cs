@@ -216,6 +216,74 @@ internal static class DependencyEvidenceAcquisition
     }
 
     /// <summary>
+    /// Admits the manifest from an already-acquired Package root without
+    /// resolving or acquiring that root again.
+    /// </summary>
+    internal static DependencyEvidenceAcquisitionBatch
+        AdmitPackageManifestRoot(
+            DependsAssetRoot requestedRoot,
+            PackageSourceCoordinate expectedCoordinate,
+            byte[]? manifestBytes,
+            string? targetFramework)
+    {
+        ArgumentNullException.ThrowIfNull(requestedRoot);
+        ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        if (requestedRoot.Kind != DependencyInspectionRootKind.Package)
+        {
+            throw new ArgumentException(
+                "An admitted Package manifest requires a Package root.",
+                nameof(requestedRoot));
+        }
+
+        var roots =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
+        var failures =
+            ImmutableArray.CreateBuilder<
+                PackageDependencyEvidenceRootFailure>();
+        InertString label = Label(requestedRoot.Value);
+        if (manifestBytes is null || manifestBytes.Length == 0)
+        {
+            failures.Add(
+                Acquisition(
+                    PackageDependencyEvidenceAcquisitionForm.PackageArchive,
+                    PackageDependencyEvidenceAcquisitionFailureReason
+                        .ProducerContract,
+                    label));
+        }
+        else
+        {
+            AddManifestRoot(
+                manifestBytes,
+                PackageDependencyEvidenceAcquisitionForm.PackageArchive,
+                targetFramework,
+                label,
+                roots,
+                failures,
+                expectedCoordinate);
+        }
+
+        bool admitted = roots.Count == 1;
+        bool failed = failures.Count == 1;
+        if (admitted == failed)
+        {
+            throw new InvalidOperationException(
+                "An admitted Package manifest must produce exactly one input or one typed failure.");
+        }
+
+        return new DependencyEvidenceAcquisitionBatch(
+            new PackageDependencyEvidenceRequest(
+                roots.ToImmutable(),
+                failures.ToImmutable()),
+            [
+                new DependencyEvidenceAcquiredRoot(
+                    requestedRoot,
+                    admitted ? 0 : null,
+                    failed ? 0 : null,
+                    RestoredTraversal: null),
+            ]);
+    }
+
+    /// <summary>
     /// Adapts one completed package-profile stream into a request, retaining the producer's
     /// terminal candidate, match, failure, and truncation accounting.
     /// </summary>
@@ -1157,12 +1225,17 @@ internal static class DependencyEvidenceAcquisition
         string? targetFramework,
         InertString label,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
-        ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures)
+        ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
+        PackageSourceCoordinate? expectedCoordinate = null)
     {
         PackageManifestFactsResult facts;
         try
         {
-            facts = PackageManifestFactsQuery.ExecuteSelfAttested(manifestBytes);
+            facts = expectedCoordinate is null
+                ? PackageManifestFactsQuery.ExecuteSelfAttested(manifestBytes)
+                : PackageManifestFactsQuery.Execute(
+                    manifestBytes,
+                    expectedCoordinate);
         }
         catch (NuspecParseException)
         {

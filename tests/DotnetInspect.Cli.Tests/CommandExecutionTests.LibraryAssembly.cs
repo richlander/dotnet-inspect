@@ -1376,8 +1376,12 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(new string[] { "--details" }, "--details requires -D/--discover")]
     [InlineData(new string[] { "-D", "References", "-D", "Signals", "--details" }, "expects a single argument")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details" }, "Select value 'NoSuchSection' not found.")]
+    [InlineData(new string[] { "-D", "@NoSuchCategory", "--details" }, "Select value '@NoSuchCategory' not found.")]
     [InlineData(new string[] { "-D", "Reference*", "--details" }, "--details requires an exact category or section selector")]
     [InlineData(new string[] { "-D", "References", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
+    [InlineData(new string[] { "-D", "NoSuchSection", "--details", "--fields", "Name" }, "--details cannot be combined with print, shape, field, or column projections")]
     [InlineData(new string[] { "-D", "References", "--details", "-S", "References" }, "--details cannot be combined with -S/--select")]
     [InlineData(new string[] { "-D", "References", "--details", "--effective" }, "--effective cannot be combined with --schema")]
     [InlineData(new string[] { "-D", "References", "--formats" }, "Unrecognized command or argument '--formats'")]
@@ -2098,6 +2102,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("@Audit (category)", output);
         Assert.Contains("@Performance (category)", output);
+        Assert.Contains(
+            "   ├─ References\n   │  ├─ Name (column)",
+            output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);
         Assert.DoesNotContain("@All", output);
@@ -2334,6 +2341,28 @@ public partial class CommandExecutionTests
         Assert.Contains("| Shape | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
         Assert.Contains("| OncePaths | sortable |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-D",
+            "Performance: Boxing",
+            "--tree",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Member (column)", output);
+        Assert.Contains("Confidence (column)", output);
+        Assert.DoesNotContain("(default-order)", output);
+        Assert.DoesNotContain("(order-step)", output);
+        Assert.DoesNotContain("(filterable)", output);
+        Assert.DoesNotContain("(sortable)", output);
     }
 
     [Fact]
@@ -2601,6 +2630,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, treeExit);
         Assert.Empty(treeError);
         Assert.Contains("└─ @Performance", treeOutput);
+        Assert.DoesNotContain("(column)", treeOutput);
+        Assert.DoesNotContain("(filterable)", treeOutput);
+        Assert.DoesNotContain("(sortable)", treeOutput);
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);

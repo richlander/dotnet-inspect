@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
