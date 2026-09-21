@@ -750,15 +750,18 @@ assembly sessions and operation-bound declaration sessions. It does not create
 a repository-wide normalized metadata graph.
 
 The declaration path supports ordinary ECMA-335 assembly metadata only.
-The `AssemblyImage`-owned metadata-session factory calls the
-MetadataPrimitives-owned `MetadataImageFormatClassifier` before obtaining or
-exposing a `MetadataReader`, before row admission, and before declaration work.
-Direct public/reusable `PEReader` entry points perform the same classification
-before their own reader construction. Once classification returns supported,
-the factory constructs the reader and session as one owner-bound operation; a
-caller cannot pair an independently supplied classification result and reader.
-The session rechecks its owner or lender liveness and supported admission before
-using that reader.
+The `AssemblyImage` acquisition path calls the MetadataPrimitives-owned
+`MetadataImageFormatClassifier` before obtaining or exposing a
+`MetadataReader`, before row admission, and before declaration work. Direct
+public/reusable `PEReader` entry points perform the same classification before
+their own reader construction. Once classification returns supported,
+`AssemblyImage` binds that result to its owned reader and
+`AssemblyInspectionSession` owns or borrows the resulting image lifetime. A
+separate operation-bound factory attaches `MetadataDeclarationSession` only to
+that live assembly session plus its `MetadataOperationContext`; a caller cannot
+pair independently supplied classification, reader, or operation state. The
+declaration session rechecks its operation context and owner or lender before
+using the reader.
 
 The classifier uses the registered bounded metadata-root admission guard: from
 the acquisition-owned `PEReader` it reads only the fixed ECMA-335 metadata-root
@@ -1494,10 +1497,12 @@ be consumed by the type/member plan before slice 4 lands.
   registered bounded metadata-root admission guard. Read only the fixed root
   prefix and at most the ECMA-335 256-byte padded version field from the
   acquisition-owned metadata block, and apply SRM's ordinal
-  `WindowsRuntime` marker rule. Make the `AssemblyImage`-owned session factory
-  classify and bind a supported result before it constructs any
-  `MetadataReader`; no caller may supply the result and reader independently.
-  In this slice, route the new declaration-session path,
+  `WindowsRuntime` marker rule. Make the `AssemblyImage` acquisition path
+  classify and bind a supported result to its owned reader before constructing
+  any `MetadataReader`. Attach `MetadataDeclarationSession` only through a
+  live `AssemblyInspectionSession` plus `MetadataOperationContext`; no caller
+  may supply classification, reader, or operation state independently. In this
+  slice, route the new declaration-session path,
   `MetadataImageInspector`, every public `MetadataTableProjector`
   row/reference/heap entry point, and the defensive
   `MethodSemanticsRowReader` leaf check through it before `MetadataReader`

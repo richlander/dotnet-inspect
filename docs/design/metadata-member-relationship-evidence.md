@@ -439,7 +439,7 @@ require Release gates in that implementation:
 | Inherited local declaration lookup is visibly unsupported | Direct-versus-inherited local declaration fixture |
 | Signature, owner, and generic-context mismatches reject | Focused malformed metadata matrix with valid neighbors |
 | `Absent` requires a completed scan while unrelated readable rows remain isolated | Budget, unreadable-body, exact-body unreadable-declaration, and unrelated readable-row neighbors |
-| The public operation is owner-backed | API construction test proving the relationship operation is obtained from an `AssemblyImage`-owned Metadata session rather than an independently supplied reader |
+| The public operation is owner-backed | API construction test proving the relationship operation is obtained from a live `AssemblyInspectionSession` plus operation context rather than independently supplied resource pieces |
 | Ordered multiplicity and duplicate physical rows are preserved | One body with multiple relevant rows, interleaved unrelated rows, and duplicate declaration operands; assert the exact relevant-row sequence and multiplicity |
 | Every claimed cumulative work dimension is charged and enforced | Limit-minus-one, exact-limit, and limit-plus-one matrix for MethodImpl rows, declaration candidates, relationship edges, signature/TypeSpec bytes, generic-substitution nodes, structured/materialized nodes, and retained text; assert exact counters and typed outcomes |
 | Cancellation is out-of-band and preserves the caller token | Focused cancellation propagation test |
