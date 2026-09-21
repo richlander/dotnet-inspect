@@ -7,7 +7,6 @@ using System.Xml;
 using DotnetInspector.Packages;
 using QuerySpace;
 using DotnetInspector.Queries.Definitions;
-using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Analysis;
@@ -2663,32 +2662,12 @@ public static partial class PackageQuery
 
     static bool MatchesLicense(
         PackageLicenseDeclaration? declaration,
-        string? requested)
-    {
-        if (declaration is null)
-            return false;
-        if (requested == "any")
-            return true;
-        if (requested == "MIT")
-        {
-            return declaration.Kind == PackageLicenseDeclarationKind.Expression
-                && declaration.Value.Equals(
-                    "MIT",
-                    StringComparison.OrdinalIgnoreCase);
-        }
-        if (requested == "OSMF")
-        {
-            if (declaration.Kind != PackageLicenseDeclarationKind.File)
-                return false;
-            string normalized = declaration.Value.Replace('\\', '/');
-            string fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
-            return fileName.StartsWith(
-                "OSMFEULA.",
-                StringComparison.OrdinalIgnoreCase);
-        }
-        throw new InvalidOperationException(
-            "Unknown bound Package Query license identity.");
-    }
+        string? requested) =>
+        PackageLicenseIdentityQuery.Matches(
+            declaration,
+            requested
+                ?? throw new InvalidOperationException(
+                    "A license predicate requires a bound identity."));
 
     static IEnumerable<DeclaredPackageDependencyGroup>
         SelectedDependencyGroups(

@@ -3,7 +3,6 @@ using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
 using QuerySpace;
 using QuerySpace.Rows;
-using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;

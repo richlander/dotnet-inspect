@@ -8,18 +8,20 @@ It establishes the library boundary under which portable query, row planning,
 semantic selection, Query Operation, and Query Space composition contracts
 move from `DotnetInspector.QueryEngine`.
 
-The `QuerySpace` project now carries portable intent and payload contracts plus
-row-query and semantic-selection contracts. Query Operation registration and
-section-owned Count outcomes remain in the transitional
-`DotnetInspector.QueryEngine` project until the next migration slice.
-Row-execution restructuring, source generation, System.Text.Json integration,
-and product adoption remain separate focused slices under the
-[adoption sequence](#adoption-sequence).
+The `QuerySpace` project now carries portable intent and payload contracts,
+row-query and semantic-selection contracts, Query Operation registration, and
+the first immutable Query Space descriptor and request contracts.
+`DotnetInspector.QueryEngine` is retired. Section-owned Count outcomes now live
+in `DotnetInspector.Sections`.
 
-The existing portable-query, row-query, and row-selection Release gates plus
-`QuerySpaceDirectConsumerExecutes` verify the implemented subset. Later
-properties in [Required evidence](#required-evidence) remain **unverified**
-until their named adoption lands.
+The existing portable-query, row-query, row-selection, Query Operation, and
+direct-consumer Release gates verify this physical boundary and the initial
+composition structure. Row-execution restructuring, complete section-row
+resolution, source generation, System.Text.Json integration, and broader
+product adoption remain separate focused slices under the
+[adoption sequence](#adoption-sequence). Later properties in
+[Required evidence](#required-evidence) remain **unverified** until their named
+adoption lands.
 
 ## Owner and exact claim
 
