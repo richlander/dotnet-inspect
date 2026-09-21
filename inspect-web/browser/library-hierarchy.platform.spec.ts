@@ -167,6 +167,29 @@ test("Platform Workspace projection failure remains visible on Query", async ({
     .toBeFocused();
 });
 
+test("delayed Platform Workspace failure preserves newer Query focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+
+  await releaseFacade(page, "hold-workspace-encode");
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+
+  const queryInput = page.locator("#package-query-prefix");
+  await queryInput.focus();
+  await expect(queryInput).toBeFocused();
+  await releaseFacade(page, "finish-workspace-encode");
+
+  await expect(page.locator(".query-navigation-error"))
+    .toContainText("Fixture workspace projection failure.");
+  await expect(queryInput).toBeFocused();
+});
+
 test("Platform Library projection failure does not use package fallback", async ({
   page,
 }) => {

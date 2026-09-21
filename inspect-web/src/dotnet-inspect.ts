@@ -13015,10 +13015,13 @@ function openPackageActivityRoute(
 function reportWorkspaceProductNavigationFailure(
   error: unknown,
   navigationSeq: number,
+  initiatingFocusGeneration: number,
 ): void {
   console.error("Opening Workspace failed.", error);
   const message =
     `Opening Workspace failed: ${errorMessage(error) || "Unknown error."}`;
+  const restoreInvokerFocus =
+    initiatingFocusGeneration === documentFocusGeneration;
   if (state.packageQueryOpen) {
     state.packageQueryNavigationError = message;
   } else {
@@ -13026,7 +13029,13 @@ function reportWorkspaceProductNavigationFailure(
   }
   render();
   showToast(message);
-  afterNavigationFrame(navigationSeq, focusProductNavigationButton);
+  if (!restoreInvokerFocus) return;
+  const focusGeneration = documentFocusGeneration;
+  afterNavigationFrame(navigationSeq, () => {
+    if (focusGeneration === documentFocusGeneration) {
+      focusProductNavigationButton();
+    }
+  });
 }
 
 async function openWorkspaceProductDestination(): Promise<{
@@ -13075,7 +13084,11 @@ async function openWorkspaceProductDestination(): Promise<{
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return null;
   if (!fallbackPackage && projectionError !== null) {
-    reportWorkspaceProductNavigationFailure(projectionError, navigationSeq);
+    reportWorkspaceProductNavigationFailure(
+      projectionError,
+      navigationSeq,
+      initiatingFocusGeneration,
+    );
     return null;
   }
 
