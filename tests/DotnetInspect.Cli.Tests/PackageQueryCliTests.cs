@@ -427,6 +427,11 @@ public class PackageQueryCliTests
             error.ToString());
 
         Assert.Equal(literal, options!.Plan.LibraryLiteral);
+        PortableQueryTerm term = Assert.Single(
+            options.Plan.Terms,
+            term => term.Key == PackageQuery.LibraryLiteralTermKey);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
+        Assert.Equal(literal, term.Value);
     }
 
     [Fact]
@@ -534,8 +539,8 @@ public class PackageQueryCliTests
     }
 
     [Theory]
-    [InlineData("facet!=package.query.dotnet-tool", "support equality")]
-    [InlineData("downloads>=1000000", "support equality")]
+    [InlineData("facet!=package.query.dotnet-tool", "does not define term")]
+    [InlineData("downloads>=1000000", "does not support '>='")]
     [InlineData("facet=package.query.unknown", "does not define term")]
     [InlineData(
         "depends starts-with Microsoft.*",
@@ -556,6 +561,9 @@ public class PackageQueryCliTests
         "dependency-target=net8.0",
         "requires a depends")]
     [InlineData("library-literal=", "Missing value")]
+    [InlineData(
+        "library-literal starts-with marker",
+        "does not support 'starts-with'")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {

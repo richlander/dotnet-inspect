@@ -131,42 +131,39 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            PortableQueryOperator @operator =
-                RowPredicateSyntaxParser.PortableOperator(
-                    syntax.Operator);
-            if (!CliTerms.Any(term =>
-                    term.Operators.Contains(@operator)))
-            {
-                error =
-                    "Package Query terms currently support equality and "
-                    + "starts-with; run 'package query -Q Packages' for "
-                    + "admitted operators and values.";
-                return false;
-            }
-
             PackageQueryRegisteredTerm? registeredTerm = CliTerms.FirstOrDefault(
                 term => term.Descriptor.Key.Equals(
                     syntax.Field,
                     StringComparison.OrdinalIgnoreCase));
-            if (registeredTerm is not null)
+            if (registeredTerm is null)
             {
-                terms.Add(new PortableQueryTerm(
-                    registeredTerm.Descriptor.Key,
-                    registeredTerm.Descriptor.ControlKind
-                        == PackageQueryTermControlKind.MultilineInput
-                            ? PortableQueryOperator.Equal
-                            : @operator,
-                    registeredTerm.Descriptor.ControlKind
-                        == PackageQueryTermControlKind.MultilineInput
-                            ? syntax.ExactValue
-                            : syntax.Value));
-                continue;
+                error =
+                    $"Package Query does not define term '{syntax.Field}'; run "
+                    + "'package query -Q Packages' for the current vocabulary.";
+                return false;
             }
 
-            error =
-                $"Package Query does not define term '{syntax.Field}'; run "
-                + "'package query -Q Packages' for the current vocabulary.";
-            return false;
+            PortableQueryOperator @operator =
+                RowPredicateSyntaxParser.PortableOperator(
+                    syntax.Operator);
+            if (!registeredTerm.Operators.Contains(@operator))
+            {
+                error =
+                    $"Package Query term '{registeredTerm.Descriptor.Key}' "
+                    + "does not support "
+                    + $"'{RowPredicateSyntaxParser.Comparison(@operator)}' "
+                    + "predicates; run 'package query -Q Packages' for "
+                    + "admitted operators and values.";
+                return false;
+            }
+
+            terms.Add(new PortableQueryTerm(
+                registeredTerm.Descriptor.Key,
+                @operator,
+                registeredTerm.Descriptor.ControlKind
+                    == PackageQueryTermControlKind.MultilineInput
+                        ? syntax.ExactValue
+                        : syntax.Value));
         }
 
         bool requiresPackageContent = terms.Any(term =>
