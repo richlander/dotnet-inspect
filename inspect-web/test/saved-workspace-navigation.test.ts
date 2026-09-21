@@ -501,6 +501,7 @@ function harness() {
     pendingWorkspaceConstruction: null,
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
+    workspaceFeedActivation: null,
     failedWorkspaceUrlState: null, spotlightCache: null as object | null,
     platformLibraryRetry: null, platformCatalogRetry: null,
     spotlightMemberCache: null as object | null,

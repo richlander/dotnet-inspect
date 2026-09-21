@@ -13,6 +13,7 @@ import {
   appSource,
   functionDeclaration,
   workspaceNavigationSource,
+  workspaceFeedActivationSource,
   shellControlsSource,
   graphInteractionsSource,
   sourceInspectionSource,
@@ -385,6 +386,41 @@ test("the selected canonical context bounds call graph workspace membership", ()
     /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
 });
 
+test("source-bearing Workspace URLs use page-session retained activation", () => {
+  const initialRestore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  const inAppNavigation = appSource.match(
+    /async function navigateInAppUrl\(url: URL\) \{[\s\S]*?\n}\n\nbindWorkspaceLinkNavigation/)?.[0]
+    ?? "";
+  const history = appSource.match(
+    /window\.addEventListener\("popstate"[\s\S]*?\n}\);/)?.[0] ?? "";
+
+  assert.match(
+    appSource,
+    /createWorkspaceFeedActivationCoordinator\(\{[\s\S]*client: engineClient\.catalog,[\s\S]*publish: publishSourceBearingWorkspace/);
+  assert.match(
+    initialRestore,
+    /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*preflight\.resolve\(\)/);
+  assert.match(
+    inAppNavigation,
+    /tryOpenSourceBearingWorkspace\(url, navigationSeq, true\)[\s\S]*parseWorkspaceHref/);
+  assert.match(
+    history,
+    /tryOpenSourceBearingWorkspace\([\s\S]*new URL\(location\.href\)[\s\S]*return;[\s\S]*parseLocation\(\)/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /describeWorkspacePackageSources[\s\S]*AuthenticationRequired[\s\S]*workspaceCredentialPromptHtml/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /patInput\.value = ""[\s\S]*credential\.pat = ""[\s\S]*secretValues\.fill\(""\)/);
+  assert.match(
+    workspaceFeedActivationSource,
+    /dependencies\.publish\(posting, models\)[\s\S]*pushLocation\(canonicalLocation\)/s);
+  assert.doesNotMatch(
+    workspaceFeedActivationSource,
+    /localStorage|sessionStorage|console\.(?:log|info|warn|error)/);
+});
+
 test("canonical restoration is atomic and history adopts the active packet basis", () => {
   const restore = appSource.match(
     /async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0] ?? "";
@@ -509,7 +545,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     ?? "";
   assert.match(
     restore,
-    /const navigationSeq = navigationSequence\.current\(\);\s*const loc = await workspaceLocation\.preflightCurrent\(\)\.resolve\(\);[\s\S]*framework: loc\.framework \|\| DEFAULT_REQUESTED_FRAMEWORK[\s\S]*state\.requestedPackage = resolvedLocation\.package;[\s\S]*state\.requestedVersion = resolvedLocation\.version;[\s\S]*state\.requestedFramework = resolvedLocation\.framework;[\s\S]*await restoreWorkspaceFromLocation\(\s*resolvedLocation,\s*deepLinkFromLocation\(resolvedLocation\),\s*navigationSeq\)/);
+    /const navigationSeq = navigationSequence\.current\(\);\s*const preflight = workspaceLocation\.preflightCurrent\(\);[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*const loc = await preflight\.resolve\(\);[\s\S]*framework: loc\.framework \|\| DEFAULT_REQUESTED_FRAMEWORK[\s\S]*state\.requestedPackage = resolvedLocation\.package;[\s\S]*state\.requestedVersion = resolvedLocation\.version;[\s\S]*state\.requestedFramework = resolvedLocation\.framework;[\s\S]*await restoreWorkspaceFromLocation\(\s*resolvedLocation,\s*deepLinkFromLocation\(resolvedLocation\),\s*navigationSeq\)/);
   const bootstrap = appSource.match(
     /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
@@ -1137,7 +1173,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*cancelWorkspaceCredentialPrompt\(false\);\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -1152,7 +1188,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\) \{[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
   assert.match(
     popstate,
-    /if \(!state\.engineReady\) \{\s*const pendingWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const pendingLocation = pendingWorkspace\.visible;[\s\S]*state\.loading = !state\.home;[\s\S]*render\(\);\s*return;\s*\}\s*const loc = await parseLocation\(\)/);
+    /if \(!state\.engineReady\) \{\s*const pendingWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const pendingLocation = pendingWorkspace\.visible;[\s\S]*state\.loading = !state\.home;[\s\S]*render\(\);\s*return;\s*\}\s*if \(await tryOpenSourceBearingWorkspace\([\s\S]*return;\s*\}\s*const loc = await parseLocation\(\)/);
   assert.match(
     popstate,
     /if \(leftPackageQueryForWorkspaceSuccessor\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(!state\.engineReady\)/);
@@ -1248,7 +1284,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*applicationScope === "activity"[\s\S]*openPackageActivityRoute\("application-activity"\)[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*observeAsync\(\s*selectWorkspaceApplicationScope\(\),\s*"Opening the Workspace scope"\)/);
   assert.match(
     appSource,
-    /const focusWorkspaceAfterRoutedPage =\s*state\.packageQueryOpen \|\| state\.packageActivityOpen;\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*state\.packageActivityOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*workspaceLocation\.push/);
+    /const focusWorkspaceAfterRoutedPage =\s*state\.packageQueryOpen \|\| state\.packageActivityOpen;\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*state\.packageActivityOpen = false;\s*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*cancelWorkspaceCredentialPrompt\(false\);\s*if \(focusWorkspaceAfterRoutedPage\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*if \(await tryOpenSourceBearingWorkspace\(url, navigationSeq, true\)\) return;\s*let loc: ParsedLocation;\s*try \{\s*loc = await parseWorkspaceHref\(url\.toString\(\)\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(!sameWorkspace\) \{[\s\S]*openFreshWorkspaceLink\(loc, navigationSeq\)[\s\S]*\} else \{\s*workspaceLocation\.push/);
   assert.match(
     appSource,
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);

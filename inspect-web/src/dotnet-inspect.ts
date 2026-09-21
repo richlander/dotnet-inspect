@@ -122,6 +122,11 @@ import {
   WORKBENCH_KEYBINDING_PRIORITY,
 } from "./workbench-keybindings.ts";
 import {
+  createWorkspaceFeedActivationCoordinator,
+  type RetainedWorkspaceModels,
+  type WorkspaceFeedActivationCoordinator,
+} from "./workspace-feed-activation.ts";
+import {
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
@@ -173,6 +178,7 @@ import {
   renderKeyboardHelpDialog,
   renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
+  trapModalTab,
   type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
@@ -607,6 +613,7 @@ import type {
 import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
+  BrowserRetainedWorkspacePosting,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
 
@@ -1024,6 +1031,7 @@ const initialState = {
   requestedVersion: "10.0.0",
   requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
   workspaceShareBasis: null,
+  workspaceFeedUrl: null,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -1185,6 +1193,7 @@ interface StateOverrides {
   package: AppPackage | null;
   workspaceOccurrences: BrowserWorkspacePackageOccurrenceView | null;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
+  workspaceFeedUrl: string | null;
   platformIndex: PlatformIndex | null;
   platformSelection: PlatformNavigationState | null;
   frameworkLibraryPresentation: {
@@ -1301,6 +1310,8 @@ interface CanonicalWorkspaceRestoreSnapshot {
 let retainedWorkspaces =
   createRetainedWorkspaceCollection<CanonicalWorkspaceRestoreSnapshot>();
 let activeWorkspaceUrl: string | null = null;
+let workspaceFeedActivation:
+  WorkspaceFeedActivationCoordinator | null = null;
 let pendingWorkspaceConstruction: {
   navigationSeq: number;
   supersessionSnapshot: CanonicalWorkspaceRestoreSnapshot;
@@ -3846,6 +3857,7 @@ function invalidateWorkspaceMembershipViews(): void {
   state.memberCallGraphKey = "";
   state.platformStack = [];
   state.workspaceShareBasis = null;
+  state.workspaceFeedUrl = null;
   clearWorkspaceOccurrenceView();
   packageInspection.invalidatePackageResults();
   spotlightCache = null;
@@ -3900,6 +3912,7 @@ function clearWorkspacePackages() {
   state.packages = [];
   state.package = null;
   state.workspaceShareBasis = null;
+  state.workspaceFeedUrl = null;
   state.platformSelection = null;
   state.frameworkLibraryPresentation = null;
   state.platformPresentedAsRoot = false;
@@ -11189,6 +11202,8 @@ async function buildStateUrl(base = location.href): Promise<URL> {
 }
 
 async function buildShareUrl(base = location.href): Promise<URL> {
+  if (state.workspaceFeedUrl)
+    return new URL(state.workspaceFeedUrl);
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? await workspaceLocation.build(snapshot, base)
@@ -11220,6 +11235,12 @@ function syncUrl() {
     isProductHomeDemosPath(location.pathname);
   if (state.loading) return;
   document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+  if (state.workspaceFeedUrl) {
+    workspaceLocation.replace(
+      state.workspaceFeedUrl,
+      history.state);
+    return;
+  }
   const navigationSeq = navigationSequence.current();
   if (state.atPackageRoot && state.package) {
     const revision = ++syncUrlRevision;
@@ -17183,12 +17204,151 @@ function applyLocationView(loc: ParsedLocation) {
   state.libraryLens = loc.libraryLens || "overview";
 }
 
+function workspaceFeedActivationCoordinator():
+  WorkspaceFeedActivationCoordinator {
+  workspaceFeedActivation ??= createWorkspaceFeedActivationCoordinator({
+      client: engineClient.catalog,
+      document,
+      applicationRoot: app,
+      maxVisibleModels: MAX_WORKSPACE_PACKAGES,
+      isCurrent: sequence => navigationSequence.isCurrent(sequence),
+      beginNavigation: () => navigationSequence.begin(),
+      hasVisibleWorkspace: () =>
+        state.package !== null || state.platformSelection !== null,
+      captureRollback: captureCanonicalWorkspaceRestoreSnapshot,
+      restoreRollback(snapshot) {
+        restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+        activeWorkspaceUrl = snapshot.url;
+        render({ synchronizeUrl: false });
+      },
+      releaseRollback: releaseRetainedWorkspaceSnapshot,
+      publish: publishSourceBearingWorkspace,
+      setLoading() {
+        state.loading = true;
+        state.loadingMessage = "Opening shared Workspace…";
+        state.loadingSubtitle =
+          "Loading package surfaces from the declared sources…";
+        render({ synchronizeUrl: false });
+      },
+      pushLocation(destination) {
+        activeWorkspaceUrl = destination;
+        workspaceLocation.push(destination, history.state);
+      },
+      reportFailure(message, retry) {
+        state.loading = false;
+        if (state.package || state.platformSelection) {
+          appendQueryNotice(`Workspace restore failed: ${message}`, retry);
+        } else {
+          state.errorTitle = "Workspace restore failed";
+          state.error = message;
+          state.retryAction = retry;
+        }
+        render({ synchronizeUrl: false });
+      },
+      reportPredecessorFailure(error) {
+        showToast(
+          `Could not confirm the replaced Workspace was released: ${
+            errorMessage(error)
+          }`);
+      },
+      observe: observeAsync,
+      errorMessage,
+      escapeHtml,
+      trapModalTab,
+    });
+  return workspaceFeedActivation;
+}
+
+async function tryOpenSourceBearingWorkspace(
+  url: URL,
+  navigationSeq: number,
+  commitHistory = false,
+): Promise<boolean> {
+  return workspaceFeedActivationCoordinator().tryOpen(
+    url,
+    navigationSeq,
+    commitHistory);
+}
+
+function cancelWorkspaceCredentialPrompt(showFailure = true): void {
+  workspaceFeedActivation?.cancelPrompt(showFailure);
+}
+
+function publishSourceBearingWorkspace(
+  posting: BrowserRetainedWorkspacePosting,
+  models: RetainedWorkspaceModels,
+): void {
+  const allModels = [
+    ...models.packages.map(item => item.packageModel),
+    ...models.platforms.map(item => item.packageModel),
+  ];
+  if (allModels.length === 0) {
+    throw new Error("The retained Workspace did not publish a package surface.");
+  }
+
+  clearWorkspacePackages();
+  for (const packageModel of allModels) retainPackageModel(packageModel);
+  const activeTab = posting.definition.activeTabId === null
+    ? null
+    : posting.definition.tabs.find(
+        tab => tab.id === posting.definition.activeTabId);
+  const activePackageSubjectId =
+    posting.navigation.snapshot.activePackage;
+  const activePackage = models.packages.find(item =>
+    item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
+    ?? (activeTab?.kind === "package"
+    ? models.packages.find(item =>
+        item.packageModel.id.toLowerCase() === activeTab.source.toLowerCase()
+        && (!activeTab.version
+          || item.packageModel.version.toLowerCase()
+            === activeTab.version.toLowerCase())
+        && (!activeTab.framework
+          || item.packageModel.activeFramework.toLowerCase()
+            === activeTab.framework.toLowerCase()))?.packageModel
+    : activeTab?.kind === "group"
+      ? models.platforms[0]?.packageModel
+      : null);
+  const selected = activePackage ?? allModels[0]!;
+  activatePackage(selected, { resetAccessibility: true });
+  state.home = false;
+  state.credits = false;
+  state.loading = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  state.requestedPackage = selected.id;
+  state.requestedVersion = selected.version;
+  state.requestedFramework = selected.activeFramework;
+  state.workspaceSubjectOpen = activeTab === null;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.packageLens = "overview";
+  state.libraryLens = "overview";
+  state.selectedTypeId = defaultVisibleTypeId(selected);
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetLocationFilters();
+  resetMemberSectionState();
+  commitWorkspaceShareBasis(null);
+  state.workspaceFeedUrl = posting.canonicalLocation;
+  activeWorkspaceUrl = posting.canonicalLocation;
+  render({ synchronizeUrl: false });
+}
+
 // Restores the full open-tab set from the opaque workspace bucket (or just the visible
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const navigationSeq = navigationSequence.current();
-  const loc = await workspaceLocation.preflightCurrent().resolve();
+  const preflight = workspaceLocation.preflightCurrent();
+  if (await tryOpenSourceBearingWorkspace(
+    new URL(location.href),
+    navigationSeq)) {
+    return;
+  }
+  const loc = await preflight.resolve();
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     await restoreWorkspaceFromLocation(
@@ -17633,9 +17793,11 @@ async function navigateInAppUrl(url: URL) {
     state.packageQueryNavigationError = "";
   }
   const navigationSeq = navigationSequence.begin();
+  cancelWorkspaceCredentialPrompt(false);
   if (focusWorkspaceAfterRoutedPage) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
+  if (await tryOpenSourceBearingWorkspace(url, navigationSeq, true)) return;
   let loc: ParsedLocation;
   try {
     loc = await parseWorkspaceHref(url.toString());
@@ -17652,6 +17814,8 @@ async function navigateInAppUrl(url: URL) {
     render({ synchronizeUrl: false });
     return;
   }
+  workspaceFeedActivation?.clearActiveUrl();
+  state.workspaceFeedUrl = null;
   const tablessTarget = !loc.tabs.length && loc.package
     ? state.packages.find(candidate =>
       packageCoordinateMatchesLocation(candidate, loc))
@@ -18146,6 +18310,7 @@ function clearNavigationError() {
 }
 
 function dismissModalsForRoutedNavigation() {
+  cancelWorkspaceCredentialPrompt(false);
   closeGraphExplorerForNavigation();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
@@ -18337,6 +18502,11 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  if (await tryOpenSourceBearingWorkspace(
+    new URL(location.href),
+    navigationSeq)) {
+    return;
+  }
   const loc = await parseLocation();
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
@@ -18360,6 +18530,8 @@ window.addEventListener("popstate", () => {
       null);
     return;
   }
+  workspaceFeedActivation?.clearActiveUrl();
+  state.workspaceFeedUrl = null;
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     if (historyWorkspaceReferenced && !historyWorkspaceAvailable) {

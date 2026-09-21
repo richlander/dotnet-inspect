@@ -1166,6 +1166,29 @@ telemetry. Refreshing or reopening the URL therefore requires the credential
 again. The active managed realization may retain it in process memory until it
 is replaced or disposed.
 
+Production URL activation recognizes a source-bearing packet before the legacy
+share-state decoder on initial load, same-origin link navigation, and browser
+history restoration. Anonymous-only declarations activate immediately.
+Authentication-required declarations open one modal form that identifies every
+exact endpoint and collects one username/PAT pair per endpoint. The form owns
+the input elements; submission copies the values only into activation-local
+variables, clears the password elements immediately, and clears those local
+values after activation settles.
+
+The page keeps the prior visible Workspace while managed preparation runs. It
+admits every retained Package and Platform Type page, projects those surfaces
+into the ordinary application model, and publishes them only through the
+retained navigation posting lifecycle. Cancellation or failure before
+publication leaves the prior Workspace unchanged. A posting, acknowledgement,
+or consumer-completion failure restores the pre-activation snapshot. An
+in-application link enters browser history only after publication and
+acknowledgement; the active source-bearing packet remains the share and refresh
+URL rather than being rewritten through the format-1 encoder.
+The production coordinator reuses an identical retained definition and removes
+only settled inactive definitions before retaining a distinct URL, so canceled
+prompts and prior URLs do not consume the controller's bounded definition
+capacity.
+
 Browser/Wasm supports anonymous sources and explicit page-session credentials.
 It cannot launch a NuGet credential-provider plugin, so an
 authentication-required source without an explicit credential is rejected

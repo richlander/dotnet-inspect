@@ -300,6 +300,9 @@ export const productionTypeScriptSources = readdirSync(sourceRoot, {
 export const workspaceNavigationSource = readFileSync(
   new URL("../src/workspace-navigation.ts", import.meta.url),
   "utf8");
+export const workspaceFeedActivationSource = readFileSync(
+  new URL("../src/workspace-feed-activation.ts", import.meta.url),
+  "utf8");
 export const packageAcquisitionSource = readFileSync(
   new URL("../src/package-acquisition.ts", import.meta.url),
   "utf8");

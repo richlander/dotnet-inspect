@@ -1461,6 +1461,15 @@ binding, and incomplete credentials. This shared construction boundary is
 slice 1 of 2 in the CLI-and-Browser production adoption tracked by
 [#8154](https://github.com/richlander/dotnet-inspect/issues/8154).
 
+The second slice routes production Inspect Web initial-load, same-origin-link,
+and history URLs with source-bearing packets through retained complete
+restoration before the legacy format-1 decoder. It automatically activates
+anonymous-only declarations, prompts for endpoint-specific page-session
+credentials when required, admits the retained Package and Platform surfaces,
+and updates visible state and browser history only after retained publication
+is acknowledged. The original format-5 packet remains the refresh and share
+URL; it is not lowered through the format-1 encoder.
+
 For an authentication-required endpoint, one complete explicit Basic
 credential wins. If none is supplied, a host that supports noninteractive
 NuGet credential providers may query one for that declared origin. An explicit
