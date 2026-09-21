@@ -46,6 +46,10 @@ execution request, retains the selected terminal, and executes Rows or Count
 without section-name or presentation-schema inference. A mismatched terminal
 cannot be invoked through the composed executor. The independent consumer
 exercises that path over application-owned types.
+Because the current structural descriptor cannot distinguish unqualified Top
+from explicit-ranking-only Top, a scope advertises Top only when its executable
+vocabulary supplies a default Top ranking. A future richer capability may
+represent the explicit-ranking-only form separately.
 
 Transitional Query Operation route order and stage capabilities are not
 operation-scope capabilities. Multiple row-intent associations, source

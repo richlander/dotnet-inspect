@@ -250,6 +250,17 @@ public sealed class QuerySpaceSectionRowCompositionTests
         Assert.Contains(
             "operator surface differs",
             failure.Message);
+
+        ArgumentException missingDefaultRanking =
+            Assert.Throws<ArgumentException>(
+                () => new QuerySpaceRowScopeBinding<ScoreRow>(
+                    CreateRowDescriptor(
+                        [PortableQueryOperator.AtLeast],
+                        [RowSelectionStageKind.Top]),
+                    vocabulary));
+        Assert.Contains(
+            "without a default executable ranking",
+            missingDefaultRanking.Message);
     }
 
     [Fact]
@@ -329,7 +340,8 @@ public sealed class QuerySpaceSectionRowCompositionTests
 
     private static QuerySpaceRowScopeDescriptor
         CreateRowDescriptor(
-            IReadOnlyList<PortableQueryOperator> operators) =>
+            IReadOnlyList<PortableQueryOperator> operators,
+            IReadOnlyList<RowSelectionStageKind>? stages = null) =>
         new(
             "rows.score",
             "rows.score.v1",
@@ -347,7 +359,7 @@ public sealed class QuerySpaceSectionRowCompositionTests
                     supportsOrdering: true),
             ],
             [],
-            [RowSelectionStageKind.Head]);
+            stages ?? [RowSelectionStageKind.Head]);
 
     private static RowQueryVocabulary<ScoreRow>
         CreateRowVocabulary(

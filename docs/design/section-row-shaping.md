@@ -634,7 +634,7 @@ The one-association Query Space composition path is enforced by:
 | --- | --- |
 | `StructuralAssociationResolvesAndExecutesSameSchemaRowSets` | One structural row association lowers through its registered typed vocabulary, retains the structural association beside the resolved plan, applies predicates and effective baseline order independently to each same-schema sequence, invokes semantic selection once across the cohort, and feeds terminal-bound Rows and Count requests through the same resolution path; invoking a different terminal is rejected before execution. |
 | `RowResolutionFailureRemainsVisibleBeforeExecution` | An owner-issued row-query value failure returns its exact structured reason and scope before a Sections execution request exists. |
-| `DescriptorAndExecutableVocabularyMustMatch` | A typed row-scope binding rejects structural facet/operator/order capability drift from its executable row vocabulary before query-space construction or execution. |
+| `DescriptorAndExecutableVocabularyMustMatch` | A typed row-scope binding rejects structural facet/operator/order capability drift from its executable row vocabulary before query-space construction or execution; the current descriptor advertises Top only when the vocabulary supplies a default Top ranking. |
 | `RequestIsRevalidatedAgainstExecutableBinding` | Resolution revalidates a structural request against the current executable binding's descriptor; a request created from another descriptor with the same query-space identity cannot carry stale facet capability into execution. |
 
 The remaining implementation must add these named Release gates:

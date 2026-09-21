@@ -254,15 +254,11 @@ public sealed class QuerySpaceRowScopeBinding<TRow> :
         }
 
         if (descriptor.SupportsStage(RowSelectionStageKind.Top)
-            && vocabulary.DefaultTopRanking is null
-            && !vocabulary.Keys.Any(static key => key.SupportsOrdering)
-            && !vocabulary.NamedOrders.Any(
-                static order =>
-                    order.Purpose is RowQueryOrderPurpose.Ranking))
+            && vocabulary.DefaultTopRanking is null)
         {
             throw Mismatch(
                 descriptor,
-                "Top is advertised without an executable ranking order");
+                "Top is advertised without a default executable ranking");
         }
     }
 
