@@ -40,15 +40,32 @@ public sealed class ExpressionContextParenthesesTests
             Print(source, FixtureType, "ReturnConditional"));
     }
 
-    [Fact]
-    public void RuntimeSqlBytesConditionalKeepsCastsWithoutOuterParentheses()
+    [Theory]
+    [InlineData("System.Data.SqlTypes.SqlBytes", "_rgbBuf")]
+    [InlineData("System.Data.SqlTypes.SqlChars", "_rgchBuf")]
+    public void RuntimeSqlTypesConditionalElidesWideningCastWithoutOuterParentheses(
+        string type,
+        string buffer)
     {
         using var source = MetadataSource.Open(typeof(System.Data.SqlTypes.SqlBytes).Assembly.Location);
-        string output = Print(source, "System.Data.SqlTypes.SqlBytes", "get_MaxLength");
-        Assert.Contains("_rgbBuf is null ? (long)-1 : (long)_rgbBuf.Length", output);
+        string strict = Print(source, type, "get_MaxLength");
+        Assert.Contains($"{buffer} is null ? (long)-1 : {buffer}.Length", strict);
+        Assert.DoesNotContain($"(long){buffer}.Length", strict);
+
+        string product = Print(
+            source,
+            type,
+            "get_MaxLength",
+            options: StyleOptionCatalog.DefaultOptions);
+        Assert.Contains($"{buffer} is null ? -1L : {buffer}.Length", product);
     }
 
-    static string Print(MetadataSource source, string type, string method, bool lowered = false)
+    static string Print(
+        MetadataSource source,
+        string type,
+        string method,
+        bool lowered = false,
+        PrinterOptions? options = null)
     {
         var function = IrImporter.Import(source, type, method);
         Assert.NotNull(function);
@@ -56,6 +73,6 @@ public sealed class ExpressionContextParenthesesTests
             PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
-        return CSharpPrinter.Print(function).Output!;
+        return CSharpPrinter.Print(function, options).Output!;
     }
 }
