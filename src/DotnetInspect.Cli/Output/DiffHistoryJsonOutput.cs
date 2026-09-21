@@ -29,10 +29,14 @@ public static class DiffHistoryJsonOutput
         DiffHistoryOutcome outcome) =>
         outcome switch
         {
-            DiffHistoryOutcome.Available available =>
+            DiffHistorySectionAvailable available =>
                 new DiffHistoryJsonAvailable(
                     Project(available.Document),
                     Project(available.Count)),
+            DiffHistoryOutcome.Available available =>
+                new DiffHistoryJsonAvailable(
+                    Project(available.Document),
+                    Count: null),
             DiffHistoryOutcome.ExactApiMemberUnavailable unavailable =>
                 new DiffHistoryJsonExactApiMemberUnavailable(
                     Project(unavailable.Selection)),

@@ -194,7 +194,7 @@ internal static class DiffHistoryCommand
             }
 
             if (envelope.Content
-                is not DiffHistoryOutcome.Available available)
+                is not DiffHistorySectionAvailable available)
             {
                 return 1;
             }

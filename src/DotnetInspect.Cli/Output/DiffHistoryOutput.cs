@@ -146,7 +146,7 @@ internal static class DiffHistoryOutput
     }
 
     internal static int WriteCount(
-        DiffHistoryOutcome.Available available,
+        DiffHistorySectionAvailable available,
         DiffOptions options)
     {
         switch (available.Count)
