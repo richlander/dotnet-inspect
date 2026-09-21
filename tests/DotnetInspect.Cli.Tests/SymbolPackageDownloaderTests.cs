@@ -1366,6 +1366,79 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task
+        AcquirePdbAsync_CancellationPreservesPriorProviderStoreFailure()
+    {
+        var guid =
+            Guid.Parse(
+                "81112222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        var symbolPackage =
+            SnupkgPdbReaderTests.MakeSnupkg(
+                ("lib/net8.0/Failure.pdb", pdbBytes));
+        var handler =
+            new SymbolPackageThenBlockingHandler(symbolPackage);
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new ThrowingPutPdbStore());
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+        using var cancellation =
+            new CancellationTokenSource();
+
+        Task<PortablePdbAcquisitionResult> acquisition =
+            downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Failure.pdb",
+                isPortable: true,
+                assemblyName: "Failure",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken: cancellation.Token,
+                evidence: evidence);
+
+        await handler.SymbolRequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => acquisition);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Canceled,
+            document.Outcome);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            document.StoreFailure);
+        Assert.Collection(
+            document.NetworkAttempts,
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute.SymbolPackage,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Succeeded,
+                    attempt.Outcome);
+            },
+            attempt =>
+            {
+                Assert.Equal(
+                    PortablePdbAcquisitionNetworkRoute.SymbolServer,
+                    attempt.Route);
+                Assert.Equal(
+                    PortablePdbNetworkAttemptOutcome.Canceled,
+                    attempt.Outcome);
+            });
+    }
+
+    [Fact]
     public async Task DownloadPdbAsync_PrivateMappingDoesNotProbeNuGetOrgSnupkg()
     {
         string configPath = Path.Combine(
@@ -1477,6 +1550,38 @@ public class SymbolPackageDownloaderTests : IDisposable
                 cancellationToken);
             throw new InvalidOperationException(
                 "A canceled request unexpectedly completed.");
+        }
+    }
+
+    private sealed class SymbolPackageThenBlockingHandler(
+        byte[] symbolPackage)
+        : HttpMessageHandler
+    {
+        public TaskCompletionSource SymbolRequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.AbsolutePath.EndsWith(
+                    ".snupkg",
+                    StringComparison.Ordinal)
+                == true)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(symbolPackage),
+                    RequestMessage = request,
+                };
+            }
+
+            SymbolRequestStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "A canceled symbol request unexpectedly completed.");
         }
     }
 

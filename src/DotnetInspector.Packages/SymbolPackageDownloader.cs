@@ -97,8 +97,8 @@ public sealed class PortablePdbAcquisitionEvidenceCollector
     {
         lock (_gate)
         {
-            _windowsPdbDetected = result.WindowsPdbDetected;
-            _storeFailure = result.StoreFailure;
+            _windowsPdbDetected |= result.WindowsPdbDetected;
+            _storeFailure ??= result.StoreFailure;
             if (result is PortablePdbAcquisitionResult.Acquired acquired)
             {
                 _outcome =
@@ -111,6 +111,17 @@ public sealed class PortablePdbAcquisitionEvidenceCollector
                 _outcome =
                     PortablePdbExternalAcquisitionOutcome.Unavailable;
             }
+        }
+    }
+
+    internal void RecordObservations(
+        bool windowsPdbDetected,
+        PortablePdbStoreFailureKind? storeFailure)
+    {
+        lock (_gate)
+        {
+            _windowsPdbDetected |= windowsPdbDetected;
+            _storeFailure ??= storeFailure;
         }
     }
 
@@ -481,6 +492,9 @@ public partial class SymbolPackageDownloader
             var msdlResult = await TryLocateFromMsdlAsync(
                 pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
                 isPortable, log, cacheOnly, evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                msdlResult.WindowsPdbDetected,
+                msdlResult.StoreFailure);
             if (msdlResult.Pdb is not null)
             {
                 return new PortablePdbAcquisitionResult.Acquired(
@@ -503,6 +517,9 @@ public partial class SymbolPackageDownloader
                 storeIdentity,
                 pdbGuid, portablePdbStamp, isPortable, log, cacheOnly,
                 evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                snupkgResult.WindowsPdbDetected,
+                snupkgResult.StoreFailure);
             if (snupkgResult.Pdb is not null)
             {
                 return new PortablePdbAcquisitionResult.Acquired(
@@ -520,6 +537,9 @@ public partial class SymbolPackageDownloader
             var symbolResult = await TryLocateFromSymbolServerAsync(
                 pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
                 isPortable, log, cacheOnly, evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                symbolResult.WindowsPdbDetected,
+                symbolResult.StoreFailure);
             if (symbolResult.Pdb is not null)
             {
                 return new PortablePdbAcquisitionResult.Acquired(

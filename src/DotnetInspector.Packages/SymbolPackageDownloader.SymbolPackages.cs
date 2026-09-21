@@ -81,6 +81,9 @@ public partial class SymbolPackageDownloader
         PortablePdbStoreFailureKind? storeFailure = cached.StoreFailure;
         if (cached.Rejected)
             storeFailure ??= PortablePdbStoreFailureKind.InvalidCachedContent;
+        evidence?.RecordObservations(
+            windowsPdbDetected,
+            storeFailure);
         if (cached.StoreFailure is not null)
             log?.Invoke($"The PDB store could not read the cached {assemblyName} entry");
         else if (cached.Rejected)
@@ -188,7 +191,12 @@ public partial class SymbolPackageDownloader
             }
 
             if (extracted.WindowsPdbDetected)
+            {
                 windowsPdbDetected = true;
+                evidence?.RecordObservations(
+                    windowsPdbDetected,
+                    storeFailure);
+            }
 
             if (extracted.PdbBytes == null)
             {
@@ -218,6 +226,9 @@ public partial class SymbolPackageDownloader
                         cancellationToken).ConfigureAwait(false);
                 if (publicationFailure is not null)
                 {
+                    evidence?.RecordObservations(
+                        windowsPdbDetected,
+                        publicationFailure);
                     log?.Invoke(
                         "The PDB store could not publish the verified symbol-package response.");
                     return new PdbProbeResult(
@@ -239,13 +250,18 @@ public partial class SymbolPackageDownloader
             {
                 if (stored.Windows)
                     windowsPdbDetected = true;
+                PortablePdbStoreFailureKind finalStoreFailure =
+                    stored.StoreFailure
+                    ?? PortablePdbStoreFailureKind.PublicationNotRetained;
+                evidence?.RecordObservations(
+                    windowsPdbDetected,
+                    finalStoreFailure);
                 log?.Invoke(
                     "The matching Portable PDB could not be read back from the configured store.");
                 return new PdbProbeResult(
                     null,
                     windowsPdbDetected,
-                    stored.StoreFailure
-                        ?? PortablePdbStoreFailureKind.PublicationNotRetained);
+                    finalStoreFailure);
             }
 
             log?.Invoke(

@@ -467,7 +467,9 @@ symbol-package, or symbol-server route and records:
 Canceled and failed attempts retain the latest response status and cumulative
 body-byte count observed before settlement, including when a later retry is
 canceled before receiving headers, rather than reporting the operation as if no
-response arrived.
+response arrived. Windows-PDB and store-failure observations from an earlier
+provider likewise remain visible when acquisition is canceled in a later
+provider.
 
 `Acquired` is emitted only after the downloaded or cached content has passed
 Portable PDB format and identity validation and has been retained by the
@@ -524,7 +526,8 @@ remote feed. The Release gates
 `AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider`,
 `AcquirePdbAsync_UnretainedDownloadRecordsFailure`,
 `AcquirePdbAsync_ReadbackStoreFailureIsVisible`,
-`AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`, and
+`AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`,
+`AcquirePdbAsync_CancellationPreservesPriorProviderStoreFailure`, and
 `SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` enforce
 these distinctions.
 

@@ -46,6 +46,9 @@ public partial class SymbolPackageDownloader
         PortablePdbStoreFailureKind? storeFailure = cached.StoreFailure;
         if (cached.Rejected)
             storeFailure ??= PortablePdbStoreFailureKind.InvalidCachedContent;
+        evidence?.RecordObservations(
+            windowsPdbDetected,
+            storeFailure);
         if (cached.StoreFailure is not null)
             log?.Invoke("The PDB store could not read the cached MSDL entry");
         else if (cached.Rejected)
@@ -127,6 +130,9 @@ public partial class SymbolPackageDownloader
                 if (publicationFailure is not null)
                 {
                     storeOperation = false;
+                    evidence?.RecordObservations(
+                        windowsPdbDetected,
+                        publicationFailure);
                     log?.Invoke(
                         "The PDB store could not publish the verified MSDL response");
                     return new PdbProbeResult(
@@ -154,15 +160,23 @@ public partial class SymbolPackageDownloader
                 }
 
                 log?.Invoke("The PDB store did not retain the verified MSDL response");
+                PortablePdbStoreFailureKind finalStoreFailure =
+                    stored.StoreFailure
+                    ?? PortablePdbStoreFailureKind.PublicationNotRetained;
+                evidence?.RecordObservations(
+                    windowsPdbDetected || stored.Windows,
+                    finalStoreFailure);
                 return new PdbProbeResult(
                     null,
-                    windowsPdbDetected,
-                    stored.StoreFailure
-                        ?? PortablePdbStoreFailureKind.PublicationNotRetained);
+                    windowsPdbDetected || stored.Windows,
+                    finalStoreFailure);
             }
             if (headerCheck.Windows)
             {
                 windowsPdbDetected = true;
+                evidence?.RecordObservations(
+                    windowsPdbDetected,
+                    storeFailure);
                 log?.Invoke("MSDL returned a Windows PDB (not supported)");
             }
             else
@@ -248,6 +262,9 @@ public partial class SymbolPackageDownloader
                     PortablePdbStoreFailureKind.InvalidCachedContent;
                 log?.Invoke($"Cached PDB from {serverHost} is invalid or mismatched");
             }
+            evidence?.RecordObservations(
+                windowsPdbDetected,
+                storeFailure);
 
             if (cacheOnly)
                 continue;
@@ -316,6 +333,9 @@ public partial class SymbolPackageDownloader
                     {
                         storeOperation = false;
                         storeFailure ??= publicationFailure;
+                        evidence?.RecordObservations(
+                            windowsPdbDetected,
+                            storeFailure);
                         log?.Invoke(
                             "The PDB store could not publish the verified symbol-server response");
                         continue;
@@ -342,6 +362,9 @@ public partial class SymbolPackageDownloader
                     storeFailure ??=
                         stored.StoreFailure
                         ?? PortablePdbStoreFailureKind.PublicationNotRetained;
+                    evidence?.RecordObservations(
+                        windowsPdbDetected || stored.Windows,
+                        storeFailure);
                     log?.Invoke(
                         "The PDB store did not retain the verified symbol-server response");
                     continue;
@@ -349,6 +372,9 @@ public partial class SymbolPackageDownloader
                 if (headerCheck.Windows)
                 {
                     windowsPdbDetected = true;
+                    evidence?.RecordObservations(
+                        windowsPdbDetected,
+                        storeFailure);
                     log?.Invoke("Symbol server returned a Windows PDB (not supported)");
                 }
                 else
