@@ -825,16 +825,16 @@ public static class RouterCommandDefinition
                 tail,
                 rootCommand,
                 out string libraryValue);
-            bool hasPackageRelativeLibrary =
+            bool hasPackageLibraryValue =
                 hasLibraryValue
                 && SourceResolver
-                    .IsPackageRelativeLibraryValue(libraryValue);
+                    .IsPackageLibraryValue(target, libraryValue);
             bool hasExplicitApiSource =
                 ContainsOption(tail, "--package")
                 || ContainsOption(tail, "--platform")
                 || ContainsOption(tail, "--project")
                 || (hasLibraryValue
-                    && !hasPackageRelativeLibrary);
+                    && !hasPackageLibraryValue);
             bool hasVersionQuery =
                 ContainsOption(tokens, "--version")
                 || ContainsOption(tokens, "--versions")
@@ -842,7 +842,7 @@ public static class RouterCommandDefinition
                     tokens,
                     "--versions-with-feed");
             bool hasStructuralPackageAssetPath =
-                hasPackageRelativeLibrary
+                hasPackageLibraryValue
                 && (libraryValue.Contains('/')
                     || libraryValue.Contains('\\'));
 
@@ -869,7 +869,7 @@ public static class RouterCommandDefinition
             }
 
             if (hasTypeOption
-                && hasPackageRelativeLibrary)
+                && hasPackageLibraryValue)
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -951,7 +951,7 @@ public static class RouterCommandDefinition
                 && !ContainsOption(tail, "--package")
                 && !ContainsOption(tail, "--platform")
                 && !ContainsOption(tail, "--project")
-                && hasPackageRelativeLibrary
+                && hasPackageLibraryValue
                 && (!structuralSchema
                     || hasStructuralPackageAssetPath))
             {

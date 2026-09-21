@@ -426,12 +426,12 @@ public static class StructuralViewRegistry
         string? libraryValue =
             GetOptionValues(tokens, "--library")
                 .LastOrDefault();
-        bool hasPackageRelativeLibrary =
+        bool hasPackageLibraryValue =
             libraryValue is not null
             && SourceResolver
-                .IsPackageRelativeLibraryValue(libraryValue);
+                .IsPackageLibraryValue(target, libraryValue);
         if (hasTypeOption
-            && hasPackageRelativeLibrary)
+            && hasPackageLibraryValue)
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -445,7 +445,7 @@ public static class StructuralViewRegistry
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project")
             || (ContainsOption(tokens, "--library")
-                && !hasPackageRelativeLibrary);
+                && !hasPackageLibraryValue);
         string? typeOptionValue =
             GetOptionValues(tokens, "-t", "--type")
                 .LastOrDefault();
@@ -621,17 +621,17 @@ public static class StructuralViewRegistry
         string? libraryValue =
             GetOptionValues(tokens, "--library")
                 .FirstOrDefault();
-        bool hasPackageRelativeLibrary =
+        bool hasPackageLibraryValue =
             libraryValue is not null
             && SourceResolver
-                .IsPackageRelativeLibraryValue(libraryValue);
+                .IsPackageLibraryValue(target, libraryValue);
         bool hasExplicitLibraryPath =
             libraryValue is not null
-            && !hasPackageRelativeLibrary;
+            && !hasPackageLibraryValue;
         hasExplicitApiSource |= hasExplicitLibraryPath;
         bool hasLibraryGesture =
             ContainsOption(tokens, "--library")
-            && hasPackageRelativeLibrary;
+            && hasPackageLibraryValue;
         bool hasTypeMarker =
             ContainsOption(tokens, "-t")
             || ContainsOption(tokens, "--type");

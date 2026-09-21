@@ -3382,23 +3382,46 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Router_LibraryValue_RoutesPackageToLibraryInspection()
+    [Theory]
+    [InlineData("Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json")]
+    public async Task Router_LibraryValue_RoutesPackageToLibraryInspection(
+        string library)
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] arguments =
+        [
             "Newtonsoft.Json@13.0.4",
             "--library",
-            "Newtonsoft.Json.dll",
+            library,
             "-S",
             "Library Info",
             "--tips",
-            "q");
+            "q",
+        ];
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+        string[] schemaArguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            library,
+            "-D",
+            "--schema",
+            "--offline",
+            "--tips",
+            "q",
+        ];
+        var directSchema = await RunAppAsync(
+            ["package", .. schemaArguments]);
+        var routedSchema = await RunAppAsync(schemaArguments);
 
-        Assert.Equal(0, exit);
-        Assert.Contains("# Newtonsoft.Json.dll", output);
-        Assert.Contains("## Library Info", output);
-        Assert.DoesNotContain("## Package Info", output);
-        Assert.DoesNotContain("best-effort prefix matches", error);
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("## Library Info", routed.Output);
+        Assert.DoesNotContain("## Package Info", routed.Output);
+        Assert.DoesNotContain("best-effort prefix matches", routed.Error);
+        Assert.Equal(directSchema, routedSchema);
     }
 
     [Theory]
