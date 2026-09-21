@@ -544,7 +544,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         {
             WorkspacePacket = packet,
             TypeName = typeof(ApiTypeShape).FullName,
-            Verbosity = Verbosity.Normal,
+            Verbosity = Verbosity.Detailed,
             Format = OutputFormat.Markdown,
             MarkdownExplicitlySet = true,
             FormatExplicitlySet = true,
