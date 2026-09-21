@@ -2619,7 +2619,7 @@ public partial class SectionPipelineTests
             SectionNames.ArrayPoolEscapes,
             SectionNames.BodyShapes,
             SectionNames.BodyShapeSummary,
-            SectionNames.ImplementationProfiles,
+            SectionNames.MemberMetrics,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,

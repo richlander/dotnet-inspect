@@ -84,7 +84,8 @@ public static class RowsCohortExecutor
                     nameof(sequences),
                     $"Row-set sequence {index + 1} is null.");
             RowSequenceKey key =
-                RowSequenceKey.Create(index);
+                sequence.Key
+                ?? RowSequenceKey.Create(index);
             if (!keyByIdentity.TryAdd(
                     sequence.Identity,
                     key))
@@ -94,9 +95,14 @@ public static class RowsCohortExecutor
                     nameof(sequences));
             }
 
-            identityByKey.Add(
-                key,
-                sequence.Identity);
+            if (!identityByKey.TryAdd(
+                    key,
+                    sequence.Identity))
+            {
+                throw new ArgumentException(
+                    "A row-sequence key is duplicated.",
+                    nameof(sequences));
+            }
             named[index] =
                 NamedRowSequence<T>.Create(
                     key,
