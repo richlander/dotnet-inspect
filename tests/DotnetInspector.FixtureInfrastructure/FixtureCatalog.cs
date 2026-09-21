@@ -59,6 +59,10 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataMethodImplContracts =
+        "metadata.methodimpl.contracts";
+    public const string MetadataMethodImplFixtures =
+        "metadata.methodimpl.fixtures";
     public const string MetadataPublicMethodRoots =
         "metadata.public-method-roots";
     public const string MetadataTypeDependencyConsumer =
@@ -308,6 +312,24 @@ public static class FixtureCatalog
         "ILInspector.Metadata.MemorySafetyFixtures.dll",
         Boundaries(FixtureBoundary.ModuleAttribute),
         "metadata", "memory-safety", "layout");
+
+    public static readonly FixtureDefinition MetadataMethodImplContracts =
+        Fixture(
+            FixtureIds.MetadataMethodImplContracts,
+            "ILInspector.Metadata.MethodImplContracts",
+            "ILInspector.Metadata.MethodImplContracts.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "methodimpl", "contract");
+
+    public static readonly FixtureDefinition MetadataMethodImplFixtures =
+        Fixture(
+            FixtureIds.MetadataMethodImplFixtures,
+            "ILInspector.Metadata.MethodImplFixtures",
+            "ILInspector.Metadata.MethodImplFixtures.dll",
+            Boundaries(
+                FixtureBoundary.CompilerLowering,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "methodimpl", "implementation");
 
     public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
         FixtureIds.DecompilerAuthoredRebuild,
@@ -998,6 +1020,8 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataMethodImplContracts,
+        MetadataMethodImplFixtures,
         MetadataPublicMethodRoots,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
@@ -1114,6 +1138,10 @@ public static class FixtureCatalog
         "diff-asm",
         [DiffAsmTarget, DiffAsmCaller, DiffAsmLibA, DiffAsmLibB]);
 
+    public static readonly FixtureGroup MetadataMethodImplFixtureGroup = new(
+        "metadata.methodimpl",
+        [MetadataMethodImplContracts, MetadataMethodImplFixtures]);
+
     public static readonly FixtureGroup AnalysisFixtures = new(
         "analysis",
         [
@@ -1213,6 +1241,7 @@ public static class FixtureCatalog
     public static readonly IReadOnlyList<FixtureGroup> Groups =
     [
         DiffAssemblyFixtures,
+        MetadataMethodImplFixtureGroup,
         AnalysisFixtures,
         DecompilerFixtures,
         DecompilerAsyncLoweringFixtures,
@@ -1409,6 +1438,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.MethodImplContracts" =>
+                "fixtures/metadata/ILInspector.Metadata.MethodImplContracts",
+            "ILInspector.Metadata.MethodImplFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.MethodImplFixtures",
             "ILInspector.Metadata.PublicMethodRootFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
             "ILInspector.Metadata.TypeDependencyConsumer" =>

@@ -87,7 +87,7 @@ public sealed class AssemblyInspectionSession :
     public static AssemblyInspectionSession Borrow(PdbContext context)
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
 
-    internal MetadataDeclarationSession CreateDeclarationSession(
+    public MetadataDeclarationSession CreateDeclarationSession(
         MetadataOperationContext operationContext)
     {
         ArgumentNullException.ThrowIfNull(operationContext);

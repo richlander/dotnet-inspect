@@ -430,7 +430,7 @@ public static class SignatureBlobGuard
         {
             case ElementTypeCmodReqd:
             case ElementTypeCmodOpt:
-                blob.ReadTypeHandle();               // modifier's TypeDefOrRefOrSpec token
+                ReadTypeDefOrRefOrSpec(ref blob);
                 return PushType(
                     work,
                     depth + 1,
@@ -467,7 +467,7 @@ public static class SignatureBlobGuard
                     byte genericTypeCode = blob.ReadByte();
                     if (genericTypeCode is not (ElementTypeClass or ElementTypeValueType))
                         return true;
-                    blob.ReadTypeHandle();
+                    ReadTypeDefOrRefOrSpec(ref blob);
                     int args = blob.ReadCompressedInteger();
                     return PushTypes(
                         work,
@@ -489,7 +489,7 @@ public static class SignatureBlobGuard
 
             case ElementTypeClass:
             case ElementTypeValueType:
-                blob.ReadTypeHandle();
+                ReadTypeDefOrRefOrSpec(ref blob);
                 return false;
 
             case ElementTypeVar:
@@ -501,6 +501,18 @@ public static class SignatureBlobGuard
                 // Primitive / VOID / OBJECT / STRING / TYPEDBYREF / I / U and anything else:
                 // a leaf that consumes no further bytes here.
                 return false;
+        }
+
+        static void ReadTypeDefOrRefOrSpec(ref BlobReader blob)
+        {
+            int encoded = blob.ReadCompressedInteger();
+            int row = encoded >> 2;
+            int tag = encoded & 3;
+            if (row <= 0 || tag > 2)
+            {
+                throw new BadImageFormatException(
+                    "The signature contains an invalid TypeDefOrRefOrSpec encoding.");
+            }
         }
 
     }

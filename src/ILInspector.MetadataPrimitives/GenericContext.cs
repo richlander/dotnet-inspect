@@ -63,7 +63,11 @@ public class GenericContext
         TypeDefinition typeDef,
         Action<int>? beforeMaterialize)
     {
-        ValidateDeclaringTypeParameterCounts(reader, typeDef);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow: null,
+            preserveRelationshipRejection: false);
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
@@ -75,16 +79,68 @@ public class GenericContext
     /// Creates a context for a method definition (type + method parameters).
     /// </summary>
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
+        => ForMethod(
+            reader,
+            typeDef,
+            methodDef,
+            beforeMaterialize: null);
+
+    /// <summary>
+    /// Creates a context for a method definition while observing encoded
+    /// generic-parameter name work before materialization.
+    /// </summary>
+    public static GenericContext ForMethod(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize)
     {
-        ValidateDeclaringTypeParameterCounts(reader, typeDef);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow: null,
+            preserveRelationshipRejection: false);
+        return CreateMethodContext(
+            reader,
+            typeDef,
+            methodDef,
+            beforeMaterialize);
+    }
+
+    internal static GenericContext ForMethodWithRelationshipObserver(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize,
+        Action<EntityHandle> beforeRelationshipFollow)
+    {
+        ArgumentNullException.ThrowIfNull(beforeRelationshipFollow);
+        ValidateDeclaringTypeParameterCounts(
+            reader,
+            typeDef,
+            beforeRelationshipFollow,
+            preserveRelationshipRejection: true);
+        return CreateMethodContext(
+            reader,
+            typeDef,
+            methodDef,
+            beforeMaterialize);
+    }
+
+    static GenericContext CreateMethodContext(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition methodDef,
+        Action<int>? beforeMaterialize)
+    {
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
-            beforeMaterialize: null);
+            beforeMaterialize);
         var methodParameters = ReadParameters(
             reader,
             methodDef.GetGenericParameters(),
-            beforeMaterialize: null);
+            beforeMaterialize);
         return new GenericContext(
             typeParameters.Names,
             methodParameters.Names,
@@ -94,7 +150,9 @@ public class GenericContext
 
     static void ValidateDeclaringTypeParameterCounts(
         MetadataReader reader,
-        TypeDefinition typeDef)
+        TypeDefinition typeDef,
+        Action<EntityHandle>? beforeRelationshipFollow,
+        bool preserveRelationshipRejection)
     {
         TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
         if (declaringType.IsNil)
@@ -110,10 +168,17 @@ public class GenericContext
                     chain,
                     out int consumed,
                     out EntityHandle terminal,
-                    out RelationshipTraversalRejection? rejection)
+                    out RelationshipTraversalRejection? rejection,
+                    beforeRelationshipFollow)
             || consumed == 0
             || !terminal.IsNil)
         {
+            if (preserveRelationshipRejection
+                && rejection is not null)
+            {
+                throw new GenericContextRelationshipRejectedException(
+                    rejection);
+            }
             throw new BadImageFormatException(
                 rejection?.Detail
                     ?? "The type has an invalid declaring-type chain.");
@@ -225,4 +290,10 @@ public class GenericContext
 
     static bool HasValueTypeConstraint(IReadOnlyList<bool> constraints, int index)
         => index >= 0 && index < constraints.Count && constraints[index];
+}
+
+internal sealed class GenericContextRelationshipRejectedException(
+    RelationshipTraversalRejection rejection) : Exception(rejection.Detail)
+{
+    internal RelationshipTraversalRejection Rejection { get; } = rejection;
 }

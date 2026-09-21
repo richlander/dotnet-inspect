@@ -40,9 +40,12 @@ public sealed class MetadataTypeDefinitionIndex
             return Create(
                 reader,
                 definitionVisited: null,
-                beforeMaterialize: null);
+                beforeRelationshipFollow: null,
+                beforeMaterialize: null,
+                beforeCreateNode: null,
+                beforeRetainText: null);
         }
-        catch (MetadataTypeDefinitionIndexBudgetException ex)
+        catch (MetadataTypeDefinitionIndexFailureException ex)
         {
             throw new BadImageFormatException(ex.Message, ex);
         }
@@ -51,12 +54,18 @@ public sealed class MetadataTypeDefinitionIndex
     internal static MetadataTypeDefinitionIndex Create(
         MetadataReader reader,
         Action<TypeDefinitionHandle>? definitionVisited,
-        Action<int>? beforeMaterialize = null)
+        Action<TypeDefinitionHandle>? beforeRelationshipFollow = null,
+        Action<int>? beforeMaterialize = null,
+        Action? beforeCreateNode = null,
+        Action<int>? beforeRetainText = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         int rowCount = reader.GetTableRowCount(TableIndex.TypeDef);
+        beforeCreateNode?.Invoke();
         var nodeByRow = new int[rowCount + 1];
+        beforeCreateNode?.Invoke();
         var nodesByKey = new Dictionary<NodeKey, int>();
+        beforeCreateNode?.Invoke();
         var nodes = new List<MutableIndexedNode>
         {
             default,
@@ -82,7 +91,10 @@ public sealed class MetadataTypeDefinitionIndex
             {
                 int currentRow = MetadataTokens.GetRowNumber(current);
                 if ((uint)currentRow >= (uint)nodeByRow.Length)
-                    throw MalformedIndex();
+                    throw IndexFailure(
+                        MetadataTypeDefinitionIndexFailureKind
+                            .MalformedMetadata,
+                        current);
                 if (nodeByRow[currentRow] is int existing
                     && existing != 0)
                 {
@@ -92,14 +104,24 @@ public sealed class MetadataTypeDefinitionIndex
                 for (int i = 0; i < count; i++)
                 {
                     if (path[i] == current)
-                        throw MalformedIndex();
+                    {
+                        throw IndexFailure(
+                            MetadataTypeDefinitionIndexFailureKind.Cycle,
+                            current);
+                    }
                 }
                 if (count == path.Length)
-                    throw MalformedIndex();
+                {
+                    throw IndexFailure(
+                        MetadataTypeDefinitionIndexFailureKind
+                            .BudgetExceeded,
+                        current);
+                }
 
                 path[count++] = current;
                 try
                 {
+                    beforeRelationshipFollow?.Invoke(current);
                     current = reader.GetTypeDefinition(current)
                         .GetDeclaringType();
                 }
@@ -107,7 +129,11 @@ public sealed class MetadataTypeDefinitionIndex
                     when (ex is BadImageFormatException
                         or ArgumentOutOfRangeException)
                 {
-                    throw MalformedIndex(ex);
+                    throw IndexFailure(
+                        MetadataTypeDefinitionIndexFailureKind
+                            .MalformedMetadata,
+                        current,
+                        ex);
                 }
             }
 
@@ -117,7 +143,10 @@ public sealed class MetadataTypeDefinitionIndex
             if (parentDepth + count
                 > MetadataSafetyPolicy.MaxRelationshipNodes)
             {
-                throw MalformedIndex();
+                throw IndexFailure(
+                    MetadataTypeDefinitionIndexFailureKind
+                        .BudgetExceeded,
+                    handle);
             }
 
             for (int i = count - 1; i >= 0; i--)
@@ -133,20 +162,47 @@ public sealed class MetadataTypeDefinitionIndex
                     when (ex is BadImageFormatException
                         or ArgumentOutOfRangeException)
                 {
-                    throw MalformedIndex(ex);
+                    throw IndexFailure(
+                        MetadataTypeDefinitionIndexFailureKind
+                            .MalformedMetadata,
+                        definitionHandle,
+                        ex);
+                }
+
+                StringHandle nameHandle;
+                StringHandle namespaceHandle = default;
+                try
+                {
+                    nameHandle = definition.Name;
+                    if (parentNode == 0)
+                        namespaceHandle = definition.Namespace;
+                }
+                catch (Exception ex)
+                    when (ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    throw IndexFailure(
+                        MetadataTypeDefinitionIndexFailureKind
+                            .MalformedMetadata,
+                        definitionHandle,
+                        ex);
                 }
 
                 string name = ReadBounded(
                     reader,
-                    definition.Name,
+                    definitionHandle,
+                    nameHandle,
                     ref remainingWork,
-                    beforeMaterialize);
+                    beforeMaterialize,
+                    beforeRetainText);
                 string @namespace = parentNode == 0
                     ? ReadBounded(
                         reader,
-                        definition.Namespace,
+                        definitionHandle,
+                        namespaceHandle,
                         ref remainingWork,
                         beforeMaterialize,
+                        beforeRetainText,
                         allowEmpty: true)
                     : "";
                 var key = new NodeKey(
@@ -158,7 +214,11 @@ public sealed class MetadataTypeDefinitionIndex
                         out int existingNode))
                 {
                     MutableIndexedNode existing = nodes[existingNode];
-                    existing.AdditionalHandles ??= [];
+                    if (existing.AdditionalHandles is null)
+                    {
+                        beforeCreateNode?.Invoke();
+                        existing.AdditionalHandles = [];
+                    }
                     existing.AdditionalHandles.Add(
                         definitionHandle);
                     nodes[existingNode] = existing;
@@ -166,6 +226,7 @@ public sealed class MetadataTypeDefinitionIndex
                 }
                 else
                 {
+                    beforeCreateNode?.Invoke();
                     parentNode = nodes.Count;
                     nodesByKey.Add(key, parentNode);
                     nodes.Add(new(
@@ -178,9 +239,11 @@ public sealed class MetadataTypeDefinitionIndex
             }
         }
 
+        beforeCreateNode?.Invoke();
         var immutableNodes = new IndexedNode[nodes.Count];
         for (int i = 1; i < nodes.Count; i++)
         {
+            beforeCreateNode?.Invoke();
             MutableIndexedNode node = nodes[i];
             ImmutableArray<TypeDefinitionHandle> handles;
             if (node.AdditionalHandles is null)
@@ -189,6 +252,7 @@ public sealed class MetadataTypeDefinitionIndex
             }
             else
             {
+                beforeCreateNode?.Invoke();
                 var builder =
                     ImmutableArray.CreateBuilder<TypeDefinitionHandle>(
                         node.AdditionalHandles.Count + 1);
@@ -259,39 +323,84 @@ public sealed class MetadataTypeDefinitionIndex
 
     static string ReadBounded(
         MetadataReader reader,
+        TypeDefinitionHandle subject,
         StringHandle handle,
         ref long remainingWork,
         Action<int>? beforeMaterialize,
+        Action<int>? beforeRetainText,
         bool allowEmpty = false)
     {
+        int charge;
         try
         {
-            int charge = reader.GetBlobReader(handle).Length;
-            if ((!allowEmpty && charge == 0)
-                || charge > MetadataSafetyPolicy.MaxTypeNameCharacters)
-            {
-                throw MalformedIndex();
-            }
-            remainingWork -= Math.Max(charge, 1);
-            if (remainingWork < 0)
-            {
-                throw new MetadataTypeDefinitionIndexBudgetException(
-                    "The TypeDef name index exceeded its structural-name "
-                    + "work budget.");
-            }
-            beforeMaterialize?.Invoke(charge);
+            charge = reader.GetBlobReader(handle).Length;
+        }
+        catch (Exception ex)
+            when (ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            throw IndexFailure(
+                MetadataTypeDefinitionIndexFailureKind
+                    .MalformedMetadata,
+                subject,
+                ex);
+        }
+        if (!allowEmpty && charge == 0)
+        {
+            throw IndexFailure(
+                MetadataTypeDefinitionIndexFailureKind
+                    .MalformedMetadata,
+                subject);
+        }
+        if (charge > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            throw IndexFailure(
+                MetadataTypeDefinitionIndexFailureKind
+                    .BudgetExceeded,
+                subject);
+        }
+        remainingWork -= Math.Max(charge, 1);
+        if (remainingWork < 0)
+        {
+            throw IndexFailure(
+                MetadataTypeDefinitionIndexFailureKind
+                    .BudgetExceeded,
+                subject);
+        }
+        beforeRetainText?.Invoke(charge);
+        beforeMaterialize?.Invoke(charge);
+        try
+        {
             return reader.GetString(handle);
         }
         catch (Exception ex)
-            when (ex is ArgumentOutOfRangeException)
+            when (ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
         {
-            throw MalformedIndex(ex);
+            throw IndexFailure(
+                MetadataTypeDefinitionIndexFailureKind
+                    .MalformedMetadata,
+                subject,
+                ex);
         }
     }
 
-    static BadImageFormatException MalformedIndex(
+    static MetadataTypeDefinitionIndexFailureException IndexFailure(
+        MetadataTypeDefinitionIndexFailureKind kind,
+        EntityHandle subject,
         Exception? inner = null) =>
-        new("A TypeDef name could not be indexed.", inner);
+        new(
+            kind,
+            subject,
+            kind switch
+            {
+                MetadataTypeDefinitionIndexFailureKind.Cycle =>
+                    "The TypeDef declaring-type graph contains a cycle.",
+                MetadataTypeDefinitionIndexFailureKind.BudgetExceeded =>
+                    "The TypeDef name index exceeded its structural budget.",
+                _ => "A TypeDef name could not be indexed.",
+            },
+            inner);
 
     readonly record struct NodeKey(
         int Parent,
@@ -315,5 +424,19 @@ public sealed class MetadataTypeDefinitionIndex
     }
 }
 
-internal sealed class MetadataTypeDefinitionIndexBudgetException(
-    string message) : BadImageFormatException(message);
+internal enum MetadataTypeDefinitionIndexFailureKind
+{
+    Cycle,
+    BudgetExceeded,
+    MalformedMetadata,
+}
+
+internal sealed class MetadataTypeDefinitionIndexFailureException(
+    MetadataTypeDefinitionIndexFailureKind kind,
+    EntityHandle subject,
+    string message,
+    Exception? inner = null) : BadImageFormatException(message, inner)
+{
+    internal MetadataTypeDefinitionIndexFailureKind Kind { get; } = kind;
+    internal EntityHandle Subject { get; } = subject;
+}

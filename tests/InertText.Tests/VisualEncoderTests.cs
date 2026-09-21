@@ -33,8 +33,35 @@ public class VisualEncoderTests
         InertString encoded = VisualEncoder.Encode(TextPolicy.Field, original);
 
         Assert.Equal("a\\u202Eb", encoded.ToString());
+        Assert.Equal(
+            encoded.Length,
+            VisualEncoder.MeasureEncodedLength(
+                TextPolicy.Field,
+                original));
         Assert.True(VisualEncoder.TryDecode(encoded.ToString().AsSpan(), out string? decoded));
         Assert.Equal("a\u202Eb", decoded);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("plain")]
+    [InlineData("a\\b")]
+    [InlineData("\\u202E")]
+    [InlineData("a\u0001b")]
+    [InlineData("a\u007Fb")]
+    [InlineData("a\u202Eb")]
+    [InlineData("a\U00013430b")]
+    [InlineData("a\uD800b")]
+    public void MeasureEncodedLength_MatchesEncoder(string value)
+    {
+        InertString encoded =
+            VisualEncoder.Encode(TextPolicy.Field, value);
+
+        Assert.Equal(
+            encoded.Length,
+            VisualEncoder.MeasureEncodedLength(
+                TextPolicy.Field,
+                value));
     }
 
     [Fact]
@@ -52,6 +79,11 @@ public class VisualEncoderTests
             string original = new Rune(cp).ToString();
             string encoded = new InertString(TextPolicy.Field, original).ToString();
 
+            Assert.Equal(
+                encoded.Length,
+                VisualEncoder.MeasureEncodedLength(
+                    TextPolicy.Field,
+                    original));
             Assert.True(
                 VisualEncoder.TryDecode(encoded, out string? decoded),
                 $"U+{cp:X4} encoded as '{encoded}' and did not decode");
@@ -68,6 +100,11 @@ public class VisualEncoderTests
             string encoded = new InertString(TextPolicy.Field, original).ToString();
 
             Assert.NotEqual(original, encoded);
+            Assert.Equal(
+                encoded.Length,
+                VisualEncoder.MeasureEncodedLength(
+                    TextPolicy.Field,
+                    original));
             Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded), encoded);
             Assert.Equal(original, decoded);
         }
@@ -88,6 +125,11 @@ public class VisualEncoderTests
         {
             string encoded = new InertString(TextPolicy.Field, original).ToString();
 
+            Assert.Equal(
+                encoded.Length,
+                VisualEncoder.MeasureEncodedLength(
+                    TextPolicy.Field,
+                    original));
             Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded), encoded);
             Assert.Equal(original, decoded);
 

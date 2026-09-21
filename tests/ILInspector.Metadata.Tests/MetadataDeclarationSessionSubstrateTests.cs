@@ -282,29 +282,20 @@ public class MetadataDeclarationSessionSubstrateTests
     }
 
     [Fact]
-    public void Factory_AcceptsOnlyOwnerBackedSessionState()
+    public void Factory_OwnsConstructionAndRequiresOperationContext()
     {
-        MethodInfo factory =
-            typeof(AssemblyInspectionSession).GetMethod(
-                "CreateDeclarationSession",
-                BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException(
-                "The declaration-session factory was not found.");
+        using var assemblySession =
+            AssemblyInspectionSession.Open(SelfPath);
+        using var operationContext =
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarationSession =
+            assemblySession.CreateDeclarationSession(operationContext);
 
-        ParameterInfo parameter = Assert.Single(factory.GetParameters());
-        Assert.Equal(typeof(MetadataOperationContext), parameter.ParameterType);
-        Assert.Equal(
-            typeof(MetadataDeclarationSession),
-            factory.ReturnType);
-
-        ConstructorInfo constructor =
-            Assert.Single(
-                typeof(MetadataDeclarationSession).GetConstructors(
-                    BindingFlags.Instance | BindingFlags.NonPublic));
-        Assert.Equal(
-            [typeof(AssemblyInspectionSession), typeof(MetadataOperationContext)],
-            constructor.GetParameters()
-                .Select(parameterInfo => parameterInfo.ParameterType));
+        Assert.NotNull(declarationSession.ImageAdmission);
+        Assert.Empty(
+            typeof(MetadataDeclarationSession).GetConstructors(
+                BindingFlags.Instance | BindingFlags.Public));
     }
 
     [Fact]
@@ -316,6 +307,16 @@ public class MetadataDeclarationSessionSubstrateTests
             typeof(MetadataImageAdmissionResult.Rejected),
             typeof(MetadataOperationFailure),
             typeof(MetadataOperationCounters),
+            typeof(MetadataMethodImplementationResult.Related),
+            typeof(MetadataMethodImplementationResult.Absent),
+            typeof(MetadataMethodImplementationResult.Rejected),
+            typeof(MetadataMethodImplementationFailure),
+            typeof(MetadataMethodImplementationCertificate),
+            typeof(MetadataMethodSignatureIdentity),
+            typeof(MetadataTypeScopeIdentity),
+            typeof(MetadataNamedTypeIdentity),
+            typeof(MetadataDeclarationDefinitionDisposition.LocalResolved),
+            typeof(MetadataDeclarationDefinitionDisposition.ExternalUnresolved),
         ];
         Type[] forbiddenTypes =
         [
