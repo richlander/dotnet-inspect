@@ -14,6 +14,80 @@ public sealed class PdbLocalDeclarationScopeTests
     static readonly MethodRef StringValue = new(
         Owner, "get_Value", String, [], HasThis: true);
 
+    [Fact]
+    public void LocalDeclarationPlan_OwnsOnlyMaterializedLocals()
+    {
+        var nested = new Block();
+        var localStore = new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32));
+        nested.Add(localStore);
+        nested.Add(Observe(0));
+        var entry = new Block();
+        var stackStore = new StoreStackSlot(
+            0,
+            new Constant(2, Int32));
+        entry.Add(stackStore);
+        entry.Add(new ExpressionStatement(
+            new LoadStackSlot(0, Int32)));
+        entry.Add(nested);
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32],
+            body)
+        {
+            LocalDeclaredInNestedScope = [true],
+        };
+
+        var plan = LocalDeclarationPlan.Create(function, 1);
+
+        Assert.Contains(localStore, plan.DeclaringNodes);
+        Assert.DoesNotContain(stackStore, plan.DeclaringNodes);
+        Assert.Same(nested, plan.DeclarationScopes[0]);
+    }
+
+    [Fact]
+    public void LocalDeclarationPlan_PlansRaisedLambdaBody()
+    {
+        var lambdaBody = new BlockContainer();
+        var lambdaEntry = new Block();
+        lambdaEntry.Add(new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32)));
+        lambdaEntry.Add(Observe(0));
+        lambdaBody.Add(lambdaEntry);
+        var lambda = new Lambda(
+            TypeRef.CoreLib("System", "Action"),
+            [],
+            [Int32],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+
+        var plan = LocalDeclarationPlan.Create(lambda, 1);
+
+        Assert.Contains(
+            plan.DeclaringNodes,
+            node => node is StoreLocal { Index: 0 });
+        Assert.All(
+            plan.DeclaringNodes.OfType<StoreLocal>()
+                .SelectMany(store =>
+                    IrFunction.LocalSlotReferencesInScope(
+                        store.Parent!,
+                        store.Index)),
+            reference => Assert.True(
+                ExactLocalNameAllocation.Contains(
+                    plan.DeclarationScopes[0],
+                    reference)));
+    }
+
     [Theory]
     [InlineData(nameof(PdbScopeFixtures.DisjointScopeLocals))]
     [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocals))]
@@ -757,7 +831,8 @@ public sealed class PdbLocalDeclarationScopeTests
             LocalDeclaredInNestedScope = [true, true],
         };
 
-        var initialScopes = CSharpPrinter.LocalDeclarationScopes(function, 2);
+        var initialScopes =
+            LocalDeclarationPlan.Create(function, 2).DeclarationScopes;
         Assert.Same(initialScopes[0], initialScopes[1]);
 
         new PdbLocalScopePass().Run(function, PassContext.None);

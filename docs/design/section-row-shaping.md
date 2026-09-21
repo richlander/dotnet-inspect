@@ -32,10 +32,18 @@ row-query execution applies predicates and baseline order per sequence, then
 invokes semantic selection once across the cohort while preserving
 request-wide sequence keys.
 
-Projection, source dispositions and completion evidence, the complete Sections
-resolution-failure algebra, multiple association instances, and Graph
-Libraries adoption remain unimplemented. The complete-source subset rejects
-malformed composition with exceptions before execution; it does not yet
+The source-outcome slice in
+[#8139](https://github.com/richlander/dotnet-inspect/issues/8139) binds one
+opaque owner-issued disposition/completion-evidence pair and the independent
+Rows-usability and Count-sufficiency decisions to every participating row set.
+Only Rows-usable sets enter residual cohorts. Rows retain selected values or a
+source-only outcome in declaration order; any Count-insufficient source
+returns every source outcome before residual execution and no cardinality.
+
+Projection, the complete Sections resolution-failure algebra, multiple
+association instances, accepted upstream Count without a row handoff, and
+Graph Libraries adoption remain unimplemented. The implemented subsets reject
+malformed composition with exceptions before execution; they do not yet
 satisfy the design's complete structured-failure or resolution-order
 contracts.
 The `DotnetInspector.Sections`-owned
