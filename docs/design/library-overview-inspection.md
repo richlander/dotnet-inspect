@@ -39,9 +39,8 @@ This owner composes existing contracts without redefining them:
 - [Host-observable content kinds](host-observable-content-kinds.md) owns
   Result, Document, and Outcome semantics.
 - [View Facet Registry](view-facet-registry.md) owns canonical facet identity
-  and the closed registration set; focused issue
-  [#8093](https://github.com/richlander/dotnet-inspect/issues/8093) issues the
-  Library-overview facet consumed here.
+  and the closed registration set. It is adjacent future Share work, not an
+  input to this first operation.
 
 ## Product question
 
@@ -91,8 +90,7 @@ envelope crosses the boundary.
 `LibraryOverviewRequest` names:
 
 - the exact `LibraryReference`;
-- explicit finite API-surface extraction bounds; and
-- the fixed canonical Library-overview facet used by Share projection.
+- explicit finite API-surface extraction bounds.
 
 The initial request has one Execute purpose. It does not expose section names,
 verbosity, fields, columns, row windows, output format, or Browser navigation.
@@ -236,17 +234,19 @@ child lease.
 ## Share
 
 Every envelope carries one `InspectionShare` for the same overview request.
+This first operation always returns `NonProjectable` with the owner-scoped path
+`library-overview/share` and a contained reason that no complete portable
+Workspace scenario was supplied.
 
-Package and Platform source coordinates may project an available Workspace
-scenario only through Workspace Definitions. The projection retains the exact
-portable source coordinate, context, selected Library, and canonical Library
-overview facet. It does not serialize result counts, diagnostics, content
-bytes, credentials, or operation authority.
+The operation does not derive available Share from
+`LibraryReference.SourceCoordinate`. That coordinate intentionally omits
+framework, RID, Platform version/view, and Workspace occurrence, while direct
+Libraries have no portable source coordinate. None of those cases supplies
+enough information to restore the same exact Library.
 
-A direct Library has no portable source coordinate. Its initial Share outcome
-is therefore `NonProjectable` with an owner-scoped path and contained reason.
-The operation never serializes a local path or process-local Artifact identity
-to manufacture a packet.
+The operation never serializes a local path, process-local Artifact identity,
+partial source coordinate, result counts, diagnostics, content bytes,
+credentials, or operation authority to manufacture a packet.
 
 An unavailable Share does not alter independently valid overview Content.
 
@@ -303,24 +303,38 @@ shortened or empty Document.
 
 ## Production adoption
 
-The complete adoption has seven owner-scoped steps:
+The complete initial operation adoption has six owner-scoped steps:
 
 1. Lock this focused operation design.
-2. Issue and register the canonical Library-overview facet under #8093 and the
-   View Facet Registry owner.
-3. Implement the request, portable outcome and Document, envelope assembly,
-   Share projection, diagnostics, and lease settlement in
+2. Implement the request, portable outcome and Document, envelope assembly,
+   required non-projectable Share, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
-4. Adopt the operation for one ordinary direct-file CLI Library overview
+3. Adopt the operation for one ordinary direct-file CLI Library overview
    through direct-Library realization and an ephemeral Workspace.
-5. Adopt the same operation for the PackageHouse CLI route.
-6. Adopt the same operation for the PlatformHouse CLI route.
-7. Consume the same envelope in Inspect Web's Library overview, then retire
+4. Adopt the same operation for the PackageHouse CLI route.
+5. Adopt the same operation for the PlatformHouse CLI route.
+6. Consume the same envelope in Inspect Web's Library overview, then retire
    the covered CLI-owned overview construction and direct serialization.
 
 The remaining ordinary Library sections migrate under #8088 by their own
 semantic owners. This design does not make their legacy implementation
 conforming.
+
+Available Library-overview Share is a separate four-step sequence under #8088:
+
+1. #7746 supplies the landed selected-context Package Library scenario.
+2. #8093 issues the canonical Library-overview facet through the View Facet
+   Registry owner.
+3. #8095 extends portable active-Library descendants to exact Platform rows
+   through Workspace Definitions.
+4. A later focused L2 adoption consumes one complete owner-issued Share plan
+   associated with the exact overview request and replaces `NonProjectable`
+   only for faithfully projectable scenarios.
+
+That later adoption must define the typed association between the complete
+Workspace scenario and exact Library request. This design does not accept
+loose framework, RID, Platform, navigation, or packet fields and does not let a
+host inject an arbitrary `InspectionShare`.
 
 Markout is the intended ordinary CLI rendering substrate. The implementation
 and host-adoption slices define typed views and generated serializers; this
@@ -344,7 +358,8 @@ The design remains **unverified** until Release gates prove:
   and empty MVID remain typed;
 - every returned shape is resource-free and source-generated JSON
   serialization succeeds under NativeAOT;
-- direct source returns a truthful non-projectable Share outcome;
+- direct, package, and Platform sources initially return the same truthful
+  non-projectable Share outcome;
 - package and Platform adoption preserve the same overview Content for the
   same Library bytes; and
 - CLI and Inspect Web consume equal baseline envelopes for an equivalent
@@ -366,6 +381,7 @@ This owner does not define:
   Documentation, ecosystem, or Finding semantics;
 - CLI syntax, default verbosity, Browser navigation, rendering, or JSON
   transport;
+- available Share projection or its Workspace/request association;
 - a portable representation for direct local files; or
 - a generic inspection operation, outcome, diagnostic, or extension
   dictionary.
