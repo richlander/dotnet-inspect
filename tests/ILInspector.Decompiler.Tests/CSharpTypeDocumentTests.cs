@@ -86,6 +86,60 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_RejectsAggregateNodeBudgetExhaustion()
+    {
+        var input = Input();
+        IEnumerable<CSharpTypePhysicalArtifact> artifacts = Enumerable.Repeat(
+            input.Artifacts[0],
+            CSharpTypeDocument.MaxDocumentNodes + 1);
+
+        Assert.Throws<ArgumentException>(() => CSharpTypeDocument.Create(
+            input.TypeName,
+            input.TypeAddress,
+            input.Source,
+            input.Frame,
+            artifacts,
+            input.Bodies,
+            input.Declarations));
+    }
+
+    [Fact]
+    public void Create_RequiresBodiesToBelongToTheTypeDefModule()
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            Address = input.Bodies[0].Address with
+            {
+                ModuleVersionId = Guid.NewGuid(),
+            },
+        };
+
+        Assert.Throws<ArgumentException>(() => Create(input));
+    }
+
+    [Theory]
+    [InlineData(CSharpTypeBodyOutcome.Available, DecompilationFidelity.Failed)]
+    [InlineData(CSharpTypeBodyOutcome.Available, null)]
+    [InlineData(CSharpTypeBodyOutcome.Failed, DecompilationFidelity.Full)]
+    [InlineData(CSharpTypeBodyOutcome.Unavailable, DecompilationFidelity.Partial)]
+    [InlineData(CSharpTypeBodyOutcome.NoBody, DecompilationFidelity.Full)]
+    public void Create_RejectsInvalidBodyOutcomeAndFidelity(
+        CSharpTypeBodyOutcome outcome,
+        DecompilationFidelity? fidelity)
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            HasManagedBody = outcome != CSharpTypeBodyOutcome.NoBody,
+            Outcome = outcome,
+            Fidelity = fidelity,
+        };
+
+        Assert.Throws<ArgumentException>(() => Create(input));
+    }
+
+    [Fact]
     public void Revision_IsStableAndCoversRenderPlansAndBodyEvidence()
     {
         CSharpTypeDocument first = Create(Input());
@@ -141,6 +195,9 @@ public class CSharpTypeDocumentTests
         stale["source"]!["rendering_policy"] = "changed-policy";
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(stale.ToJsonString()));
+
+        Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
+            new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));
     }
 
     [Fact]

@@ -14,6 +14,8 @@ namespace ILInspector.Decompiler;
 public static class CSharpTypeDocumentJson
 {
     const int SchemaVersion = 1;
+    internal const int MaxSerializedCharacters =
+        MetadataSafetyPolicy.MaxStructuralSignatureWorkChars * 8;
     const string ContractError =
         "Structured C# Type document JSON violates the wire contract.";
 
@@ -38,6 +40,11 @@ public static class CSharpTypeDocumentJson
     public static CSharpTypeDocument Deserialize(string json)
     {
         ArgumentNullException.ThrowIfNull(json);
+        if (json.Length > MaxSerializedCharacters)
+        {
+            throw new JsonException(
+                "Structured C# Type document JSON exceeds the input-size limit.");
+        }
         ValidateJsonShape(json);
         try
         {

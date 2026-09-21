@@ -208,6 +208,9 @@ internal sealed record CSharpTypeDocumentData(
 
 public sealed class CSharpTypeDocument
 {
+    internal const int MaxDocumentNodes =
+        MetadataSafetyPolicy.MaxSignatureTypeNodes;
+
     CSharpTypeDocument(
         CSharpTypeDocumentData data,
         CSharpDocumentRevision revision)
@@ -264,14 +267,15 @@ public sealed class CSharpTypeDocument
                 nameof(contractRelationships));
         }
 
+        var budget = new SnapshotBudget(MaxDocumentNodes);
         var data = new CSharpTypeDocumentData(
             typeName,
             typeAddress,
             SnapshotSource(source),
-            SnapshotFrame(frame),
-            SnapshotArtifacts(artifacts),
-            SnapshotBodies(bodies),
-            SnapshotDeclarations(declarations),
+            SnapshotFrame(frame, budget),
+            SnapshotArtifacts(artifacts, budget),
+            SnapshotBodies(bodies, budget),
+            SnapshotDeclarations(declarations, budget),
             contractRelationships);
         CSharpTypeDocumentValidator.Validate(data);
         return new CSharpTypeDocument(
@@ -293,63 +297,89 @@ public sealed class CSharpTypeDocument
     static CSharpTypeDocumentSource SnapshotSource(CSharpTypeDocumentSource source)
         => source with { };
 
-    static CSharpTypeFrame SnapshotFrame(CSharpTypeFrame frame)
+    static CSharpTypeFrame SnapshotFrame(
+        CSharpTypeFrame frame,
+        SnapshotBudget budget)
         => frame with
         {
-            PrefixParts = SnapshotParts(frame.PrefixParts),
+            PrefixParts = SnapshotParts(frame.PrefixParts, budget),
         };
 
     static ImmutableArray<CSharpTypePhysicalArtifact> SnapshotArtifacts(
-        IEnumerable<CSharpTypePhysicalArtifact> artifacts)
-        => [.. artifacts.Select(static artifact =>
+        IEnumerable<CSharpTypePhysicalArtifact> artifacts,
+        SnapshotBudget budget)
+    {
+        var builder = ImmutableArray.CreateBuilder<CSharpTypePhysicalArtifact>();
+        foreach (CSharpTypePhysicalArtifact artifact in artifacts)
         {
             ArgumentNullException.ThrowIfNull(artifact);
             ArgumentNullException.ThrowIfNull(artifact.Anchor);
             ArgumentNullException.ThrowIfNull(artifact.Representation);
-            return artifact with
+            budget.Charge();
+            builder.Add(artifact with
             {
                 Anchor = artifact.Anchor with { },
                 Representation = artifact.Representation with { },
-            };
-        })];
+            });
+        }
+        return builder.ToImmutable();
+    }
 
     static ImmutableArray<CSharpTypePhysicalBody> SnapshotBodies(
-        IEnumerable<CSharpTypePhysicalBody> bodies)
-        => [.. bodies.Select(static body =>
+        IEnumerable<CSharpTypePhysicalBody> bodies,
+        SnapshotBudget budget)
+    {
+        var builder = ImmutableArray.CreateBuilder<CSharpTypePhysicalBody>();
+        foreach (CSharpTypePhysicalBody body in bodies)
         {
             ArgumentNullException.ThrowIfNull(body);
-            return body with
+            budget.Charge();
+            budget.Charge(body.Diagnostics.IsDefault ? 0 : body.Diagnostics.Length);
+            builder.Add(body with
             {
                 Fingerprint = body.Fingerprint?.ToUpperInvariant()!,
                 Diagnostics = body.Diagnostics.IsDefault
                     ? []
                     : [.. body.Diagnostics],
-            };
-        })];
+            });
+        }
+        return builder.ToImmutable();
+    }
 
     static ImmutableArray<CSharpTypeDeclaration> SnapshotDeclarations(
-        IEnumerable<CSharpTypeDeclaration> declarations)
-        => [.. declarations.Select(static declaration =>
+        IEnumerable<CSharpTypeDeclaration> declarations,
+        SnapshotBudget budget)
+    {
+        var builder = ImmutableArray.CreateBuilder<CSharpTypeDeclaration>();
+        foreach (CSharpTypeDeclaration declaration in declarations)
         {
             ArgumentNullException.ThrowIfNull(declaration);
             ArgumentNullException.ThrowIfNull(declaration.Anchor);
-            return declaration with
+            budget.Charge();
+            builder.Add(declaration with
             {
                 Anchor = declaration.Anchor with { },
-                Parts = SnapshotParts(declaration.Parts),
-            };
-        })];
+                Parts = SnapshotParts(declaration.Parts, budget),
+            });
+        }
+        return builder.ToImmutable();
+    }
 
     static ImmutableArray<CSharpTypeRenderPart> SnapshotParts(
-        ImmutableArray<CSharpTypeRenderPart> parts)
+        ImmutableArray<CSharpTypeRenderPart> parts,
+        SnapshotBudget budget)
     {
         if (parts.IsDefault)
             throw new ArgumentException("Render parts must be initialized.", nameof(parts));
 
-        return [.. parts.Select(static part =>
+        var builder = ImmutableArray.CreateBuilder<CSharpTypeRenderPart>(parts.Length);
+        foreach (CSharpTypeRenderPart part in parts)
         {
             ArgumentNullException.ThrowIfNull(part);
-            return part with
+            budget.Charge();
+            budget.Charge(part.OwnedBodies.IsDefault ? 0 : part.OwnedBodies.Length);
+            budget.Charge(part.Contributions.IsDefault ? 0 : part.Contributions.Length);
+            builder.Add(part with
             {
                 OwnedBodies = part.OwnedBodies.IsDefault
                     ? []
@@ -365,8 +395,24 @@ public sealed class CSharpTypeDocument
                         ArgumentNullException.ThrowIfNull(contribution);
                         return contribution with { };
                     })],
-            };
-        })];
+            });
+        }
+        return builder.ToImmutable();
+    }
+
+    sealed class SnapshotBudget(int remaining)
+    {
+        int remainingNodes = remaining;
+
+        internal void Charge(int count = 1)
+        {
+            if (count < 0 || count > remainingNodes)
+            {
+                throw new ArgumentException(
+                    $"C# Type document exceeds the {MaxDocumentNodes} node budget.");
+            }
+            remainingNodes -= count;
+        }
     }
 }
 
@@ -382,7 +428,7 @@ static class CSharpTypeDocumentValidator
         ValidateParts(data.Frame.PrefixParts, "Type frame");
 
         ValidateArtifacts(data.Artifacts, data.Declarations.Length, data.Bodies.Length);
-        ValidateBodies(data.Bodies, data.Artifacts);
+        ValidateBodies(data.Bodies, data.Artifacts, data.TypeAddress.ModuleVersionId);
         ValidateArtifactBodyAssociations(data.Artifacts, data.Bodies);
         ValidateFrameBodyReferences(data.Frame, data.Bodies);
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
@@ -481,7 +527,8 @@ static class CSharpTypeDocumentValidator
 
     static void ValidateBodies(
         ImmutableArray<CSharpTypePhysicalBody> bodies,
-        ImmutableArray<CSharpTypePhysicalArtifact> artifacts)
+        ImmutableArray<CSharpTypePhysicalArtifact> artifacts,
+        Guid documentModuleVersionId)
     {
         if (bodies.IsDefault)
             throw new ArgumentException("Physical body inventory must be initialized.");
@@ -504,6 +551,11 @@ static class CSharpTypeDocumentValidator
                 throw new ArgumentException($"Physical body {body.Id} does not match its MethodDef artifact.");
             if (body.Address.ModuleVersionId == Guid.Empty)
                 throw new ArgumentException($"Physical body {body.Id} requires a non-empty MVID.");
+            if (body.Address.ModuleVersionId != documentModuleVersionId)
+            {
+                throw new ArgumentException(
+                    $"Physical body {body.Id} belongs to a different module than the document TypeDef.");
+            }
             if (!Enum.IsDefined(body.Role))
                 throw new ArgumentOutOfRangeException(nameof(body.Role));
             if (!Enum.IsDefined(body.Outcome))
@@ -514,10 +566,34 @@ static class CSharpTypeDocumentValidator
                 throw new ArgumentException($"Physical body {body.Id} cannot be both bodyless and managed.");
             if (body.Outcome != CSharpTypeBodyOutcome.NoBody && !body.HasManagedBody)
                 throw new ArgumentException($"Physical body {body.Id} without a managed body must use NoBody.");
+            ValidateBodyOutcomeAndFidelity(body);
             ValidateFingerprint(body.Fingerprint, $"Physical body {body.Id}");
             ValidateDiagnostics(body.Diagnostics, $"Physical body {body.Id}");
             if (!addresses.Add(body.Address))
                 throw new ArgumentException("Physical body addresses must be unique.");
+        }
+
+        static void ValidateBodyOutcomeAndFidelity(CSharpTypePhysicalBody body)
+        {
+            bool valid = body.Outcome switch
+            {
+                CSharpTypeBodyOutcome.Available =>
+                    body.Fidelity is DecompilationFidelity.IlOnly
+                        or DecompilationFidelity.StructuredOnly
+                        or DecompilationFidelity.Partial
+                        or DecompilationFidelity.Full,
+                CSharpTypeBodyOutcome.Failed =>
+                    body.Fidelity == DecompilationFidelity.Failed,
+                CSharpTypeBodyOutcome.Unavailable
+                    or CSharpTypeBodyOutcome.NoBody =>
+                    body.Fidelity is null,
+                _ => false,
+            };
+            if (!valid)
+            {
+                throw new ArgumentException(
+                    $"Physical body {body.Id} has an invalid outcome/fidelity combination.");
+            }
         }
     }
 
