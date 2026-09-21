@@ -554,7 +554,8 @@ public static class ApiSectionDemandIndex
             "Values",
             "Type Parameters",
             "Interfaces",
-            "Baseclass");
+            "Baseclass",
+            SectionNames.ApiDeclarations);
         Declare(
             declarations,
             InspectionTargetRequirement.MemberSet,

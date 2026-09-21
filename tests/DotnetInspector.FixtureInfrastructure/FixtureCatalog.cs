@@ -90,6 +90,8 @@ public static class FixtureIds
     public const string MatchBindingDependency = "cli.match-binding.dependency";
     public const string MatchBindingFacade = "cli.match-binding.facade";
     public const string MatchBindingImplementation = "cli.match-binding.implementation";
+    public const string AnalysisAsyncSiblingFriendBase =
+        "analysis.async-sibling.friend-base";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
     public const string AnalysisLocalThrows = "analysis.local-throws";
@@ -616,6 +618,16 @@ public static class FixtureCatalog
             FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "async-sibling", "friend-assembly");
 
+    public static readonly FixtureDefinition AnalysisAsyncSiblingFriendBase =
+        Fixture(
+            FixtureIds.AnalysisAsyncSiblingFriendBase,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyIdentity,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "analysis", "async-sibling", "friend-base");
+
     public static readonly FixtureDefinition AnalysisCrossAsmCollision = Fixture(
         FixtureIds.AnalysisCrossAsmCollision,
         "ILInspector.Analysis.CrossAsmCollisionFixtures",
@@ -1035,6 +1047,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphLookalikeCaller,
         AnalysisCallerGraphTarget,
         AnalysisCallerGraphTargetV2,
+        AnalysisAsyncSiblingFriendBase,
         AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
         AnalysisLocalThrows,
@@ -1456,6 +1469,7 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.InterfaceBase" => "fixtures/services/DotnetInspector.Services.RouteLearning.InterfaceBase",
             "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
             "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.CallerGraphCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCaller",
             "ILInspector.Analysis.CallerGraphCallerTwin" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin",

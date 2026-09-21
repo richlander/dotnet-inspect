@@ -747,6 +747,8 @@ public static partial class ApiSurfaceExtractor
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             MetadataTypeDefinitionName? owningTypeDefinition = null;
+            TypeAttributes? owningTypeAttributes = null;
+            TypeDefinitionHandle owningTypeParent = default;
             int publicMethodCount = surface.PublicMethodCount;
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
@@ -758,6 +760,8 @@ public static partial class ApiSurfaceExtractor
             {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             var attributes = typeDef.Attributes;
+            owningTypeAttributes = attributes;
+            owningTypeParent = typeDef.GetDeclaringType();
 
             budget?.BeginTypeCandidate();
             observeDecodeWork?.Invoke(
@@ -1769,6 +1773,18 @@ public static partial class ApiSurfaceExtractor
                         observeAttributeMaterialize)
                 };
 
+                if (!isEnum && member.IsConst)
+                {
+                    ConstantHandle constantHandle = field.GetDefaultValue();
+                    if (!constantHandle.IsNil)
+                    {
+                        member.ConstantValueLiteral =
+                            FormatFieldConstantLiteral(
+                                reader,
+                                reader.GetConstant(constantHandle));
+                    }
+                }
+
                 // Read enum constant value
                 if (isEnum && (field.Attributes & FieldAttributes.Literal) != 0)
                 {
@@ -2018,7 +2034,9 @@ public static partial class ApiSurfaceExtractor
                     typeDefHandle,
                     ex.Failure,
                     owningType: typeDefHandle,
-                    owningTypeDefinition: owningTypeDefinition);
+                    owningTypeParent: owningTypeParent,
+                    owningTypeDefinition: owningTypeDefinition,
+                    owningTypeAttributes: owningTypeAttributes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
@@ -2035,7 +2053,9 @@ public static partial class ApiSurfaceExtractor
                     typeDefHandle,
                     MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message),
                     owningType: typeDefHandle,
-                    owningTypeDefinition: owningTypeDefinition);
+                    owningTypeParent: owningTypeParent,
+                    owningTypeDefinition: owningTypeDefinition,
+                    owningTypeAttributes: owningTypeAttributes);
             }
         }
 
