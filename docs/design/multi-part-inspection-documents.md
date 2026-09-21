@@ -240,9 +240,11 @@ unprojected --format json
 ```
 
 The decoded unprojected `--format json` value equals `--envelope.content` under the
-owner's serializer. `--envelope` rejects section, row, field, column, Count,
-and competing format requests rather than ignoring them or filtering the
-already completed service value.
+owner's serializer. A focused command may require one exact section selector
+as an operation discriminator when the owner states that route explicitly; the
+selector must not filter or truncate Content. Otherwise `--envelope` rejects
+section projection, row, field, column, Count, and competing format requests
+rather than ignoring them or filtering the already completed service value.
 
 Typed section selection and Markout-lowered JSON retain the routing contract in
 [Projected JSON](projected-json.md). In particular, `-S` alone does not select

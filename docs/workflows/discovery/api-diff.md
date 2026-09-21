@@ -192,6 +192,26 @@ dotnet-inspect diff --package Foo@1.0.0..2.0.0 -S "Implementation Diff" --format
 
 Use `--format table`, `--format tsv`, or `--format jsonl` for columnar output.
 
+For one exact local Library pair, `--format json` emits the complete typed
+`ImplementationDiffDocument`; `--envelope` emits identical Content plus Share
+and diagnostics:
+
+```bash
+before=old/Foo.dll
+after=new/Foo.dll
+dotnet-inspect diff \
+  --library "$before..$after" \
+  -S "Implementation Diff" \
+  -t Foo.Widget \
+  --envelope
+```
+
+The complete document retains endpoint identity and provenance, structured C#
+and IL evidence, complexity changes, and coverage. Exact section selection
+chooses this operation rather than projecting Content. Package/platform
+endpoints, PDB Source, row windows, fields, columns, and alternate formats are
+not part of this complete transport.
+
 This is implementation evidence, not an API compatibility classification or a
 semantic-equivalence proof. Omit `-S "Implementation Diff"` to retain the
 default API diff.
