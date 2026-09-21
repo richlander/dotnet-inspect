@@ -536,11 +536,19 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
                     MetadataMethodImplementationStage.RequestValidation,
                     MetadataMethodImplementationMechanism.DirectOwnership,
                     RelevantHandle: bodyHandle);
-            MethodDefinition bodyDefinition =
+            (MethodDefinition bodyDefinition,
+                TypeDefinitionHandle bodyOwner) =
                 Read(
                     ownershipSite,
-                    () => _reader.GetMethodDefinition(bodyHandle));
-            if (bodyDefinition.GetDeclaringType() != typeHandle)
+                    () =>
+                    {
+                        MethodDefinition definition =
+                            _reader.GetMethodDefinition(bodyHandle);
+                        return (
+                            definition,
+                            definition.GetDeclaringType());
+                    });
+            if (bodyOwner != typeHandle)
             {
                 Reject(
                     ownershipSite,
@@ -752,13 +760,19 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
                 "A relevant MethodImpl declaration identifies an unreadable MethodDef row.");
         }
 
-        MethodDefinition declaration =
+        (MethodDefinition declaration,
+            TypeDefinitionHandle declarationOwner) =
             Read(
                 declarationSite,
-                () => _reader.GetMethodDefinition(
-                    declarationHandle));
-        TypeDefinitionHandle declarationOwner =
-            declaration.GetDeclaringType();
+                () =>
+                {
+                    MethodDefinition definition =
+                        _reader.GetMethodDefinition(
+                            declarationHandle);
+                    return (
+                        definition,
+                        definition.GetDeclaringType());
+                });
         if (!IsValid(declarationOwner))
         {
             Reject(
@@ -2403,6 +2417,14 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
                 },
                 reason,
                 ex.Rejection.Detail);
+        }
+        catch (GenericContextBudgetExceededException ex)
+        {
+            throw Rejection(
+                site,
+                MetadataMethodImplementationFailureReason
+                    .BudgetExceeded,
+                ex.Message);
         }
     }
 

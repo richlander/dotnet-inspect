@@ -71,7 +71,8 @@ public class GenericContext
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection: false);
         return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
     }
 
@@ -104,7 +105,8 @@ public class GenericContext
             reader,
             typeDef,
             methodDef,
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection: false);
     }
 
     internal static GenericContext ForMethodWithRelationshipObserver(
@@ -124,23 +126,27 @@ public class GenericContext
             reader,
             typeDef,
             methodDef,
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection: true);
     }
 
     static GenericContext CreateMethodContext(
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition methodDef,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        bool preserveBudgetRejection)
     {
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection);
         var methodParameters = ReadParameters(
             reader,
             methodDef.GetGenericParameters(),
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection);
         return new GenericContext(
             typeParameters.Names,
             methodParameters.Names,
@@ -221,7 +227,8 @@ public class GenericContext
         var methodParameters = ReadParameters(
             reader,
             methodDef.GetGenericParameters(),
-            beforeMaterialize);
+            beforeMaterialize,
+            preserveBudgetRejection: false);
         return new GenericContext(
             typeContext.TypeParameters,
             methodParameters.Names,
@@ -232,7 +239,8 @@ public class GenericContext
     static (List<string> Names, List<bool> ValueTypeConstraints) ReadParameters(
         MetadataReader reader,
         GenericParameterHandleCollection handles,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        bool preserveBudgetRejection)
     {
         if (handles.Count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
         {
@@ -253,15 +261,15 @@ public class GenericContext
             int encodedNameLength = reader.GetBlobReader(parameter.Name).Length;
             if (encodedNameLength > remainingNameLength)
             {
-                throw new BadImageFormatException(
-                    "The generic-parameter names exceed the metadata safety limit.");
+                throw GenericParameterNameBudgetExceeded(
+                    preserveBudgetRejection);
             }
             beforeMaterialize?.Invoke(encodedNameLength);
             string name = reader.GetString(parameter.Name);
             if (name.Length > remainingNameLength)
             {
-                throw new BadImageFormatException(
-                    "The generic-parameter names exceed the metadata safety limit.");
+                throw GenericParameterNameBudgetExceeded(
+                    preserveBudgetRejection);
             }
             totalNameLength += name.Length;
             names.Add(name);
@@ -270,6 +278,14 @@ public class GenericContext
         }
         return (names, valueTypeConstraints);
     }
+
+    static Exception GenericParameterNameBudgetExceeded(
+        bool preserveBudgetRejection) =>
+        preserveBudgetRejection
+            ? new GenericContextBudgetExceededException(
+                "The generic-parameter names exceed the metadata safety limit.")
+            : new BadImageFormatException(
+                "The generic-parameter names exceed the metadata safety limit.");
 
     public static void ValidateParameterIndices(
         MetadataReader reader,
@@ -297,3 +313,6 @@ internal sealed class GenericContextRelationshipRejectedException(
 {
     internal RelationshipTraversalRejection Rejection { get; } = rejection;
 }
+
+internal sealed class GenericContextBudgetExceededException(
+    string detail) : Exception(detail);

@@ -292,6 +292,61 @@ public sealed class MetadataMethodImplementationEvidenceTests
         Assert.Equal(1, rejected.Counters.RelationshipEdges);
     }
 
+    [Theory]
+    [InlineData(
+        false,
+        MetadataMethodImplementationStage.RequestValidation,
+        MetadataMethodImplementationMechanism.DirectOwnership)]
+    [InlineData(
+        true,
+        MetadataMethodImplementationStage.DeclarationRead,
+        MetadataMethodImplementationMechanism.RowRead)]
+    public void WideTypeDefinitionMethodListOwnershipIsTypedRejected(
+        bool declarationOwnership,
+        MetadataMethodImplementationStage expectedStage,
+        MetadataMethodImplementationMechanism expectedMechanism)
+    {
+        using Fixture fixture =
+            Fixture.CreateWideMalformedTypeDefinitionMethodList(
+                declarationOwnership);
+        using var assembly =
+            AssemblyInspectionSession.Open(fixture.Path);
+        using var operation =
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded);
+        using var declaration =
+            assembly.CreateDeclarationSession(operation);
+        Assert.IsType<MetadataImageAdmissionResult.Admitted>(
+            declaration.ImageAdmission);
+        MetadataReader reader =
+            assembly.GetMetadataReaderForDeclarationSession();
+
+        var rejected =
+            Assert.IsType<MetadataMethodImplementationResult.Rejected>(
+                declaration.Relate(
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        fixture.TargetType),
+                    MetadataMethodAddress.Create(
+                        reader,
+                        fixture.Body),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            MetadataMethodImplementationFailureReason.MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(expectedStage, rejected.Failure.Stage);
+        Assert.Equal(expectedMechanism, rejected.Failure.Mechanism);
+        Assert.Equal(
+            fixture.ExpectedFailureSubject,
+            rejected.Failure.RelevantHandle);
+        Assert.Equal(
+            declarationOwnership
+                ? MetadataTokens.MethodImplementationHandle(1)
+                : null,
+            rejected.Failure.RelevantRow);
+    }
+
     [Fact]
     public void MalformedWideMethodDefSignatureHandleIsTypedRejected()
     {
@@ -986,6 +1041,95 @@ public sealed class MetadataMethodImplementationEvidenceTests
         Assert.Equal(
             retainedBeforeName,
             retained.Counters.RetainedText);
+    }
+
+    [Fact]
+    public void PublicRelate_OverlongReadableGenericParameterNameIsTypedBudgetFailure()
+    {
+        using Fixture shortFixture =
+            Fixture.CreateExternalGenericParameterName("T");
+        using Fixture overlongFixture =
+            Fixture.CreateExternalGenericParameterName(
+                new string(
+                    'T',
+                    MetadataSafetyPolicy.MaxStructuralSignatureChars
+                        + 1));
+
+        MetadataMethodImplementationResult Relate(
+            Fixture fixture,
+            int expectedNameLength)
+        {
+            using var assembly =
+                AssemblyInspectionSession.Open(fixture.Path);
+            using var operation =
+                new MetadataOperationContext(
+                    MetadataOperationPolicy.Unbounded);
+            using var declaration =
+                assembly.CreateDeclarationSession(operation);
+            Assert.IsType<MetadataImageAdmissionResult.Admitted>(
+                declaration.ImageAdmission);
+            MetadataReader reader =
+                assembly.GetMetadataReaderForDeclarationSession();
+            MethodImplementation implementation =
+                reader.GetMethodImplementation(
+                    MetadataTokens.MethodImplementationHandle(1));
+            GenericParameterHandle parameter =
+                reader.GetMethodDefinition(fixture.Body)
+                    .GetGenericParameters()
+                    .Single();
+            Assert.Equal(
+                expectedNameLength,
+                reader.GetString(
+                    reader.GetGenericParameter(parameter).Name)
+                    .Length);
+            Assert.Equal(
+                HandleKind.MemberReference,
+                implementation.MethodDeclaration.Kind);
+            var memberReference =
+                (MemberReferenceHandle)
+                    implementation.MethodDeclaration;
+            Assert.Equal(
+                reader.GetBlobBytes(
+                    reader.GetMethodDefinition(
+                        fixture.Body).Signature),
+                reader.GetBlobBytes(
+                    reader.GetMemberReference(
+                        memberReference).Signature));
+
+            return declaration.Relate(
+                MetadataTypeDefinitionAddress.FromHandle(
+                    reader,
+                    fixture.TargetType),
+                MetadataMethodAddress.Create(
+                    reader,
+                    fixture.Body),
+                TestContext.Current.CancellationToken);
+        }
+
+        AssertRelated(Relate(shortFixture, expectedNameLength: 1));
+
+        MetadataMethodImplementationResult.Rejected rejected =
+            Assert.IsType<MetadataMethodImplementationResult.Rejected>(
+                Relate(
+                    overlongFixture,
+                    MetadataSafetyPolicy.MaxStructuralSignatureChars
+                        + 1));
+        Assert.Equal(
+            MetadataMethodImplementationFailureReason.BudgetExceeded,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataMethodImplementationStage.SignatureCorrespondence,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataMethodImplementationMechanism.SignatureDecode,
+            rejected.Failure.Mechanism);
+        Assert.Equal(
+            (EntityHandle)overlongFixture.Body,
+            rejected.Failure.RelevantHandle);
+        Assert.Equal(
+            MetadataTokens.MethodImplementationHandle(1),
+            rejected.Failure.RelevantRow);
+        Assert.Null(rejected.Failure.BudgetDimension);
     }
 
     [Fact]
@@ -4086,6 +4230,194 @@ public sealed class MetadataMethodImplementationEvidenceTests
         }
 
         internal static Fixture
+            CreateWideMalformedTypeDefinitionMethodList(
+                bool declarationOwnership)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("fixture.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("WideTypeDefinitionMethodList"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            BlobHandle signature =
+                AddBlob(metadata, 0x20, 0x00, 0x01);
+            MethodDefinitionHandle body =
+                AddMethod(metadata, "Body", signature);
+            for (int index = 2; index < ushort.MaxValue + 1; index++)
+            {
+                _ = AddMethod(metadata, "Filler", signature);
+            }
+            MethodDefinitionHandle declaration =
+                AddMethod(
+                    metadata,
+                    "Declaration",
+                    signature,
+                    MethodAttributes.Public
+                        | MethodAttributes.Abstract
+                        | MethodAttributes.Virtual);
+            _ = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                body);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    body);
+            _ = metadata.AddTypeDefinition(
+                TypeAttributes.Interface
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Public,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IContract"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                declaration);
+            TypeDefinitionHandle trailing =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Trailing"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(
+                        MetadataTokens.GetRowNumber(declaration) + 1));
+            metadata.AddMethodImplementation(
+                target,
+                body,
+                declaration);
+
+            byte[] image = Serialize(metadata);
+            PatchTypeDefinitionMethodListToInvalidWideIndex(
+                image,
+                declarationOwnership ? trailing : target);
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-inspect-methodimpl-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            return new Fixture(
+                path,
+                mvid,
+                target,
+                body,
+                body,
+                body,
+                declaration,
+                declaration,
+                declaration,
+                declaration,
+                methodImplementationCount: 1,
+                expectedFailureSubject:
+                    declarationOwnership
+                        ? declaration
+                        : body);
+        }
+
+        internal static Fixture CreateExternalGenericParameterName(
+            string genericParameterName)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("fixture.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("GenericParameterName"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            BlobHandle signature =
+                AddBlob(
+                    metadata,
+                    0x30,
+                    0x01,
+                    0x01,
+                    0x1e,
+                    0x00,
+                    0x1e,
+                    0x00);
+            MethodDefinitionHandle body =
+                AddMethod(metadata, "Body", signature);
+            metadata.AddGenericParameter(
+                body,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString(genericParameterName),
+                index: 0);
+            _ = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                body);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    body);
+            AssemblyReferenceHandle contracts =
+                AddAssemblyReference(
+                    metadata,
+                    "Generic.Contracts");
+            TypeReferenceHandle contract =
+                metadata.AddTypeReference(
+                    contracts,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IContract"));
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("M"),
+                    signature);
+            metadata.AddMethodImplementation(
+                target,
+                body,
+                declaration);
+
+            byte[] image = Serialize(metadata);
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-inspect-methodimpl-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            return new Fixture(
+                path,
+                mvid,
+                target,
+                body,
+                body,
+                body,
+                body,
+                body,
+                body,
+                body,
+                methodImplementationCount: 1,
+                expectedFailureSubject: body);
+        }
+
+        internal static Fixture
             CreateMalformedWideMethodDefSignatureHandle()
         {
             Guid mvid = Guid.NewGuid();
@@ -4739,6 +5071,50 @@ public sealed class MetadataMethodImplementationEvidenceTests
             int offset =
                 pe.PEHeaders.MetadataStartOffset
                 + reader.GetTableMetadataOffset(TableIndex.MethodImpl);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(offset, sizeof(uint)),
+                uint.MaxValue);
+        }
+
+        static void PatchTypeDefinitionMethodListToInvalidWideIndex(
+            byte[] image,
+            TypeDefinitionHandle handle)
+        {
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            MetadataReader reader = pe.GetMetadataReader();
+            Assert.True(
+                reader.GetTableRowCount(TableIndex.MethodDef)
+                    > ushort.MaxValue);
+            int stringIndexSize =
+                reader.GetHeapSize(HeapIndex.String)
+                    <= ushort.MaxValue
+                    ? sizeof(ushort)
+                    : sizeof(uint);
+            int maxTypeDefOrRefRows = new[]
+            {
+                TableIndex.TypeDef,
+                TableIndex.TypeRef,
+                TableIndex.TypeSpec,
+            }.Max(reader.GetTableRowCount);
+            int typeDefOrRefIndexSize =
+                maxTypeDefOrRefRows < (1 << (16 - 2))
+                    ? sizeof(ushort)
+                    : sizeof(uint);
+            int fieldIndexSize =
+                reader.GetTableRowCount(TableIndex.Field)
+                    <= ushort.MaxValue
+                    ? sizeof(ushort)
+                    : sizeof(uint);
+            int offset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+                + ((MetadataTokens.GetRowNumber(handle) - 1)
+                    * reader.GetTableRowSize(TableIndex.TypeDef))
+                + sizeof(uint)
+                + (2 * stringIndexSize)
+                + typeDefOrRefIndexSize
+                + fieldIndexSize;
             BinaryPrimitives.WriteUInt32LittleEndian(
                 image.AsSpan(offset, sizeof(uint)),
                 uint.MaxValue);
