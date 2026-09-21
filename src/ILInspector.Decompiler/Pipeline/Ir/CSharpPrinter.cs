@@ -8,6 +8,7 @@ using ILInspector.Metadata;
 using Inspector.Text;
 using static ILInspector.Decompiler.Pipeline.PointerArithmetic;
 using static ILInspector.Decompiler.Pipeline.PlaceIdentity;
+using DecisionKey = (string RuleId, string Category, string Subject, string Detail, string OldValue, string NewValue, string DedupDiscriminator);
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -59,7 +60,7 @@ public sealed partial class CSharpPrinter
     readonly HashSet<string> _reservedScopeNames;
     readonly HashSet<string> _capturedScopeNames;
     readonly List<DecompilerDecision> _decisions;
-    readonly HashSet<string> _decisionKeys;
+    readonly HashSet<DecisionKey> _decisionKeys;
     readonly IrNode _stackSlotTelemetryScope;
     readonly List<ConsumedMemberEvidence> _consumedMembers = [];
 
@@ -70,7 +71,7 @@ public sealed partial class CSharpPrinter
         StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
         IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
-        HashSet<string>? decisionKeys = null)
+        HashSet<DecisionKey>? decisionKeys = null)
     {
         _function = function;
         _options = options ?? PrinterOptions.Default;
@@ -725,7 +726,14 @@ public sealed partial class CSharpPrinter
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null, string? dedupDiscriminator = null)
     {
-        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}\0{dedupDiscriminator}";
+        var key = new DecisionKey(
+            ruleId,
+            category,
+            subject,
+            detail,
+            oldValue ?? "",
+            newValue ?? "",
+            dedupDiscriminator ?? "");
         if (_decisionKeys.Add(key))
         {
             _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail)
