@@ -77,6 +77,37 @@ test("pending platform Workspace projection keeps Query current", async ({
   await expect(page).not.toHaveURL(queryLocation);
 });
 
+test("Workspace projection parks brand focus before replacement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await releaseFacade(page, "hold-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toBeFocused();
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      document.documentElement.dataset.workspaceReplacementFocus =
+        `${active?.tagName ?? ""}#${active?.id ?? ""}`;
+      observer.disconnect();
+    });
+    observer.observe(app, { childList: true });
+  });
+
+  await releaseFacade(page, "finish-workspace-encode");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-replacement-focus", "DIV#app");
+  await expect(page.locator("[data-workspace-select]")).toBeFocused();
+});
+
 test("superseded Workspace projection cannot steal Activity focus", async ({
   page,
 }) => {

@@ -12443,6 +12443,12 @@ function focusProductNavigationButton(): void {
     ?.focus({ preventScroll: true });
 }
 
+function productNavigationButtonOwnsFocus(): boolean {
+  return document.activeElement instanceof Element
+    && document.activeElement.closest("[data-product-navigation-button]")
+      !== null;
+}
+
 function navigateProductDestination(destination: ProductDestination): void {
   if (destination === currentProductDestination()) {
     focusProductNavigationButton();
@@ -12465,12 +12471,25 @@ function navigateProductDestination(destination: ProductDestination): void {
     return;
   }
   observeAsync(
-    openWorkspaceProductDestination().then(navigationSeq =>
-      navigationSeq === null
-        ? undefined
-        : afterNavigationFrame(
-          navigationSeq,
-          () => focusWorkspaceOrHeading())),
+    openWorkspaceProductDestination().then(completion => {
+      if (completion === null) return undefined;
+      requestAnimationFrame(() => {
+        const releaseFocusParking = () => {
+          if (completion.focusGeneration !== null) {
+            app.removeAttribute("tabindex");
+          }
+        };
+        if (!navigationSequence.isCurrent(completion.navigationSeq)
+          || completion.focusGeneration === null
+          || completion.focusGeneration !== documentFocusGeneration) {
+          releaseFocusParking();
+          return;
+        }
+        focusWorkspaceOrHeading();
+        releaseFocusParking();
+      });
+      return undefined;
+    }),
     "Opening the Workspace destination");
 }
 
@@ -12998,13 +13017,17 @@ function reportWorkspaceProductNavigationFailure(
   afterNavigationFrame(navigationSeq, focusProductNavigationButton);
 }
 
-async function openWorkspaceProductDestination(): Promise<number | null> {
+async function openWorkspaceProductDestination(): Promise<{
+  readonly navigationSeq: number;
+  readonly focusGeneration: number | null;
+} | null> {
   const pkg = state.package;
   if (!pkg && !state.platformSelection) return null;
   const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
 
   dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
+  const initiatingFocusGeneration = documentFocusGeneration;
   const routeState = {
     packageQueryOpen: state.packageQueryOpen,
     packageActivityOpen: state.packageActivityOpen,
@@ -13089,8 +13112,15 @@ async function openWorkspaceProductDestination(): Promise<number | null> {
         || "workspace URL encoding failed."}`);
   }
   workspaceLocation.push(successor.url.toString());
+  let focusGeneration: number | null = null;
+  if (initiatingFocusGeneration === documentFocusGeneration
+    && productNavigationButtonOwnsFocus()) {
+    app.tabIndex = -1;
+    app.focus({ preventScroll: true });
+    focusGeneration = documentFocusGeneration;
+  }
   render();
-  return navigationSeq;
+  return { navigationSeq, focusGeneration };
 }
 
 function closePackageQueryRoute() {
