@@ -821,7 +821,7 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         RestoredProjectDeclaredPackage nugetPackaging = Assert.Single(
             net11Group.Packages,
             p => p.CanonicalPackageId == "nuget.packaging");
-        Assert.Equal("[7.0.3, )", nugetPackaging.CanonicalVersionConstraint);
+        Assert.Equal("[7.9.0, )", nugetPackaging.CanonicalVersionConstraint);
         Assert.Equal("NuGet.Packaging", nugetPackaging.SourcePackageIdSpelling.ToString());
     }
 
@@ -1111,7 +1111,7 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     {
         byte[] mutated = WithReplacedNode(
             ReadCopiedAssetsBytes(),
-            root => root["targets"]!["net11.0"]!.AsObject().Remove("NuGet.Packaging/7.0.3"));
+            root => root["targets"]!["net11.0"]!.AsObject().Remove("NuGet.Packaging/7.9.0"));
 
         RestoredProjectDependencyFacts facts = Available(
             RestoredProjectDependencyFactsQuery.Execute(mutated, new RestoredProjectTargetRequest("net11.0")));

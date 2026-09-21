@@ -31,17 +31,16 @@ public sealed class RowsCohortSequence<TIdentity, T>
             null);
     }
 
-    internal static RowsCohortSequence<TIdentity, T> CreateBound(
-        TIdentity identity,
-        IReadOnlyList<T> values,
+    internal static RowsCohortSequence<TIdentity, T>
+        CreateBoundFromDeclaration<TProjection>(
+        SectionRowSetDeclaration<TIdentity, TProjection, T> declaration,
         RowSequenceKey key)
     {
-        ArgumentNullException.ThrowIfNull(identity);
-        ArgumentNullException.ThrowIfNull(values);
+        ArgumentNullException.ThrowIfNull(declaration);
         ArgumentNullException.ThrowIfNull(key);
         return new(
-            identity,
-            SectionContractSnapshot.Copy(values),
+            declaration.Identity,
+            declaration.Rows,
             key);
     }
 }
