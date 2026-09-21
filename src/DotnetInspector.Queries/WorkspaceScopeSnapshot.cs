@@ -35,6 +35,8 @@ public sealed class WorkspacePackageDescriptor
         TargetFramework = SelectedTargetFramework ?? RequestedTargetFramework ?? Coordinate.Framework;
         RuntimeIdentifier = binding.Root.RequestedRuntimeIdentifier;
         SelectionStatus = binding.Root.AssetSelection.Status;
+        ContentGeneration = binding.ContentGenerationIdentity;
+        Selection = binding.SelectionIdentity;
     }
 
     public RealizedMemberCoordinate.Package Coordinate { get; }
@@ -45,6 +47,12 @@ public sealed class WorkspacePackageDescriptor
     public string? SelectedTargetFramework { get; }
     public string? RuntimeIdentifier { get; }
     public PackageCompileAssetSelectionStatus SelectionStatus { get; }
+    internal PackageContentGenerationIdentity ContentGeneration { get; }
+    internal PackageRootSelectionIdentity Selection { get; }
+
+    internal bool Matches(PackageRootBinding binding) =>
+        ReferenceEquals(ContentGeneration, binding.ContentGenerationIdentity)
+        && ReferenceEquals(Selection, binding.SelectionIdentity);
 }
 
 public sealed class WorkspacePackageOccurrence

@@ -18,6 +18,9 @@ public class SlotResidualCensusTests
         Assert.Contains("F2 SLOT RESIDUAL CENSUS", output);
         Assert.Contains("Before late F2", output);
         Assert.Contains("After late F2", output);
+        Assert.Contains("Before materialization", output);
+        Assert.Contains("Intervening delta", output);
+        Assert.Contains("Methods with intervening removals:", output);
         Assert.Contains("Post-F2 residual deferral classes", output);
         Assert.Contains("Slot materialization decisions", output);
         Assert.Contains("Materialization veto attribution", output);

@@ -151,7 +151,8 @@ public static class ApiCoordinateCorrespondenceQuery
 
     internal static ValueTask<ApiCoordinateCorrespondenceResult>
         ExecuteAdmittedSourceAsync(
-            InspectionWorkspace workspace,
+            InspectionWorkspace sourceWorkspace,
+            InspectionWorkspace destinationWorkspace,
             StructuralSubjectIdentity.TypeSubject source,
             CoordinatePackageObservation before,
             PackageAssemblyContextRealization sourceRealization,
@@ -161,8 +162,8 @@ public static class ApiCoordinateCorrespondenceQuery
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(sourceRealization);
         return ExecuteAsync(
-            workspace,
-            workspace,
+            sourceWorkspace,
+            destinationWorkspace,
             source,
             source.Library,
             source.Identity.Type,
@@ -175,7 +176,8 @@ public static class ApiCoordinateCorrespondenceQuery
 
     internal static ValueTask<ApiCoordinateCorrespondenceResult>
         ExecuteAdmittedSourceAsync(
-            InspectionWorkspace workspace,
+            InspectionWorkspace sourceWorkspace,
+            InspectionWorkspace destinationWorkspace,
             StructuralSubjectIdentity.MemberSubject source,
             ApiDeclarationKind sourceKind,
             CoordinatePackageObservation before,
@@ -186,8 +188,8 @@ public static class ApiCoordinateCorrespondenceQuery
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(sourceRealization);
         return ExecuteAsync(
-            workspace,
-            workspace,
+            sourceWorkspace,
+            destinationWorkspace,
             source,
             source.DeclaringType.Library,
             source.Identity.DeclaringType,
