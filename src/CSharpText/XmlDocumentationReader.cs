@@ -193,6 +193,30 @@ static class XmlDocumentationParser
             MaxCharactersInDocument = limits.MaxCharactersInDocument,
         };
         using XmlReader reader = XmlReader.Create(stream, settings);
+        try
+        {
+            Scan(
+                reader,
+                limits,
+                select,
+                accept,
+                rejectRetainedTextLimit,
+                observe: null);
+        }
+        catch (XmlDocumentationLimitException exception)
+        {
+            throw new XmlException(exception.Message, exception);
+        }
+    }
+
+    internal static void Scan(
+        XmlReader reader,
+        XmlDocumentationReadLimits limits,
+        Func<string, bool> select,
+        Action<string, XmlDocumentationEntry> accept,
+        Action<string>? rejectRetainedTextLimit,
+        Action<XmlReader>? observe)
+    {
         var sharedBudget = new RetainedTextBudget(
             limits.MaxRetainedTextCharacters,
             throwOnExceeded: true);
@@ -204,7 +228,7 @@ static class XmlDocumentationParser
         int? membersDepth = null;
         int memberCount = 0;
 
-        while (reader.Read())
+        while (Read(reader, observe))
         {
             ValidateDepth(reader);
             if (reader.NodeType == XmlNodeType.Element
@@ -241,14 +265,16 @@ static class XmlDocumentationParser
             memberCount++;
             if (memberCount > limits.MaxMembers)
             {
-                throw new XmlException(
+                throw new XmlDocumentationLimitException(
+                    XmlDocumentationLimitKind.Members,
                     $"XML documentation exceeds the member limit of {limits.MaxMembers}.");
             }
 
             string? memberId = reader.GetAttribute("name");
             if (memberId?.Length > limits.MaxMemberIdCharacters)
             {
-                throw new XmlException(
+                throw new XmlDocumentationLimitException(
+                    XmlDocumentationLimitKind.MemberIdCharacters,
                     "An XML documentation member ID exceeds the supported character limit.");
             }
 
@@ -266,7 +292,7 @@ static class XmlDocumentationParser
             if (retain)
                 budget.Retain(memberId);
             XmlDocumentationEntry? entry =
-                ReadEntry(reader, limits, budget, retain);
+                ReadEntry(reader, limits, budget, retain, observe);
             if (retain && budget.Exceeded)
                 rejectRetainedTextLimit!(memberId!);
             else if (entry is not null)
@@ -278,7 +304,8 @@ static class XmlDocumentationParser
         XmlReader reader,
         XmlDocumentationReadLimits limits,
         RetainedTextBudget budget,
-        bool retain)
+        bool retain,
+        Action<XmlReader>? observe)
     {
         if (reader.IsEmptyElement)
             return retain ? XmlDocumentationEntry.Empty : null;
@@ -296,7 +323,7 @@ static class XmlDocumentationParser
         int exceptionCount = 0;
         int sampleCount = 0;
 
-        while (reader.Read())
+        while (Read(reader, observe))
         {
             ValidateDepth(reader);
             if (reader.NodeType == XmlNodeType.EndElement
@@ -313,32 +340,48 @@ static class XmlDocumentationParser
             switch (reader.LocalName)
             {
                 case "summary":
-                    summary ??= ReadText(reader, budget, retain);
+                    summary ??= ReadText(reader, budget, retain, observe);
                     break;
 
                 case "remarks":
-                    remarks ??= ReadText(reader, budget, retain);
+                    remarks ??= ReadText(reader, budget, retain, observe);
                     break;
 
                 case "returns":
-                    returns ??= ReadText(reader, budget, retain);
+                    returns ??= ReadText(reader, budget, retain, observe);
                     break;
 
                 case "param":
                     parameterCount++;
                     if (parameterCount > limits.MaxParametersPerMember)
                     {
-                        throw new XmlException(
+                        throw new XmlDocumentationLimitException(
+                            XmlDocumentationLimitKind.Parameters,
                             "An XML documentation member exceeds the parameter limit.");
                     }
                     string? parameterName =
                         retain ? reader.GetAttribute("name") : null;
-                    string? parameterText = ReadText(reader, budget, retain);
+                    string? parameterText =
+                        ReadText(
+                            reader,
+                            budget,
+                            retain,
+                            observe,
+                            chargeBudget: false);
                     if (parameterName is not null
                         && parameterText is not null)
                     {
-                        if (budget.Retain(parameterName))
+                        parameters!.TryGetValue(
+                            parameterName,
+                            out string? previousText);
+                        if (budget.Replace(
+                                previousText is null ? null : parameterName,
+                                previousText,
+                                parameterName,
+                                parameterText))
+                        {
                             parameters![parameterName] = parameterText;
+                        }
                     }
                     break;
 
@@ -346,12 +389,14 @@ static class XmlDocumentationParser
                     exceptionCount++;
                     if (exceptionCount > limits.MaxExceptionsPerMember)
                     {
-                        throw new XmlException(
+                        throw new XmlDocumentationLimitException(
+                            XmlDocumentationLimitKind.Exceptions,
                             "An XML documentation member exceeds the exception limit.");
                     }
                     string? cref =
                         retain ? reader.GetAttribute("cref") : null;
-                    string? description = ReadText(reader, budget, retain);
+                    string? description =
+                        ReadText(reader, budget, retain, observe);
                     if (retain)
                     {
                         if (budget.Retain(cref))
@@ -371,7 +416,8 @@ static class XmlDocumentationParser
                         ref sampleCount,
                         limits,
                         budget,
-                        retain);
+                        retain,
+                        observe);
                     break;
             }
         }
@@ -391,19 +437,24 @@ static class XmlDocumentationParser
     static string? ReadText(
         XmlReader reader,
         RetainedTextBudget budget,
-        bool retain)
+        bool retain,
+        Action<XmlReader>? observe,
+        bool chargeBudget = true)
     {
         if (!retain)
         {
-            SkipElement(reader);
+            SkipElement(reader, observe);
             return null;
         }
 
         string text = XmlDocText.NormalizeWhitespace(
-            XmlDocText.GetElementTextWithRefs(reader));
+            XmlDocText.GetElementTextWithRefs(
+                reader,
+                XmlDocText.MaxElementDepth,
+                observe));
         if (text.Length == 0)
             return null;
-        return budget.Retain(text) ? text : null;
+        return !chargeBudget || budget.Retain(text) ? text : null;
     }
 
     static void ReadSamples(
@@ -412,13 +463,14 @@ static class XmlDocumentationParser
         ref int sampleCount,
         XmlDocumentationReadLimits limits,
         RetainedTextBudget budget,
-        bool retain)
+        bool retain,
+        Action<XmlReader>? observe)
     {
         if (reader.IsEmptyElement)
             return;
 
         int exampleDepth = reader.Depth;
-        while (reader.Read())
+        while (Read(reader, observe))
         {
             ValidateDepth(reader);
             if (reader.NodeType == XmlNodeType.EndElement
@@ -435,7 +487,8 @@ static class XmlDocumentationParser
             sampleCount++;
             if (sampleCount > limits.MaxSamplesPerMember)
             {
-                throw new XmlException(
+                throw new XmlDocumentationLimitException(
+                    XmlDocumentationLimitKind.Samples,
                     "An XML documentation member exceeds the sample-reference limit.");
             }
 
@@ -457,13 +510,15 @@ static class XmlDocumentationParser
         }
     }
 
-    static void SkipElement(XmlReader reader)
+    static void SkipElement(
+        XmlReader reader,
+        Action<XmlReader>? observe)
     {
         if (reader.IsEmptyElement)
             return;
 
         int elementDepth = reader.Depth;
-        while (reader.Read())
+        while (Read(reader, observe))
         {
             ValidateDepth(reader);
             if (reader.NodeType == XmlNodeType.EndElement
@@ -479,10 +534,21 @@ static class XmlDocumentationParser
         if (reader.NodeType == XmlNodeType.Element
             && reader.Depth > XmlDocText.MaxElementDepth + 3)
         {
-            throw new XmlException(
+            throw new XmlDocumentationLimitException(
+                XmlDocumentationLimitKind.Depth,
                 $"XML documentation exceeds the supported element depth of "
                     + $"{XmlDocText.MaxElementDepth}.");
         }
+    }
+
+    static bool Read(
+        XmlReader reader,
+        Action<XmlReader>? observe)
+    {
+        bool read = reader.Read();
+        if (read)
+            observe?.Invoke(reader);
+        return read;
     }
 
     sealed class RetainedTextBudget(
@@ -499,18 +565,79 @@ static class XmlDocumentationParser
                 return !Exceeded;
             if (Exceeded)
                 return false;
-            retained += value.Length;
-            if (retained > maximum)
+            long completed = retained;
+            long observed = checked(retained + value.Length);
+            if (observed > maximum)
             {
-                Exceeded = true;
-                if (throwOnExceeded)
-                {
-                    throw new XmlException(
-                        "XML documentation exceeds the retained-text character limit.");
-                }
-                return false;
+                return Exceed(observed, completed);
             }
+            retained = observed;
             return true;
         }
+
+        public bool Replace(
+            string? oldFirst,
+            string? oldSecond,
+            string? newFirst,
+            string? newSecond)
+        {
+            if (Exceeded)
+                return false;
+
+            long completed = retained;
+            long observed = checked(
+                retained
+                    - Length(oldFirst)
+                    - Length(oldSecond)
+                    + Length(newFirst)
+                    + Length(newSecond));
+            if (observed > maximum)
+                return Exceed(observed, completed);
+
+            retained = observed;
+            return true;
+        }
+
+        bool Exceed(long observed, long completed)
+        {
+            Exceeded = true;
+            if (throwOnExceeded)
+            {
+                throw new XmlDocumentationLimitException(
+                    XmlDocumentationLimitKind.RetainedText,
+                    "XML documentation exceeds the retained-text character limit.",
+                    maximum,
+                    observed,
+                    completed);
+            }
+            return false;
+        }
+
+        static int Length(string? value) => value?.Length ?? 0;
+    }
+
+    internal enum XmlDocumentationLimitKind
+    {
+        Members,
+        MemberIdCharacters,
+        Parameters,
+        Exceptions,
+        Samples,
+        Depth,
+        RetainedText,
+    }
+
+    internal sealed class XmlDocumentationLimitException(
+        XmlDocumentationLimitKind kind,
+        string message,
+        long limit = 0,
+        long observed = 0,
+        long completed = 0)
+        : XmlException(message)
+    {
+        public XmlDocumentationLimitKind Kind { get; } = kind;
+        public long Limit { get; } = limit;
+        public long Observed { get; } = observed;
+        public long Completed { get; } = completed;
     }
 }
