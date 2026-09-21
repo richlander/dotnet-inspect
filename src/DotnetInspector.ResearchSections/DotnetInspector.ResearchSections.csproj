@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Completed Research-backed inspections for dotnet-inspect consumers</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
+  </ItemGroup>
+
+</Project>

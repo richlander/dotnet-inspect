@@ -28,6 +28,116 @@ namespace DotnetInspect.Cli.Tests;
 public partial class DependsAssetCommandTests
 {
     [Fact]
+    public void DependsCatalogs_DeclareEveryTargetGrowingSectionVerbose()
+    {
+        (string Name, SectionSizeClass SizeClass)[] sections =
+        [
+            (
+                DependsAssetSections.DependencyHierarchy,
+                DependsAssetSections.HierarchySection.SizeClass),
+            (
+                DependsAssetSections.Roots,
+                DependsAssetSections.RootSection.SizeClass),
+            (
+                DependsAssetSections.Dependencies,
+                DependsAssetSections.DependencySection.SizeClass),
+            (
+                DependsAssetSections.Licenses,
+                DependsAssetSections.LicenseSection.SizeClass),
+            (
+                DependsAssetSections.Pruning,
+                DependsAssetSections.PruningSection.SizeClass),
+            (
+                DependsAssetSections.RestoredEdges,
+                DependsAssetSections.RestoredEdgeSection.SizeClass),
+            (
+                DependsAssetSections.Failures,
+                DependsAssetSections.FailureSection.SizeClass),
+            (
+                DependsAssetSections.DependencyGroups,
+                DependsAssetSections.DependencyGroupSection.SizeClass),
+            (
+                DependsAssetSections.RestoredPackages,
+                DependsAssetSections.RestoredPackageSection.SizeClass),
+            (
+                DependsTypeSections.DependencyGraph,
+                DependsTypeSections.GraphSection.SizeClass),
+        ];
+
+        foreach ((string name, SectionSizeClass sizeClass) in sections)
+        {
+            Assert.True(
+                sizeClass == SectionSizeClass.Verbose,
+                $"{name} must declare its uncapped row population as Verbose.");
+        }
+    }
+
+    [Fact]
+    public void DependsCatalogs_KeepVerbosePrimarySectionsOutOfNormal()
+    {
+        Assert.True(
+            new HashSet<string>(
+                [DependsAssetSections.DependencyHierarchy],
+                StringComparer.OrdinalIgnoreCase)
+                .SetEquals(
+                    DependsAssetSections.Catalog.Pipeline
+                        .GetCandidateSections(Verbosity.Minimal)));
+        Assert.Empty(
+            DependsAssetSections.Catalog.Pipeline
+                .GetCandidateSections(Verbosity.Normal));
+        Assert.True(
+            new HashSet<string>(
+                [
+                    DependsAssetSections.DependencyHierarchy,
+                    DependsAssetSections.Dependencies,
+                    DependsAssetSections.Failures,
+                ],
+                StringComparer.OrdinalIgnoreCase)
+                .SetEquals(
+                    DependsAssetSections.Catalog.Pipeline
+                        .GetCandidateSections(Verbosity.Detailed)));
+
+        Assert.True(
+            new HashSet<string>(
+                [DependsTypeSections.DependencyGraph],
+                StringComparer.OrdinalIgnoreCase)
+                .SetEquals(
+                    DependsTypeSections.Catalog.Pipeline
+                        .GetCandidateSections(Verbosity.Minimal)));
+        Assert.Empty(
+            DependsTypeSections.Catalog.Pipeline
+                .GetCandidateSections(Verbosity.Normal));
+        Assert.True(
+            new HashSet<string>(
+                [DependsTypeSections.DependencyGraph],
+                StringComparer.OrdinalIgnoreCase)
+                .SetEquals(
+                    DependsTypeSections.Catalog.Pipeline
+                        .GetCandidateSections(Verbosity.Detailed)));
+    }
+
+    [Fact]
+    public void DependsCatalogs_RequireDetailedForEveryExactSection()
+    {
+        foreach (SectionCatalog<DependsAssetProjection> catalog in new[]
+        {
+            DependsAssetSections.Catalog,
+            DependsTypeSections.Catalog,
+        })
+        {
+            foreach (string section in catalog.SelectableSectionNames)
+            {
+                Assert.Equal(
+                    Verbosity.Detailed,
+                    catalog.Pipeline.GetRequiredVerbosity(
+                        new HashSet<string>(
+                            [section],
+                            StringComparer.OrdinalIgnoreCase)));
+            }
+        }
+    }
+
+    [Fact]
     public async Task DiscoveryReflectsCompiledSectionCatalog()
     {
         (int exitCode, string output, string error) =
