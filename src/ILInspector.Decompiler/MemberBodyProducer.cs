@@ -1427,12 +1427,15 @@ public static class MemberBodyProducer
         {
             foreach (ApiMember candidate in members)
             {
+                // Canonical property emission requires a body; keep bodyless PropertyDef declarations.
                 if (candidate.Kind != "explicit-interface-implementation"
+                    || candidate.IsAbstract
                     || candidate.MetadataToken is not { } token
                     || ResolveMemberHandle(
                         reader,
                         typeHandle,
                         candidate) is not { } handle
+                    || reader.GetMethodDefinition(handle).RelativeVirtualAddress == 0
                     || SelectedPropertyAccessorSource.Create(
                         pipelineSource,
                         handle,

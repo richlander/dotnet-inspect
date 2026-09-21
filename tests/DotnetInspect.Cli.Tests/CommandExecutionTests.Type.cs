@@ -3714,6 +3714,37 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(typeof(IAbstractExplicitValueFixture), false)]
+    [InlineData(typeof(IAbstractExplicitValueFixture), true)]
+    [InlineData(typeof(ExternExplicitValueFixture), false)]
+    [InlineData(typeof(ExternExplicitValueFixture), true)]
+    public async Task Type_DecompiledSource_BodylessExplicitPropertyRetainsDeclarationAttributes(
+        Type fixtureType,
+        bool includeAll)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "type", fixtureType.FullName!,
+                "--library", TestAssemblyPath,
+                "-S", "Decompiled Source", "--bare", "--tips", "q",
+                .. includeAll ? new[] { "--all" } : [],
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] lines = output.ReplaceLineEndings("\n").Split('\n');
+        const string attribute = "[Obsolete(\"Use Value2 instead\", true)]";
+        Assert.Single(lines, line => line.Trim() == attribute);
+        int attributeLine = Array.FindIndex(lines, line => line.Trim() == attribute);
+        Assert.InRange(attributeLine, 0, lines.Length - 2);
+        Assert.Contains(
+            $"{nameof(IBodylessExplicitValueFixture)}.Value",
+            lines[attributeLine + 1],
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("get_Value", lines[attributeLine + 1]);
+    }
+
     [Fact]
     public async Task
         Type_DecompiledSource_EmptyType_RemainsAbsent()
@@ -4024,6 +4055,28 @@ public partial class CommandExecutionTests
         List<int> Values { get; }
 
         List<int> OtherValues { get; }
+    }
+
+    public interface IBodylessExplicitValueFixture
+    {
+        int Value { get; }
+    }
+
+    public interface IAbstractExplicitValueFixture : IBodylessExplicitValueFixture
+    {
+        [Obsolete("Use Value2 instead", true)]
+        abstract int IBodylessExplicitValueFixture.Value { get; }
+    }
+
+    public sealed class ExternExplicitValueFixture : IBodylessExplicitValueFixture
+    {
+        [Obsolete("Use Value2 instead", true)]
+        extern int IBodylessExplicitValueFixture.Value
+        {
+            [System.Runtime.CompilerServices.MethodImpl(
+                System.Runtime.CompilerServices.MethodImplOptions.InternalCall)]
+            get;
+        }
     }
 
     [System.Runtime.Serialization.DataContract]
