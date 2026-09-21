@@ -269,8 +269,8 @@ substrates, and inspection producers that will extend that space.
 - `src/Inspector.Findings/` contains the domain-free observation, inspection,
   matching, transition, comparison, complete analysis-diff, whole-census
   correlation, and exact-identity correlation contracts shared by product
-  producers. `diff --history` composes Metadata and Analysis producers over
-  those same correlation contracts.
+  producers. The `timeline` command composes Metadata and Analysis producers
+  over those same correlation contracts.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.

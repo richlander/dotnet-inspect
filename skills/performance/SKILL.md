@@ -153,7 +153,7 @@ source member, it can name the generated `MoveNext` body whose offset appears in
 otherwise `MethodToken`) + `IL`; `ModuleVersionId` distinguishes physical
 module builds when static inputs carry it, and `Token` is the operand of
 `Operation`. Use these fields for runtime/static joins or to carry one triage
-row into the matching `diff`/Diff History confirmation workflow
+row into the matching `diff`/`timeline` confirmation workflow
 without parsing `Evidence` text:
 
 ```bash
@@ -290,7 +290,7 @@ Correlate one method's native allocation census across caller-selected package
 cells:
 
 ```bash
-dnx dotnet-inspect -y -- diff --history --package MyLib@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
   -t MyType -m HotPath \
   --finding analysis.allocation --at first --at last
 ```

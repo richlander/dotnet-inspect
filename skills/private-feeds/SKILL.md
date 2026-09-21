@@ -105,7 +105,7 @@ Automatic selection does not reuse legacy candidate caches. `package --versions`
 can enumerate a range, but ordinary `package` payload inspection does not
 accept a range or `--at`.
 
-### Inspect APIs and Diff History from a folder feed
+### Inspect APIs and timelines from a folder feed
 
 Online API commands support omitted/latest and wildcard selection, exact pins,
 and explicitly addressed ranges:
@@ -119,8 +119,8 @@ dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget@1.2.3 
   --source ./feed
 dnx dotnet-inspect -y -- type MyCompany.Widget \
   --package MyCompany.Widget@1.0.0..2.0.0 --at last --source ./feed
-dnx dotnet-inspect -y -- diff --history --package MyCompany.Widget@1.0.0..2.0.0 \
-  --type MyCompany.Widget --finding api.type --at first --at last --source ./feed
+dnx dotnet-inspect -y -- timeline --package MyCompany.Widget@1.0.0..2.0.0 \
+  --type MyCompany.Widget --type-presence --at first --at last --source ./feed
 ```
 
 Omitted and `@latest` API selection chooses the highest stable listed version.
@@ -128,15 +128,14 @@ Wildcards use the package selection contract's case-insensitive prefix
 semantics and may select a prerelease.
 
 Ranges require complete fresh discovery and acquire only from sources that
-reported each selected coordinate. Diff History retains one vector for all its
-probes. Omit `--at` for full-population evaluation, use repeated checkpoints
-for sparse evaluation, or pass `--max-probes N` for bounded adaptive work. An
-unreadable peer prevents selection.
+reported each selected coordinate. A timeline retains one vector for all its
+probes. Omit `--at` for a metadata-only view; `--at all` explicitly acquires
+every address. An unreadable peer prevents selection.
 
-API and Diff History vectors exclude unlisted observations, including endpoints.
+API/timeline vectors exclude unlisted observations, including endpoints.
 An exact pin can still inspect an unlisted coordinate. Do not copy ordinals
 from a `--include-unlisted` metadata listing into a listed-only vector.
-Diff History actions retain source/configuration and selection
+Timeline probe recommendations retain source/configuration and selection
 options. `match --similar` retains the reporting configured sources in its
 exact-package replay, without depending on temporary extraction paths.
 
@@ -227,7 +226,7 @@ introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
 succeeds only from producer-authorized caches. Online version queries bypass
 these legacy caches. Online single-package extraction, exact API pins, and
-API and Diff History range probes use authority-scoped
+API/timeline range probes use authority-scoped
 payload storage instead: old producer-keyed entries cannot authorize it, and HTTP
 global-packages entries are not reused. A local global-packages entry must
 name the same canonical configured folder in `.nupkg.metadata.source`.
