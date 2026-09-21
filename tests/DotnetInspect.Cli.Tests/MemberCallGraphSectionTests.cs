@@ -1578,7 +1578,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public static string Descriptor =>", result.Output);
         Assert.DoesNotContain("get_Descriptor(", result.Output);
         Assert.DoesNotContain("set_Descriptor(", result.Output);
@@ -1591,7 +1591,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: 2);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public static string Descriptor", result.Output);
         Assert.Contains("set =>", result.Output);
         Assert.DoesNotContain("void set_Descriptor(", result.Output);
@@ -1608,7 +1608,7 @@ public class MemberCallGraphSectionTests
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Triggered), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("void add_Triggered(", result.Output);
     }
 
@@ -1622,7 +1622,7 @@ public class MemberCallGraphSectionTests
             nameof(MemberAccessorModifierFixture.Label), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public virtual string Label { get; }", result.Output);
     }
 
@@ -1634,7 +1634,7 @@ public class MemberCallGraphSectionTests
             nameof(DerivedAccessorModifierFixture.Label), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("public override string Label =>", result.Output);
     }
 
@@ -1647,7 +1647,7 @@ public class MemberCallGraphSectionTests
             nameof(MemberAccessorModifierFixture.State), overloadIndex: 2);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.DoesNotContain("## Decompiled Source", result.Output);
         Assert.Contains("private void set_State(bool value)", result.Output);
         Assert.DoesNotContain("public void set_State(", result.Output);
     }

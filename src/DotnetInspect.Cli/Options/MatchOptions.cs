@@ -65,6 +65,8 @@ public record MatchOptions : ApiOptions
     /// </summary>
     public bool IncludeBody { get; init; }
 
+    public bool Bare { get; init; }
+
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>

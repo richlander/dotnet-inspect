@@ -860,7 +860,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                 options with
                 {
                     JsonOutput = true,
-                    Bare = true,
+                    PlainText = true,
                 },
                 out _));
         Assert.False(
