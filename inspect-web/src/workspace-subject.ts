@@ -3,7 +3,10 @@ import type { PlatformNavigationState } from "./platform-subject.ts";
 import type {
   NavigationPackagePresentationItem,
 } from "./navigation-descriptor-presentation.ts";
-import { packageIdentityKey } from "./data.ts";
+import {
+  packageIdentityKey,
+  workspacePackageRemovalKey,
+} from "./data.ts";
 import { packageRemoveButton } from "./package-removal.ts";
 import type { SavedWorkspaceFocus } from "./saved-workspaces.ts";
 import {
@@ -153,10 +156,11 @@ export function renderWorkspaceView(
       const framework = item.framework
         ?? item.summary.selectedCompileFramework
         ?? "";
-      const key = packageIdentityKey({
+      const key = workspacePackageRemovalKey({
         id: item.package,
         version: item.version,
         activeFramework: framework,
+        runtimeIdentifier: item.runtimeIdentifier,
       });
       const runtimeIdentifier = item.runtimeIdentifier
         ? ` · ${item.runtimeIdentifier}`
@@ -181,7 +185,7 @@ export function renderWorkspaceView(
       </li>`;
     }).join("")
     : packages.filter(item => !item.isRuntimePack).map(item => {
-    const key = packageIdentityKey(item);
+    const key = workspacePackageRemovalKey(item);
     const occurrence = !loading && !error
       ? occurrences.find(candidate => packageIdentityKey({
         id: candidate.package,
