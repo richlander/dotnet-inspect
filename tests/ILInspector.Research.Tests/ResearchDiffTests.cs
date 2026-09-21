@@ -2170,6 +2170,211 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void
+        ImplementationComplexityService_FunctionPointerConventionOverloadsRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef cdecl = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvCdecl");
+        TypeRef suppressGcTransition = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef FunctionPointer(TypeRef returnType) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        SignatureAttributes.None),
+                    returnType,
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+        TypeRef ordinaryReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                cdecl,
+                integer,
+                isRequired: false));
+        TypeRef suppressingReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                cdecl,
+                TypeRef.UnsupportedModified(
+                    suppressGcTransition,
+                    integer,
+                    isRequired: false),
+                isRequired: false));
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            ordinaryReturn,
+            suppressingReturn,
+            "FunctionPointerConventionReturnSample");
+    }
+
+    [Fact]
+    public void
+        ImplementationComplexityService_FunctionPointerConventionLookalikesRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef realModifier = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef lookalikeModifier = TypeRef.Definition(
+            "Sample",
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef FunctionPointer(TypeRef modifier) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        SignatureAttributes.None),
+                    TypeRef.UnsupportedModified(
+                        modifier,
+                        integer,
+                        isRequired: false),
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            FunctionPointer(realModifier),
+            FunctionPointer(lookalikeModifier),
+            "FunctionPointerConventionLookalikeReturnSample");
+    }
+
+    [Fact]
+    public void
+        ImplementationComplexityService_MixedConventionModifiersRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef suppressGcTransition = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef unsupported = TypeRef.Definition(
+            "Sample",
+            "Probe",
+            "Marker");
+        TypeRef FunctionPointer(TypeRef returnType) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        SignatureAttributes.None),
+                    returnType,
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+        TypeRef suppressingReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                suppressGcTransition,
+                integer,
+                isRequired: false));
+        TypeRef mixedReturn = FunctionPointer(
+            TypeRef.UnsupportedModified(
+                suppressGcTransition,
+                TypeRef.UnsupportedModified(
+                    unsupported,
+                    integer,
+                    isRequired: false),
+                isRequired: false));
+
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            suppressingReturn,
+            mixedReturn,
+            "FunctionPointerMixedSuppressGcTransitionReturnSample");
+    }
+
+    [Fact]
+    public void
+        ImplementationComplexityService_FunctionPointerHeaderOverloadsRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef FunctionPointer(SignatureAttributes attributes) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        attributes),
+                    integer,
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            FunctionPointer(SignatureAttributes.None),
+            FunctionPointer(SignatureAttributes.Instance),
+            "FunctionPointerSignatureHeaderReturnSample");
+    }
+
+    static void AssertComplexityFunctionPointerReturnsRemainDistinct(
+        TypeRef firstReturn,
+        TypeRef secondReturn,
+        string typeName)
+    {
+        TypeRef declaringType = TypeRef.Definition(
+            "Fake",
+            "",
+            typeName);
+        var first = new MethodIdentity(
+            "Fake",
+            Guid.Empty,
+            declaringType,
+            "Changed",
+            [TypeRef.CoreLib("System", "Boolean")],
+            firstReturn,
+            MetadataToken: 0x06000001,
+            IsStatic: true);
+        var second = first with
+        {
+            ReturnType = secondReturn,
+            MetadataToken = 0x06000002,
+        };
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity(
+                    "Fake",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        ImmutableArray<MethodImplementationProfile> profiles =
+        [
+            FakeProfile(first, first),
+            FakeProfile(second, second),
+        ];
+        var endpoint =
+            new LibraryImplementationProfileAnalysisResult(
+                receipt,
+                FakeCoverage(receipt, profiles),
+                profiles,
+                ImmutableArray<OverloadCallRelationship>.Empty,
+                ImmutableHashSet<TypeRef>.Empty);
+
+        ImplementationComplexityDiff result =
+            ImplementationComplexityService.Execute(
+                new ImplementationComplexityComparisonRequest(
+                    [endpoint],
+                    [endpoint]));
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(2, result.Changes.Count);
+        Assert.Equal(
+            2,
+            result.Changes
+                .Select(change => change.Subject.Id)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
     public void ImplementationComplexityService_AssemblyAddedOrRemoved_ReportsAddedAndRemovedRows()
     {
         // Regression coverage: comparing assembly-name sets used to Intersect

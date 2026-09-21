@@ -8,6 +8,7 @@ process.env.INSPECT_WEB_SOURCE_DIFF_FIXTURE_ONLY ??= "1";
 export default defineConfig({
   testDir: "./browser",
   testMatch: "source-comparison-production.spec.ts",
+  outputDir: "test-results/source-comparison",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   reporter: "line",

@@ -8,6 +8,7 @@ process.env.INSPECT_WEB_PUBLISHED_BENCHMARK_URL =
 export default defineConfig({
   testDir: "./browser",
   testMatch: "published-runtime-benchmark-bridge.spec.ts",
+  outputDir: "test-results/published-benchmark",
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   reporter: "line",

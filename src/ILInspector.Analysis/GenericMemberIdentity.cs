@@ -127,6 +127,8 @@ public static class GenericMemberIdentity
     /// different assemblies distinct in string keys (<see cref="TypeRef.Equals"/> already
     /// distinguishes them, but the display strings did not) (#1741), and the namespace
     /// keeps same-name types from different namespaces distinct (#1731).
+    /// Function pointers retain their recursive signature identity instead of
+    /// sharing the unsupported display label.
     /// </summary>
     public static string KeyFragment(TypeRef type)
     {
@@ -170,6 +172,11 @@ public static class GenericMemberIdentity
                 return;
             case TypeRefKind.Definition:
                 AppendKeyPart(key, NamedDefinitionKey(type));
+                return;
+            case TypeRefKind.Unsupported
+                when type.TryGetFunctionPointerSignatureIdentity(
+                    out string functionPointer):
+                AppendKeyPart(key, functionPointer);
                 return;
             default:
                 AppendKeyPart(key, type.ToQualifiedDisplayString());
