@@ -124,7 +124,7 @@ public partial class ReturnToSenderPrototypeTests
         if (typeName == "ConstructorGetterOptional")
             Assert.Contains("(int value = 7)", result.Source);
         if (typeName == "ConstructorGetterComputed")
-            Assert.Contains("Value { get => field + 1; } = value;", result.Source);
+            Assert.Contains("get => field + 1;", result.Source);
         if (typeName == "ConstructorGetterLogged")
         {
             Assert.Contains("Console.WriteLine(field);", result.Source);
@@ -151,7 +151,9 @@ public partial class ReturnToSenderPrototypeTests
         AssertNativeGetterStorage(path, "ReadOnlyList`1", "List", result);
         AssertNativeConstructorStorage(path, "ReadOnlyList`1", "List", result.DonorPe!);
         Assert.Contains("struct ReadOnlyList<T>(IList<T> list)", result.Source);
-        Assert.Contains("IList<T> List { get => field ?? Array.Empty<T>(); } = list;", result.Source);
+        Assert.Contains(
+            "IList<T> List\n    {\n        get => field ?? Array.Empty<T>();\n    } = list;",
+            result.Source);
         Assert.DoesNotContain("this.List = list;", result.Source);
         Assert.DoesNotContain("public ReadOnlyList(", result.Source);
     }

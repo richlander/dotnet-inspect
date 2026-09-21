@@ -52,7 +52,7 @@ public sealed partial class CSharpTypePrinterTests
             var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
             if (kind == CSharpAccessorBodyKind.Expression)
             {
-                Assert.Contains("Value { get => field + 1; } = @event;", result.Source);
+                Assert.Contains("Value\n    {\n        get => field + 1;\n    } = @event;", result.Source);
                 Assert.Equal("=> field + 1;", result.Source.Substring(range.Start, range.Length));
             }
             string replacement = result.SourceArtifact.ReplaceBody("return field + 2;");

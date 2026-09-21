@@ -813,15 +813,6 @@ public sealed class CSharpTypePrinter
                 $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}{initializer}");
         }
 
-        if (body is { Getter.Kind: CSharpAccessorBodyKind.Expression, Setter: null }
-            && !body.Getter.Source!.Contains('\n')
-            && !body.Getter.Source.Contains('\r')
-            && formatter.FormatAccessorHead(type.Type, member.Member, "get") == "get")
-        {
-            return RenderExpressionBody(body.Getter, indent + 1).Wrap(
-                $"{PadDeclaration(declaration, pad)} {{ get ", $" }}{initializer}");
-        }
-
         var fragments = new List<RenderedFragment>
         {
             new(PadDeclaration(declaration, pad)),
