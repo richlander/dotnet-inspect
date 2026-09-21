@@ -108,7 +108,8 @@ bounded body-production failure.
 The Structured C# Type Document owner defines:
 
 - the immutable complete-Type document shape;
-- complete direct metadata-artifact accounting and contribution associations;
+- complete direct metadata-artifact accounting and primary representation
+  associations;
 - document-local declaration identity and ordering;
 - exact Metadata-owned Type, Member, and physical body references carried by
   the document;
@@ -153,7 +154,8 @@ Completeness has two correlated parts:
   contributes an independent owner-issued C# declaration fragment.
 
 The physical inventory includes non-public and compiler-generated artifacts.
-Each artifact has an exact identity and one typed contribution association:
+Each artifact has an exact identity and one typed primary representation
+association:
 
 - an independent C# declaration;
 - an accessor or other physical body of a logical declaration;
@@ -170,7 +172,7 @@ as an independent C# member merely to expose its metadata row.
 Property and event accessors remain under their owning logical declaration
 rather than becoming duplicate method declarations. Other MethodDefs remain
 independent declarations unless the producing owners issue an exact
-contribution association proving that valid C# already represents them in a
+representation association proving that valid C# already represents them in a
 Type frame, declaration, or implementation. A rendering failure is not such an
 association: an unsupported independent logical declaration makes the document
 non-available rather than disappearing behind an absorbed-artifact label.
@@ -225,7 +227,8 @@ Type declaration.
 ### Physical artifact and declaration identity
 
 Every physical artifact records its complete Metadata-issued `MemberAnchor`,
-validated metadata token, artifact kind, and typed contribution association.
+validated metadata token, artifact kind, and typed primary representation
+association.
 Consumers compare the full canonical identity, not only the anchor's truncated
 display fingerprint. The same-reader producer proves that the anchor, token,
 selected Type, and association refer to the same physical row.
@@ -236,8 +239,8 @@ stored in a route.
 
 Every member declaration carries the complete `MemberAnchor` and token of its
 primary logical declaration. One declaration may have several associated
-physical artifacts, but each artifact has exactly one contribution association
-and each projected declaration retains one exact logical identity.
+physical artifacts, but each artifact has exactly one primary representation
+association and each projected declaration retains one exact logical identity.
 
 Property and event declarations remain one logical member even when they own
 several physical accessors. They are never duplicated into independent logical
@@ -245,10 +248,12 @@ members merely because bodies are MethodDefs.
 
 ### Physical body identity
 
-Each body-bearing declaration carries zero or more physical body rows. A row
-contains:
+The document contains one physical body inventory. Every `MethodDef` artifact
+identifies exactly one physical body row, including an explicit no-body row for
+abstract, runtime, or otherwise bodyless methods. A row contains:
 
 - the exact `MetadataMethodAddress`;
+- the exact owning MethodDef artifact ID;
 - its owner-issued role, such as method, getter, setter, init, adder, or
   remover;
 - whether a managed body exists;
@@ -258,14 +263,25 @@ contains:
   representation.
 
 The fingerprint follows the existing Annotated Source physical-body precedent
-and closes the MVID-collision boundary. A logical property or event may have
-several body rows. Selection and drill-down never choose one by declaration
-order.
+and closes the MVID-collision boundary.
+
+A declaration has zero or more **owned-body references** to rows whose body
+syntax is presented by that declaration. Owned references may supply exact
+drill-down destinations. A logical property or event may own several accessor
+body rows; selection and drill-down never choose one by declaration order.
+
+A declaration variant may separately have zero or more **body-contribution
+references**. Each reference names an exact physical body row, contribution
+role, and relative range whose emitted text was reconstructed from that body.
+Contribution references are many-to-many: one constructor body may contribute
+initializer text to several field declarations, and one declaration may cite
+several contributing bodies. They do not transfer body ownership, make the
+field a MethodDef, or create an Annotated Source destination.
 
 Field initializers and other declaration text reconstructed from body evidence
-may identify their contributing physical bodies, but that provenance does not
-turn the field into a MethodDef or manufacture a singular Annotated Source
-destination.
+use contribution references. The constructor body remains owned by its
+constructor declaration and can still supply its own presentation and
+drill-down behavior.
 
 ### Document revision
 
@@ -274,10 +290,11 @@ The digest covers the canonical compact serialization of the document excluding
 the revision field itself, including:
 
 - exact Type and Member identities;
-- physical artifact order and contribution associations;
+- physical artifact order and primary representation associations;
 - declaration order and structural classifications;
 - every render variant and region;
 - physical body addresses, fingerprints, outcomes, and fidelity;
+- owned-body and body-contribution references and ranges;
 - source provenance and symbol contribution; and
 - the rendering-policy identity that affected the emitted C#.
 
@@ -299,15 +316,16 @@ A physical artifact records:
 - complete `MemberAnchor`, validated token, table kind, and canonical physical
   order;
 - its owner-issued generated-origin classification;
-- its contribution kind and exact target: Type frame, declaration ID, or
-  physical body row; and
+- its primary representation kind and exact target: Type frame, declaration
+  ID, or physical body row; and
 - a semantic contribution role such as enum storage, delegate signature,
   getter, setter, backing storage, or lowered implementation helper.
 
 An artifact associated with a Type frame, declaration, or body has no
 independent source fragment or projection range. The association says where
 valid C# already represents its contribution; it does not erase the artifact's
-identity or make it subject to declaration visibility filters.
+identity or make it subject to declaration visibility filters. Secondary
+body-contribution references do not change that one primary association.
 
 Canonical physical order is ascending metadata token value and exists only for
 deterministic validation and serialization. It is not C# source order.
@@ -321,7 +339,8 @@ A declaration records:
 - static, instance, or unclassified placement;
 - positively generated, positively non-generated, or unknown origin;
 - whether full implementation text differs from its skeleton;
-- physical body rows and any exact drill-down destinations;
+- owned-body references and any exact drill-down destinations;
+- body-contribution references and variant-relative contribution ranges;
 - optional owner-issued contract relationships; and
 - full and skeleton C# render variants with named regions.
 
@@ -356,7 +375,8 @@ document and one projection request. It returns a
 - the document revision;
 - one complete well-formed UTF-16 C# text buffer;
 - the visible declaration rows in unchanged source order;
-- absolute UTF-16 declaration, region, and body ranges into that buffer;
+- absolute UTF-16 declaration, region, owned-body, and body-contribution ranges
+  into that buffer;
 - the exact identity and structural classifications for each visible row; and
 - typed projection diagnostics.
 
@@ -440,7 +460,7 @@ CSharp.
 Construction is atomic over both populations. An available document must prove
 that every direct physical artifact was inventoried exactly once, every
 independently representable logical member has one declaration row, and every
-artifact has one valid contribution association. A filtered
+artifact has one valid primary representation association. A filtered
 `ApiType.Members` collection is not sufficient input.
 
 The constructor validates at least:
@@ -448,15 +468,20 @@ The constructor validates at least:
 - non-empty and internally consistent Type identity;
 - unique physical artifact identities in canonical physical order;
 - artifact tokens from the expected metadata tables and selected Type;
-- exactly one valid contribution association per physical artifact;
+- exactly one valid primary representation association per physical artifact;
 - association targets and roles consistent with the Type frame, declaration,
   or physical body they name;
+- exactly one physical body row, including explicit no-body state, for every
+  MethodDef artifact;
+- unique body-row IDs and addresses owned by their exact MethodDef artifacts;
 - contiguous declaration IDs and strictly increasing source order;
 - unique complete Member identities, without trusting the short fingerprint
   as a unique key;
 - a primary logical artifact for every declaration;
-- physical MethodDef addresses that share the selected module and belong to
-  the declared member or one of its accessors;
+- owned-body references that identify the declaration's MethodDef or one of its
+  accessors;
+- body-contribution references that identify a same-document body and valid
+  variant-relative range without granting ownership or drill-down;
 - valid 64-character physical-body fingerprints;
 - initialized variants and region collections;
 - well-formed UTF-16 text;
@@ -492,9 +517,10 @@ semantic outcomes. Cancellation publishes no replacement document.
 
 Incomplete is useful content, not success-shaped fallback. Its physical
 artifact inventory, C# declaration population, and skeleton projection are
-complete, while every missing body is identified explicitly. If artifact
-enumeration or association, declaration identity, or rendering cannot establish
-completeness, no document is published.
+complete, while every missing body is identified explicitly. If artifact or
+body enumeration, primary association, contribution provenance, declaration
+identity, or rendering cannot establish completeness, no document is
+published.
 
 ## Layered production
 
@@ -527,7 +553,8 @@ split by owner:
 1. **Structured document owner** - add the document, validator, serializer,
    revision, and projector; refactor whole-Type composition through
    CSharp-owned declaration variants; and retain exact physical artifact
-   associations, logical declarations, and physical body provenance.
+   associations, logical declarations, document-owned body rows, and
+   many-to-many body contribution provenance.
 2. **SourceHouse and Queries/Sections** - preserve the document and native
    outcome through exact-Type decompiled settlement, then expose one completed
    `InspectionEnvelope<CSharpTypeDocumentOutcome>`.
@@ -553,10 +580,10 @@ Planned Release gates:
 
 | Gate | Claim |
 | --- | --- |
-| `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts, invalid contribution associations, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent variants, and overflowing or out-of-bounds ranges. |
-| `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued variants; structural filters preserve order, identities, valid C#, and projection-local absolute ranges without parsing source. |
-| `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, or physical fingerprint changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
-| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact accounting and C# declaration population, non-public and generated members, absorbed backing/enum/delegate artifacts, properties/events with multiple accessors, bodyless and empty Types, field initializers, visible body failures, and one-load exact body association. |
+| `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts or body rows, invalid primary representation or body-contribution references, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent variants, and overflowing or out-of-bounds ranges. |
+| `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued variants; structural filters preserve order, identities, valid C#, and projection-local absolute declaration, body, and contribution ranges without parsing source. |
+| `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, physical fingerprint, ownership, or contribution provenance changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
+| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact, body, and C# declaration populations; non-public and generated members; absorbed backing/enum/delegate artifacts; properties/events with multiple accessors; constructor-to-field initializer contributions; bodyless and empty Types; visible body failures; and one-load exact body association. |
 | `TypeDocumentInspectionTests` | Exact-Type SourceHouse settlement preserves provenance, typed outcomes, bounds, diagnostics, detached serialization, and `InspectionEnvelope` content across supplied and absent PDB paths. |
 | CLI whole-Type Decompiled Source tests | The existing command text, diagnostics, and failure behavior come from the shared Bodies projection for the real System.Text.Json witnesses and focused fixtures. |
 | Browser Type Explorer production test | Type Source Explore opens the routed viewer; Bodies/Skeleton/Selected body and structural filters consume product projections and exact identities without Browser C# parsing. |
@@ -585,8 +612,9 @@ The implementation must demonstrate:
   values remain independently projectable declarations;
 - delegate runtime methods remain exact physical artifacts associated with the
   delegate Type frame rather than making a valid delegate unavailable;
-- a field initializer records contributing body provenance without becoming a
-  fabricated MethodDef destination;
+- one constructor body remains owned by its constructor declaration while
+  contributing initializer ranges to multiple field declarations, none of
+  which gains a fabricated MethodDef destination;
 - an empty class, bodyless interface, enum, and delegate produce valid
   documents;
 - a body budget exhaustion retains a complete skeleton and identifies every
