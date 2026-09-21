@@ -34,8 +34,10 @@ public static class WorkspacePackageScenarioProjection
                     version3.Definitions,
                 CompleteRestorationResolvedState.Version4 version4 =>
                     version4.Definitions,
+                CompleteRestorationResolvedState.Version5 version5 =>
+                    version5.Definitions,
                 _ => throw new InvalidOperationException(
-                    "Derived Package scenarios require schema version 3 or 4."),
+                    "Derived Package scenarios require schema version 3, 4, or 5."),
             };
         WorkspaceDefinition workspace =
             source.Workspace

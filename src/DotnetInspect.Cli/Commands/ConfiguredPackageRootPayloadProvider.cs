@@ -14,8 +14,18 @@ internal sealed class ConfiguredPackageRootPayloadProvider
     internal ConfiguredPackageRootPayloadProvider(
         TimeSpan requestTimeout,
         NuGetSourceOptions? sourceOptions)
+        : this(
+            new DesktopPackageSourceComposition(requestTimeout),
+            sourceOptions)
     {
-        _composition = new DesktopPackageSourceComposition(requestTimeout);
+    }
+
+    internal ConfiguredPackageRootPayloadProvider(
+        DesktopPackageSourceComposition composition,
+        NuGetSourceOptions? sourceOptions)
+    {
+        ArgumentNullException.ThrowIfNull(composition);
+        _composition = composition;
         _sourceOptions = sourceOptions;
     }
 
