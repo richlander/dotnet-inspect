@@ -2919,6 +2919,7 @@ let callGraphRenderOperation: {
 } | null = null;
 let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
+let workspaceProductFocusParkingActive = false;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 interface ContentFrameReplacementAuthority {
@@ -3234,6 +3235,11 @@ function renderPreservingContentFrameFocus() {
 
 function trackContentFrameFocus(event: FocusEvent) {
   documentFocusGeneration++;
+  if (workspaceProductFocusParkingActive
+    && document.activeElement !== app) {
+    workspaceProductFocusParkingActive = false;
+    app.removeAttribute("tabindex");
+  }
   contentFrameReplacementAuthority = null;
   const focused = event.target instanceof HTMLElement ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
@@ -12443,10 +12449,12 @@ function focusProductNavigationButton(): void {
     ?.focus({ preventScroll: true });
 }
 
-function productNavigationButtonOwnsFocus(): boolean {
+function productNavigationOwnsFocus(): boolean {
   return document.activeElement instanceof Element
-    && document.activeElement.closest("[data-product-navigation-button]")
-      !== null;
+    && (document.activeElement.closest("[data-product-navigation-button]")
+        !== null
+      || document.activeElement.closest("[data-product-navigation-menu]")
+        !== null);
 }
 
 function navigateProductDestination(destination: ProductDestination): void {
@@ -12475,12 +12483,16 @@ function navigateProductDestination(destination: ProductDestination): void {
       if (completion === null) return undefined;
       requestAnimationFrame(() => {
         const releaseFocusParking = () => {
-          if (completion.focusGeneration !== null) {
-            app.removeAttribute("tabindex");
+          if (completion.focusGeneration === null) return;
+          if (document.activeElement === app) {
+            return;
           }
+          workspaceProductFocusParkingActive = false;
+          app.removeAttribute("tabindex");
         };
         if (!navigationSequence.isCurrent(completion.navigationSeq)
           || completion.focusGeneration === null
+          || !completion.restoreDestinationFocus
           || completion.focusGeneration !== documentFocusGeneration) {
           releaseFocusParking();
           return;
@@ -13020,6 +13032,7 @@ function reportWorkspaceProductNavigationFailure(
 async function openWorkspaceProductDestination(): Promise<{
   readonly navigationSeq: number;
   readonly focusGeneration: number | null;
+  readonly restoreDestinationFocus: boolean;
 } | null> {
   const pkg = state.package;
   if (!pkg && !state.platformSelection) return null;
@@ -13112,15 +13125,20 @@ async function openWorkspaceProductDestination(): Promise<{
         || "workspace URL encoding failed."}`);
   }
   workspaceLocation.push(successor.url.toString());
+  const restoreDestinationFocus =
+    initiatingFocusGeneration === documentFocusGeneration
+    && document.activeElement instanceof Element
+    && document.activeElement.closest("[data-product-navigation-button]")
+      !== null;
   let focusGeneration: number | null = null;
-  if (initiatingFocusGeneration === documentFocusGeneration
-    && productNavigationButtonOwnsFocus()) {
+  if (productNavigationOwnsFocus()) {
+    workspaceProductFocusParkingActive = true;
     app.tabIndex = -1;
     app.focus({ preventScroll: true });
     focusGeneration = documentFocusGeneration;
   }
   render();
-  return { navigationSeq, focusGeneration };
+  return { navigationSeq, focusGeneration, restoreDestinationFocus };
 }
 
 function closePackageQueryRoute() {

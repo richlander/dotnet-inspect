@@ -71,8 +71,26 @@ test("pending platform Workspace projection keeps Query current", async ({
     .toHaveAttribute("aria-current", "page");
   await expect(page.locator('[data-product-destination="workspace"]'))
     .not.toHaveAttribute("aria-current", "page");
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      document.documentElement.dataset.workspaceInterveningFocus =
+        `${active?.tagName ?? ""}#${active?.id ?? ""}`;
+      observer.disconnect();
+    });
+    observer.observe(app, { childList: true });
+  });
 
   await releaseFacade(page, "finish-workspace-encode");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-intervening-focus", "DIV#app");
+  const app = page.locator("#app");
+  await expect(app).toBeFocused();
+  await expect(app).toHaveAttribute("tabindex", "-1");
+  await page.keyboard.press("Tab");
+  await expect(app).not.toHaveAttribute("tabindex");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
   await expect(page).not.toHaveURL(queryLocation);
 });
