@@ -75,6 +75,12 @@ public sealed class LibraryOverviewInspectionOperationTests
             await LibraryOverviewTestLibrary.RealSystemTextJsonAsync();
         ManagedMetadataIdentity.Assembly identity =
             LibraryOverviewTestLibrary.Identity(content);
+        var equivalentIdentity = new ManagedMetadataIdentity.Assembly(
+            identity.Identity with
+            {
+                Name = identity.Identity.Name.ToUpperInvariant(),
+                Culture = "neutral",
+            });
         await using LibraryOverviewTestLibrary first =
             await LibraryOverviewTestLibrary.CreateAsync(
                 content,
@@ -82,7 +88,7 @@ public sealed class LibraryOverviewInspectionOperationTests
         await using LibraryOverviewTestLibrary second =
             await LibraryOverviewTestLibrary.CreateAsync(
                 content,
-                identity);
+                equivalentIdentity);
 
         LibraryOverviewDocument firstDocument = AvailableDocument(
             LibraryOverviewInspectionOperation.Execute(

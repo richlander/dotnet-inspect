@@ -116,8 +116,10 @@ public static class LibraryOverviewInspectionOperation
                         surface.InspectionFailures.Count));
         }
 
-        AssemblyReferenceIdentity identity =
-            correspondence.ApiContent.AssemblyIdentity!.Identity;
+        ApiAssemblyIdentity identity =
+            surface.AssemblyIdentity
+            ?? throw new InvalidOperationException(
+                "Completed Library API surface has no assembly identity.");
         var document = new LibraryOverviewDocument(
             new LibraryOverviewAssemblyIdentity(
                 new InertString(TextPolicy.Field, identity.Name),
