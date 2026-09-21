@@ -17,7 +17,7 @@ internal abstract record WorkspacePacketRestorationResult
         : WorkspacePacketRestorationResult;
 }
 
-internal sealed class WorkspacePacketRestoration : IAsyncDisposable
+internal sealed class WorkspacePacketRestoration
 {
     readonly InspectionWorkspace _workspace;
 
@@ -32,6 +32,16 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
     internal InspectionWorkspace Workspace => _workspace;
 
     internal CompleteWorkspaceActivation Activation { get; }
+
+    internal Task<TResult> ExecuteAsync<TResult>(
+        Func<WorkspacePacketRestoration, Task<TResult>> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        return WorkspacePacketRestorationLifetime.ExecuteAsync(
+            _workspace,
+            () => operation(this));
+    }
 
     internal static async Task<WorkspacePacketRestorationResult> RestoreAsync(
         string input,
@@ -152,14 +162,61 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
                     descriptor.Id,
                     ViewFacetAvailability.Available.Instance)));
 
-    public async ValueTask DisposeAsync()
+}
+
+internal static class WorkspacePacketRestorationLifetime
+{
+    const string CleanupReportKey =
+        "DotnetInspect.Cli.WorkspaceCleanupReport";
+    const string CleanupFailureKey =
+        "DotnetInspect.Cli.WorkspaceCleanupFailure";
+
+    internal static async Task<TResult> ExecuteAsync<TResult>(
+        InspectionWorkspace workspace,
+        Func<Task<TResult>> operation)
     {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        TResult result;
+        try
+        {
+            result = await operation().ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            await CloseAfterFailureAsync(workspace, failure)
+                .ConfigureAwait(false);
+            throw;
+        }
+
         InspectionWorkspaceCloseReport report =
-            await _workspace.CloseAsync().ConfigureAwait(false);
+            await workspace.CloseAsync().ConfigureAwait(false);
         if (!report.Succeeded)
         {
-            throw new InvalidOperationException(
+            var failure = new InvalidOperationException(
                 "The restored Workspace could not release every participant.");
+            failure.Data[CleanupReportKey] = report;
+            throw failure;
+        }
+
+        return result;
+    }
+
+    static async Task CloseAfterFailureAsync(
+        InspectionWorkspace workspace,
+        Exception failure)
+    {
+        try
+        {
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.Succeeded)
+                failure.Data[CleanupReportKey] = report;
+        }
+        catch (Exception cleanupFailure)
+        {
+            failure.Data[CleanupFailureKey] = cleanupFailure;
         }
     }
 }

@@ -585,22 +585,26 @@ public static partial class WorkspaceCommand
             return 1;
         }
 
-        await using WorkspacePacketRestoration restoration =
+        WorkspacePacketRestoration restoration =
             ((WorkspacePacketRestorationResult.Restored)result).Value;
-        WorkspaceTopLevelInventoryRequest request =
-            options.InventoryKinds.Length == 0
-                ? WorkspaceTopLevelInventoryRequest.All
-                : new WorkspaceTopLevelInventoryRequest(
-                    new WorkspaceTopLevelInventoryKindFilter(
-                        options.InventoryKinds));
-        WorkspaceTopLevelInventoryExecution inventory =
-            await WorkspaceTopLevelInventoryOperation.ExecuteAsync(
-                restoration.Workspace,
-                request,
-                WorkspaceTopLevelInventoryShareBasis
-                    .CreateCompleteRestoration(restoration.Activation),
-                cancellationToken).ConfigureAwait(false);
-        return WriteInventory(inventory, options);
+        return await restoration.ExecuteAsync(async activeRestoration =>
+        {
+            WorkspaceTopLevelInventoryRequest request =
+                options.InventoryKinds.Length == 0
+                    ? WorkspaceTopLevelInventoryRequest.All
+                    : new WorkspaceTopLevelInventoryRequest(
+                        new WorkspaceTopLevelInventoryKindFilter(
+                            options.InventoryKinds));
+            WorkspaceTopLevelInventoryExecution inventory =
+                await WorkspaceTopLevelInventoryOperation.ExecuteAsync(
+                    activeRestoration.Workspace,
+                    request,
+                    WorkspaceTopLevelInventoryShareBasis
+                        .CreateCompleteRestoration(
+                            activeRestoration.Activation),
+                    cancellationToken).ConfigureAwait(false);
+            return WriteInventory(inventory, options);
+        }).ConfigureAwait(false);
     }
 
     static bool TryCreateRegistrations(
