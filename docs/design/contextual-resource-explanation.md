@@ -263,11 +263,18 @@ The default text form emits one shell-safe reference per line. Structured
 forms preserve one typed reference record per selected row. Output-format and
 destination spelling remain owned by their focused CLI grammar.
 
-A projection request is atomic with respect to stdout. If any selected row
-lacks the required owner-issued reference or reference construction fails, the
-operation produces no partial reference list and reports the exact failure.
-This preserves the invariant that output cardinality equals selected-row
-cardinality.
+A projection request is validated and materialized before the host commits it
+to any admitted destination. If any selected row lacks the required
+owner-issued reference or reference construction fails:
+
+- stdout receives no reference payload;
+- a requested destination that did not exist remains absent; and
+- a requested existing destination remains byte-for-byte unchanged.
+
+The operation then reports the exact failure. This preserves the invariant
+that a committed output's cardinality equals selected-row cardinality.
+Crash-atomic filesystem replacement is not part of this claim; destination
+commit mechanics remain owned by the output-destination contract.
 
 ### Mutual exclusion
 
@@ -297,6 +304,13 @@ in memory. It does not:
 This path may therefore become available before every resolved subject has a
 portable public reference, provided the responsible owner can issue the exact
 typed explanation input.
+
+The first-adopter gate instruments both command preprocessing/resolution and
+acquisition. It proves that the invocation is parsed and resolved once, each
+required source is acquired at most once, and the exact resulting typed input
+is handed to explanation. A fail-fast public-reference serializer and parser
+separately prove that the direct path does not take the reusable-reference
+route.
 
 ### Reusable handoff
 
@@ -388,11 +402,11 @@ The pathological neighboring cases are:
 | Property | Required gate |
 | --- | --- |
 | Command-level explanation performs no subject acquisition. | CLI contract test with fail-fast acquisition capabilities. |
-| Exact-subject explanation preserves the command owner's resolved subject and does not execute ordinary section producers. | First-adopter integration test with recording resolution and producer fakes plus a real `System.Text.Json` command. |
+| Exact-subject explanation preserves the command owner's resolved subject, parses and resolves once, acquires each required source at most once, and does not execute ordinary section producers. | First-adopter integration test with counting command-preprocessing, resolution, and acquisition collaborators, fail-fast ordinary producers, and a real `System.Text.Json` command. |
 | Direct explanation does not serialize and parse a reusable reference. | Host-neutral composition test whose reference serializer and parser fail if called. |
 | Zero, multiple, unavailable, and failed subject outcomes remain distinct and visible. | Cardinality and failure matrix over the first adopter. |
 | `--references` observes the exact post-selection row sequence. | Row-selection integration tests covering predicate, order, head/tail, and absolute range selection. |
-| Projection cardinality equals selected-row cardinality and partial lists are never committed. | Mixed referenceable/unreferenceable row fixture with atomic stdout assertion. |
+| Projection cardinality equals selected-row cardinality and partial lists are never committed. | Mixed referenceable/unreferenceable row fixture asserting empty stdout plus absent-new and byte-identical-existing destination behavior before a successful neighboring write. |
 | Owner-issued references distinguish overload, declaring Type, generic identity, and source context. | #7916 contract tests plus first-adopter integration cases. |
 | Every emitted reference is accepted unchanged by `explain`. | CLI round-trip tests over authentic package and platform subjects. |
 | CLI and Browser/Wasm consume equal contextual explanation Content for the same typed input. | Shared Content equality or serialization fixture in the Browser adoption slice. |
