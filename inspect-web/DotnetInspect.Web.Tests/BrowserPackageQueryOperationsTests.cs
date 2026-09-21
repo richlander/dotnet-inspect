@@ -456,6 +456,25 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Catalog_ProjectsDependsPrefixAsNuspecFreeTerm()
+    {
+        BrowserPackageQueryTermDescriptor term =
+            Assert.Single(
+                BrowserPackageQueryOperations.Catalog().Terms,
+                candidate =>
+                    candidate.Key == PackageQuery.DependsPrefixTermKey);
+
+        Assert.Equal("eq", Assert.Single(term.Operators));
+        Assert.Equal("NuGet package ID prefix", term.ValueKind);
+        Assert.Equal(
+            BrowserPackageQueryAcquisitionTier.Nuspec,
+            term.Tier);
+        Assert.Equal(
+            BrowserPackageQueryExecutionClass.Nuspec,
+            term.ExecutionClass);
+    }
+
+    [Fact]
     public void Catalog_ProjectsReferencesAsPackageContentFreeTerm()
     {
         BrowserPackageQueryTermDescriptor term =

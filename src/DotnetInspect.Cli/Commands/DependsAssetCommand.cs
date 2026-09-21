@@ -548,7 +548,7 @@ public partial class DependsCommand
                 || hasNuspec
                 || hasPrefix)
             && options.Tfm is { } framework
-            && !PackageDependencyTraversalFrameworkMode.TryCreateExact(
+            && !TryCreateTraversalTargetPolicy(
                 framework,
                 out _))
         {
@@ -933,11 +933,10 @@ public partial class DependsCommand
 
         if (plan.Traversal && packageInputIndexes.Count > 0)
         {
-            PackageDependencyTraversalFrameworkMode frameworkMode =
+            TraversalTargetFrameworkPolicy traversalTargetPolicy =
                 options.Tfm is { } framework
-                    ? CreateFrameworkMode(framework)
-                    : new PackageDependencyTraversalFrameworkMode
-                        .ManifestDefault();
+                    ? CreateTraversalTargetPolicy(framework)
+                    : TraversalTargetFrameworkPolicy.ProductDefault;
             var candidateSource =
                 new DesktopPackageDependencyCandidateSource(
                     composition,
@@ -965,7 +964,7 @@ public partial class DependsCommand
                                         : PackageDependencyTraversalRootRecurrenceAuthority
                                             .ExactCoordinate)),
                         ],
-                        frameworkMode,
+                        traversalTargetPolicy,
                         new PackageDependencyTraversalCandidateAdapter(
                             candidateSource),
                         new DesktopPackageDependencyTraversalManifestSource(
@@ -1205,18 +1204,34 @@ public partial class DependsCommand
             SourceOptions = options.SourceOptions,
         };
 
-    private static PackageDependencyTraversalFrameworkMode.Exact
-        CreateFrameworkMode(string framework)
+    private static TraversalTargetFrameworkPolicy
+        CreateTraversalTargetPolicy(string framework)
     {
-        if (PackageDependencyTraversalFrameworkMode.TryCreateExact(
+        if (TryCreateTraversalTargetPolicy(
                 framework,
-                out PackageDependencyTraversalFrameworkMode.Exact mode))
+                out TraversalTargetFrameworkPolicy policy))
         {
-            return mode;
+            return policy;
         }
 
         throw new InvalidOperationException(
             $"Target framework '{framework}' was not validated.");
+    }
+
+    private static bool TryCreateTraversalTargetPolicy(
+        string framework,
+        out TraversalTargetFrameworkPolicy policy)
+    {
+        try
+        {
+            policy = new TraversalTargetFrameworkPolicy(framework);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            policy = null!;
+            return false;
+        }
     }
 
     private static async Task<List<LibraryAssetResult>>

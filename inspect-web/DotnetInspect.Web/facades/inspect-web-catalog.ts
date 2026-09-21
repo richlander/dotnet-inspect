@@ -414,6 +414,7 @@ export interface BrowserRetainedNavigationSubjectDescriptor {
   readonly state: string;
   readonly isActive: boolean;
   readonly isRetained: boolean;
+  readonly evidence: ReadonlyArray<BrowserRetainedNavigationDiagnostic>;
   readonly action: BrowserRetainedNavigationAction | null;
 }
 
