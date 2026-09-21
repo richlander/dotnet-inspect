@@ -171,8 +171,8 @@ The standing adjustments and their exact evidence requirements live in
 ## Task-specific guidance
 
 Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` the curated current-code map.
-Ordinary feature and fix agents do not edit `docs/architecture.md`; when implementation suggests that map is stale, add a concise suggestion with the implementing PR or stack link to the current release tracker for release-time reconciliation.
-Update other entry points only when their owned claim changes; read the relevant entry below, while [`docs/README.md`](docs/README.md) owns detailed boundaries and curated routes.
+Ordinary feature and fix agents do not edit root `README.md`, `docs/overview.md`, `docs/architecture.md`, or any `SKILL.md`; when implementation suggests one is stale, add a concise suggestion with the implementing PR or stack link to the current release tracker for release-time reconciliation.
+Update other documentation only when its owned claim changes; read the relevant entry below, while [`docs/README.md`](docs/README.md) owns detailed boundaries and curated routes.
 
 | Area | Read first |
 | --- | --- |
