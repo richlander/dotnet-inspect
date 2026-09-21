@@ -267,7 +267,7 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
-    public void Create_RejectsBodyBackedSlotWithoutSkeletonDifference()
+    public void Create_RejectsBodyEvidenceWithWhitespaceChanges()
     {
         var input = Input();
         CSharpTypeDeclaration constructor = input.Declarations[2];
@@ -278,12 +278,15 @@ public class CSharpTypeDocumentTests
                 1,
                 implementation with
                 {
-                    SkeletonText = implementation.FullText + " ",
+                    SkeletonText = implementation.FullText.Replace(
+                        "_a = 1;",
+                        "_a  = 1;",
+                        StringComparison.Ordinal),
                 }),
         };
 
         Assert.Contains(
-            "skeleton retains exact body evidence",
+            "skeleton retains body evidence modulo whitespace",
             Assert.Throws<ArgumentException>(() => Create(input)).Message);
     }
 
@@ -298,6 +301,38 @@ public class CSharpTypeDocumentTests
 
         Assert.Contains(
             "requires a non-whitespace signature part",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+    }
+
+    [Fact]
+    public void Create_BoundsAggregateSkeletonEvidenceComparisonWork()
+    {
+        const int referenceCount = 65;
+        const int skeletonLength = 64 * 1024;
+        var input = Input();
+        CSharpTypeDeclaration field = input.Declarations[0];
+        CSharpTypeRenderPart initializer = field.Parts[1];
+        input.Declarations[0] = field with
+        {
+            Parts = field.Parts.SetItem(
+                1,
+                initializer with
+                {
+                    FullText = new string('x', referenceCount),
+                    SkeletonText = new string('y', skeletonLength),
+                    Contributions =
+                    [
+                        .. Enumerable.Range(0, referenceCount).Select(
+                            static start => new CSharpTypeBodyContribution(
+                                0,
+                                CSharpTypeBodyContributionRole.FieldInitializer,
+                                new(start, 1))),
+                    ],
+                }),
+        };
+
+        Assert.Contains(
+            "exceeds the body-evidence comparison budget",
             Assert.Throws<ArgumentException>(() => Create(input)).Message);
     }
 
@@ -532,8 +567,12 @@ public class CSharpTypeDocumentTests
         JsonNode constructorPart =
             missingSkeletonDifference["declarations"]!.AsArray()[2]!["parts"]!
                 .AsArray()[1]!;
-        constructorPart["skeleton_text"] =
-            constructorPart["full_text"]!.GetValue<string>() + " ";
+        constructorPart["skeleton_text"] = constructorPart["full_text"]!
+            .GetValue<string>()
+            .Replace(
+                "_a = 1;",
+                "_a  = 1;",
+                StringComparison.Ordinal);
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(
                 missingSkeletonDifference.ToJsonString()));
@@ -549,6 +588,31 @@ public class CSharpTypeDocumentTests
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(
                 emptyDeclaration.ToJsonString()));
+
+        JsonObject amplifiedComparison =
+            Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        JsonNode initializer =
+            amplifiedComparison["declarations"]!.AsArray()[0]!["parts"]!
+                .AsArray()[1]!;
+        initializer["full_text"] = new string('x', 65);
+        initializer["skeleton_text"] = new string('y', 64 * 1024);
+        initializer["contributions"] = new JsonArray(
+            Enumerable.Range(0, 65)
+                .Select(static start => (JsonNode)new JsonObject
+                {
+                    ["body_id"] = 0,
+                    ["role"] =
+                        (int)CSharpTypeBodyContributionRole.FieldInitializer,
+                    ["full_range"] = new JsonObject
+                    {
+                        ["start"] = start,
+                        ["length"] = 1,
+                    },
+                })
+                .ToArray());
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(
+                amplifiedComparison.ToJsonString()));
 
         Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
             new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));

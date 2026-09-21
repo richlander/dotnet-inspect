@@ -449,9 +449,6 @@ static class CSharpTypeDocumentValidator
         ValidateBodies(data.Bodies, data.Artifacts, data.TypeAddress.ModuleVersionId);
         ValidateArtifactBodyAssociations(data.Artifacts, data.Bodies);
         ValidateFrameBodyReferences(data.Frame, data.Bodies);
-        ValidateSkeletonExcludesBodyEvidence(
-            data.Frame.PrefixParts,
-            "Type frame");
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
         ValidateArtifactBodyDeclarationRoles(
             data.Artifacts,
@@ -466,6 +463,7 @@ static class CSharpTypeDocumentValidator
         ValidateCapabilities(data);
         ValidateTextBudget(data);
         ValidateProjectionTextBudget(data);
+        ValidateSkeletonExcludesBodyEvidence(data);
     }
 
     static void ValidateTypeAddress(MetadataTypeDefinitionAddress address)
@@ -672,9 +670,6 @@ static class CSharpTypeDocumentValidator
                     $"Declaration {declaration.Id} requires a non-whitespace signature part.");
             }
             ValidateBodyReferences(declaration, artifacts, bodies);
-            ValidateSkeletonExcludesBodyEvidence(
-                declaration.Parts,
-                $"Declaration {declaration.Id}");
         }
     }
 
@@ -1098,28 +1093,137 @@ static class CSharpTypeDocumentValidator
         }
     }
 
-    static void ValidateSkeletonExcludesBodyEvidence(
-        ImmutableArray<CSharpTypeRenderPart> parts,
-        string owner)
+    static void ValidateSkeletonExcludesBodyEvidence(CSharpTypeDocumentData data)
     {
-        foreach (CSharpTypeRenderPart part in parts)
+        long comparisonWork = 0;
+        Charge(data.Frame.PrefixParts);
+        foreach (CSharpTypeDeclaration declaration in data.Declarations)
+            Charge(declaration.Parts);
+
+        Validate(data.Frame.PrefixParts, "Type frame");
+        foreach (CSharpTypeDeclaration declaration in data.Declarations)
         {
-            foreach (CSharpSourceRange range in part.OwnedBodies
-                .Select(static reference => reference.FullRange)
-                .Concat(part.Contributions.Select(
-                    static contribution => contribution.FullRange)))
+            Validate(
+                declaration.Parts,
+                $"Declaration {declaration.Id}");
+        }
+
+        void Charge(ImmutableArray<CSharpTypeRenderPart> parts)
+        {
+            foreach (CSharpTypeRenderPart part in parts)
             {
-                string evidence = part.FullText.Substring(
-                    range.Start,
-                    range.Length);
-                if (part.SkeletonText.Contains(
-                    evidence,
-                    StringComparison.Ordinal))
+                if (part.OwnedBodies.IsDefaultOrEmpty
+                    && part.Contributions.IsDefaultOrEmpty)
                 {
-                    throw new ArgumentException(
-                        $"{owner} body-backed implementation part {part.Id} skeleton retains exact body evidence.");
+                    continue;
+                }
+
+                AddWork(2L * part.SkeletonText.Length);
+                foreach (CSharpTypeOwnedBodyReference reference in part.OwnedBodies)
+                    Charge(reference.FullRange);
+                foreach (CSharpTypeBodyContribution contribution in part.Contributions)
+                    Charge(contribution.FullRange);
+
+                void Charge(CSharpSourceRange range)
+                    => AddWork(
+                        (4L * range.Length) + part.SkeletonText.Length);
+            }
+        }
+
+        void AddWork(long count)
+        {
+            comparisonWork = checked(comparisonWork + count);
+            if (comparisonWork
+                > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
+            {
+                throw new ArgumentException(
+                    "C# Type document exceeds the body-evidence comparison budget.");
+            }
+        }
+
+        static void Validate(
+            ImmutableArray<CSharpTypeRenderPart> parts,
+            string owner)
+        {
+            foreach (CSharpTypeRenderPart part in parts)
+            {
+                if (part.OwnedBodies.IsDefaultOrEmpty
+                    && part.Contributions.IsDefaultOrEmpty)
+                {
+                    continue;
+                }
+
+                string skeleton = RemoveWhitespace(part.SkeletonText.AsSpan());
+                foreach (CSharpTypeOwnedBodyReference reference in part.OwnedBodies)
+                    Validate(reference.FullRange);
+                foreach (CSharpTypeBodyContribution contribution in part.Contributions)
+                    Validate(contribution.FullRange);
+
+                void Validate(CSharpSourceRange range)
+                {
+                    string evidence = RemoveWhitespace(
+                        part.FullText.AsSpan(range.Start, range.Length));
+                    if (ContainsOrdinal(skeleton, evidence))
+                    {
+                        throw new ArgumentException(
+                            $"{owner} body-backed implementation part {part.Id} skeleton retains body evidence modulo whitespace.");
+                    }
                 }
             }
+        }
+
+        static string RemoveWhitespace(ReadOnlySpan<char> text)
+        {
+            char[] characters = GC.AllocateUninitializedArray<char>(text.Length);
+            int length = 0;
+            foreach (char character in text)
+            {
+                if (!char.IsWhiteSpace(character))
+                    characters[length++] = character;
+            }
+            return new string(characters, 0, length);
+        }
+
+        static bool ContainsOrdinal(string text, string value)
+        {
+            if (value.Length == 0)
+                return true;
+
+            var prefixLengths = new int[value.Length];
+            for (int index = 1, prefixLength = 0; index < value.Length;)
+            {
+                if (value[index] == value[prefixLength])
+                {
+                    prefixLengths[index++] = ++prefixLength;
+                }
+                else if (prefixLength > 0)
+                {
+                    prefixLength = prefixLengths[prefixLength - 1];
+                }
+                else
+                {
+                    index++;
+                }
+            }
+
+            for (int index = 0, matched = 0; index < text.Length;)
+            {
+                if (text[index] == value[matched])
+                {
+                    index++;
+                    if (++matched == value.Length)
+                        return true;
+                }
+                else if (matched > 0)
+                {
+                    matched = prefixLengths[matched - 1];
+                }
+                else
+                {
+                    index++;
+                }
+            }
+            return false;
         }
     }
 
