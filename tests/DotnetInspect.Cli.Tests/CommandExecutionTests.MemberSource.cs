@@ -1392,6 +1392,23 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DecompiledSource_PlatformExplicitPropertyRemainsExact()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.Stack",
+            "explicit:System.Collections.ICollection.get_IsSynchronized",
+            "--platform", "System.Collections",
+            "-S", "Decompiled Source", "--bare", "--tips", "q");
+
+        Assert.True(exit == 0, error);
+        Assert.Empty(error);
+        Assert.Equal(
+            "bool System.Collections.ICollection.IsSynchronized => false;",
+            output.Trim());
+        Assert.DoesNotContain("SyncRoot", output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfaceSetterUsesPropertyValueType()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2204,6 +2221,40 @@ public partial class CommandExecutionTests
         Assert.Contains("## Decompiled Source", output);
         Assert.Contains("```csharp", output);
         Assert.DoesNotMatch(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task
+        Member_DecompiledSource_RemainsExactWhenTypeSourceIsComplete()
+    {
+        var (exit, output, error) =
+            await RunAppAsync(
+                "member",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                nameof(
+                    FullTypeDecompilationFixture
+                        .InvokePrivateCore),
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "InvokePrivateCore",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ConcealedCore()",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "private static int ConcealedCore()",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]

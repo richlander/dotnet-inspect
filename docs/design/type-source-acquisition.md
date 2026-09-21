@@ -105,11 +105,10 @@ decompiled-only facade, returning
 Artifact retirement. It accepts explicit supplied or adjacent Portable PDB
 content from the host but performs no authored-source acquisition and does not
 change this document's authored-first contract. Requests created from an
-`ApiType` retain that metadata-issued member surface as typed decompilation
-input. SourceHouse resolves the exact target independently and applies the
-surface before composition: Browser's include-all surface remains complete,
-while the ordinary CLI retains its existing selected API surface without
-post-processing rendered source.
+`ApiType` retain its exact metadata identity and printer options, not its
+listing member collection. SourceHouse resolves and composes the complete exact
+type independently, so Browser fallback and ordinary CLI full-type source do
+not vary with default or `--all` listing accessibility.
 
 Retained-type acquisition followed PRs #7313, #7368, #7440, #7449, and #7502
 in the adapter-first path. It retired `AssemblyContextSourceQuery`'s type-side
@@ -152,9 +151,9 @@ The following PR-fast Release gates define the delivery:
 | Gate | Claim |
 | --- | --- |
 | `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Authored preference, native authored/decompilation House and Library evidence, one retained Library with fresh leases, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
-| `TypeDecompilationInspection_*` | Decompiled-only exact type identity, typed selected-member surface, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
+| `TypeDecompilationInspection_*` | Decompiled-only exact type identity, complete-type behavior despite a filtered request model, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
 | `TypeSourceInspection_Explicit*` | Exact primary/additional selection, ordinal membership, selected checksums, detached evidence, package/Platform authority and fallback coordinates, and unavailable/checksum/deadline results without decompiler substitution. |
-| CLI `Type_DecompiledSource_*`, `TypeWholeTypeDecompilerAcquisition_*`, and bodyless memory-safety cases | Ordinary whole-type SourceHouse adoption preserves distinct default and `--all` metadata-selected surfaces, selected suppliers, symbol names, exact diagnostics, enum/bodyless distinctions, Markout/bare rendering, and lazy non-source paths. |
+| CLI `Type_DecompiledSource_*`, `TypeWholeTypeDecompilerAcquisition_*`, and bodyless memory-safety cases | Ordinary whole-type SourceHouse adoption preserves complete source across default and `--all`, selected suppliers, symbol names, exact diagnostics, enum/bodyless distinctions, Markout/bare rendering, and lazy non-source paths; neighboring listing and exact-member cases retain their independent accessibility and target boundaries. |
 | `LocalRepoSourceProjectionTests.TypeSourceFilesPrint_SelectsExactRepositoryDocument` | The real CLI prints the exact first or second repository document while offline. |
 | `LocalRepoSourceProjectionTests.MemberSourceLocationsPrint_SelectsExactRepositoryDocument` | A member in either real partial-type document prints that exact whole file offline, under both URL preferences. |
 | `SourceForwarderResolutionTests.SourceDocumentAcquisition_UsesSelectedOpener` | Type/member document printing consumes the resolved descriptor through forwarding; listing performs no source-text transport, and unavailable printing fails visibly. |

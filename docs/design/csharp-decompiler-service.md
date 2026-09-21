@@ -154,11 +154,11 @@ selected-member Decompiled Source consumes the member operation's exact native
 body projection while retaining its existing declaration formatter. Browser
 Type Source consumes the authored-first type operation through
 `TypeSourceInspection.ExecuteAsync`; ordinary CLI whole-type Decompiled Source
-consumes `TypeSourceInspection.DecompileAsync`, preserving both the native
-aggregate attempt and its metadata-issued selected member surface. SourceHouse
-resolves the exact type and supplies that typed surface to this producer;
-neither the query nor CLI filters rendered C#. Other direct consumers remain
-later adoption under the broader #6512 plan.
+consumes `TypeSourceInspection.DecompileAsync` and preserves the native
+aggregate attempt. SourceHouse resolves a complete exact type for this producer
+independently of API listing accessibility; exact-member operations continue to
+supply one selected member. Neither the query nor CLI filters rendered C#.
+Other direct consumers remain later adoption under the broader #6512 plan.
 
 Retire direct composer calls in the adopted shared-query path. Other existing
 `MemberBodyProducer` consumers remain supported until their own adoption;

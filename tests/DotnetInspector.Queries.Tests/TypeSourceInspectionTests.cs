@@ -108,7 +108,7 @@ public sealed partial class AssemblyContextSourceQueryTests
 
     [Fact]
     public async Task
-        TypeDecompilationInspection_PreservesSelectedMetadataSurface()
+        TypeDecompilationInspection_IgnoresFilteredRequestModelMembers()
     {
         TestAssembly assembly =
             TestAssembly.Create(
@@ -153,15 +153,15 @@ public sealed partial class AssemblyContextSourceQueryTests
             "public int Count { get; }",
             settled.Attempt.Text,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
+        Assert.Contains(
             "SharedCount",
             settled.Attempt.Text,
             StringComparison.Ordinal);
-        Assert.Same(
-            request.DecompilationSurface,
+        Assert.Equal(
+            request.Type,
             Assert.IsType<SourceHouseTarget.TypeTarget>(
                 settled.HouseOutcome.Request.Target)
-                .DecompilationSurface);
+                .Type);
         Assert.Empty(host.SymbolRequests);
         Assert.Empty(host.SourceRequests);
     }

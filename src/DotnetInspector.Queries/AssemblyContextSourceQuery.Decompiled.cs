@@ -278,9 +278,7 @@ public static partial class AssemblyContextSourceQuery
                         group,
                         participant,
                         new SourceHouseTarget.TypeTarget(
-                            request.Type,
-                            decompilationSurface:
-                                request.DecompilationSurface),
+                            request.Type),
                         request.PrinterOptions,
                         context,
                         context.TypeDecompilationLimits,

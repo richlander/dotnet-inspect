@@ -363,12 +363,11 @@ Library companion or embedded PDB contribution or no PDB. It performs no
 ambient path, adjacent-file, or network discovery. An authored-document
 selector is not a decompilation target.
 
-An exact type target may additionally carry a metadata-issued
-`SourceHouseTypeDecompilationSurface`. SourceHouse still resolves the exact
-type from its own selected Library snapshot, but composes only the members
-retained by that typed surface. A target without that projection composes the
-complete exact type. The projection is member identity and declaration input
-to the producer, not host-side filtering of rendered C#.
+An exact type target always composes the complete selected type from
+SourceHouse's own bounded detached metadata model, including non-public
+members. A caller's API listing projection is not decompilation input and
+cannot truncate full-type source. Exact-member settlement remains independently
+narrow: it composes only the selected MethodDef or accessor target.
 
 The decompiled result remains a native `CSharpDecompilationAttempt`, including
 its status, text, imports, fidelity, diagnostics, method-addressed body
@@ -392,11 +391,11 @@ The focused #7963 delivery exposes the exact-type counterpart through
 operation lease, native attempt, terminal Library evidence, retirement order,
 and post-retirement cancellation and binding-currency checks without invoking
 the authored-first `TypeSourceInspection.ExecuteAsync` operation.
-`AssemblyTypeSourceRequest.From(ApiType)` retains the metadata-issued surface:
-Browser's include-all surface therefore preserves complete-type fallback,
-while ordinary CLI decompilation preserves the selected API surface previously
-passed to `MemberBodyProducer.Project`. The CLI does not rediscover members
-from display text or filter completed C#.
+`AssemblyTypeSourceRequest.From(ApiType)` retains exact type identity and
+printer options, not the caller's listing member collection. Browser fallback
+and ordinary CLI full-type decompilation therefore share the same complete-type
+settlement regardless of default or `--all` listing accessibility. The CLI
+does not rediscover members from display text or filter completed C#.
 
 CLI ordinary selected-member Decompiled Source consumes the exact contributing
 `CSharpBodyProjection`, not the aggregate composed-member text. The native
@@ -430,8 +429,13 @@ existing wire shape, source-failure visibility, and viewer. CLI ordinary
 whole-type Decompiled Source consumes the decompiled-only path through
 `TypeSourceInspection.DecompileAsync`; it renders only an available native
 attempt, treats failed or incomplete settlement as a visible command failure,
-and retains true absence as an empty selected section. Implementation Diff's
-C# lane and cross-version authored member pairs remain separate consumers.
+and retains true absence as an empty selected section. This intentionally
+changes the earlier CLI behavior that omitted non-public members by default.
+An `API Declarations` view, planned as
+`type ... -S "API Declarations" [--all] [--bare]`, is a separate future
+contract tracked by [#7984](https://github.com/richlander/dotnet-inspect/issues/7984)
+and is not introduced by this delivery. Implementation Diff's C# lane and
+cross-version authored member pairs remain separate consumers.
 
 ## Authority and exact claim
 
@@ -458,6 +462,8 @@ The owner defines:
 - the host-authorized source operation plan;
 - the House-facing contribution contracts for `SourceLinkService` and
   `CSharpDecompilerService`;
+- complete selected-type decompilation independent of API listing
+  accessibility, beside narrow exact-member decompilation;
 - authored-source candidate ordering over owner-issued local, repository, and
   remote capabilities;
 - producer ordering, short-circuiting, and fallback;
@@ -1133,12 +1139,12 @@ Run the focused `DotnetInspect.Cli.Tests` whole-type Decompiled Source and
 `TypeWholeTypeDecompilerAcquisition_*` cases. They cover the production CLI's
 selected supplier, explicit/adjacent symbol input, generic and enum listings,
 bare and ordinary Markout output, memory-safety diagnostics, terminal selected
-input failure, absent completed-inspection rejection, typed selected-surface
-parity across default and `--all`, and lazy ordinary and discovery paths. The real
-`System.Text.Json@10.0.5` `JsonNamingPolicy` baseline gates omission of its
-protected instance constructor and static constructor by default while
-retaining the public abstract method and public static properties. `--all`
-retains those constructors and matches the complete House projection.
+input failure, absent completed-inspection rejection, complete-type parity
+across default and `--all`, and lazy ordinary and discovery paths. The real
+`System.Text.Json@10.0.5` `JsonNamingPolicy` baseline gates inclusion of its
+protected instance constructor and static constructor in both modes. A focused
+fixture separately proves that ordinary member listings still apply
+accessibility while exact-member source remains one selected method.
 
 ### Remaining full-composition evidence
 

@@ -1419,6 +1419,28 @@ public static class MemberBodyProducer
                 .OrderBy(member => member.MetadataToken ?? int.MaxValue)
                 .ToList()
             : type.Members;
+        var projectedExplicitPropertyAccessorTokens = new HashSet<int>();
+        if (only is null)
+        {
+            foreach (ApiMember candidate in members)
+            {
+                if (candidate.Kind != "explicit-interface-implementation"
+                    || candidate.MetadataToken is not { } token
+                    || ResolveMemberHandle(
+                        reader,
+                        typeHandle,
+                        candidate) is not { } handle
+                    || SelectedPropertyAccessorSource.Create(
+                        pipelineSource,
+                        handle,
+                        candidate) is null)
+                {
+                    continue;
+                }
+
+                projectedExplicitPropertyAccessorTokens.Add(token);
+            }
+        }
 
         foreach (var member in members)
         {
@@ -1440,6 +1462,21 @@ public static class MemberBodyProducer
             {
                 if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "finalizer")
                     overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
+                continue;
+            }
+
+            // Include-all metadata retains both a private property row and its
+            // explicit MethodImpl accessor identities. Whole-type C# uses the
+            // accessor projections because they recover the interface declaration
+            // and body; emitting the private row too would duplicate the
+            // declaration with invalid accessibility/virtual modifiers.
+            // Exact-member composition keeps the row available for selector
+            // resolution and therefore does not apply this whole-type exclusion.
+            if (only is null
+                && IsRepresentedByExplicitInterfacePropertyAccessors(
+                    member,
+                    projectedExplicitPropertyAccessorTokens))
+            {
                 continue;
             }
 
@@ -1596,6 +1633,28 @@ public static class MemberBodyProducer
             if (only is not null)
                 return;
         }
+    }
+
+    static bool IsRepresentedByExplicitInterfacePropertyAccessors(
+        ApiMember member,
+        HashSet<int> projectedAccessorTokens)
+    {
+        if (member.Kind != "property")
+            return false;
+
+        int?[] accessors = [member.GetterToken, member.SetterToken];
+        bool found = false;
+        foreach (int? accessor in accessors)
+        {
+            if (accessor is not { } token)
+                continue;
+
+            found = true;
+            if (!projectedAccessorTokens.Contains(token))
+                return false;
+        }
+
+        return found;
     }
 
     static bool IsHiddenUnionMember(ApiMember member, UnionDeclarationInfo union)

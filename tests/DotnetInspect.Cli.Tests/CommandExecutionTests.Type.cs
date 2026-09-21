@@ -3550,14 +3550,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Semantics Overlay", output);
     }
 
-    [Fact]
-    public async Task Type_DecompiledSource_RendersWholeTypeListing()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_DecompiledSource_RendersWholeTypeListing(
+        bool includeAll)
     {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source");
+        List<string> arguments =
+        [
+            "type",
+            "System.Collections.Generic.Stack",
+            "--platform",
+            "System.Collections",
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q",
+        ];
+        if (includeAll)
+            arguments.Add("--all");
 
-        Assert.Equal(0, exit);
+        var (exit, output, error) = await RunAppAsync(
+            [.. arguments]);
+
+        Assert.True(exit == 0, error);
+        Assert.Empty(error);
         Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.Contains("public class Stack<T>", output);
         Assert.Contains("private T[] _array;", output);
@@ -3569,10 +3586,22 @@ public partial class CommandExecutionTests
         Assert.Contains(": IEnumerable<T>, IEnumerable, ICollection, IReadOnlyCollection<T>", output);
         Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
         Assert.DoesNotContain("System.Collections.Generic.IEnumerable<T>", output);
-        // Explicit interface property implementations render as properties,
-        // not their accessor methods.
-        Assert.Contains("bool ICollection.IsSynchronized => false;", output);
+        // Explicit interface property implementations render exactly once
+        // as properties with their selected accessor bodies.
+        Assert.Equal(
+            1,
+            output.Split(
+                "bool ICollection.IsSynchronized => false;",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            output.Split(
+                "object ICollection.SyncRoot => this;",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("private virtual bool ICollection.IsSynchronized", output);
+        Assert.DoesNotContain("private virtual object ICollection.SyncRoot", output);
         Assert.DoesNotContain("get_IsSynchronized", output);
+        Assert.DoesNotContain("get_SyncRoot", output);
     }
 
     [Fact]
@@ -3654,12 +3683,12 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Type_DecompiledSource_DefaultAndAllPreserveDistinctMetadataSurfaces()
+        Type_DecompiledSource_DefaultAndAllRenderSameCompleteType()
     {
         var (defaultExit, defaultOutput, defaultError) =
             await RunAppAsync(
                 "type",
-                typeof(TypeDecompilationSurfaceFixture).FullName!,
+                typeof(FullTypeDecompilationFixture).FullName!,
                 "--library",
                 TestAssemblyPath,
                 "-S",
@@ -3670,7 +3699,7 @@ public partial class CommandExecutionTests
         var (allExit, allOutput, allError) =
             await RunAppAsync(
                 "type",
-                typeof(TypeDecompilationSurfaceFixture).FullName!,
+                typeof(FullTypeDecompilationFixture).FullName!,
                 "--library",
                 TestAssemblyPath,
                 "-S",
@@ -3690,31 +3719,71 @@ public partial class CommandExecutionTests
             "public static int Visible { get; }",
             defaultOutput,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "protected TypeDecompilationSurfaceFixture()",
+        Assert.Contains(
+            "protected FullTypeDecompilationFixture()",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "static FullTypeDecompilationFixture()",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private static int ConcealedCore()",
+            defaultOutput,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.Equal(defaultOutput, allOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_MemberListing_DefaultAndAllRetainAccessibilityBoundary()
+    {
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Methods",
+                "--table",
+                "--tips",
+                "q");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Methods",
+                "--table",
+                "--all",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Empty(defaultError);
+        Assert.Contains(
+            "InvokePrivateCore",
             defaultOutput,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "static TypeDecompilationSurfaceFixture()",
+            "ConcealedCore",
             defaultOutput,
             StringComparison.Ordinal);
 
         Assert.Equal(0, allExit);
         Assert.Empty(allError);
         Assert.Contains(
-            "public abstract string ConvertName(string name);",
+            "InvokePrivateCore",
             allOutput,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public static int Visible { get; }",
-            allOutput,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "protected TypeDecompilationSurfaceFixture()",
-            allOutput,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "static TypeDecompilationSurfaceFixture()",
+            "ConcealedCore",
             allOutput,
             StringComparison.Ordinal);
     }
@@ -3864,20 +3933,25 @@ public partial class CommandExecutionTests
         }
     }
 
-    public abstract class TypeDecompilationSurfaceFixture
+    public abstract class FullTypeDecompilationFixture
     {
-        static TypeDecompilationSurfaceFixture()
+        static FullTypeDecompilationFixture()
         {
             Visible = 42;
         }
 
-        protected TypeDecompilationSurfaceFixture()
+        protected FullTypeDecompilationFixture()
         {
         }
 
         public abstract string ConvertName(string name);
 
         public static int Visible { get; }
+
+        public int InvokePrivateCore() =>
+            ConcealedCore();
+
+        private static int ConcealedCore() => 42;
     }
 
     [Fact]

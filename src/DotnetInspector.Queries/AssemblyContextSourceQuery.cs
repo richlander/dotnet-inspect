@@ -145,11 +145,6 @@ public sealed record AssemblyTypeSourceRequest
     public MetadataTypeDefinitionName Type { get; }
     public PrinterOptions? PrinterOptions { get; }
     public string? OriginalDocumentPath { get; private init; }
-    public SourceHouseTypeDecompilationSurface? DecompilationSurface
-    {
-        get;
-        private init;
-    }
 
     public static AssemblyTypeSourceRequest AuthoredDocument(
         MetadataTypeDefinitionName type,
@@ -164,17 +159,9 @@ public sealed record AssemblyTypeSourceRequest
         PrinterOptions? printerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        MetadataTypeDefinitionName definitionName =
-            GetDefinitionName(type);
         return new AssemblyTypeSourceRequest(
-            definitionName,
-            printerOptions)
-        {
-            DecompilationSurface =
-                new SourceHouseTypeDecompilationSurface(
-                    definitionName,
-                    type),
-        };
+            GetDefinitionName(type),
+            printerOptions);
     }
 
     internal static MetadataTypeDefinitionName GetDefinitionName(
@@ -1229,9 +1216,7 @@ public static partial class AssemblyContextSourceQuery
                     await DecompileAsync(
                         participant,
                         new SourceHouseTarget.TypeTarget(
-                            request.Type,
-                            decompilationSurface:
-                                request.DecompilationSurface),
+                            request.Type),
                         request.PrinterOptions,
                         pdb.RetainedLibrary
                             ?? throw new InvalidOperationException(

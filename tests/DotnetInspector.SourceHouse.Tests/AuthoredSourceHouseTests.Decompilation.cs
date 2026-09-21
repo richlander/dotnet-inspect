@@ -454,37 +454,16 @@ public sealed partial class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
-        TypeDecompilation_SelectedMetadataSurfaceExcludesUnselectedMembers()
+        TypeDecompilation_ExactTypeIncludesNonPublicMembers()
     {
         string assemblyPath =
             typeof(DecompilationFixture.SurfaceSelection).Assembly.Location;
-        using AssemblyInspectionSession session =
-            AssemblyInspectionSession.Open(assemblyPath);
-        ApiType selected = Assert.Single(
-            session.ApiSurface(includeAll: true).Types,
-            candidate =>
-                candidate.DefinitionName?.ToMetadataFullName()
-                    == typeof(DecompilationFixture.SurfaceSelection)
-                        .FullName!
-                        .Replace('+', '.'));
-        selected.Members =
-        [
-            Assert.Single(
-                selected.Members,
-                member =>
-                    member.Name
-                        == nameof(
-                            DecompilationFixture.SurfaceSelection
-                                .Included)),
-        ];
-        var surface =
-            new SourceHouseTypeDecompilationSurface(
-                selected.DefinitionName!,
-                selected);
-        var target =
-            new SourceHouseTarget.TypeTarget(
-                selected.DefinitionName!,
-                decompilationSurface: surface);
+        SourceHouseTarget.TypeTarget target =
+            TypeTarget(
+                assemblyPath,
+                typeof(DecompilationFixture.SurfaceSelection)
+                    .FullName!
+                    .Replace('+', '.'));
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync(assemblyPath);
 
@@ -498,11 +477,6 @@ public sealed partial class AuthoredSourceHouseTests
                     library.IssueOperation(),
                     TestContext.Current.CancellationToken));
 
-        Assert.Same(
-            surface,
-            Assert.IsType<SourceHouseTarget.TypeTarget>(
-                completed.Request.Target)
-                .DecompilationSurface);
         Assert.Equal(
             CSharpDecompilationStatus.Available,
             completed.Attempt.Status);
@@ -510,8 +484,8 @@ public sealed partial class AuthoredSourceHouseTests
             "public int Included()",
             completed.Attempt.Text,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Excluded",
+        Assert.Contains(
+            "private static int ConcealedCore()",
             completed.Attempt.Text,
             StringComparison.Ordinal);
     }
@@ -705,9 +679,9 @@ public sealed partial class AuthoredSourceHouseTests
 
         public sealed class SurfaceSelection
         {
-            public int Included() => 1;
+            public int Included() => ConcealedCore();
 
-            public int Excluded() => 2;
+            private static int ConcealedCore() => 1;
         }
     }
 }

@@ -341,16 +341,6 @@ public static partial class SourceHouse
             originalMembers = target.Value.Type.Members;
             target.Value.Type.Members = [target.Value.Member!];
         }
-        else if (request.Target
-            is SourceHouseTarget.TypeTarget
-            {
-                DecompilationSurface: { } selectedSurface,
-            })
-        {
-            originalMembers = target.Value.Type.Members;
-            target.Value.Type.Members =
-                [.. selectedSurface.Members];
-        }
 
         CSharpDecompilationAttempt attempt;
         try
