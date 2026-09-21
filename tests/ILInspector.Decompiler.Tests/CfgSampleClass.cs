@@ -664,6 +664,11 @@ public class CfgSampleClass
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
 
+    public static System.Func<int, int> AddressTakenLocalBodyLambda()
+        => x => { int y = x + 1; return ReadByRef(ref y); };
+
+    private static int ReadByRef(ref int value) => value;
+
     public static System.Func<CfgDimStructConsumer, int> InterfaceCastLambda()
         => consumer => ((CfgDimFace)consumer).Value();
 
