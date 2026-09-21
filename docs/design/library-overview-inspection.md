@@ -38,6 +38,10 @@ This owner composes existing contracts without redefining them:
   separation between content execution and required Share projection.
 - [Host-observable content kinds](host-observable-content-kinds.md) owns
   Result, Document, and Outcome semantics.
+- [View Facet Registry](view-facet-registry.md) owns canonical facet identity
+  and the closed registration set; focused issue
+  [#8093](https://github.com/richlander/dotnet-inspect/issues/8093) issues the
+  Library-overview facet consumed here.
 
 ## Product question
 
@@ -154,7 +158,19 @@ second scan or a count of rendered rows.
 ### Non-available outcomes
 
 `Incomplete` identifies the exact owner-issued extraction bound that prevented
-a complete overview. It publishes no shortened Document.
+a complete overview, or reports that the completed Metadata surface retained
+one or more declaration-inspection failures. It publishes no shortened
+Document in either case. Its closed reason is:
+
+```text
+LibraryOverviewIncompleteReason
+  ExtractionBound(ApiSurfaceExtractionBound)
+  MetadataInspectionFailures(count)
+```
+
+The failure count is evidence about omitted declarations, not a substitute for
+their owner-issued details. The broad exact-API operation remains responsible
+for content that preserves those detailed failures.
 
 `Rejected` preserves a foreign Library lease or assembly-identity mismatch.
 The operation does not retry against an equivalent Library or substitute a
@@ -175,9 +191,16 @@ Library, transferred lease, public extraction scope, and request bounds.
 
 The Metadata result remains the evidence source:
 
-- `Completed` supplies exact content correspondence, MVID, complete
-  `ApiSurface`, and measured work;
+- `Completed` supplies exact content correspondence, MVID, the bounded
+  `ApiSurface` with any retained inspection failures, and measured work;
 - `Incomplete`, `Rejected`, and `Failed` retain their owner-issued meanings.
+
+Before publishing an available Document, the overview checks
+`ApiSurface.InspectionFailures`. A non-empty sequence maps to
+`Incomplete(MetadataInspectionFailures(count))`, because the retained healthy
+types and member counts do not describe the complete requested overview. The
+operation neither publishes those reduced counts as complete nor reclassifies
+the producer's individual failure kinds.
 
 The overview owner projects only the portable summary needed by both hosts. It
 does not reopen content, revalidate identity from display text, or expose the
@@ -232,7 +255,8 @@ An unavailable Share does not alter independently valid overview Content.
 The overview outcome retains semantic terminal meaning. Envelope diagnostics
 supplement that content for consistent host disclosure:
 
-- incomplete extraction maps to one warning with an owner-scoped code;
+- extraction-bound or retained-inspection-failure incompleteness maps to one
+  warning with an owner-scoped code;
 - rejected correspondence maps to one error;
 - unsupported or malformed content maps to one error; and
 - an available complete overview has no diagnostic unless a later owner
@@ -268,7 +292,9 @@ Each operation must:
 - leave owner retirement to the caller.
 
 A lease from the other equivalent Library is rejected before content access
-and settled by the terminal operation.
+and settled by the terminal operation. A structurally valid assembly with one
+declaration that the Metadata extractor skips produces
+`Incomplete(MetadataInspectionFailures)` and no shortened Document.
 
 Neighboring cases cover one extraction bound below the real surface, malformed
 Metadata, Windows Metadata, a managed module, identity mismatch, empty MVID,
@@ -277,17 +303,19 @@ shortened or empty Document.
 
 ## Production adoption
 
-The complete adoption has five owner-scoped steps:
+The complete adoption has seven owner-scoped steps:
 
 1. Lock this focused operation design.
-2. Implement the request, portable outcome and Document, envelope assembly,
+2. Issue and register the canonical Library-overview facet under #8093 and the
+   View Facet Registry owner.
+3. Implement the request, portable outcome and Document, envelope assembly,
    Share projection, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
-3. Adopt the operation for one ordinary direct-file CLI Library overview
+4. Adopt the operation for one ordinary direct-file CLI Library overview
    through direct-Library realization and an ephemeral Workspace.
-4. Adopt the same operation for PackageHouse and PlatformHouse CLI routes in
-   separate source-owner slices.
-5. Consume the same envelope in Inspect Web's Library overview, then retire
+5. Adopt the same operation for the PackageHouse CLI route.
+6. Adopt the same operation for the PlatformHouse CLI route.
+7. Consume the same envelope in Inspect Web's Library overview, then retire
    the covered CLI-owned overview construction and direct serialization.
 
 The remaining ordinary Library sections migrate under #8088 by their own
@@ -309,6 +337,9 @@ The design remains **unverified** until Release gates prove:
 - each Library operation lease is settled on available, incomplete, rejected,
   failed, cancelled, and exceptional paths;
 - bound exhaustion returns `Incomplete` without a shortened Document;
+- a completed Metadata surface with retained declaration-inspection failures
+  returns `Incomplete` without publishing its reduced counts as a complete
+  Document;
 - malformed Metadata, Windows Metadata, managed modules, identity mismatch,
   and empty MVID remain typed;
 - every returned shape is resource-free and source-generated JSON
