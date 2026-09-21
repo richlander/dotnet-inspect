@@ -283,12 +283,25 @@ public sealed class ResourceExplanationCatalog
             new Dictionary<
                 (DiscoveryResourceIdentity Section, string Kind),
                 ResourceExplanationIdentity.NavigationCollection>();
+        var itemGroups =
+            new Dictionary<
+                DiscoveryResourceIdentity,
+                ImmutableArray<
+                    IGrouping<string?, DiscoveryResourceIdentity>>>();
         foreach (DiscoveryResource section in document.Resources.Where(
                      static resource =>
                          resource.Identity.Kind
                          == DiscoveryResourceKind.Section
                          && !resource.Members.IsEmpty))
         {
+            ImmutableArray<
+                IGrouping<string?, DiscoveryResourceIdentity>> groups =
+                [
+                    .. section.Members.GroupBy(
+                        static member => member.ItemKind,
+                        StringComparer.Ordinal),
+                ];
+            itemGroups.Add(section.Identity, groups);
             ResourcePath sectionPath = paths[section.Identity];
             ResourcePath itemsPath = sectionPath.Append("items");
             var itemsIdentity =
@@ -303,12 +316,10 @@ public sealed class ResourceExplanationCatalog
                 itemsPath,
                 itemsIdentity,
                 $"{section.Identity.Name} items",
-                section.Members.Length);
+                groups.Length);
 
             foreach (IGrouping<string?, DiscoveryResourceIdentity> group
-                     in section.Members.GroupBy(
-                         static member => member.ItemKind,
-                         StringComparer.Ordinal))
+                     in groups)
             {
                 string itemKind = group.Key
                     ?? throw new InvalidOperationException(
@@ -414,9 +425,7 @@ public sealed class ResourceExplanationCatalog
                         foreach (IGrouping<
                                      string?,
                                      DiscoveryResourceIdentity> group
-                                 in resource.Members.GroupBy(
-                                     static member => member.ItemKind,
-                                     StringComparer.Ordinal))
+                                 in itemGroups[resource.Identity])
                         {
                             string itemKind = group.Key
                                 ?? throw new InvalidOperationException(

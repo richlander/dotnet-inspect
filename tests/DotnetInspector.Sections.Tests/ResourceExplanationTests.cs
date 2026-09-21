@@ -90,6 +90,30 @@ public class ResourceExplanationTests
     }
 
     [Fact]
+    public void StructuralCatalog_CollectionCountsMatchDirectMembers()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+
+        foreach (ResourceExplanationResource collection
+                 in catalog.Resources.Where(static resource =>
+                     resource.Identity
+                     is ResourceExplanationIdentity.NavigationCollection))
+        {
+            var details =
+                Assert.IsType<
+                    ResourceExplanationDetail.NavigationCollectionDetails>(
+                    collection.Details);
+            int directMembers = catalog.Relationships.Count(
+                relationship =>
+                    relationship.Source == collection.Identity
+                    && relationship.RelationshipKind
+                    == ResourceExplanationRelationshipKind.CollectionMember);
+
+            Assert.Equal(details.MemberCount, directMembers);
+        }
+    }
+
+    [Fact]
     public void StructuralCatalog_RejectsMissingAndExtraRegistrations()
     {
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
