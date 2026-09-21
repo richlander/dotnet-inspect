@@ -42,8 +42,9 @@ The query uses the shared CSharpText and Metadata lookup conventions:
 1. trim and normalize user text into Metadata generic-arity spelling;
 2. flatten `+` and `.` nesting spelling for matching only;
 3. match full names, namespace-qualified suffixes, and arity-free base names;
-4. prefer definitions over forwarding-only evidence when definitions exist;
-5. prefer exact structured-name matches over base-name matches; and
+4. prefer exact structured-name matches over base-name matches;
+5. prefer definitions over forwarding-only evidence among equally exact
+   matches; and
 6. when the user spells generic syntax explicitly, require exact arity on every
    nested segment rather than broadening to an arity-free match.
 
@@ -74,7 +75,9 @@ normalization, definition preference, exact-name preference, and explicit
 generic arity. Its retained-state contract is documented in
 [Platform type catalog retention](platform-type-catalog-retention.md).
 
-This owner deliberately does not transfer that implementation's
+This owner deliberately does not transfer two ordering choices. It ranks exact
+structured names before declaration kind, so a broader simple-name definition
+cannot displace an exact forwarder or module export. It also omits the
 assembly-name-prefix tie-breaker. The completed PlatformHouse catalog preserves
 typed assembly, source, target, and declaration correspondence, while a prefix
 of assembly display text does not prove which duplicate declaration should be

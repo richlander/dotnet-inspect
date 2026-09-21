@@ -117,9 +117,7 @@ public static class PlatformTypeCatalogQuery
         }
 
         ImmutableArray<PlatformTypeCatalogEntry> preferred =
-            PreferDefinitions(
-                matches.ToImmutable(),
-                cancellationToken);
+            matches.ToImmutable();
         ImmutableArray<PlatformTypeCatalogEntry> exact =
             PreferExactMatches(
                 preferred,
@@ -133,6 +131,9 @@ public static class PlatformTypeCatalogQuery
         {
             return new PlatformTypeCatalogQueryOutcome.Missing(catalog);
         }
+        preferred = PreferDefinitions(
+            preferred,
+            cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();
         return preferred.Length switch
