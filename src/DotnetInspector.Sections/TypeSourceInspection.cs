@@ -44,22 +44,22 @@ public static class TypeSourceInspection
     }
 
     /// <summary>
-    /// Executes ordinary authored-first type source with finite PDB and
-    /// authored-source preference windows. Explicit document requests retain
-    /// the serial exact-document operation.
+    /// Executes the conservative Portable PDB hedge while preserving serial
+    /// authored-first behavior after prompt PDB availability. Explicit
+    /// document requests retain the serial exact-document operation.
     /// </summary>
     public static async Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
-        ExecuteWithLatencyHedgeAsync(
+        ExecuteWithPdbLatencyHedgeAsync(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             AssemblyTypeSourceRequest request,
             AssemblyContextSourceQueryContext context,
-            TypeSourceLatencyHedge latencyHedge,
+            TypeSourcePdbLatencyHedge latencyHedge,
             CancellationToken cancellationToken = default)
     {
         AssemblyTypeSourceEntry content =
             await AssemblyContextSourceQuery
-                .ExecuteTypeWithLatencyHedgeAsync(
+                .ExecuteTypeWithPdbLatencyHedgeAsync(
                     group,
                     participant,
                     request,
