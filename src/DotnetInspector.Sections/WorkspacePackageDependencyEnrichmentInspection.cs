@@ -495,7 +495,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
             workspace.Title,
             workspace.Description,
             workspace.Groups,
-            workspace.Registrations);
+            workspace.Registrations,
+            workspace.PackageSources);
         var rewrittenNavigation = new CommittedNavigationDefinition(
             navigation.SchemaVersion,
             navigation.Id,
@@ -529,6 +530,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                     version3.Definitions,
                 InspectionDefinitionScenarioPreparationResult.Version4 version4 =>
                     version4.Definitions,
+                InspectionDefinitionScenarioPreparationResult.Version5 version5 =>
+                    version5.Definitions,
                 _ => throw new UnreachableException(),
             };
             return RewriteResult.Success(definitions, addedMemberCount);

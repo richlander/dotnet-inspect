@@ -447,4 +447,7 @@ public abstract class IrExpression : IrNode
 {
     /// <summary>The expression's result type; null when the pipeline does not know (itself a fidelity signal).</summary>
     public abstract TypeRef? ResultType { get; }
+
+    /// <summary>Type testimony for assignment admission; an expression may withhold it when its result type does not prove a C# assignment.</summary>
+    public virtual TypeRef? AssignmentType => ResultType;
 }

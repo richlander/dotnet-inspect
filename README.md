@@ -1142,6 +1142,28 @@ Explicitly projected JSON, such as `-S Changes --json`, retains its existing
 presentation schema. Share is explicitly non-projectable for comparison
 endpoints; it is not a replay URL.
 
+The exact local-Library Implementation Diff route also exposes complete typed
+Content. Exact section selection chooses the operation rather than projecting
+its result; `--type` and `--member` remain semantic request inputs recorded in
+the Content:
+
+```bash
+before=old/Foo.dll
+after=new/Foo.dll
+dotnet-inspect diff \
+  --library "$before..$after" \
+  -S "Implementation Diff" --type Foo.Widget --envelope
+```
+
+Unprojected `--json` emits the same `ImplementationDiffDocument` found at
+`--envelope.content`; `--compact` controls whitespace. The document retains
+Before/After assembly identity, MVID and provenance, structured C# and IL
+evidence, complexity changes, and per-mechanism coverage. Share is currently
+non-projectable for the ordered endpoint pair. Package/platform ranges, PDB
+Source enrichment, row or field projection, alternate formats, and additional
+sections remain on the existing rendered paths or are rejected for complete
+transport.
+
 Changes without a compatibility classification remain visible under
 **Other API Changes**, or as `unclassified` rows in detailed output. They are
 not classified as breaking or additive. An incomplete or rejected comparison

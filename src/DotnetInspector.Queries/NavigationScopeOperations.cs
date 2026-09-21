@@ -35,6 +35,8 @@ public sealed class NavigationCoordinateRetentionResult
         if (!Enum.IsDefined(disposition))
             throw new ArgumentOutOfRangeException(nameof(disposition));
 
+        SourceWorkspace = source.Occurrence.Identity.WorkspaceIdentity;
+        DestinationWorkspace = destination.Occurrence.Identity.WorkspaceIdentity;
         Source = source.Occurrence.Package;
         Destination = destination.Occurrence.Package;
         Disposition = disposition;
@@ -48,6 +50,10 @@ public sealed class NavigationCoordinateRetentionResult
     public WorkspacePackageDescriptor Source { get; }
 
     public WorkspacePackageDescriptor Destination { get; }
+
+    public InspectionWorkspaceIdentity SourceWorkspace { get; }
+
+    public InspectionWorkspaceIdentity DestinationWorkspace { get; }
 
     public NavigationCoordinateRetentionDisposition Disposition { get; }
 
@@ -63,7 +69,7 @@ public sealed class NavigationCoordinateRetentionResult
 }
 
 /// <summary>
-/// Production orchestration for an accepted protected Package-coordinate
+/// Transitional orchestration for an accepted protected Package-coordinate
 /// replacement. Scope submission and all artifact access remain invocation-local.
 /// </summary>
 public static partial class NavigationScopeOperations
