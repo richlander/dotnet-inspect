@@ -145,18 +145,22 @@ public sealed class ExactTypeWorkspaceRouteTests
                 derivedPacket,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
-        await using WorkspacePacketRestoration restoration =
+        WorkspacePacketRestoration restoration =
             Assert.IsType<WorkspacePacketRestorationResult.Restored>(
                 restored).Value;
-        var resolved =
-            Assert.IsType<CompleteRestorationResolvedState.Version4>(
-                restoration.Workspace.Snapshot.Resolved);
-        CompleteRestorationResolvedViewState state =
-            resolved.States.Single(candidate =>
-                candidate.NavigationId == "t0");
-        Assert.Equal(
-            StructuralSubjectKind.Type,
-            state.Initialization!.Subject!.Kind);
+        await restoration.ExecuteAsync(activeRestoration =>
+        {
+            var resolved =
+                Assert.IsType<CompleteRestorationResolvedState.Version4>(
+                    activeRestoration.Activation.Snapshot.Resolved);
+            CompleteRestorationResolvedViewState state =
+                resolved.States.Single(candidate =>
+                    candidate.NavigationId == "t0");
+            Assert.Equal(
+                StructuralSubjectKind.Type,
+                state.Initialization!.Subject!.Kind);
+            return Task.FromResult(0);
+        });
     }
 
     [Fact]

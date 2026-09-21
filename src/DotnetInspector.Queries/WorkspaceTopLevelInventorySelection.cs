@@ -52,9 +52,20 @@ public abstract record WorkspaceTopLevelInventorySelectionResolution
     {
     }
 
-    public sealed record Selected(
-        WorkspaceTopLevelInventorySelection Selection)
-        : WorkspaceTopLevelInventorySelectionResolution;
+    public sealed record Selected : WorkspaceTopLevelInventorySelectionResolution
+    {
+        internal Selected(
+            WorkspaceTopLevelInventorySelection selection,
+            WorkspaceScopeSnapshot scope)
+        {
+            Selection = selection;
+            Scope = scope;
+        }
+
+        public WorkspaceTopLevelInventorySelection Selection { get; }
+
+        public WorkspaceScopeSnapshot Scope { get; }
+    }
 
     public sealed record Stale
         : WorkspaceTopLevelInventorySelectionResolution;
@@ -112,12 +123,50 @@ public sealed class WorkspaceTopLevelInventorySelectionReceipt
             return new WorkspaceTopLevelInventorySelectionResolution.Absent();
 
         using WorkspaceRealizationOperationUse use = authority.EnterUse();
-        if (!Matches(use.Definition, use.Scope))
+        return Resolve(use.Definition, use.Scope, key);
+    }
+
+    public async ValueTask<WorkspaceTopLevelInventorySelectionResolution>
+        ResolveAsync(
+            InspectionWorkspace workspace,
+            WorkspaceTopLevelInventoryEntryKey key,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(key);
+
+        if (!HasAuthority)
+            return new WorkspaceTopLevelInventorySelectionResolution.Absent();
+
+        ArtifactRootResult<WorkspaceRealizationOperationSnapshot> captured =
+            await workspace.CaptureRealizationOperationSnapshotAsync(
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (captured
+            is not ArtifactRootResult<WorkspaceRealizationOperationSnapshot>
+                .Available available)
+        {
+            return new WorkspaceTopLevelInventorySelectionResolution.Stale();
+        }
+
+        return Resolve(
+            available.Value.Definition,
+            available.Value.Scope,
+            key);
+    }
+
+    WorkspaceTopLevelInventorySelectionResolution Resolve(
+        WorkspaceDefinitionSnapshot definition,
+        WorkspaceScopeSnapshot scope,
+        WorkspaceTopLevelInventoryEntryKey key)
+    {
+        if (!Matches(definition, scope))
             return new WorkspaceTopLevelInventorySelectionResolution.Stale();
 
         return _selections.TryGetValue(key, out var selection)
             ? new WorkspaceTopLevelInventorySelectionResolution.Selected(
-                selection)
+                selection,
+                scope)
             : new WorkspaceTopLevelInventorySelectionResolution.Absent();
     }
 
