@@ -376,6 +376,15 @@ The first production shape accepts exactly one file and applies the declared
 the authoritative bound and format gate. An accepted managed assembly opens
 directly as a transient Library with Type and Member API navigation; the Open
 surface keeps rejection visible and retains focus for correction.
+A page-level drop opens the overlay before work begins so progress and typed
+rejection remain visible. Routed navigation retires any in-flight Open
+operation; a retired completion cannot replace the newer route or rerender its
+dismissed overlay.
+
+Successful transient-Library activation replaces the current address with the
+neutral Home route `/`. The route carries no upload identity, bytes, or
+restoration claim; refresh therefore returns Home rather than restoring the
+session-local Library.
 
 ### Settings
 

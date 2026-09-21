@@ -252,6 +252,8 @@ interface PackageLoadingFixture {
   libraryQuery?: "ready" | "empty" | "partial" | "deferred-error";
 }
 
+type LibraryUploadFixture = "available" | "rejected" | "deferred";
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
@@ -266,6 +268,7 @@ async function installFacades(
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
+  libraryUpload: LibraryUploadFixture = "available",
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -333,6 +336,81 @@ async function installFacades(
         && (!framework || item.activeFramework === framework))
         ?? surfaces.find(item => item.package === id) ?? surfaces[0];
     }`;
+  const uploadDigest = "a".repeat(64);
+  const uploadAssemblyId = `sha256:${uploadDigest}`;
+  const uploadAssembly = {
+    id: uploadAssemblyId,
+    name: "Uploaded.Library",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: null,
+    asset: "Uploaded.Library.dll",
+    publicTypes: model.types.length,
+    publicMembers: model.totalMembers,
+    platformPack: null,
+  };
+  const availableUploadInspection = {
+    content: {
+      outcome: "Available",
+      declaredName: uploadAssembly.asset,
+      digest: uploadDigest,
+      byteLength: 4,
+      provenance: {
+        contentRef: "browser-upload",
+        digest: uploadAssemblyId,
+        declaredName: uploadAssembly.asset,
+      },
+      assembly: {
+        name: uploadAssembly.name,
+        version: uploadAssembly.version,
+        culture: null,
+        publicKeyToken: null,
+      },
+      surface: {
+        assemblies: [uploadAssembly],
+        types: model.types.map(item => ({
+          ...item,
+          assembly: uploadAssembly.asset,
+          assemblyId: uploadAssemblyId,
+          assemblyName: uploadAssembly.name,
+        })),
+        accessibility: model.accessibility,
+        totalMembers: model.totalMembers,
+        inspectionErrors: [],
+        inspectionError: null,
+        isTruncated: false,
+      },
+      inspectionFailures: [],
+      failure: null,
+      isComplete: true,
+    },
+    share: {
+      kind: "NonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "embedded-library/share",
+      reason: "Uploaded bytes are session-local.",
+    },
+    diagnostics: [],
+  };
+  const rejectedUploadInspection = {
+    ...availableUploadInspection,
+    content: {
+      ...availableUploadInspection.content,
+      outcome: "Rejected",
+      provenance: null,
+      assembly: null,
+      surface: null,
+      failure: {
+        kind: "InvalidImage",
+        detail: "The dropped file is not a managed assembly.",
+      },
+      isComplete: false,
+    },
+  };
+  const uploadInspection = libraryUpload === "rejected"
+    ? rejectedUploadInspection
+    : availableUploadInspection;
   const graphTargetType =
     model.types.find(item => item.queryId === "Example.Neighbor") ?? null;
   const graphTargetLibrary = graphTargetType
@@ -816,7 +894,25 @@ async function installFacades(
           compileLibrary: surface.compileLibrary
         };
       }`,
-    library: "",
+    library: `
+      const uploadMode = ${JSON.stringify(libraryUpload)};
+      const uploadInspection = ${JSON.stringify(uploadInspection)};
+      export async function openUploadedLibrary(declaredName, content) {
+        document.documentElement.dataset.libraryUploadRequest =
+          JSON.stringify([declaredName, content.length]);
+        if (uploadMode === "deferred") {
+          await new Promise(resolve =>
+            document.addEventListener("finish-library-upload", resolve));
+        }
+        return {
+          ...uploadInspection,
+          content: {
+            ...uploadInspection.content,
+            declaredName,
+            byteLength: content.length,
+          },
+        };
+      }`,
     metadata: `
       ${surfaceLookup}
       export async function queryPlatformMetadata(tfm, version, file, pack) {
@@ -1363,6 +1459,26 @@ async function installLibraryQueryFacades(
   );
 }
 
+async function installLibraryUploadFacades(
+  page: Page,
+  libraryUpload: LibraryUploadFixture,
+) {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    {},
+    libraryUpload,
+  );
+}
+
 export {
   subjectTab,
   inspectorTab,
@@ -1384,6 +1500,7 @@ export {
   historicalPlatformTarget,
   installFacades,
   installLibraryQueryFacades,
+  installLibraryUploadFacades,
   releaseFacade,
   root,
   frameworkSurface,
@@ -1399,6 +1516,7 @@ export type {
   HomeDemoFixture,
   DiagnosticsFixture,
   PackageLoadingFixture,
+  LibraryUploadFixture,
   BrowserAssemblySurface,
   BrowserMemberSurface,
   BrowserPackageSurface,

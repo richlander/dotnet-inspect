@@ -14,6 +14,21 @@ internal static class BrowserLibraryWireProjection
     {
         ArgumentNullException.ThrowIfNull(inspection);
         EmbeddedLibraryInspectionResult content = inspection.Content;
+        BrowserUploadedLibraryInspectionOutcome outcome =
+            content.Outcome switch
+            {
+                EmbeddedLibraryInspectionOutcome.Available =>
+                    BrowserUploadedLibraryInspectionOutcome.Available,
+                EmbeddedLibraryInspectionOutcome.Rejected =>
+                    BrowserUploadedLibraryInspectionOutcome.Rejected,
+                _ => throw new InvalidOperationException(
+                    "Unknown embedded Library inspection outcome."),
+            };
+        BrowserUploadedLibraryFailure? failure =
+            content.Failure is null ? null : Project(content.Failure);
+        BrowserLibraryInspectionDiagnostic[] diagnostics =
+            [.. inspection.Diagnostics.Select(Project)];
+        bool isComplete = content.IsComplete;
         BrowserUploadedLibrarySurface? surface = null;
         if (content.IsAvailable)
         {
@@ -26,20 +41,34 @@ internal static class BrowserLibraryWireProjection
                     $"sha256:{content.Digest}",
                     content.DeclaredName.ToString(),
                     content.InspectionFailures);
-            surface = Project(projected);
+            if (projected.IsTruncated)
+            {
+                string detail = projected.InspectionError
+                    ?? "The Browser API-surface projection exceeded its transport bound.";
+                outcome = BrowserUploadedLibraryInspectionOutcome.Rejected;
+                failure = new(
+                    BrowserUploadedLibraryFailureKind.ProjectionTruncated,
+                    detail);
+                diagnostics =
+                [
+                    .. diagnostics,
+                    new(
+                        "embedded-library.browser-projection-truncated",
+                        "Error",
+                        detail,
+                        content.DeclaredName.ToString()),
+                ];
+                isComplete = false;
+            }
+            else
+            {
+                surface = Project(projected);
+            }
         }
 
         return new(
             new BrowserUploadedLibraryResult(
-                content.Outcome switch
-                {
-                    EmbeddedLibraryInspectionOutcome.Available =>
-                        BrowserUploadedLibraryInspectionOutcome.Available,
-                    EmbeddedLibraryInspectionOutcome.Rejected =>
-                        BrowserUploadedLibraryInspectionOutcome.Rejected,
-                    _ => throw new InvalidOperationException(
-                        "Unknown embedded Library inspection outcome."),
-                },
+                outcome,
                 content.DeclaredName.ToString(),
                 content.Digest,
                 content.ByteLength,
@@ -47,37 +76,39 @@ internal static class BrowserLibraryWireProjection
                 Project(content.Assembly),
                 surface,
                 [.. content.InspectionFailures.Select(Project)],
-                content.Failure is null
-                    ? null
-                    : new(
-                        content.Failure.Kind switch
-                        {
-                            EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName =>
-                                BrowserUploadedLibraryFailureKind.InvalidDeclaredName,
-                            EmbeddedLibraryInspectionFailureKind.EmptyImage =>
-                                BrowserUploadedLibraryFailureKind.EmptyImage,
-                            EmbeddedLibraryInspectionFailureKind.ResourceBudget =>
-                                BrowserUploadedLibraryFailureKind.ResourceBudget,
-                            EmbeddedLibraryInspectionFailureKind.DescriptorUnavailable =>
-                                BrowserUploadedLibraryFailureKind.DescriptorUnavailable,
-                            EmbeddedLibraryInspectionFailureKind.NotAssembly =>
-                                BrowserUploadedLibraryFailureKind.NotAssembly,
-                            EmbeddedLibraryInspectionFailureKind.InvalidImage =>
-                                BrowserUploadedLibraryFailureKind.InvalidImage,
-                            EmbeddedLibraryInspectionFailureKind.UnsupportedMetadataFormat =>
-                                BrowserUploadedLibraryFailureKind.UnsupportedMetadataFormat,
-                            EmbeddedLibraryInspectionFailureKind.InspectionFailed =>
-                                BrowserUploadedLibraryFailureKind.InspectionFailed,
-                            EmbeddedLibraryInspectionFailureKind.ProjectionTruncated =>
-                                BrowserUploadedLibraryFailureKind.ProjectionTruncated,
-                            _ => throw new InvalidOperationException(
-                                "Unknown embedded Library failure kind."),
-                        },
-                        content.Failure.Detail.ToString()),
-                content.IsComplete && surface is not { IsTruncated: true }),
+                failure,
+                isComplete),
             Project(inspection.Share),
-            [.. inspection.Diagnostics.Select(Project)]);
+            diagnostics);
     }
+
+    static BrowserUploadedLibraryFailure Project(
+        EmbeddedLibraryInspectionFailure failure) =>
+        new(
+            failure.Kind switch
+            {
+                EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName =>
+                    BrowserUploadedLibraryFailureKind.InvalidDeclaredName,
+                EmbeddedLibraryInspectionFailureKind.EmptyImage =>
+                    BrowserUploadedLibraryFailureKind.EmptyImage,
+                EmbeddedLibraryInspectionFailureKind.ResourceBudget =>
+                    BrowserUploadedLibraryFailureKind.ResourceBudget,
+                EmbeddedLibraryInspectionFailureKind.DescriptorUnavailable =>
+                    BrowserUploadedLibraryFailureKind.DescriptorUnavailable,
+                EmbeddedLibraryInspectionFailureKind.NotAssembly =>
+                    BrowserUploadedLibraryFailureKind.NotAssembly,
+                EmbeddedLibraryInspectionFailureKind.InvalidImage =>
+                    BrowserUploadedLibraryFailureKind.InvalidImage,
+                EmbeddedLibraryInspectionFailureKind.UnsupportedMetadataFormat =>
+                    BrowserUploadedLibraryFailureKind.UnsupportedMetadataFormat,
+                EmbeddedLibraryInspectionFailureKind.InspectionFailed =>
+                    BrowserUploadedLibraryFailureKind.InspectionFailed,
+                EmbeddedLibraryInspectionFailureKind.ProjectionTruncated =>
+                    BrowserUploadedLibraryFailureKind.ProjectionTruncated,
+                _ => throw new InvalidOperationException(
+                    "Unknown embedded Library failure kind."),
+            },
+            failure.Detail.ToString());
 
     static BrowserEmbeddedLibraryProvenance? Project(
         AssemblyResolutionProvenance? provenance) =>

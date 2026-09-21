@@ -1283,6 +1283,7 @@ const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let disconnectLibraryOpen: (() => void) | null = null;
+let libraryOpenSequence = 0;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -15919,6 +15920,12 @@ async function openUploadedLibraryFile(
   file: File,
   input: LibraryOpenInput,
 ) {
+  const operationSequence = ++libraryOpenSequence;
+  const navigationSeq = navigationSequence.current();
+  const isCurrent = () =>
+    operationSequence === libraryOpenSequence
+    && navigationSequence.isCurrent(navigationSeq);
+  state.libraryOpen = true;
   state.libraryOpenBusy = true;
   state.libraryOpenFileName = file.name;
   state.libraryOpenError = "";
@@ -15926,7 +15933,9 @@ async function openUploadedLibraryFile(
 
   try {
     const content = Array.from(new Uint8Array(await file.arrayBuffer()));
+    if (!isCurrent()) return;
     const inspection = await inspectOpenUploadedLibrary(file.name, content);
+    if (!isCurrent()) return;
     if (inspection.content.outcome !== "Available") {
       const failure = inspection.content.failure;
       state.libraryOpenError = failure?.detail
@@ -15962,13 +15971,17 @@ async function openUploadedLibraryFile(
     state.libraryOpen = false;
     state.libraryOpenFileName = "";
     state.libraryOpenError = "";
+    workspaceLocation.replace("/");
   } catch (error) {
+    if (!isCurrent()) return;
     state.libraryOpenError =
       `${input === "drop" ? "Dropped" : input === "paste" ? "Pasted" : "Selected"} `
       + `Library failed to open: ${errorMessage(error)}`;
   } finally {
-    state.libraryOpenBusy = false;
-    render({ synchronizeUrl: false });
+    if (isCurrent()) {
+      state.libraryOpenBusy = false;
+      render({ synchronizeUrl: false });
+    }
   }
 }
 
@@ -18341,6 +18354,7 @@ function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
+  libraryOpenSequence++;
   state.libraryOpen = false;
   state.libraryOpenBusy = false;
   state.libraryOpenFileName = "";

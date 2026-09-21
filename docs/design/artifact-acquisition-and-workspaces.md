@@ -1005,10 +1005,14 @@ acquisition, persistence, or restoration.
 The Browser host bounds one upload at 32 MiB before managed dispatch and
 reasserts the same bound inside the operation. The UI may use the declared
 bound to avoid an unnecessary browser allocation, but the product operation is
-the enforcement gate. `EmbeddedLibraryInspectionTests` gates managed-image
-projection, upload provenance, byte bounds, native and malformed rejection,
-netmodule rejection, and Windows Metadata rejection. Inspect Web's Browser
-boundary and TypeScript Open tests gate the production call sites.
+the enforcement gate. If Browser DTO lowering exceeds its independent
+transport-text bound, the Browser facade converts that truncation to the same
+typed `ProjectionTruncated` rejection shape; it never serializes partial
+Library content as available. `EmbeddedLibraryInspectionTests` gates
+managed-image projection, upload provenance, byte bounds, native and malformed
+rejection, netmodule rejection, and Windows Metadata rejection. Inspect Web's
+Browser boundary and TypeScript Open tests gate the production call sites and
+Browser transport-truncation rejection.
 
 ### Explicit local/designated/platform assembly context
 

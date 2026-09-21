@@ -1,6 +1,8 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Sections;
 using DotnetInspect.Web.Interop.Library;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -85,6 +87,59 @@ public sealed class BrowserUploadedLibraryTests
             inspection.Diagnostics,
             diagnostic => diagnostic.Severity == "Error"
                 && diagnostic.Summary.Length > 0);
+    }
+
+    [Fact]
+    public async Task OpenUploadedLibrary_RejectsBrowserTransportTruncation()
+    {
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(BrowserUploadedLibraryTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection =
+            await EmbeddedLibraryInspection.ExecuteAsync(
+                "DotnetInspect.Web.Tests.dll",
+                [.. content],
+                BrowserApiSurfacePolicy.Limits,
+                cancellationToken: TestContext.Current.CancellationToken);
+        var oversizedSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = new string('N', 4_000_000),
+                    Name = "Amplifier",
+                    MetadataName = "Amplifier",
+                    Kind = "class",
+                },
+            ],
+        };
+        var oversizedInspection =
+            new InspectionEnvelope<EmbeddedLibraryInspectionResult>(
+                inspection.Content with { Surface = oversizedSurface },
+                inspection.Share,
+                inspection.Diagnostics);
+
+        BrowserUploadedLibraryInspection projected =
+            BrowserLibraryWireProjection.Project(oversizedInspection);
+
+        Assert.Equal(
+            BrowserUploadedLibraryInspectionOutcome.Rejected,
+            projected.Content.Outcome);
+        Assert.False(projected.Content.IsComplete);
+        Assert.Null(projected.Content.Surface);
+        BrowserUploadedLibraryFailure failure =
+            Assert.IsType<BrowserUploadedLibraryFailure>(
+                projected.Content.Failure);
+        Assert.Equal(
+            BrowserUploadedLibraryFailureKind.ProjectionTruncated,
+            failure.Kind);
+        Assert.Contains("transport truncated", failure.Detail);
+        Assert.Contains(
+            projected.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "embedded-library.browser-projection-truncated"
+                && diagnostic.Severity == "Error");
     }
 
     static BrowserUploadedLibraryInspection Deserialize(string json) =>
