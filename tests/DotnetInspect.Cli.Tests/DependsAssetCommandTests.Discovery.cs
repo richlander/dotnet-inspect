@@ -39,6 +39,7 @@ public partial class DependsAssetCommandTests
         {
             DependsAssetSections.DependencyHierarchy,
             DependsAssetSections.Dependencies,
+            DependsAssetSections.Licenses,
             DependsAssetSections.Pruning,
             DependsAssetSections.Failures,
         })
@@ -88,7 +89,7 @@ public partial class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task BareEffectiveDiscoveryDoesNotRunUnboundedPruning()
+    public async Task BareEffectiveDiscoveryDoesNotRunUnboundedSections()
     {
         (int exitCode, string output, string error) =
             await RunCapturedAsync(
@@ -106,6 +107,10 @@ public partial class DependsAssetCommandTests
             DependsAssetSections.Pruning,
             output,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            DependsAssetSections.Licenses,
+            output,
+            StringComparison.Ordinal);
     }
 
 #if !DEBUG
@@ -116,6 +121,7 @@ public partial class DependsAssetCommandTests
             [
                 DependsAssetSections.DependencyHierarchy,
                 DependsAssetSections.Dependencies,
+                DependsAssetSections.Licenses,
                 DependsAssetSections.Pruning,
                 DependsAssetSections.Failures,
             ],
@@ -124,6 +130,7 @@ public partial class DependsAssetCommandTests
             [
                 DependsAssetSections.DependencyHierarchy,
                 DependsAssetSections.Dependencies,
+                DependsAssetSections.Licenses,
                 DependsAssetSections.Pruning,
                 DependsAssetSections.Failures,
             ],

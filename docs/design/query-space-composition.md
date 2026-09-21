@@ -12,10 +12,10 @@ the target contract agreed before the held Depends and Library Query changes in
 
 The current implementation has several prerequisites:
 
-- `QuerySpace` carries portable intent, row-query resolution, and semantic row
-  selection, while `DotnetInspector.QueryEngine` temporarily retains operation
-  registration pending the remaining [QuerySpace
-  library](query-space-library.md) migration;
+- `QuerySpace` carries portable intent, row-query resolution, semantic row
+  selection, Query Operation registration, and the immutable
+  `QuerySpaceDescriptor`, `QuerySpaceRequest`, and explicit row-intent
+  association contracts;
 - [Query Operation Infrastructure](query-operation-infrastructure.md) derives
   effective route capabilities from executable operation registration;
 - [L2 row query and ordering](row-query-order.md) resolves typed row predicates
@@ -28,9 +28,16 @@ The current implementation has several prerequisites:
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
 
-No implementation gate yet verifies this complete design. Every target gate in
-[Required gates](#required-gates) is **unverified** until its named
-implementation slice lands and runs in Release.
+The Query Operation and direct-consumer Release gates verify that descriptors
+project operation terms and work-bound dimensions from executable routes,
+project order and semantic-stage capabilities only through explicit row
+scopes, reject duplicate canonical keys, and that requests preserve explicit
+compatible row-set associations while separating operation bounds from row
+order and semantic selection. Transitional Query Operation route order and
+stage capabilities are not operation-scope capabilities. Section projection,
+typed row-plan resolution, terminal execution, continuation binding, and the
+complete gates in [Required gates](#required-gates) remain **unverified** until
+their named implementation slices land and run in Release.
 
 ## Owner and exact claim
 
@@ -78,10 +85,9 @@ This owner does not define:
 - the physical package, namespace, dependency, lifetime, or extension boundary
   owned by [QuerySpace Library Boundary](query-space-library.md).
 
-The `QuerySpace` library now carries the portable and row contracts without
-becoming their semantic owner. `DotnetInspector.QueryEngine` remains the
-transitional physical carrier for Query Operation contracts until the next
-migration slice.
+The `QuerySpace` library now carries the portable, row, Query Operation, and
+initial structural-composition contracts without becoming their semantic
+owner.
 
 ## Product goal
 

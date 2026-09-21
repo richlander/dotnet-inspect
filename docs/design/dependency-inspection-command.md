@@ -283,6 +283,30 @@ dotnet-inspect graph dependencies \
   [--depth <positive-integer>]
 ```
 
+License inventory is also an explicit projection:
+
+```console
+dotnet-inspect depends --project ./App.csproj -S Licenses
+dotnet-inspect depends --nuspec ./Package.nuspec \
+  -S "Licenses,Failures"
+```
+
+The dependency owners supply the exact package-coordinate set. Restored
+projects contribute every distinct package node in the selected
+`project.assets.json` graph. Package and nuspec roots contribute every distinct
+resolved dependency node within the requested traversal boundary; explicit
+roots themselves are omitted. The license inventory then acquires only each
+coordinate's nuspec and never downloads or reads package payload content.
+
+Each row answers `Package`, `Version`, and `License`. SPDX-expression
+declarations answer with their expression. A declared `OSMFEULA.*` basename
+answers `OSMF`; other file and URL declarations answer `unknown`, absent
+declarations answer `none`, and failed manifest acquisition answers
+`unavailable`. Typed Content keeps declaration kind/value or failure reason
+beside that answer as evidence. Partial coordinate discovery or manifest
+acquisition makes license completion partial, produces a nonzero exit status,
+and prevents an exact `--count`.
+
 Exact relationship-selection spelling inside `type graph` remains owned by its
 focused adoption. The bare Dependency-backed Type Graph route must preserve
 the existing base-type and interface topology, bounded search-scope meaning,
@@ -414,9 +438,9 @@ authority that the root did not grant.
 | --- | --- | --- |
 | Remote package ID or coordinate | Exact package identity and manifest dependency groups | Authorized package sources may resolve reachable package manifests up to the requested depth. |
 | Local `.nupkg` | Validated archive identity and root manifest | Ordinary package-source policy may resolve reachable package dependencies up to the requested depth. |
-| Direct `.nuspec` | Self-attested manifest identity and dependency groups | The file gesture authorizes only that nuspec. Its declared dependency edges terminate as unresolved boundaries. |
-| `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. |
-| Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. |
+| Direct `.nuspec` | Self-attested manifest identity and dependency groups | The file gesture alone authorizes only that nuspec, so ordinary dependency edges terminate as unresolved boundaries. Explicit `Licenses` additionally authorizes dependency-range resolution and exact manifest acquisition through the configured package sources. |
+| `.csproj` or project directory | Existing located `project.assets.json`, with locator provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. |
+| Direct `project.assets.json` | Exact restored-project facts with direct-assets provenance | The selected restored graph is traversed without package or project acquisition. Explicit `Licenses` may acquire only the exact manifests named by that graph. |
 | Library | Owner-issued assembly identity and direct references | Existing library-reference resolution may follow resolvable references up to the requested depth. |
 | Package prefix | Bounded package-profile roots and their manifest declarations | Profile acquisition authorizes the bounded manifests, not recursive expansion from every match. |
 | Type | Owner-issued type and hierarchy relationships in the selected scope | Traversal stays within the admitted search scope. |
@@ -427,9 +451,10 @@ provenance. A `.csproj` is not parsed as the dependency graph and does not
 authorize project evaluation; it is a locator for already-restored assets.
 
 Supplying package-source options when no root can consume them fails rather
-than silently accepting an inert gesture. Direct nuspec, restored-project,
-library-only, type-only, and package-prefix requests do not acquire package
-manifests merely because a source option is present.
+than silently accepting an inert gesture. Direct nuspec and restored-project requests consume source options only when
+`Licenses` explicitly authorizes manifest acquisition. Library-only, type-only,
+and package-prefix requests do not acquire package manifests merely because a
+source option is present.
 
 A local `.nupkg` can consume source options only when `Dependency Hierarchy` is
 selected and traversal may expand beyond its direct declarations. An
@@ -512,11 +537,13 @@ introducing unbounded whole-program traversal.
 
 For fixed graph evidence such as `project.assets.json`, omitted depth means the
 complete selected restored graph already present in the asset. It never means
-opening every resolved package. In that case depth bounds graph admission over
-already-materialized evidence rather than upstream acquisition. For direct
-nuspec and package-prefix roots, the available graph ends at their declared
-dependency edges because those gestures do not authorize recursive
-acquisition.
+opening every resolved package. Explicit `Licenses` may independently acquire
+the exact manifests named by that already-materialized graph. In that case
+depth bounds graph admission rather than license-manifest acquisition. For
+direct nuspec and package-prefix roots, the ordinary graph ends at their
+declared dependency edges because those gestures do not authorize recursive
+acquisition; the explicit `Licenses` exception applies only to direct nuspec
+roots.
 
 The current restored-project facts are not by themselves sufficient for that
 root-relative traversal: they retain restored package edges but may omit the
@@ -630,9 +657,10 @@ ordered explicit root occurrences
   + typed directed dependency edges
   + rooted dependency hierarchy occurrences
   + owner-issued declaration and resolution evidence
+  + nuspec-derived package-license answers and declaration evidence
   + candidate-bound package-pruning applicability and policy evidence
   + root, acquisition, projection, and traversal failures
-  + root-set, traversal, and pruning completion
+  + root-set, traversal, license, and pruning completion
         |
         v
 section selection and row shaping
@@ -645,19 +673,20 @@ The host-neutral `DependencyInspectionOperation` now settles the semantic
 selected-plan value as owner-issued `DependencyInspectionContent` and returns
 it in `InspectionEnvelope<DependencyInspectionContent>`. Its request contains
 the already-acquired Package Dependency Evidence outcome, explicit root inputs,
-traversal topology, pruning, and typed host-adapted failures. The operation owns
-root and hierarchy occurrence association, phase projection,
-declaration-to-restored-edge joins, plan-relative traversal, pruning, and
-failure inclusion, and aggregate completion.
-Producer values for an unselected traversal or pruning phase do not enter
-Content even if a host adapter supplies them. The CLI projection consumes that
-envelope and continues to own section membership, row windows, presentation
-ordering, and rendering. The ordered hierarchy occurrence sequence itself is
-host-neutral Content so CLI and Browser/Wasm consumers cannot disagree about
-root, parent, revisit, cycle, or row identity. This extraction is not a new
-dependency-semantics model. The Content value carries references to or copies
-of owner-issued identities and evidence plus dependency-inspection occurrence
-identities, canonical endpoint indices, and stable semantic ordering.
+traversal topology, package-license inventory, pruning, and typed host-adapted
+failures. The operation owns root and hierarchy occurrence association, phase
+projection, declaration-to-restored-edge joins, plan-relative traversal,
+license and pruning projection, failure inclusion, and aggregate completion.
+Producer values for an unselected traversal, license, or pruning phase do not
+enter Content even if a host adapter supplies them. The CLI projection consumes
+that envelope and continues to own section membership, row windows,
+presentation ordering, and rendering. The ordered hierarchy occurrence
+sequence itself is host-neutral Content so CLI and Browser/Wasm consumers
+cannot disagree about root, parent, revisit, cycle, or row identity. This
+extraction is not a new dependency-semantics model. The Content value carries
+references to or copies of owner-issued identities and evidence plus
+dependency-inspection occurrence identities, canonical endpoint indices, and
+stable semantic ordering.
 
 Package candidate, source failure, authority failure, manifest failure,
 restored-traversal failure, and pruning-result Content use closed portable
@@ -674,8 +703,8 @@ authority-free and remain usable after the operation ends.
 
 This selected-plan document is baseline Content for envelope adoption.
 Root-set and requested-phase completion, hierarchy meaning, normalized
-dependencies, pruning results, and typed failures remain here whether or not
-service evidence is requested. The
+dependencies, package licenses, pruning results, and typed failures remain here
+whether or not service evidence is requested. The
 [Debug enrichment](#debug-service-evidence-enrichment) composes supplemental
 owner-issued facts beside this document; it does not replace or weaken the
 baseline.
@@ -697,9 +726,13 @@ projections. Adding or removing the graph section therefore never changes
 those already-selected evidence row sets. `Pruning` evaluates only normalized
 direct declarations from explicit roots; it neither admits transitive roots nor
 deletes graph edges. `Failures` is plan-relative: selecting traversal or
-pruning can add typed failures that a declaration-only plan never produced.
-For restored-project roots, the explicit root's owner-issued evidence already
-contains the selected restored package nodes and edges.
+license or pruning work can add typed failures that a declaration-only plan
+never produced. `Licenses` intentionally uses a different currency: distinct
+exact dependent package coordinates supplied by package traversal or the
+selected restored-project graph. It acquires only those coordinates' nuspec
+manifests and never adds the resulting manifests as dependency roots or
+declaration rows. For restored-project roots, the explicit root's owner-issued
+evidence already contains the selected restored package nodes and edges.
 
 The same semantic node may be reached from several parents. It appears once in
 the canonical node set and once under each explaining parent in the hierarchy.
@@ -732,6 +765,7 @@ The retail base section ladder is:
 | --- | --- | --- |
 | `Dependency Hierarchy` | One rooted dependency relationship occurrence. | Minimal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
+| `Licenses` | One distinct dependency package coordinate and its nuspec-derived semantic license answer. | Explicit only |
 | `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
@@ -740,15 +774,16 @@ preserves the current reason to invoke the Dependency operation: seeing what
 depends on what.
 
 `-v:n` adds normalized direct dependency evidence and any failures needed to
-interpret the result. `Pruning` is unbounded because it may read an installed
-platform inventory and resolve exact package candidates; it enters no
-verbosity level. `-v:d` does not add it.
+interpret the result. `Licenses` is unbounded because it may resolve dependency
+ranges and acquire every exact dependency manifest. `Pruning` is unbounded
+because it may read an installed platform inventory and resolve exact package
+candidates. Neither enters a verbosity level, including `-v:d`.
 
-The `@Dependencies` category contains `Dependency Hierarchy`, `Dependencies`, and
-`Failures`. It deliberately excludes `Pruning`, so selecting the category
-preserves its established cost and acquisition contract. A caller that wants
-declaration evidence without traversal selects the public evidence and failure
-sections it needs:
+The `@Dependencies` category contains `Dependency Hierarchy`, `Dependencies`,
+and `Failures`. It deliberately excludes `Licenses` and `Pruning`, so selecting
+the category preserves its established cost and acquisition contract. A caller
+that wants declaration evidence without traversal selects the public evidence
+and failure sections it needs:
 
 ```console
 dotnet-inspect graph dependencies --project ./App.csproj \
@@ -1635,6 +1670,8 @@ targeted Debug-build probe.
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
 | `--depth 1` performs no deeper package-manifest acquisition. | Instrumented package-source test that fails if a child manifest is requested. |
 | Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Hierarchy`. |
+| License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
+| License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
 | Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
