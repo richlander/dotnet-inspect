@@ -2695,6 +2695,236 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_StringMaterializationSupportCannotClaimRawObjectAllocation()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program)
+                .GetMethod(
+                    "AllocateOne",
+                    BindingFlags.Public
+                        | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"strings":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"string-materialization","provenance":"exact","supporting_finding":"analysis.call-site","supporting_operation":"newobj","supporting_token":"0x0A000001","supporting_evidence_method":"0x{{{allocateOne.MetadataToken:X8}}}","supporting_il":"IL_{{{occurrence.ILOffset:X4}}}"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            var triage = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "triage");
+            var library = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "library");
+            Assert.Equal(
+                "cold-for-this-workload",
+                triage.GetProperty("status")
+                    .GetString());
+            Assert.Equal(
+                0,
+                triage.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Empty(
+                triage.GetProperty("observedAllocatedTypes")
+                    .EnumerateArray());
+            Assert.Equal(
+                1_167_872,
+                library.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.NotEqual(
+                "superseded-by-triage",
+                library.GetProperty("status")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_StringMaterializationMethodHeatIsNotAllocationConfirmation()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"strings":[{"member":"Fixture.Type.BuildText()","assembly":"Fixture","moduleVersionId":"11111111-1111-1111-1111-111111111111","method_token":"0x06000001","shape":"string-materialization","provenance":"exact","operation":"string.concat","il":"IL_0000"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "Fixture.Type.BuildText()");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "Runtime-observed candidates: 1",
+                result.Output);
+            Assert.Contains(
+                "observed only through non-allocation diagnostics",
+                result.Output);
+            Assert.Contains(
+                "| method-hot |",
+                result.Output);
+            Assert.DoesNotContain(
+                "Runtime allocation evidence confirmed",
+                result.Output);
+            Assert.DoesNotContain(
+                "## Runtime-confirmed string materialization",
+                result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_StringMaterializationContradictoryTypeCannotClaimRawObjectAllocation()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program)
+                .GetMethod(
+                    "AllocateOne",
+                    BindingFlags.Public
+                        | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"strings":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","moduleVersionId":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"string-materialization","allocation":"System.Object","provenance":"exact","operation":"string.concat","il":"IL_{{{occurrence.ILOffset:X4}}}"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation
+                    .AssetPath("fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            var triage = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "triage");
+            var library = Assert.Single(
+                sameMethod,
+                candidate => candidate
+                    .GetProperty("source")
+                    .GetString() == "library");
+            Assert.Equal(
+                "cold-for-this-workload",
+                triage.GetProperty("status")
+                    .GetString());
+            Assert.False(
+                triage.TryGetProperty(
+                    "allocation",
+                    out _));
+            Assert.False(
+                triage.TryGetProperty(
+                    "typeConfirmedType",
+                    out _));
+            Assert.Equal(
+                0,
+                triage.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.Equal(
+                1_167_872,
+                library.GetProperty("allocationBytes")
+                    .GetInt64());
+            Assert.NotEqual(
+                "superseded-by-triage",
+                library.GetProperty("status")
+                    .GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
     public void Correlate_NonAllocationSupport_DoesNotShadowNearestLibrarySite()
     {
         string assemblyPath =
