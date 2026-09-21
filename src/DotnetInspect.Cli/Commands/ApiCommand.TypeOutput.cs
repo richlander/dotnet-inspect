@@ -1322,24 +1322,22 @@ public partial class ApiCommand
                 options, sourceAssembly, packageName, packageVersion, sourceClient);
         }
 
-        var documents = section switch
-        {
-            SectionNames.ApiDeclarations => CodeSectionDocument(section, SectionNames.ApiDeclarations, null, view.MemberCode?.ApiDeclarationsCode.Content),
-            SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, MemberSourceUrl(options as MemberOptions), view.MemberCode?.PdbSourceCode.Content),
-            SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
-            SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", MemberSourceUrl(options as MemberOptions), view.MemberCode?.SourceDiffCode?.Content),
-            SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
-            _ => []
-        };
-
-        if (documents.Count == 0
-            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.ApiDeclarations or SectionNames.PdbSource
-                or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
+        if (section is not (SectionNames.ApiDeclarations or SectionNames.PdbSource
+            or SectionNames.DecompiledSource or SectionNames.AnnotatedSource
+            or SectionNames.SourceDiff or SectionNames.IL
+            or SectionNames.CostOverlay or SectionNames.SemanticsOverlay))
         {
             CommandError.Write($"section '{section}' is not printable.");
             return 1;
         }
+
+        var documents = CodeSectionDocument(
+            section,
+            section,
+            section is SectionNames.PdbSource or SectionNames.SourceDiff
+                ? MemberSourceUrl(options as MemberOptions)
+                : null,
+            GetApiPayloadContent(view, section));
 
         return PrintProjectionOutput.Write(
             documents,
@@ -1548,25 +1546,22 @@ public partial class ApiCommand
         if (options.IncludeSections is not { Count: 1 } included)
             return false;
 
-        var section = included.First();
-        raw = section switch
-        {
-            SectionNames.ApiDeclarations => view.MemberCode?.ApiDeclarationsCode.Content ?? "",
-            SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
-            SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
-            SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content ?? "",
-            SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
-            SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
-            SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
-            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode?.Content ?? "",
-            SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
-            _ => ""
-        };
-
-        if (raw.Length > 0)
-            return true;
-
-        return false;
+        raw = GetApiPayloadContent(view, included.First()) ?? "";
+        return raw.Length > 0;
     }
 
+    private static string? GetApiPayloadContent(TypeView view, string section)
+        => section switch
+        {
+            SectionNames.ApiDeclarations => view.MemberCode?.ApiDeclarationsCode.Content,
+            SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content,
+            SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content,
+            SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content,
+            SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content,
+            SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content,
+            SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content,
+            SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode?.Content,
+            SectionNames.IL => view.MemberCode?.ILCode.Content,
+            _ => null
+        };
 }

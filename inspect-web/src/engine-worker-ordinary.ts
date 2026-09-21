@@ -101,6 +101,7 @@ type CatalogOperationName =
   | "abandonRetainedWorkspaceNavigation"
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
+  | "activateRetainedWorkspaceDefinitionWithCredentials"
   | "cancelRetainedWorkspaceActivation"
   | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
@@ -108,10 +109,12 @@ type CatalogOperationName =
   | "completeRetainedWorkspaceActivation"
   | "completeRetainedWorkspaceDeactivation"
   | "deactivateRetainedWorkspaceDefinition"
+  | "describeWorkspacePackageSources"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "observeRetainedWorkspaceSettlement"
   | "prepareRetainedWorkspaceDefinition"
+  | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
   | "runHomeDemo"
@@ -1245,6 +1248,18 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.activateRetainedWorkspaceDefinition(...args),
     ),
+    activateRetainedWorkspaceDefinitionWithCredentials: valueOperation(
+      "ordinary-catalog-activate-retained-workspace-definition-with-credentials",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["activateRetainedWorkspaceDefinitionWithCredentials"]
+        >
+      ) => facades.catalog.activateRetainedWorkspaceDefinitionWithCredentials(
+        ...args,
+      ),
+    ),
     cancelRetainedWorkspaceActivation: valueOperation(
       "ordinary-catalog-cancel-retained-workspace-activation",
       1,
@@ -1315,6 +1330,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.deactivateRetainedWorkspaceDefinition(...args),
     ),
+    describeWorkspacePackageSources: valueOperation(
+      "ordinary-catalog-describe-workspace-package-sources",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["describeWorkspacePackageSources"]
+        >
+      ) => facades.catalog.describeWorkspacePackageSources(...args),
+    ),
     resolveHomeDemo: valueOperation(
       "ordinary-catalog-resolve-home-demo",
       1,
@@ -1358,6 +1383,33 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["prepareRetainedWorkspaceDefinition"]
         >
       ) => facades.catalog.prepareRetainedWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected retained Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
+    prepareRetainedWorkspaceDefinitionWithCredentials: valueOperation(
+      "ordinary-catalog-prepare-retained-workspace-definition-with-credentials",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade[
+            "prepareRetainedWorkspaceDefinitionWithCredentials"
+          ]
+        >
+      ) => facades.catalog.prepareRetainedWorkspaceDefinitionWithCredentials(
+        ...args,
+      ),
       async (facades, result) => {
         if (result.status !== "prepared" || result.receipt === null) return;
         const cancellation =
@@ -1657,6 +1709,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinition,
       ),
+      activateRetainedWorkspaceDefinitionWithCredentials: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .activateRetainedWorkspaceDefinitionWithCredentials,
+      ),
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog
           .cancelRetainedWorkspaceActivation,
@@ -1685,6 +1741,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .deactivateRetainedWorkspaceDefinition,
       ),
+      describeWorkspacePackageSources: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .describeWorkspacePackageSources,
+      ),
       resolveHomeDemo: bind(
         engineWorkerOrdinaryOperations.catalog.resolveHomeDemo,
       ),
@@ -1703,6 +1763,10 @@ export function bindEngineWorkerOrdinaryClient(
       prepareRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .prepareRetainedWorkspaceDefinition,
+      ),
+      prepareRetainedWorkspaceDefinitionWithCredentials: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareRetainedWorkspaceDefinitionWithCredentials,
       ),
       recordRetainedWorkspaceNavigationPosting: bind(
         engineWorkerOrdinaryOperations.catalog

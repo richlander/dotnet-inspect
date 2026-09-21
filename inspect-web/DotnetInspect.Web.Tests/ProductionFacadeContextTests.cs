@@ -141,6 +141,7 @@ public sealed class ProductionFacadeContextTests
             "AbandonRetainedWorkspaceNavigation",
             "AcknowledgeRetainedWorkspaceNavigation",
             "ActivateRetainedWorkspaceDefinition",
+            "ActivateRetainedWorkspaceDefinitionWithCredentials",
             "AdmitRetainedWorkspacePackage",
             "AdmitRetainedWorkspacePlatform",
             "CancelRetainedWorkspaceActivation",
@@ -151,11 +152,13 @@ public sealed class ProductionFacadeContextTests
             "CompleteRetainedWorkspaceDeactivation",
             "DeactivateRetainedWorkspaceDefinition",
             "DecodeWorkspaceShareState",
+            "DescribeWorkspacePackageSources",
             "EncodeWorkspaceShareState",
             "ListHomeDemos",
             "ListVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareRetainedWorkspaceDefinition",
+            "PrepareRetainedWorkspaceDefinitionWithCredentials",
             "RecordRetainedWorkspaceNavigationPosting",
             "ResolveHomeDemo",
             "RunHomeDemo",
@@ -204,10 +207,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 94 operations, and no operation name in two modules: a move that forgot to delete its
+        // 97 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(94, everyExport.Length);
+        Assert.Equal(97, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
