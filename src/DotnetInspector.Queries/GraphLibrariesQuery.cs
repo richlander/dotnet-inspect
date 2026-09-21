@@ -2,9 +2,9 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
-using DotnetInspector.PortableQueries;
-using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace;
+using QuerySpace.Operations;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 

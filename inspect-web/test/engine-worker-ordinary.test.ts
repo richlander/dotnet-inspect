@@ -16,6 +16,9 @@ import {
   registerEngineWorkerOrdinaryOperations,
   type EngineWorkerOrdinaryFacades,
 } from "../src/engine-worker-ordinary.ts";
+import type {
+  RetainedWorkspaceActivationClient,
+} from "../src/retained-workspace-activation.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -77,6 +80,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
@@ -153,14 +157,26 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    abandonRetainedWorkspaceNavigation: () =>
+      unexpected("abandonRetainedWorkspaceNavigation"),
+    acknowledgeRetainedWorkspaceNavigation: () =>
+      unexpected("acknowledgeRetainedWorkspaceNavigation"),
     admitRetainedWorkspacePackage: () =>
       unexpected("admitRetainedWorkspacePackage"),
     admitRetainedWorkspacePlatform: () =>
       unexpected("admitRetainedWorkspacePlatform"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
+    cancelRetainedWorkspaceActivation: () =>
+      unexpected("cancelRetainedWorkspaceActivation"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
+    commitRetainedWorkspaceActivation: () =>
+      unexpected("commitRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceActivation: () =>
+      unexpected("completeRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceDeactivation: () =>
+      unexpected("completeRetainedWorkspaceDeactivation"),
     deactivateRetainedWorkspaceDefinition: () =>
       unexpected("deactivateRetainedWorkspaceDefinition"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
@@ -170,7 +186,13 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareRetainedWorkspaceDefinition: () =>
+      unexpected("prepareRetainedWorkspaceDefinition"),
+    recordRetainedWorkspaceNavigationPosting: () =>
+      unexpected("recordRetainedWorkspaceNavigationPosting"),
     runHomeDemo: () => unexpected("runHomeDemo"),
+    validateRetainedWorkspaceNavigationAuthority: () =>
+      unexpected("validateRetainedWorkspaceNavigationAuthority"),
   },
 };
 
@@ -676,6 +698,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
   let platformDocumentationArguments: readonly unknown[] = [];
+  let libraryQueryArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -689,6 +712,41 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       },
       queryMemberDocumentation: async () =>
         contractViolation(null),
+      queryLibraries: (...args) => {
+        libraryQueryArguments = args;
+        return Promise.resolve({
+          content: {
+            results: [{
+              assetId: "compile:ref/net11.0/Example.dll",
+              library: "Example",
+              path: "ref/net11.0/Example.dll",
+              source: "Example.Package",
+              version: "1.0.0.0",
+              sourceKind: "Package",
+              targetFramework: "net11.0",
+              matchedReferences: ["System.Runtime"],
+            }],
+            failures: [],
+            summary: {
+              populationCandidates: 1,
+              candidateLimit: 256,
+              candidates: 1,
+              matches: 1,
+              failures: 0,
+              incompleteReasons: "None",
+              isComplete: true,
+            },
+          },
+          share: {
+            kind: "Available",
+            fullUrl: null,
+            packet: "packet",
+            path: null,
+            reason: null,
+          },
+          diagnostics: [],
+        });
+      },
       queryPlatformMemberDocumentation: (...args) => {
         platformDocumentationArguments = args;
         return Promise.resolve(contractViolation(null));
@@ -751,6 +809,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const libraryQuery = state.client.package.queryLibraries(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  );
   const platformDocumentation =
     state.client.package.queryPlatformMemberDocumentation(
       "net11.0",
@@ -795,6 +860,23 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual((await libraryQuery).content.results, [{
+    assetId: "compile:ref/net11.0/Example.dll",
+    library: "Example",
+    path: "ref/net11.0/Example.dll",
+    source: "Example.Package",
+    version: "1.0.0.0",
+    sourceKind: "Package",
+    targetFramework: "net11.0",
+    matchedReferences: ["System.Runtime"],
+  }]);
+  assert.deepEqual(libraryQueryArguments, [
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  ]);
   assert.equal(await platformDocumentation, null);
   assert.deepEqual(platformDocumentationArguments, [
     "net11.0",
@@ -1224,6 +1306,114 @@ test("malformed and oversized generated results reject only their calls", async 
   state.host.dispose();
 });
 
+test("oversized prepared activation is cancelled before rejection", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinition: async () =>
+        contractViolation({
+          status: "prepared",
+          receipt: "receipt-oversized",
+          preparation: {
+            label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          },
+          posting: null,
+          failure: null,
+        }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return {
+          status: "superseded",
+          posting: null,
+          failure: null,
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinition(
+      "definition",
+      "Definition",
+      "/definition",
+      "packet",
+    );
+  await state.environment.flushAsync();
+  await assert.rejects(
+    preparation,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
+  );
+  assert.deepEqual(cancellations, ["receipt-oversized"]);
+  assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
+test("retained Workspace Navigation lifecycle crosses ordinary transport", async () => {
+  const calls: string[] = [];
+  const state = fixture({
+    catalog: {
+      validateRetainedWorkspaceNavigationAuthority: () => {
+        calls.push("validate");
+        return true;
+      },
+      recordRetainedWorkspaceNavigationPosting: () => {
+        calls.push("record");
+        return "accepted";
+      },
+      acknowledgeRetainedWorkspaceNavigation: () => {
+        calls.push("acknowledge");
+        return "accepted";
+      },
+      abandonRetainedWorkspaceNavigation: () => {
+        calls.push("abandon");
+        return "accepted";
+      },
+    },
+  });
+  const authority = [
+    "realization-1",
+    1,
+    "session-1",
+    "revision-1",
+    "intent-1",
+    "epoch-1",
+  ] as const;
+  const client: RetainedWorkspaceActivationClient = state.client.catalog;
+
+  const results = Promise.all([
+    client.validateRetainedWorkspaceNavigationAuthority(
+      ...authority,
+    ),
+    client.recordRetainedWorkspaceNavigationPosting(
+      ...authority,
+    ),
+    client.acknowledgeRetainedWorkspaceNavigation(
+      ...authority,
+    ),
+    client.abandonRetainedWorkspaceNavigation(
+      ...authority,
+    ),
+  ]);
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await results, [
+    true,
+    "accepted",
+    "accepted",
+    "accepted",
+  ]);
+  assert.deepEqual(calls, [
+    "validate",
+    "record",
+    "acknowledge",
+    "abandon",
+  ]);
+  assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
 test("malformed and oversized inputs are rejected before facade invocation", async () => {
   let calls = 0;
   const state = fixture({
@@ -1391,6 +1581,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "matchPackageDependencyCoordinate",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraries",
       "queryLibraryApi",
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
@@ -1442,16 +1633,25 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "abandonRetainedWorkspaceNavigation",
+      "acknowledgeRetainedWorkspaceNavigation",
       "admitRetainedWorkspacePackage",
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
+      "cancelRetainedWorkspaceActivation",
       "canonicalizeWorkspaceSharePacket",
+      "commitRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceDeactivation",
       "deactivateRetainedWorkspaceDefinition",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareRetainedWorkspaceDefinition",
+      "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
+      "validateRetainedWorkspaceNavigationAuthority",
     ],
   } as const;
   const expectedKinds = [
@@ -1466,7 +1666,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 62);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 72);
 
   const state = fixture();
   const groups = [

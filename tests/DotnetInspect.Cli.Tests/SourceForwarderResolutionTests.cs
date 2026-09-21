@@ -2306,6 +2306,149 @@ public class SourceForwarderResolutionTests
     }
 
     [Theory]
+    [InlineData(SectionNames.IL)]
+    [InlineData(SectionNames.CustomAttributes)]
+    public async Task
+        MemberCodeAcquisition_DoesNotOpenUnrequestedDecompiler(
+            string section)
+    {
+        int opens = 0;
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local(
+                "member-code-no-decompiler"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(
+                    image,
+                    writable: false);
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(
+                    fixture.AssemblyPath,
+                    SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, _, error) =
+                await ConsoleCapture.RunAsync(
+                    () => MemberCommand.ExecuteResolvedAsync(
+                        new MemberOptions
+                        {
+                            TypeName =
+                                fixture.Type.FullName,
+                            MemberFilter =
+                            [
+                                nameof(
+                                    BodyShapeFixture
+                                        .ReadableLocal),
+                            ],
+                            OverloadIndex = 1,
+                            Select = [section],
+                            DocsExplicitlySet = true,
+                            TipLevel = TipLevel.Quiet,
+                            Verbosity = Verbosity.Minimal,
+                        },
+                        source,
+                        fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(1, opens);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixture.Directory,
+                recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        MemberCodeAcquisition_EffectiveDiscoveryStaysLazy()
+    {
+        int opens = 0;
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local(
+                "member-code-discovery"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(
+                    image,
+                    writable: false);
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source =
+                CreateApiSource(
+                    fixture.AssemblyPath,
+                    SourceKind.Library)
+                with
+                {
+                    TypeName = fixture.Type.FullName,
+                };
+            var (exit, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => MemberCommand.ExecuteResolvedAsync(
+                        new MemberOptions
+                        {
+                            TypeName =
+                                fixture.Type.FullName,
+                            MemberFilter =
+                            [
+                                nameof(
+                                    BodyShapeFixture
+                                        .ReadableLocal),
+                            ],
+                            OverloadIndex = 1,
+                            Discover =
+                            [
+                                SectionCategoryNames
+                                    .Decompiler,
+                            ],
+                            DocsExplicitlySet = true,
+                            TipLevel = TipLevel.Quiet,
+                            Verbosity = Verbosity.Minimal,
+                        },
+                        source,
+                        fixture.Loaded));
+
+            Assert.True(exit == 0, error);
+            Assert.Contains(
+                $"| {SectionNames.DecompiledSource} | section |",
+                output);
+            Assert.DoesNotContain("Error:", error);
+            // Exact discovery retains its established source/body-state probes.
+            // A fourth selected-image open would be the new SourceHouse
+            // decompilation attachment crossing the discovery return.
+            Assert.Equal(
+                3,
+                opens);
+        }
+        finally
+        {
+            Directory.Delete(
+                fixture.Directory,
+                recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task MemberCodeAcquisition_ReportsSelectedMetadataOpenFailure(
@@ -2422,11 +2565,13 @@ public class SourceForwarderResolutionTests
             Assert.Contains("Error:", error);
             Assert.Contains(
                 invalidImage
-                    ? "Image is too small."
+                    ? "metadata root"
                     : "Selected member decompiler image could not be opened.",
                 error,
                 StringComparison.OrdinalIgnoreCase);
-            Assert.Equal(2, opens);
+            Assert.Equal(
+                3,
+                opens);
         }
         finally
         {
@@ -3055,7 +3200,6 @@ public class SourceForwarderResolutionTests
                             Print = print,
                             SourcePart = parts ? MemberSourcePartKind.Signature : null,
                             PrintRow = print ? RowSelector.First : null,
-                            Bare = print,
                         },
                         source,
                         fixture.Loaded)
@@ -3068,7 +3212,6 @@ public class SourceForwarderResolutionTests
                             ShowDocs = false,
                             Print = print,
                             PrintRow = print ? RowSelector.First : null,
-                            Bare = print,
                         },
                         source,
                         fixture.Loaded));

@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Immutable;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Definitions;

@@ -14,6 +14,12 @@ public partial class PackageQueryJsonContext : JsonSerializerContext;
 [JsonSourceGenerationOptions(
     Converters = [typeof(InertStringJsonConverter)],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(LibraryQueryDocument))]
+public partial class LibraryQueryJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PackageAssemblySemanticQueryDocument))]
 [JsonSerializable(
     typeof(PackageAssemblySemanticQueryCandidateOutcome.NoMatch),

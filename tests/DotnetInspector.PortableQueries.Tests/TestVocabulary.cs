@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.PortableQueries.Tests;
 

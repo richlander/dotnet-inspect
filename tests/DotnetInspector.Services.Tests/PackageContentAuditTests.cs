@@ -184,9 +184,60 @@ public sealed class PackageContentAuditTests
             Assert.False(result.Complete);
             Assert.Equal(1, result.EligibleFiles);
             Assert.Equal(0, result.ScannedFiles);
+            Assert.Equal(2, result.ScannedBytes);
             PackageContentAuditFinding finding = Assert.Single(result.Findings);
             Assert.Equal(PackageContentFindingKind.InvalidTextEncoding, finding.Kind);
             Assert.Equal(TextConcern.None, finding.Concerns);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void InvalidTextEncoding_ConsumesAggregateByteBudget()
+    {
+        string root = CreateRoot();
+        try
+        {
+            byte[] invalid = new byte[PackageContentAudit.MaxFileBytes];
+            for (int index = 0; index < invalid.Length; index += 2)
+            {
+                invalid[index] = 0xC3;
+                invalid[index + 1] = 0x28;
+            }
+
+            int fileCount =
+                (PackageContentAudit.MaxTotalBytes
+                    / PackageContentAudit.MaxFileBytes)
+                + 1;
+            string[] paths = new string[fileCount];
+            for (int index = 0; index < paths.Length; index++)
+            {
+                paths[index] = $"invalid-{index}.md";
+                WriteBytes(root, paths[index], invalid);
+            }
+
+            PackageContentAuditResult result =
+                PackageContentAudit.Scan(root, paths);
+
+            Assert.False(result.Complete);
+            Assert.Equal(PackageContentAudit.MaxTotalBytes, result.ScannedBytes);
+            Assert.Equal(0, result.ScannedFiles);
+            Assert.Equal(
+                fileCount - 1,
+                result.Findings.Count(
+                    finding =>
+                        finding.Kind
+                        == PackageContentFindingKind.InvalidTextEncoding));
+            Assert.Contains(
+                result.Findings,
+                finding =>
+                    finding.Kind == PackageContentFindingKind.ScanLimit
+                    && finding.EncodedText.ToString().Contains(
+                        "aggregate audit limit",
+                        StringComparison.Ordinal));
         }
         finally
         {

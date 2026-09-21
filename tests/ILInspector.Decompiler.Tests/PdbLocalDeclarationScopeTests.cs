@@ -185,6 +185,23 @@ public sealed class PdbLocalDeclarationScopeTests
     }
 
     [Fact]
+    public void ScopeEntryPatternCarriers_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.ScopeEntryPatternLocals))!;
+
+        var result = CSharpPrinter.PrintRaised(
+            function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.True(result.Fidelity == DecompilationFidelity.Full,
+            $"{result.Output}\n{CSharpSpellability.InspectUnrepresentableMetadataName(function)}\n{IrPrinter.Dump(function)}");
+        Assert.Contains("ScopeEntryLocal same", result.Output);
+        Assert.Contains("ScopeEntryField same", result.Output);
+    }
+
+    [Fact]
     public void SequentialOutVariableScopes_PreserveBothExactNames()
     {
         using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
@@ -887,6 +904,255 @@ public sealed class PdbLocalDeclarationScopeTests
             "int same =", StringSplitOptions.None).Length - 1);
         Assert.Contains("IL_000A:\n{\n    int same = 1;", result.Output);
         Assert.DoesNotContain("V_", result.Output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PrecedingEntryAnchor_RequiresRetainedPdbScopeProof(bool retainsPdbLocalScope)
+    {
+        var first = new Block(10);
+        var anchor = new LabelAnchor { RetainsPdbLocalScope = retainsPdbLocalScope };
+        anchor.SetSourceOffset(20);
+        first.Add(anchor);
+        var firstStore = new StoreLocal(0, Int32, new Constant(1, Int32));
+        firstStore.SetSourceOffset(20);
+        first.Add(firstStore);
+        first.Add(Observe(0));
+        first.Add(Transfer("conditional", 20));
+
+        var second = new Block(30);
+        second.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
+        second.Add(Observe(1));
+
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(retainsPdbLocalScope, !ReferenceEquals(first, firstStore.Parent));
+        Assert.Same(anchor, first.Children[0]);
+        Assert.Contains("IL_0014:", result.Output);
+        Assert.Equal(
+            retainsPdbLocalScope ? DecompilationFidelity.Full : DecompilationFidelity.Partial,
+            result.Fidelity);
+        Assert.Equal(
+            retainsPdbLocalScope ? 2 : 1,
+            result.Output!.Split("int same =", StringSplitOptions.None).Length - 1);
+        Assert.Equal(!retainsPdbLocalScope, result.Output.Contains("V_1"));
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void PrecedingProofAnchor_CrossingExactRangesCloseInsideOut()
+    {
+        var first = new Block(10);
+        var anchor = new LabelAnchor { RetainsPdbLocalScope = true };
+        anchor.SetSourceOffset(20);
+        first.Add(anchor);
+        var firstOuterStore = new StoreLocal(0, Int32, new Constant(1, Int32));
+        firstOuterStore.SetSourceOffset(20);
+        first.Add(firstOuterStore);
+        first.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
+        var internalAnchor = new LabelAnchor { RetainsPdbLocalScope = true };
+        internalAnchor.SetSourceOffset(25);
+        first.Add(internalAnchor);
+        first.Add(Observe(0));
+        first.Add(Transfer("conditional", 25));
+        first.Add(Transfer("conditional", 20));
+        first.Add(Observe(1));
+
+        var second = new Block(30);
+        second.Add(new StoreLocal(2, Int32, new Constant(3, Int32)));
+        second.Add(new StoreLocal(3, Int32, new Constant(4, Int32)));
+        second.Add(Observe(2));
+        second.Add(Observe(3));
+
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32, Int32, Int32],
+            body)
+        {
+            LocalNames = ["outer", "inner", "outer", "inner"],
+            LocalDeclaredInNestedScope = [true, true, true, true],
+            LocalDeclarationBindings =
+            [
+                PdbDeclaration(1, 1, 0, "outer", 10, 30),
+                PdbDeclaration(2, 1, 1, "inner", 10, 30),
+                PdbDeclaration(3, 2, 2, "outer", 30, 40),
+                PdbDeclaration(4, 2, 3, "inner", 30, 40),
+            ],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.True(
+            result.Fidelity == DecompilationFidelity.Full,
+            result.Output + Environment.NewLine + IrPrinter.Dump(function));
+        Assert.Equal(2, result.Output!.Split(
+            "int outer =", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, result.Output.Split(
+            "int inner =", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("V_", result.Output);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+
+        static PdbLocalDeclaration PdbDeclaration(
+            int variableRow,
+            int scopeRow,
+            int slot,
+            string name,
+            int start,
+            int end)
+            => new(
+                variableRow,
+                scopeRow,
+                slot,
+                name,
+                new LocalSlotScope(start, end),
+                System.Reflection.Metadata.LocalVariableAttributes.None);
+    }
+
+    [Fact]
+    public void CoDeclaredOutLocals_ComposeLongerLifetimeFirst()
+    {
+        var callee = new MethodRef(
+            Owner,
+            "GrowRegion",
+            Boolean,
+            [TypeRef.ByRef(Int32), TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out, ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        AddScope(entry, callee, region: 0, exits: 1);
+        AddScope(entry, callee, region: 2, exits: 3);
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32, Int32, Int32],
+            body)
+        {
+            LocalNames = ["region", "exits", "region", "exits"],
+            LocalDeclaredInNestedScope = [true, true, true, true],
+            LocalDeclarationBindings =
+            [
+                PdbDeclaration(1, 1, 0, "region", 10, 30),
+                PdbDeclaration(2, 1, 1, "exits", 10, 30),
+                PdbDeclaration(3, 2, 2, "region", 30, 50),
+                PdbDeclaration(4, 2, 3, "exits", 30, 50),
+            ],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.True(
+            result.Fidelity == DecompilationFidelity.Full,
+            result.Output + Environment.NewLine + IrPrinter.Dump(function));
+        Assert.Equal(2, result.Output!.Split(
+            "out int region", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, result.Output.Split(
+            "out int exits", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("V_", result.Output);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+
+        static void AddScope(Block block, MethodRef callee, int region, int exits)
+        {
+            block.Add(new ExpressionStatement(new Call(
+                callee,
+                isVirtual: false,
+                [
+                    new LoadLocalAddress(region, Int32),
+                    new LoadLocalAddress(exits, Int32),
+                ])));
+            block.Add(Observe(exits));
+            block.Add(Observe(region));
+        }
+
+        static PdbLocalDeclaration PdbDeclaration(
+            int variableRow,
+            int scopeRow,
+            int slot,
+            string name,
+            int start,
+            int end)
+            => new(
+                variableRow,
+                scopeRow,
+                slot,
+                name,
+                new LocalSlotScope(start, end),
+                System.Reflection.Metadata.LocalVariableAttributes.None);
+    }
+
+    [Fact]
+    public void NestedCompilerScopesWithEntryLabels_PreserveEveryExactName()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.NestedScopeLocalsWithEntryLabels))!;
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.True(
+            result.Fidelity == DecompilationFidelity.Full,
+            result.Output + Environment.NewLine + IrPrinter.Dump(function));
+        foreach (string declaration in new[]
+        {
+            "int currentPos =",
+            "int splitIdx =",
+            "string currentSplit =",
+            "int typeIndex =",
+            "Type type =",
+            "int splitPoint =",
+        })
+        {
+            int count = result.Output!.Split(
+                declaration, StringSplitOptions.None).Length - 1;
+            Assert.True(count == 2, $"{declaration}: {count}\n{result.Output}");
+        }
+        Assert.DoesNotContain("V_", result.Output);
+        Assert.Contains(
+            function.Descendants,
+            node => node is LabelAnchor { RetainsPdbLocalScope: true });
     }
 
     [Theory]

@@ -24,8 +24,13 @@ public sealed class SelectedPropertyAccessorSource
     readonly IReadOnlyList<string> _valueAttributes;
     readonly bool _automaticGetter;
     readonly SelectedGetterStorage? _getterStorage;
+    PropertyInitializationConstructor? _initializationConstructor;
+    PropertyInitializerSource? _initializer;
+    string? _initializationFailure;
+    IReadOnlyList<string> _contextNamespaces = [];
 
     public IReadOnlyList<string> Attributes { get; private init; } = [];
+    public bool RequiresInitializationProjection => _initializationConstructor?.InitializerParameter is not null;
 
     SelectedPropertyAccessorSource(
         ApiMember property, string accessorKind, IReadOnlyList<string> valueAttributes,
@@ -46,11 +51,13 @@ public sealed class SelectedPropertyAccessorSource
     /// </summary>
     public static SelectedPropertyAccessorSource? Create(
         MetadataSource source, int methodToken, ApiMember method,
-        bool includeAttributes = false)
+        bool includeAttributes = false, bool includeContainingContext = false)
     {
         var handle = (MethodDefinitionHandle)MetadataTokens.EntityHandle(methodToken);
         var selected = Create(source, handle, method);
-        return selected is null ? null : new(
+        if (selected is null)
+            return null;
+        var result = new SelectedPropertyAccessorSource(
             selected._property, selected._accessorKind, selected._valueAttributes,
             selected._automaticGetter, selected._getterStorage)
         {
@@ -58,6 +65,9 @@ public sealed class SelectedPropertyAccessorSource
                 ? AttributeReader.RenderMethodAttributes(source.Reader, handle)
                 : [],
         };
+        if (includeContainingContext)
+            result.IncludeContainingContext(source);
+        return result;
     }
 
     internal static SelectedPropertyAccessorSource? Create(
@@ -205,7 +215,11 @@ public sealed class SelectedPropertyAccessorSource
             bool automaticGetter = automaticGetterBody
                 && !selectedProperty.IsUnsafe
                 && HasSupportedBackingField(reader, backingField, fieldScope, automaticFieldFlags);
-            SelectedGetterStorage? getterStorage = null;
+            SelectedGetterStorage? getterStorage = automaticGetter
+                ? new SelectedGetterStorage(token,
+                    reader.GetString(reader.GetFieldDefinition(backingField).Name),
+                    GuardedDecode.FieldType(reader, reader.GetFieldDefinition(backingField), fieldScope))
+                : null;
             if (hasBackingStorage && !automaticGetter)
             {
                 getterStorage = SelectedGetterStorage.TryCreate(
@@ -261,16 +275,7 @@ public sealed class SelectedPropertyAccessorSource
         var field = IrImporter.ResolveField(
             reader, MetadataTokens.EntityHandle((int)fieldInstruction.OperandValue),
             scope);
-        if (field.DeclaringType.Kind == TypeRefKind.GenericInstance)
-        {
-            var arguments = field.DeclaringType.TypeArguments;
-            if (arguments.Length != genericNames.Length
-                || arguments.Where((argument, index) =>
-                    argument.Kind != TypeRefKind.GenericParameter
-                    || argument.GenericParameterIndex != index).Any())
-                return false;
-        }
-        else if (genericNames.Length != 0)
+        if (!HasOwnTypeArguments(field.DeclaringType, genericNames.Length))
             return false;
 
         return (reader.GetFieldDefinition(backingFieldHandle).Attributes & FieldAttributes.InitOnly) != 0;
@@ -318,11 +323,166 @@ public sealed class SelectedPropertyAccessorSource
     }
 
     /// <summary>Materializes proven accessor-scoped storage reads before raising this body.</summary>
-    public void BindBody(IrFunction function) => _getterStorage?.BindBody(function);
+    public void BindBody(IrFunction function)
+    {
+        _getterStorage?.BindBody(function);
+        if (_initializationConstructor is not null)
+        {
+            var namespaces = new SortedSet<string>(StringComparer.Ordinal);
+            MemberBodyProducer.CollectNamespaces(function, namespaces);
+            _contextNamespaces = namespaces.ToArray();
+        }
+    }
+
+    internal void IncludeContainingContext(MetadataSource source, CSharpCompositionTracker? tracker = null)
+    {
+        if (_property.GetterToken is not { } token)
+            return;
+        var getter = MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff);
+        var type = source.Reader.GetTypeDefinition(source.Reader.GetMethodDefinition(getter).GetDeclaringType());
+        if (!type.GetDeclaringType().IsNil)
+            return;
+        _initializationConstructor = FindInitializationConstructor(source, tracker);
+    }
 
     /// <summary>
-    /// Renders only the selected accessor. Attributes are method-targeted
-    /// contents without brackets, never property attributes.
+    /// Admits the initializer against the ordinary getter projection, before
+    /// presentation adds annotations or overlay comments.
+    /// </summary>
+    public void BindInitializationContext(DecompilerResult projection)
+    {
+        if (_initializationConstructor is not { InitializerParameter: not null } constructor)
+            return;
+        _initializationFailure = projection.Succeeded
+            ? null
+            : $"The ordinary getter projection required for initializer context failed: {string.Join("; ", projection.Diagnostics)}";
+        _initializer = projection.Succeeded && projection.Output is { } body
+            ? constructor.GetInitializerSource(body)
+            : null;
+    }
+
+    internal PropertyInitializationConstructor? FindInitializationConstructor(
+        MetadataSource source, CSharpCompositionTracker? tracker = null)
+    {
+        if (_accessorKind != "get" || _property.IsStatic
+            || _property.Kind == "explicit-interface-implementation"
+            || (!_automaticGetter && _getterStorage is null))
+            return null;
+
+        var reader = source.Reader;
+        var getter = MetadataTokens.MethodDefinitionHandle(_property.GetterToken!.Value & 0x00ffffff);
+        var typeHandle = reader.GetMethodDefinition(getter).GetDeclaringType();
+        var type = reader.GetTypeDefinition(typeHandle);
+        var scope = IrImporter.CallerScope(reader, type, reader.GetMethodDefinition(getter));
+        if (type.BaseType.IsNil
+            || !IrImporter.ResolveTypeToken(reader, type.BaseType, scope)
+                .Equals(TypeRef.CoreLib("System", "ValueType"))
+            || !MemberBodyProducer.TryGetCompilerGeneratedBackingField(
+                reader, typeHandle, _property, getter, null, out var backingField))
+            return null;
+
+        var instanceFields = type.GetFields()
+            .Where(handle => (reader.GetFieldDefinition(handle).Attributes & FieldAttributes.Static) == 0)
+            .ToArray();
+        var constructors = type.GetMethods()
+            .Where(handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == ".ctor")
+            .ToArray();
+        if (instanceFields is not [var soleField] || soleField != backingField
+            || constructors is not [var constructor])
+            return null;
+
+        var method = reader.GetMethodDefinition(constructor);
+        if (method.RelativeVirtualAddress == 0 || method.GetGenericParameters().Count != 0
+            || (method.Attributes & MethodAttributes.Static) != 0)
+            return null;
+        var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
+        if (!body.ExceptionRegions.IsEmpty || !body.LocalSignature.IsNil)
+            return null;
+        var decoded = MethodInstructions.Decode(body);
+        if (!decoded.IsComplete)
+            return null;
+        var instructions = decoded.Instructions.Where(instruction => instruction.OpCode != ILOpCode.Nop).ToArray();
+        if (instructions is not [{ OpCode: ILOpCode.Ldarg_0 }, { OpCode: ILOpCode.Ldarg_1 },
+                { OpCode: ILOpCode.Stfld } storeInstruction, { OpCode: ILOpCode.Ret }]
+            || !MemberBodyProducer.FieldOperandMatchesBackingField(
+                reader, typeHandle, MetadataTokens.EntityHandle((int)storeInstruction.OperandValue), backingField))
+            return null;
+
+        var address = MetadataMethodAddress.Create(reader, constructor);
+        var ticket = tracker?.Begin(source, constructor, CSharpBodyProjectionKind.FieldInitializerProbe);
+        var produced = MemberBodyProducer.ProduceBody(source, address);
+        if (ticket is not null)
+        {
+            tracker!.Complete(ticket, produced.Projection);
+            ticket.MarkNonContributing();
+        }
+        if (produced.Status != MemberBodyProductionStatus.Complete
+            || produced.Body is null || produced.RaisedFunction is not { } function)
+            throw new InvalidOperationException(
+                $"Could not produce the selected property's initialization constructor: {string.Join("; ", produced.Projection.Diagnostics)}");
+        if (function.Signature.Parameters.Length != 1
+            || function.Body.Blocks is not [{ Children: [
+                StoreField { IsVolatile: false, Instance: LoadArgument { Index: 0 },
+                    Value: LoadArgument { Index: 1 } } store,
+                Return { Value: null }] }]
+            || !store.Field.Type.Equals(function.Signature.Parameters[0].Type)
+            || !HasOwnTypeArguments(store.Field.DeclaringType, type.GetGenericParameters().Count))
+            return null;
+
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+        var parameter = declaration.Signature.Parameters.Single();
+        bool canUsePrimaryConstructor = declaration.Accessibility == "public"
+            && declaration.Attributes.Count == 0
+            && method.ImplAttributes == MethodImplAttributes.IL
+            && !type.GetGenericParameters().Any(handle =>
+                reader.GetString(reader.GetGenericParameter(handle).Name) == parameter.Name);
+        var getterDeclaration = MetadataDeclarationQuery.GetMethod(
+            reader, type, reader.GetMethodDefinition(getter));
+        return new PropertyInitializationConstructor(address, produced.Body)
+        {
+            InitializerParameter = canUsePrimaryConstructor ? parameter : null,
+            GetterScopeAttributes = [
+                .. getterDeclaration.Attributes,
+                .. getterDeclaration.Signature.ReturnAttributes,
+            ],
+        };
+    }
+
+    public sealed record PropertyInitializationConstructor(
+        MetadataMethodAddress Address, CSharpBlockBody Body)
+    {
+        internal ApiParameter? InitializerParameter { get; init; }
+        internal IReadOnlyList<string> GetterScopeAttributes { get; init; } = [];
+
+        public PropertyInitializerSource? GetInitializerSource(string getterBody)
+        {
+            if (InitializerParameter is not { } parameter)
+                return null;
+
+            string expression = CSharpFormatter.EscapeIdentifier(parameter.Name);
+            string name = expression.TrimStart('@');
+            // A primary parameter enters the getter's scope. Over-decline on any
+            // spelling overlap in its body or accessor attributes.
+            if (getterBody.Contains(name, StringComparison.Ordinal)
+                || GetterScopeAttributes.Any(attribute => attribute.Contains(name, StringComparison.Ordinal)))
+                return null;
+            return new PropertyInitializerSource(parameter, expression);
+        }
+    }
+
+    public sealed record PropertyInitializerSource(ApiParameter Parameter, string Expression);
+
+    internal static bool HasOwnTypeArguments(TypeRef declaringType, int count)
+        => declaringType.Kind == TypeRefKind.GenericInstance
+            ? declaringType.TypeArguments.Length == count
+                && !declaringType.TypeArguments.Where((argument, index) =>
+                    argument.Kind != TypeRefKind.GenericParameter
+                    || argument.GenericParameterIndex != index).Any()
+            : count == 0;
+
+    /// <summary>
+    /// Renders the selected accessor and any admitted initialization context.
+    /// Attributes are method-targeted contents without brackets, never property attributes.
     /// </summary>
     public string Format(
         ApiType type,
@@ -334,7 +494,73 @@ public sealed class SelectedPropertyAccessorSource
         string? declarationTrailingComment = null,
         bool includeSignatureAttributes = true,
         bool wrapExpressionBodyArrow = false,
-        int indent = 0)
+        int indent = 0,
+        bool includeContainingContext = true)
+    {
+        if (_initializationFailure is not null)
+            throw new InvalidOperationException(_initializationFailure);
+        string property = FormatProperty(
+            type, body, bodyIsSingleExpressionBody, preferExpressionBodied, attributes,
+            leadingBodyComments, declarationTrailingComment, includeSignatureAttributes,
+            wrapExpressionBodyArrow,
+            _initializer is null || !includeContainingContext ? indent : indent + 4,
+            _initializer?.Expression);
+        return includeContainingContext
+            ? FormatContainingContext(type, property, includeSignatureAttributes, indent)
+            : property;
+    }
+
+    internal string FormatContainingContext(
+        ApiType type, string property, bool includeSignatureAttributes = true, int indent = 0)
+    {
+        if (_initializer is not { } initializer)
+            return property;
+
+        var contextType = new ApiType
+        {
+            Namespace = type.Namespace,
+            Name = type.Name,
+            MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
+            IntroducedTypeParameterCounts = type.IntroducedTypeParameterCounts,
+            Accessibility = type.Accessibility,
+            Kind = type.Kind,
+            TypeParameters = type.TypeParameters,
+            IsReadOnly = type.IsReadOnly,
+            IsByRefLike = type.IsByRefLike,
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            IncludeCustomAttributes = false,
+            IncludeObsoleteAttribute = false,
+            IncludeSignatureAttributes = includeSignatureAttributes,
+        });
+        string pad = new(' ', indent);
+        var sb = new StringBuilder();
+        var namespaces = _contextNamespaces.Where(value => value != type.Namespace).ToArray();
+        foreach (string @namespace in namespaces)
+            sb.Append(pad).Append("using ").Append(CSharpFormatter.EscapeNamespace(@namespace)).Append(";\n");
+        if (namespaces.Length > 0)
+            sb.Append('\n');
+        if (!string.IsNullOrEmpty(type.Namespace))
+            sb.Append(pad).Append("namespace ").Append(CSharpFormatter.EscapeNamespace(type.Namespace)).Append(";\n\n");
+        sb.Append(pad).Append(formatter.FormatTypeDeclaration(contextType, [initializer.Parameter])).Append('\n');
+        sb.Append(pad).Append("{\n").Append(property).Append('\n').Append(pad).Append('}');
+        return sb.ToString();
+    }
+
+    string FormatProperty(
+        ApiType type,
+        CSharpBlockBody body,
+        bool bodyIsSingleExpressionBody,
+        bool preferExpressionBodied,
+        IReadOnlyList<string>? attributes,
+        IReadOnlyList<string>? leadingBodyComments,
+        string? declarationTrailingComment,
+        bool includeSignatureAttributes,
+        bool wrapExpressionBodyArrow,
+        int indent,
+        string? initializer)
     {
         if (body.RequiresAsyncModifier)
             throw new InvalidOperationException("C# properties cannot carry an async accessor modifier.");
@@ -362,12 +588,12 @@ public sealed class SelectedPropertyAccessorSource
         bool hasComments = leadingBodyComments is { Count: > 0 };
         if (_automaticGetter)
             return FormatAutomaticGetter(head, accessor, content, attributes,
-                leadingBodyComments, declarationTrailingComment, indent);
+                leadingBodyComments, declarationTrailingComment, indent, initializer);
         bool expressionBody = preferExpressionBodied && !hasComments
             && (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(content) is not null);
         var sb = new StringBuilder();
 
-        if (_accessorKind == "get" && !hasAttributes && expressionBody)
+        if (_accessorKind == "get" && !hasAttributes && expressionBody && initializer is null)
         {
             CSharpMemberLayout.Append(
                 sb, head, content, indent, wrapExpressionBodyArrow,
@@ -412,12 +638,15 @@ public sealed class SelectedPropertyAccessorSource
             sb.Append(pad).Append("    }\n");
         }
         sb.Append(pad).Append('}');
+        if (initializer is not null)
+            sb.Append(" = ").Append(initializer).Append(';');
         return sb.ToString();
     }
 
     static string FormatAutomaticGetter(
         string head, string accessor, string content, IReadOnlyList<string>? attributes,
-        IReadOnlyList<string>? leadingBodyComments, string? declarationTrailingComment, int indent)
+        IReadOnlyList<string>? leadingBodyComments, string? declarationTrailingComment, int indent,
+        string? initializer)
     {
         // The complete IL shell established the replacement. Retain presentation
         // comments from its literal-free field-load body, not its recursive spelling.
@@ -428,6 +657,7 @@ public sealed class SelectedPropertyAccessorSource
         string pad = new(' ', indent);
         if (attributes is not { Count: > 0 } && comments.Count == 0 && accessor == "get")
             return $"{pad}{head} {{ get; }}"
+                + (initializer is not null ? $" = {initializer};" : "")
                 + (declarationTrailingComment is { Length: > 0 }
                     ? $"  // {declarationTrailingComment}" : "");
         var sb = new StringBuilder();
@@ -441,6 +671,8 @@ public sealed class SelectedPropertyAccessorSource
         foreach (string comment in comments)
             sb.Append(pad).Append("    ").Append(comment).Append('\n');
         sb.Append(pad).Append('}');
+        if (initializer is not null)
+            sb.Append(" = ").Append(initializer).Append(';');
         return sb.ToString();
     }
 }

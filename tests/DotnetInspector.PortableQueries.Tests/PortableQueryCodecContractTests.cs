@@ -1,4 +1,4 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.PortableQueries.Tests;
 
@@ -87,8 +87,8 @@ public sealed class PortableQueryCodecContractTests
 
     /// <summary>
     /// Terms order by key, then operator, then value — the operator by its identity
-    /// text, so the four sort <c>eq</c>, <c>gte</c>, <c>lte</c>, <c>ne</c> rather
-    /// than by any enum's member order.
+    /// text, so all eight sort by their canonical texts rather than by any enum's
+    /// member order.
     /// </summary>
     [Fact]
     public void TermOrder_FollowsIdentityTextNotEnumOrder()
@@ -96,6 +96,10 @@ public sealed class PortableQueryCodecContractTests
         PortableQueryIntent intent = PortableQueryIntent.Create(
             [
                 new PortableQueryTerm("k", PortableQueryOperator.NotEqual, "v"),
+                new PortableQueryTerm("k", PortableQueryOperator.NotStartsWith, "v"),
+                new PortableQueryTerm("k", PortableQueryOperator.NotContains, "v"),
+                new PortableQueryTerm("k", PortableQueryOperator.StartsWith, "v"),
+                new PortableQueryTerm("k", PortableQueryOperator.Contains, "v"),
                 new PortableQueryTerm("k", PortableQueryOperator.AtMost, "v"),
                 new PortableQueryTerm("k", PortableQueryOperator.AtLeast, "v"),
                 new PortableQueryTerm("k", PortableQueryOperator.Equal, "v")
@@ -105,7 +109,7 @@ public sealed class PortableQueryCodecContractTests
             []);
 
         Assert.Equal(
-            """{"t":[["k","eq","v"],["k","gte","v"],["k","lte","v"],["k","ne","v"]]}""",
+            """{"t":[["k","contains","v"],["k","eq","v"],["k","gte","v"],["k","lte","v"],["k","ne","v"],["k","not-contains","v"],["k","not-starts-with","v"],["k","starts-with","v"]]}""",
             CodecUnderTest.Encode(intent));
     }
 

@@ -1,9 +1,70 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections;
 
 public static class RowsCohortExecutor
 {
+    public static RowsCohortResult<TIdentity, T> ApplyResolved<
+        TIdentity,
+        T>(
+        IReadOnlyList<RowsCohortSequence<TIdentity, T>> sequences,
+        ResolvedRowQueryPlan<T> plan)
+        where TIdentity : notnull
+    {
+        ArgumentNullException.ThrowIfNull(sequences);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (sequences.Count == 0)
+        {
+            throw new ArgumentException(
+                "A rows cohort must contain at least one sequence.",
+                nameof(sequences));
+        }
+
+        var named =
+            new NamedRowSequence<T>[sequences.Count];
+        var identityByKey =
+            new Dictionary<RowSequenceKey, TIdentity>();
+        var identities = new HashSet<TIdentity>();
+        for (int index = 0; index < sequences.Count; index++)
+        {
+            RowsCohortSequence<TIdentity, T> sequence =
+                sequences[index]
+                ?? throw new ArgumentNullException(
+                    nameof(sequences),
+                    $"Row-set sequence {index + 1} is null.");
+            RowSequenceKey key =
+                sequence.Key
+                ?? RowSequenceKey.Create(index);
+            if (!identities.Add(sequence.Identity))
+            {
+                throw new ArgumentException(
+                    "A row-set identity is duplicated.",
+                    nameof(sequences));
+            }
+            if (!identityByKey.TryAdd(
+                    key,
+                    sequence.Identity))
+            {
+                throw new ArgumentException(
+                    "A row-sequence key is duplicated.",
+                    nameof(sequences));
+            }
+
+            named[index] =
+                NamedRowSequence<T>.Create(
+                    key,
+                    sequence.Values);
+        }
+
+        NamedRowSelectionResult<T> selected =
+            RowQueryExecutor.ApplyNamed(
+                named,
+                plan);
+        return Rebind(
+            selected,
+            identityByKey);
+    }
+
     public static RowsCohortResult<TIdentity, T> ApplyUnordered<
         TIdentity,
         T,
@@ -84,7 +145,8 @@ public static class RowsCohortExecutor
                     nameof(sequences),
                     $"Row-set sequence {index + 1} is null.");
             RowSequenceKey key =
-                RowSequenceKey.Create(index);
+                sequence.Key
+                ?? RowSequenceKey.Create(index);
             if (!keyByIdentity.TryAdd(
                     sequence.Identity,
                     key))
@@ -94,9 +156,14 @@ public static class RowsCohortExecutor
                     nameof(sequences));
             }
 
-            identityByKey.Add(
-                key,
-                sequence.Identity);
+            if (!identityByKey.TryAdd(
+                    key,
+                    sequence.Identity))
+            {
+                throw new ArgumentException(
+                    "A row-sequence key is duplicated.",
+                    nameof(sequences));
+            }
             named[index] =
                 NamedRowSequence<T>.Create(
                     key,
@@ -108,6 +175,19 @@ public static class RowsCohortExecutor
                 named,
                 plan,
                 comparerResolver);
+        return Rebind(
+            selected,
+            identityByKey);
+    }
+
+    private static RowsCohortResult<TIdentity, T> Rebind<
+        TIdentity,
+        T>(
+        NamedRowSelectionResult<T> selected,
+        IReadOnlyDictionary<RowSequenceKey, TIdentity>
+            identityByKey)
+        where TIdentity : notnull
+    {
         if (!selected.IsSuccess)
         {
             NamedRowWindowFailure failure =

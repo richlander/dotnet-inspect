@@ -12,6 +12,12 @@ public sealed record RealizedPackageDependencyObservation(
 
 public static class RealizedPackageDependencyContextConsumer
 {
+    public static PackageDependencyTraversalRootOccurrence CreateTraversalRoot(
+        RealizedPackageDependencyContext context) =>
+        new(
+            context,
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+
     public static async ValueTask<RealizedPackageDependencyObservation>
         ObserveAsync(
             PackageRootBinding binding,

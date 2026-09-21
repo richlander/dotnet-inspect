@@ -7,8 +7,8 @@ tracked by
 [#6583](https://github.com/richlander/dotnet-inspect/issues/6583). It is
 DocumentationHouse production-adoption slice 15 under
 [#6579](https://github.com/richlander/dotnet-inspect/issues/6579).
-Implementation is slice 16; SourceHouse and DocumentationHouse integration
-remain later slices.
+The CSharpText operation is implemented in slice 16. SourceHouse and
+DocumentationHouse integration remain later slices.
 
 The one claim is:
 
@@ -105,8 +105,12 @@ The request contains:
   documentation isolation, XML parsing, and retained output.
 
 Request construction rejects null source, negative or overflowing coordinates,
-out-of-bounds spans or physical lines, duplicate active lines, and non-positive
-limits. These are caller contract violations, not source-analysis outcomes.
+out-of-bounds spans, and non-positive limits. While source and line counting
+remain inside those configured bounds, it also rejects non-positive, unsorted,
+duplicate, or out-of-bounds active lines. Otherwise the operation returns the
+applicable typed `Incomplete` before enumerating or validating that optional
+evidence. Invalid admitted inputs are caller contract violations, not
+source-analysis outcomes.
 
 The operation matches the supplied span to the complete raw syntax extent of a
 recovered declaration. Documentation leading trivia is outside that extent;
@@ -348,8 +352,8 @@ contract rather than test an interaction.
 This slice locks only the CSharpText contract. The remaining
 DocumentationHouse plan is:
 
-1. implement this owner-issued operation in slice 16;
-2. add the SourceHouse-to-DocumentationHouse deferred provider in slice 17;
+1. use the implemented owner-issued CSharpText operation from slice 16;
+2. add the SourceHouse-to-DocumentationHouse deferred operation in slice 17;
 3. add the authored channel and field settlement in slice 18;
 4. publish authored evidence through Queries in slice 19;
 5. adopt it in Inspect Web and the CLI in slices 20 and 21; and

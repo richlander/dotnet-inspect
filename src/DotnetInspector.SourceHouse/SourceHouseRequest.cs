@@ -97,6 +97,7 @@ public abstract class SourceHouseTarget
         {
             if (originalDocumentPath is not null)
                 ArgumentException.ThrowIfNullOrWhiteSpace(originalDocumentPath);
+
             OriginalDocumentPath = originalDocumentPath;
         }
 
@@ -218,9 +219,9 @@ public sealed class SourceHouseLimits
     }
 }
 
-public sealed class SourceHouseMemberDecompilationLimits
+public sealed class SourceHouseDecompilationLimits
 {
-    public SourceHouseMemberDecompilationLimits(
+    public SourceHouseDecompilationLimits(
         int maximumAssemblyBytes,
         int maximumPortablePdbBytes,
         ApiSurfaceExtractionBounds targetBounds,
@@ -497,12 +498,12 @@ public sealed class SourceHouseAuthoredRequest
     public SourceHouseOperationPlan Plan { get; }
 }
 
-public sealed class SourceHouseMemberDecompilationPlan
+public sealed class SourceHouseDecompilationPlan
 {
-    public SourceHouseMemberDecompilationPlan(
+    public SourceHouseDecompilationPlan(
         SourceHouseOperationPlanIdentity identity,
         SourceHousePolicyGeneration policyGeneration,
-        SourceHouseMemberDecompilationLimits limits,
+        SourceHouseDecompilationLimits limits,
         IAssemblyBindingPolicy bindingPolicy,
         PrinterOptions? printerOptions = null,
         int maximumBodyProjections =
@@ -525,26 +526,35 @@ public sealed class SourceHouseMemberDecompilationPlan
 
     public SourceHouseOperationPlanIdentity Identity { get; }
     public SourceHousePolicyGeneration PolicyGeneration { get; }
-    public SourceHouseMemberDecompilationLimits Limits { get; }
+    public SourceHouseDecompilationLimits Limits { get; }
     public IAssemblyBindingPolicy BindingPolicy { get; }
     public PrinterOptions? PrinterOptions { get; }
     public int MaximumBodyProjections { get; }
 }
 
-public sealed class SourceHouseMemberDecompilationRequest
+public sealed class SourceHouseDecompilationRequest
 {
-    public SourceHouseMemberDecompilationRequest(
+    public SourceHouseDecompilationRequest(
         SourceHouseRequestIdentity identity,
         LibraryReference library,
         LibraryContentReference selectedAssembly,
-        SourceHouseTarget.MemberTarget target,
-        SourceHouseMemberDecompilationPlan plan)
+        SourceHouseTarget target,
+        SourceHouseDecompilationPlan plan)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(selectedAssembly);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(plan);
+        if (target is SourceHouseTarget.TypeTarget
+            {
+                OriginalDocumentPath: not null,
+            })
+        {
+            throw new ArgumentException(
+                "An authored document selection is not a decompilation target.",
+                nameof(target));
+        }
 
         Identity = identity;
         Library = library;
@@ -556,8 +566,8 @@ public sealed class SourceHouseMemberDecompilationRequest
     public SourceHouseRequestIdentity Identity { get; }
     public LibraryReference Library { get; }
     public LibraryContentReference SelectedAssembly { get; }
-    public SourceHouseTarget.MemberTarget Target { get; }
-    public SourceHouseMemberDecompilationPlan Plan { get; }
+    public SourceHouseTarget Target { get; }
+    public SourceHouseDecompilationPlan Plan { get; }
 }
 
 internal static class SourceHouseContractName

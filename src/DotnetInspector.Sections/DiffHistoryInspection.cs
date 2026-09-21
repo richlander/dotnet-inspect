@@ -1,5 +1,6 @@
 using DotnetInspector.PackageQueries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
@@ -71,9 +72,52 @@ public sealed class DiffHistoryApiOperationRequest
     public DiffHistoryCountRequest? Count { get; }
 }
 
+/// <summary>One normalized exact-Member Analysis History operation.</summary>
+public sealed class DiffHistoryAnalysisOperationRequest
+{
+    public DiffHistoryAnalysisOperationRequest(
+        DiffHistoryAnalysisInspectionRequest inspection,
+        DiffHistoryCountRequest? count = null)
+    {
+        Inspection =
+            inspection ?? throw new ArgumentNullException(nameof(inspection));
+        Count = count;
+    }
+
+    public DiffHistoryAnalysisInspectionRequest Inspection { get; }
+
+    public DiffHistoryCountRequest? Count { get; }
+}
+
 /// <summary>Completes shared Diff History through the envelope boundary.</summary>
 public static class DiffHistoryInspection
 {
+    public static Task<InspectionEnvelope<DiffHistoryOutcome>>
+        InspectAnalysisAsync(
+            DiffHistoryAnalysisInspectionRequest request,
+            IPackageHouseVersionPopulationCellExecutor executor,
+            CancellationToken cancellationToken = default) =>
+        InspectAnalysisAsync(
+            new DiffHistoryAnalysisOperationRequest(request),
+            executor,
+            cancellationToken);
+
+    public static async Task<InspectionEnvelope<DiffHistoryOutcome>>
+        InspectAnalysisAsync(
+            DiffHistoryAnalysisOperationRequest request,
+            IPackageHouseVersionPopulationCellExecutor executor,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        DiffHistoryOutcome outcome =
+            await DiffHistoryInspector.InspectAnalysisAsync(
+                    request.Inspection,
+                    executor,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return Envelope(BindCount(outcome, request.Count));
+    }
+
     public static Task<InspectionEnvelope<DiffHistoryOutcome>>
         InspectApiMembersAsync(
             DiffHistoryApiMemberInspectionRequest request,
@@ -139,33 +183,51 @@ public static class DiffHistoryInspection
         DiffHistoryOutcome outcome,
         DiffHistoryCountRequest? request)
     {
-        if (request is null
-            || outcome is not DiffHistoryOutcome.Available available)
+        if (outcome is not DiffHistoryOutcome.Available available)
         {
             return outcome;
         }
 
         SectionCountOutcome<
             DiffHistoryCountCohort,
-            DiffHistoryChangedVersionCountEvidence> count =
-                available.Document switch
-                {
-                    DiffHistoryDocument.ApiMembers value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.ApiTypes value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    DiffHistoryDocument.ApiAttributes value =>
-                        Count(
-                            value.Content.ChangedVersionAssessments,
-                            request),
-                    _ => throw new InvalidOperationException(
-                        "Unknown Diff History document."),
-                };
-        return new DiffHistoryOutcome.Available(
+            DiffHistoryChangedVersionCountEvidence>? count =
+                request is null
+                    ? null
+                    : available.Document switch
+                    {
+                        DiffHistoryDocument.ApiMembers value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.ApiTypes value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.ApiAttributes value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.ExactApiMember value =>
+                            Count(
+                                value.Content.History
+                                    .ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.Allocations value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.CallSites value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        DiffHistoryDocument.Unsafety value =>
+                            Count(
+                                value.Content.ChangedVersionAssessments,
+                                request),
+                        _ => throw new InvalidOperationException(
+                            "Unknown Diff History document."),
+                    };
+        return new DiffHistorySectionAvailable(
             available.Document,
             count);
     }
@@ -230,6 +292,17 @@ public static class DiffHistoryInspection
     static IEnumerable<InspectionDiagnostic> Diagnostics(
         DiffHistoryOutcome outcome)
     {
+        if (outcome
+            is DiffHistoryOutcome.ExactApiMemberUnavailable unavailable)
+        {
+            yield return new(
+                "diff-history.exact-member-unavailable",
+                InspectionDiagnosticSeverity.Error,
+                unavailable.Selection.Diagnostic?.Message
+                    ?? $"Exact Member selection completed as {unavailable.Selection.State}.",
+                unavailable.Selection.SourceEvaluation.Version.Display);
+            yield break;
+        }
         if (outcome is not DiffHistoryOutcome.Available available)
             yield break;
 
@@ -242,13 +315,25 @@ public static class DiffHistoryInspection
                     EvaluationDiagnostics(value.Content.Evaluations),
                 DiffHistoryDocument.ApiAttributes value =>
                     EvaluationDiagnostics(value.Content.Evaluations),
+                DiffHistoryDocument.ExactApiMember value =>
+                    EvaluationDiagnostics(
+                        value.Content.History.Evaluations),
+                DiffHistoryDocument.Allocations value =>
+                    EvaluationDiagnostics(value.Content.Evaluations),
+                DiffHistoryDocument.CallSites value =>
+                    EvaluationDiagnostics(value.Content.Evaluations),
+                DiffHistoryDocument.Unsafety value =>
+                    EvaluationDiagnostics(value.Content.Evaluations),
                 _ => throw new InvalidOperationException(
                     "Unknown Diff History document."),
             };
         foreach (InspectionDiagnostic diagnostic in evaluationDiagnostics)
             yield return diagnostic;
 
-        switch (available.Count)
+        if (outcome is not DiffHistorySectionAvailable counted)
+            yield break;
+
+        switch (counted.Count)
         {
             case SectionCountOutcome<
                     DiffHistoryCountCohort,
@@ -280,6 +365,25 @@ public static class DiffHistoryInspection
         where T : notnull
     {
         foreach (DiffHistoryApiFindingEvaluation<T> evaluation
+            in evaluations)
+        {
+            if (evaluation.Inspection.Value
+                is FindingInspection<T>.Failed failed)
+            {
+                yield return new(
+                    "diff-history.evaluation-failure",
+                    InspectionDiagnosticSeverity.Error,
+                    failed.Error.Reason,
+                    evaluation.Version.Display);
+            }
+        }
+    }
+
+    static IEnumerable<InspectionDiagnostic> EvaluationDiagnostics<T>(
+        IEnumerable<DiffHistoryAnalysisEvaluation<T>> evaluations)
+        where T : notnull
+    {
+        foreach (DiffHistoryAnalysisEvaluation<T> evaluation
             in evaluations)
         {
             if (evaluation.Inspection.Value
@@ -409,10 +513,21 @@ public static class DiffHistoryInspection
                 switch (operation.Kind)
                 {
                     case RowSelectionStageKind.Head:
-                    case RowSelectionStageKind.Tail:
                         maximumLength = Math.Min(
                             maximumLength ?? operation.Count,
                             operation.Count);
+                        break;
+                    case RowSelectionStageKind.Tail:
+                        if (maximumLength is not long boundedTail)
+                            return null;
+                        required = Math.Max(
+                            required,
+                            offset + boundedTail);
+                        long retainedTail = Math.Min(
+                            boundedTail,
+                            operation.Count);
+                        offset += boundedTail - retainedTail;
+                        maximumLength = retainedTail;
                         break;
                     case RowSelectionStageKind.Window:
                         int start = operation.Start ?? 1;

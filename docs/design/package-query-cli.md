@@ -123,8 +123,8 @@ Related docs:
 
 ## Package Query term binding
 
-Every Package Query condition is a
-`DotnetInspector.PortableQueries.PortableQueryTerm`. The shared planner authors
+Every Package Query condition is a `QuerySpace.PortableQueryTerm`. The shared
+planner authors
 one complete `PortableQueryIntent` containing:
 
 - exactly one population term: `package=<id>` or
@@ -140,7 +140,7 @@ The production inspection vocabulary is:
 | --- | --- | --- | --- | --- |
 | `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
 | `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
-| `depends` | NuGet package ID | nuspec | nuspec | Direct dependency declared in the selected dependency scope |
+| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency with the exact package ID; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
 | `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Source-authorized declared dependency reached at depth 2 through the selected maximum depth |
 | `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for transitive dependency terms |
 | `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
@@ -165,7 +165,8 @@ Execution class is descriptor metadata, not acquisition authority or predicate
 meaning. Hosts may use it to lower their default candidate controls, while the
 product still validates each term's concrete work bound.
 
-All terms admit equality only. Independent terms AND. Repeated
+All terms admit equality only except `depends`, which also admits
+`starts-with`. Independent terms AND. Repeated
 `tool-format` values OR within their combining family; `tool=true` is
 incompatible with either specific format. Equivalent normalized bindings
 collapse, including case variants of NuGet package IDs. Distinct values for
@@ -181,6 +182,10 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 dotnet-inspect package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends starts-with Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
@@ -212,11 +217,21 @@ population and prerelease terms. The count is charged before duplicate
 collapse, matching the canonical codec; both CLI and Browser receive the same
 typed planning rejection for a twenty-third inspection term.
 
-`depends` uses NuGet package-ID comparison semantics and matches a direct
-dependency. Without `dependency-target`, or with
+`depends=<package-id>` uses NuGet package-ID comparison semantics and matches
+one exact direct dependency. Without `dependency-target`, or with
 `dependency-target=all`, dependency predicates inspect every nuspec group.
 `all` is Package Query scope rather than a target-framework identity and is
 distinct from a manifest's real `any` group.
+
+`depends starts-with <prefix>` uses the Source Selection owner's literal
+`PackagePrefixDeclaration` validation and ordinal case-insensitive matching.
+The operand contains no wildcard. A trailing `.` is the recommended spelling
+for a dot-delimited package family: `Microsoft.Extensions.` excludes
+`Microsoft.ExtensionsX`, while `Microsoft.Extensions` intentionally matches
+both. Repeated prefix terms are independent conjunctions, so each prefix must
+match at least one direct dependency in the selected scope. Evidence counts
+matching declaration occurrences and retains bounded `group: ID range`
+previews. The term does not resolve ranges or traverse dependencies.
 
 `depends-ecosystem` accepts one canonical, case-sensitive
 `ecosystem.<name>` identity and matches a direct dependency against the
@@ -240,9 +255,9 @@ the dependency-group owner's compatible selection. The plan and evidence
 retain the requested target and selected manifest group separately. A selected
 empty group and a manifest with no dependency groups satisfy
 `dependencies=none`; no matching target framework does not. The target term
-requires at least one `depends`, `depends-ecosystem`, or `dependencies` term,
-applies to all such terms in the query, and does not traverse, resolve version
-ranges, or select package assets.
+requires at least one `depends`, `depends-ecosystem`, `depends-transitive`, or
+`dependencies` term, applies to all such terms in the query, and does not
+traverse, resolve version ranges, or select package assets.
 
 `depends-transitive=<package-id>` is distinct from `depends`: it matches only
 resolved declaration edges at depth 2 through the explicit
@@ -310,10 +325,8 @@ bound is a visible package-content evaluation failure, never a partial match.
 `Microsoft.Extensions.DependencyInjection.Abstractions` while exposing
 different surrounding reference sets.
 
-`depends-prefix` is not defined by this slice. That spelling remains available
-for a future absolute query such as `depends-prefix=Microsoft.Extensions`,
-which asks a different question from the candidate-relative
-`dependencies=cross-prefix` classification.
+`depends starts-with` is an absolute literal-prefix query and remains distinct
+from the candidate-relative `dependencies=cross-prefix` classification.
 
 ## Adaptive result section
 

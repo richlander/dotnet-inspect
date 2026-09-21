@@ -144,20 +144,20 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 return null;
             }
 
-            WorkspaceScopeOperationResult replacement =
-                await workspace.ReplaceScopeAsync(
+            WorkspaceScopeOperationResult admission =
+                await workspace.AddPackagesAsync(
                     ((WorkspaceScopeReadResult.Available)read)
                         .Snapshot.Revision,
                     [binding],
                     DateTimeOffset.UtcNow.AddMinutes(5),
                     cancellationToken).ConfigureAwait(false);
-            if (replacement
+            if (admission
                 is not WorkspaceScopeOperationResult.Committed committed)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 CommandError.WriteWarning(
                     $"Could not commit package Root '{packageSpec}': "
-                    + Describe(replacement));
+                    + Describe(admission));
                 await CloseAsync(workspace).ConfigureAwait(false);
                 return null;
             }

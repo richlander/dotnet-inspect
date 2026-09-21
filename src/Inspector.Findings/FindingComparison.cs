@@ -127,6 +127,46 @@ public sealed record FindingComparison<T> where T : notnull
     }
 
     /// <summary>
+    /// Narrows a completed producer comparison to the pair that carries one
+    /// exact source identity while preserving producer classification and
+    /// non-exact match provenance.
+    /// </summary>
+    public FindingComparison<T> Focus(FindingCorrelationKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        if (Value is Failed)
+        {
+            return FindingComparison.Compare(
+                FocusInspection(OldInspection, key),
+                FocusInspection(NewInspection, key));
+        }
+
+        var complete = (Complete)Value;
+        ImmutableArray<PairFinding<T>> pairs =
+        [
+            .. complete.Pairs.Where(pair =>
+                (((IPairFinding)pair).Old is Finding<T> oldFinding
+                    && key.Matches(oldFinding))
+                || (((IPairFinding)pair).New is Finding<T> newFinding
+                    && key.Matches(newFinding))),
+        ];
+        FindingInspection<T> oldInspection =
+            FocusInspection(complete.OldInspection, pairs, old: true);
+        FindingInspection<T> newInspection =
+            FocusInspection(complete.NewInspection, pairs, old: false);
+        return new Complete(
+            pairs,
+            FocusMatch(
+                complete.Match,
+                complete.OldAtoms,
+                complete.NewAtoms,
+                FindingComparison.InspectionAtoms(oldInspection),
+                FindingComparison.InspectionAtoms(newInspection)),
+            oldInspection,
+            newInspection);
+    }
+
+    /// <summary>
     /// Matching ran. An empty match is valid evidence of a trivial alignment, including
     /// <c>Absent</c> versus <c>Absent</c>.
     /// </summary>
@@ -260,6 +300,123 @@ public sealed record FindingComparison<T> where T : notnull
                     nameof(transformed));
             }
         }
+    }
+
+    static FindingInspection<T> FocusInspection(
+        FindingInspection<T> inspection,
+        FindingCorrelationKey key) =>
+        inspection.Value switch
+        {
+            FindingInspection<T>.Complete complete =>
+                new FindingInspection<T>.Complete(
+                [
+                    .. complete.Findings.Where(key.Matches),
+                ]),
+            FindingInspection<T>.Absent absent => absent,
+            FindingInspection<T>.Failed failed => failed,
+            _ => throw new InvalidOperationException(
+                "Finding inspection returned an unknown outcome."),
+        };
+
+    static FindingInspection<T> FocusInspection(
+        FindingInspection<T> inspection,
+        ImmutableArray<PairFinding<T>> pairs,
+        bool old) =>
+        inspection.Value switch
+        {
+            FindingInspection<T>.Complete =>
+                new FindingInspection<T>.Complete(
+                [
+                    .. pairs
+                        .Select(pair => old
+                            ? ((IPairFinding)pair).Old
+                            : ((IPairFinding)pair).New)
+                        .OfType<Finding<T>>(),
+                ]),
+            FindingInspection<T>.Absent absent => absent,
+            FindingInspection<T>.Failed failed => failed,
+            _ => throw new InvalidOperationException(
+                "Finding inspection returned an unknown outcome."),
+        };
+
+    static FindingMatch FocusMatch(
+        FindingMatch match,
+        ImmutableArray<Finding<T>> oldAtoms,
+        ImmutableArray<Finding<T>> newAtoms,
+        ImmutableArray<Finding<T>> focusedOldAtoms,
+        ImmutableArray<Finding<T>> focusedNewAtoms)
+    {
+        int[] oldIndices = FocusedIndices(oldAtoms, focusedOldAtoms);
+        int[] newIndices = FocusedIndices(newAtoms, focusedNewAtoms);
+
+        return new FindingMatch(
+        [
+            .. match.Edges
+                .Where(edge =>
+                    IsFocused(edge.OldIndex, oldIndices)
+                    && IsFocused(edge.NewIndex, newIndices))
+                .Select(edge => edge with
+                {
+                    OldIndex = Remap(edge.OldIndex, oldIndices),
+                    NewIndex = Remap(edge.NewIndex, newIndices),
+                }),
+        ],
+        [
+            .. match.MoveCandidates
+                .Where(candidate =>
+                    IsFocused(candidate.OldIndex, oldIndices)
+                    && IsFocused(candidate.NewIndex, newIndices))
+                .Select(candidate => candidate with
+                {
+                    OldIndex = Remap(candidate.OldIndex, oldIndices),
+                    NewIndex = Remap(candidate.NewIndex, newIndices),
+                }),
+        ])
+        {
+            SoftCandidates =
+            [
+                .. match.SoftCandidates
+                    .Where(candidate =>
+                        IsFocused(candidate.OldIndex, oldIndices)
+                        && IsFocused(candidate.NewIndex, newIndices))
+                    .Select(candidate => candidate with
+                    {
+                        OldIndex = Remap(candidate.OldIndex, oldIndices),
+                        NewIndex = Remap(candidate.NewIndex, newIndices),
+                    }),
+            ],
+        };
+
+        static int[] FocusedIndices(
+            ImmutableArray<Finding<T>> atoms,
+            ImmutableArray<Finding<T>> focusedAtoms)
+        {
+            var indices = new int[atoms.Length];
+            Array.Fill(indices, -1);
+            for (int sourceIndex = 0; sourceIndex < atoms.Length; sourceIndex++)
+            {
+                for (int focusedIndex = 0;
+                    focusedIndex < focusedAtoms.Length;
+                    focusedIndex++)
+                {
+                    if (ReferenceEquals(
+                        atoms[sourceIndex],
+                        focusedAtoms[focusedIndex]))
+                    {
+                        indices[sourceIndex] = focusedIndex;
+                        break;
+                    }
+                }
+            }
+
+            return indices;
+        }
+
+        static bool IsFocused(int index, int[] indices)
+            => index < 0 || indices[index] >= 0;
+
+        static int Remap(int index, int[] indices)
+            => index < 0 ? index : indices[index];
     }
 }
 

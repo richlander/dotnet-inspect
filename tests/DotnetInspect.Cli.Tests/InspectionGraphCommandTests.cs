@@ -8,7 +8,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
@@ -153,6 +153,20 @@ public sealed class InspectionGraphCommandTests
             PortableQueryPayloadCodec.Encode(
                 query.Plan.Intent,
                 TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void LibrariesCommand_RejectsUnsupportedStartsWithPredicate()
+    {
+        Assert.False(
+            LibraryCallUseQueryOptions.TryParse(
+                ["Cluster starts-with 3"],
+                out _,
+                out OptionError error));
+        Assert.Contains(
+            "supports only = predicates",
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

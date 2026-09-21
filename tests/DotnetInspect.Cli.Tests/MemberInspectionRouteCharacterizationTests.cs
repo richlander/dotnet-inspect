@@ -265,8 +265,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:133:CBA3C1F6F8A4]",
-                "focus=Library Info->Classified methods,"
+                "Library[schema:136:2C81C087A412]",
+                "focus=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders;"
@@ -277,8 +278,9 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:133:CBA3C1F6F8A4]",
-                "focus=Library Info->Classified methods,"
+                "Library[schema:136:2C81C087A412]",
+                "focus=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders;discovery=none",
@@ -287,12 +289,14 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:135:0B284A8E156E]",
-                "focus=Library Info->Classified methods,"
+                "Library[schema:138:B20EE600A7A5]",
+                "focus=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders;"
-                    + "discovery=Library Info->Classified methods,"
+                    + "discovery=Library Info->Assembly references,"
+                    + "Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
                     + "Library Info->Type forwarders,"
@@ -310,31 +314,31 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:76:0ADF1F7B4824]",
+                "ApiMember[schema:76:9633CCFA51A0]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:76:0ADF1F7B4824]",
+                "ApiMember[schema:76:9633CCFA51A0]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:92:778FDEFB3A13]",
+                "ApiMemberOverload[schema:92:4C419DA93942]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:70:D28A53F5A84F]",
+                "ApiMemberDetail[schema:70:54E40DE31700]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:185:D680B3053711]",
+                "ApiType[schema:185:51158FAF4201]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

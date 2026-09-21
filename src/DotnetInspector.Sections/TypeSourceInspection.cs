@@ -5,6 +5,30 @@ namespace DotnetInspector.Sections;
 /// <summary>Shared completed type Source operation.</summary>
 public static class TypeSourceInspection
 {
+    public static async Task<InspectionEnvelope<AssemblyTypeDecompilationEntry>>
+        DecompileAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            AssemblyContextLibraryPortablePdb? portablePdb = null,
+            CancellationToken cancellationToken = default)
+    {
+        AssemblyTypeDecompilationEntry content =
+            await AssemblyContextSourceQuery
+                .ExecuteTypeDecompilationAsync(
+                    group,
+                    participant,
+                    request,
+                    context,
+                    portablePdb,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return new(content, new InspectionShare.NonProjectable(
+            "type-decompilation/share",
+            "Type decompilation requests do not yet have a canonical Workspace Share projection."));
+    }
+
     public static async Task<InspectionEnvelope<AssemblyTypeSourceEntry>> ExecuteAsync(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
@@ -17,5 +41,36 @@ public static class TypeSourceInspection
         return new(content, new InspectionShare.NonProjectable(
             "type-source/share",
             "Type Source requests do not yet have a canonical Workspace Share projection."));
+    }
+
+    /// <summary>
+    /// Executes ordinary authored-first type source with finite PDB and
+    /// authored-source preference windows. Explicit document requests retain
+    /// the serial exact-document operation.
+    /// </summary>
+    public static async Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
+        ExecuteWithLatencyHedgeAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            TypeSourceLatencyHedge latencyHedge,
+            CancellationToken cancellationToken = default)
+    {
+        AssemblyTypeSourceEntry content =
+            await AssemblyContextSourceQuery
+                .ExecuteTypeWithLatencyHedgeAsync(
+                    group,
+                    participant,
+                    request,
+                    context,
+                    latencyHedge,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return new(
+            content,
+            new InspectionShare.NonProjectable(
+                "type-source/share",
+                "Type Source requests do not yet have a canonical Workspace Share projection."));
     }
 }

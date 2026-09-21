@@ -74,6 +74,34 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Theory]
+    [InlineData("InitializedFieldGetter", true)]
+    [InlineData("CalculatedFieldGetter", false)]
+    public async Task MemberSourceExport_PreservesProvenInitializerContext(string typeName, bool initialized)
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        BrowserSourceComparisonRequest request = await pair.Request(typeName, "Count");
+        string json = await SourceExports.QueryMemberSource(
+            request.PackageId, request.BeforeVersion, request.Framework, request.Assembly,
+            request.TypeIdentity, request.MemberName, request.SelectorKey,
+            request.MetadataToken, "[]");
+        using var document = JsonDocument.Parse(json);
+        var source = document.RootElement.GetProperty("source");
+        Assert.Equal("decompiled", source.GetProperty("provider").GetString());
+        string text = source.GetProperty("text").GetString()!;
+        Assert.Contains("field + 1", text);
+        if (initialized)
+        {
+            Assert.Contains("readonly struct InitializedFieldGetter(int value)", text);
+            Assert.Contains("} = value;", text);
+        }
+        else
+        {
+            Assert.DoesNotContain("struct ", text);
+            Assert.DoesNotContain("} = ", text);
+        }
+    }
+
+    [Theory]
     [InlineData("authored")]
     [InlineData("missing")]
     [InlineData("deadline")]
@@ -120,6 +148,14 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         {
             Assert.True(Assert.IsType<AssemblyTypeSource.Decompiled>(available.Source)
                 .Decompilation.PdbSupplied);
+            var decompilationHouse =
+                Assert.IsType<SourceHouseDecompilationOutcome.Completed>(
+                    available.DecompilationHouseOutcome);
+            Assert.IsType<SourceHouseTarget.TypeTarget>(
+                decompilationHouse.Request.Target);
+            Assert.Equal(
+                SourceHousePdbContributionKind.Embedded,
+                decompilationHouse.PdbContribution.Kind);
             Assert.NotNull(source.PdbSourceLimitation);
             Assert.Null(source.Url);
             if (scenario == "deadline")

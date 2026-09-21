@@ -25,11 +25,69 @@ unrelated domain categories.
 | --- | --- | --- |
 | Quiet | `-v:q` | Compact identity/context only |
 | Minimal | `-v:m` | One high-value base section |
-| Normal | `-v:n` | Multiple network-free base sections |
-| Detailed | `-v:d` | All applicable base sections |
+| Normal | `-v:n` | Fixed, terse, and informative network-free base sections |
+| Detailed | `-v:d` | All applicable bounded-cost base sections |
 
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
+
+For library inspection, References, Switches, Type Forwarders, P/Invoke
+Methods, and Union Types are measured or structurally `Verbose` inventories.
+They therefore enter automatic output at `-v:d`, not `-v:n`. Exact `-S`
+selection and the explicit `@Library` or `@Surface` category remain available;
+explicit selection promotes the effective verbosity needed to render the
+requested inventory. Inspection Failures remains `Terse` and visible at
+`-v:n`; hiding failed producers from the normal view would allow partial
+inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
+Symbols, and Signals.
+
+For package inspection, Target Frameworks, Package nuspec file, Dependencies,
+Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
+Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+`-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
+or `@Audit` doors remain available. The explicit-only whole-package and
+license-file listings remain outside every automatic verbosity preset.
+
+For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
+Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
+the command's authored primary result and diagnostic context at `-v:m`, are
+omitted from the generic bounded `-v:n` preset, and return at `-v:d`. Exact
+section selection and explicit `@Surface` selection retain the complete
+inventories.
+
+For broad exact-type `@Member` output, the authored `Info` inventories remain
+visible at `-v:m` even when their measured size is `Verbose`: Values,
+Interfaces, Constructors, Fields, Properties, Method Groups, Operators,
+Explicit Interface Implementations, Extension Methods, and Events. Generic
+`-v:n` omits those inventories and the non-`Info` Methods inventory, while
+`-v:d` restores them. Type Parameters remains at `-v:n` as `Informative`.
+Baseclass and Finalizer are `Fixed`; when applicable they participate in the
+broad fixed overview, while Type Info remains exact-selection-only.
+
+For the named-member overload route, Methods remains the authored `-v:m`
+inventory, is omitted from generic `-v:n`, and returns at `-v:d`. The shared
+Custom Attributes and source/IL documents likewise require `-v:d` when
+applicable. Exact selection promotes every `Verbose` base section to the
+required detailed verbosity without changing its rows. For an exact member,
+the automatic fixed overview remains exactly Signature: generic `-v:n` no
+longer adds Custom Attributes, Decompiled Source, or IL, and `-v:d` restores
+those sections plus applicable PDB Source. Explicit selection retains each
+complete section.
+
+Member domain categories remain explicit lenses rather than automatic
+verbosity scope. Their row sets, graphs, and documents are `Verbose`, so exact
+category or section selection promotes the request to Detailed and retains
+the complete evidence. The same rule applies to the exact-name `Member Index`,
+`Finding Census`, `Clone Candidates`, `Type Metrics`, and `Member Metrics`
+sections. Exact-member `Source Locations` is `Fixed`: it emits one
+logical-member row and exact selection requires Normal. Broad and
+named-overload Source Locations remain `Verbose` because they emit one row per
+selected member.
+
+These declarations do not add any domain section to bare `-v:n` or `-v:d`.
+Automatic verbosity still uses only the route's base `@Member` union; selecting
+an exact domain category or exact section name is the gesture that enters the
+additional evidence.
 
 ## Categories
 
@@ -189,10 +247,14 @@ catalogs follow this model. Commands not yet migrated may retain their existing
 discovery behavior; new work should follow the reference model rather than
 copy a legacy command.
 
-`--details` is an opt-in discovery projection, not inspection verbosity. It may
-add stable columns without making them part of the concise default. The first
-Library adoption adds only `Formats` and remains structural and target-free;
-other details and command adoptions require their owning slices.
+`--details` is a temporary Library-only discovery projection, not inspection
+verbosity. Its first adoption adds only `Formats` and remains structural and
+target-free. It will not accumulate more implicit columns. The resource-oriented
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will expose
+Formats and later owner-issued properties from the host-neutral Discovery
+Document, then remove `--details`. Formats do not receive a global `-F`
+discovery flag.
 
 ## Query discovery
 

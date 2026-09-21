@@ -25,6 +25,33 @@ public class AssemblyInspectionSessionTests
     }
 
     [Fact]
+    public void OpenPrefetched_TransfersStreamOwnershipAndPostsDetachedDeclarations()
+    {
+        var stream =
+            new DisposeCountingStream(File.OpenRead(SelfPath));
+        AssemblyTypeDeclarationInventory inventory;
+        using (AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(stream))
+        {
+            Assert.Equal(1, stream.DisposeCount);
+            inventory = Assert.IsType<
+                    AssemblyTypeDeclarationInventoryOutcome.Read>(
+                    session.TypeDeclarations())
+                .Inventory;
+        }
+
+        Assert.Equal(1, stream.DisposeCount);
+        Assert.Equal(SelfName, inventory.Identity.Name);
+        Assert.NotEmpty(inventory.Declarations);
+        Assert.NotNull(
+            typeof(AssemblyInspectionSession).GetMethod(
+                nameof(AssemblyInspectionSession.OpenPrefetched),
+                System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.Static,
+                [typeof(Stream)]));
+    }
+
+    [Fact]
     public void ResourceOwnershipContract_IsDeclared()
     {
         Assert.NotNull(

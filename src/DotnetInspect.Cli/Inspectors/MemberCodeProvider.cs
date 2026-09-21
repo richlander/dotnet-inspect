@@ -1,4 +1,6 @@
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.CSharp;
@@ -68,7 +70,9 @@ internal static class MemberCodeProvider
         Request request, string? pdbPath = null, bool includeAll = false,
         PrinterOptions? renderOptions = null,
         ResolvedAssemblyReference? sourceAssembly = null,
-        MemberProjectionAnalysisInput? researchAnalysis = null)
+        MemberProjectionAnalysisInput? researchAnalysis = null,
+        InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+            decompilationInspection = null)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -92,13 +96,23 @@ internal static class MemberCodeProvider
             return results;
 
         var bodySource = image.MethodBodies;
+        Guid moduleVersionId = image.ModuleVersionId();
 
-        // All decompiler-backed sections (decompiled source, annotated source, IR
-        // stages) read through one MetadataSource that owns its own readers.
-        // Descriptorless callers preserve the established partial-output behavior
-        // when this second open fails. A selected descriptor failure stays visible.
+        // Direct IR and Research sections share one MetadataSource. Ordinary
+        // Decompiled Source instead consumes detached SourceHouse evidence.
+        // Descriptorless legacy callers preserve the established partial-output
+        // behavior when this second open fails. A selected descriptor failure
+        // stays visible.
+        bool needsDirectDecompiledProjection =
+            request.DecompiledSource
+            && decompilationInspection is null;
         using var pipelineSource =
-            OpenPipelineSource(request, dllPath, pdbPath, selectedAssembly);
+            OpenPipelineSource(
+                request,
+                dllPath,
+                pdbPath,
+                selectedAssembly,
+                needsDirectDecompiledProjection);
 
         foreach (var method in methods)
         {
@@ -151,19 +165,36 @@ internal static class MemberCodeProvider
             if (request.FindingCensus && !methodHasBody)
                 continue;
 
-            var propertySource = pipelineSource is not null && methodToken is { } propertyMethodToken
+            SharedDecompilationProjection? sharedDecompilation =
+                request.DecompiledSource
+                    ? ResolveSharedDecompilation(
+                        decompilationInspection,
+                        moduleVersionId,
+                        methodToken)
+                    : null;
+            var directPropertySource = pipelineSource is not null && methodToken is { } propertyMethodToken
                 && (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay)
                 ? Decompiler.SelectedPropertyAccessorSource.Create(
                     pipelineSource, propertyMethodToken, method,
-                    includeAttributes: request.AnnotatedSource)
+                    includeAttributes: request.AnnotatedSource,
+                    includeContainingContext: true)
                 : null;
+            var propertySource =
+                sharedDecompilation?.PropertySource
+                ?? directPropertySource;
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
             Decompiler.DecompilerResult? projectionResult = null;
             IrFunction? raisedFunction = null;
             bool styledProjectionProduced = false;
-            if ((request.DecompiledSource || request.FidelityCauses || request.AppliedTaste) && pipelineSource is not null)
+            bool needsInitializationProjection = propertySource?.RequiresInitializationProjection == true
+                && sharedDecompilation?.Result.Output is null;
+            if ((needsDirectDecompiledProjection
+                    || request.FidelityCauses
+                    || request.AppliedTaste
+                    || needsInitializationProjection)
+                && pipelineSource is not null)
             {
                 // The style options (renderOptions) affect the printed C# string
                 // (Decompiled Source) and the set of configurable render choices
@@ -176,7 +207,12 @@ internal static class MemberCodeProvider
                 // styledProjectionProduced (below) drives the config-warning latch,
                 // so an Applied-Taste-only run that consumes the config surfaces its
                 // warnings even without a Decompiled Source section.
-                var projectionRenderOptions = request.DecompiledSource || request.AppliedTaste ? renderOptions : null;
+                var projectionRenderOptions =
+                    needsDirectDecompiledProjection
+                    || request.AppliedTaste
+                    || needsInitializationProjection
+                        ? renderOptions
+                        : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
                     lookupType,
@@ -200,12 +236,23 @@ internal static class MemberCodeProvider
                 // projection printed a body so the warning latch (below) fires for
                 // an Applied-Taste-only run too, not just Decompiled Source.
                 styledProjectionProduced =
-                    (request.DecompiledSource || request.AppliedTaste)
+                    (needsDirectDecompiledProjection
+                        || request.AppliedTaste
+                        || needsInitializationProjection)
                     && projectionResult.Output is not null;
             }
 
+            if ((sharedDecompilation?.Result ?? projectionResult) is { } initializationProjection)
+                propertySource?.BindInitializationContext(initializationProjection);
+
             if (request.DecompiledSource)
-                decompiledResult = projectionResult;
+            {
+                decompiledResult =
+                    sharedDecompilation?.Result
+                    ?? projectionResult;
+                if (decompiledResult?.Output is not null)
+                    styledProjectionProduced = true;
+            }
 
             IReadOnlyList<Decompiler.DecompilerDecision>? appliedTaste = null;
             if (request.AppliedTaste)
@@ -385,7 +432,7 @@ internal static class MemberCodeProvider
                 researchProjection?.SourceDocumentFactIdentities,
                 researchProjection?.FactCensusReceipt,
                 propertySource,
-                propertySource?.Attributes)));
+                directPropertySource?.Attributes ?? propertySource?.Attributes)));
         }
 
         return results;
@@ -395,6 +442,85 @@ internal static class MemberCodeProvider
         => result.Output is { } output
             ? result with { Output = output.TrimEnd() }
             : result;
+
+    static SharedDecompilationProjection? ResolveSharedDecompilation(
+        InspectionEnvelope<AssemblyMemberDecompilationEntry>? inspection,
+        Guid moduleVersionId,
+        int? methodToken)
+    {
+        if (inspection is null)
+            return null;
+
+        if (inspection.Content
+            is AssemblyMemberDecompilationEntry.Settled settled)
+        {
+            Decompiler.CSharpDecompilationAttempt attempt =
+                settled.Attempt;
+            if (attempt.Status
+                != Decompiler.CSharpDecompilationStatus.Available)
+            {
+                return new(
+                    WithTrace(
+                        attempt.Projection with
+                        {
+                            Output = null,
+                        },
+                        attempt),
+                    PropertySource: null);
+            }
+
+            Decompiler.CSharpBodyProjection? body =
+                methodToken is { } token
+                ? attempt.BodyProjections.FirstOrDefault(
+                    projection =>
+                        projection.ContributesToOutput
+                        && projection.Address.ModuleVersionId
+                            == moduleVersionId
+                        && projection.Address.Token == token)
+                : null;
+            if (body is null)
+            {
+                return new(
+                    Decompiler.DecompilerResult.Failure(
+                        Decompiler.DiagnosticIds.ContextUnavailable,
+                        "SourceHouse did not return the exact selected MethodDef body projection."),
+                    PropertySource: null);
+            }
+
+            return new(
+                TrimOutput(WithTrace(body.Projection, attempt)),
+                body.PropertySource);
+        }
+
+        string detail = inspection.Content switch
+        {
+            AssemblyMemberDecompilationEntry.Unavailable unavailable =>
+                unavailable.Failure.Detail,
+            AssemblyMemberDecompilationEntry.Rejected rejected =>
+                rejected.Failure.Detail,
+            _ => "Member decompilation did not settle.",
+        };
+        return new(
+            Decompiler.DecompilerResult.Failure(
+                Decompiler.DiagnosticIds.ServiceInputFailure,
+                detail),
+            PropertySource: null);
+    }
+
+    static Decompiler.DecompilerResult WithTrace(
+        Decompiler.DecompilerResult result,
+        Decompiler.CSharpDecompilationAttempt attempt) =>
+        result with
+        {
+            Trace = new Decompiler.DecompilerTrace(
+                result.Fidelity,
+                attempt.Symbols,
+                result.Diagnostics),
+        };
+
+    sealed record SharedDecompilationProjection(
+        Decompiler.DecompilerResult Result,
+        Decompiler.SelectedPropertyAccessorSource? PropertySource);
 
     internal static FindingInspection<Decompiler.DecompilerFidelityCause> BuildFidelityCauseInspection(
         bool methodHasBody,
@@ -443,9 +569,10 @@ internal static class MemberCodeProvider
         Request request,
         string dllPath,
         string? pdbPath,
-        ResolvedAssemblyReference? sourceAssembly)
+        ResolvedAssemblyReference? sourceAssembly,
+        bool needsDirectDecompiledProjection)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay
+        if (!needsDirectDecompiledProjection && !request.AnnotatedSource && !request.CostOverlay
             && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
             && !request.AppliedTaste && !request.SourceDocument && !request.FindingCensus)
             return null;

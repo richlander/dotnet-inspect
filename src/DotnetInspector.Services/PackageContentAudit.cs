@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 using System.Xml;
 using ILInspector.Metadata;
@@ -176,7 +177,8 @@ public static class PackageContentAudit
                 continue;
             }
 
-            byte[] bytes;
+            string? content = null;
+            int contentLength = 0;
             try
             {
                 using FileStream stream = new(
@@ -196,15 +198,37 @@ public static class PackageContentAudit
                     continue;
                 }
 
-                bytes = GC.AllocateUninitializedArray<byte>((int)length);
-                stream.ReadExactly(bytes);
-                if (stream.ReadByte() >= 0)
+                contentLength = (int)length;
+                byte[] bytes =
+                    ArrayPool<byte>.Shared.Rent(contentLength);
+                try
                 {
-                    collector.AddIncomplete(ToolFinding(
-                        relativePath,
-                        PackageContentFindingKind.ScanLimit,
-                        "File grew while it was being read and exceeded its bounded audit snapshot."));
-                    continue;
+                    stream.ReadExactly(
+                        bytes.AsSpan(0, contentLength));
+                    scannedBytes += contentLength;
+                    if (stream.ReadByte() >= 0)
+                    {
+                        collector.AddIncomplete(ToolFinding(
+                            relativePath,
+                            PackageContentFindingKind.ScanLimit,
+                            "File grew while it was being read and exceeded its bounded audit snapshot."));
+                        continue;
+                    }
+
+                    if (!TryDecode(
+                        bytes.AsSpan(0, contentLength),
+                        out content))
+                    {
+                        collector.AddIncomplete(ToolFinding(
+                            relativePath,
+                            PackageContentFindingKind.InvalidTextEncoding,
+                            "Text-bearing file is not valid UTF-8, UTF-16, or UTF-32."));
+                        continue;
+                    }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(bytes);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -213,16 +237,6 @@ public static class PackageContentAudit
                     relativePath,
                     PackageContentFindingKind.ReadFailure,
                     "File content could not be read."));
-                continue;
-            }
-
-            scannedBytes += bytes.Length;
-            if (!TryDecode(bytes, out string? content))
-            {
-                collector.AddIncomplete(ToolFinding(
-                    relativePath,
-                    PackageContentFindingKind.InvalidTextEncoding,
-                    "Text-bearing file is not valid UTF-8, UTF-16, or UTF-32."));
                 continue;
             }
 

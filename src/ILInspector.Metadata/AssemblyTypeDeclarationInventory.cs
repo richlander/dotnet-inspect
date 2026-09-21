@@ -245,8 +245,11 @@ public static class AssemblyTypeDeclarationInventoryReader
         }
     }
 
-    internal static AssemblyTypeDeclarationInventoryOutcome Read(PEReader peReader)
+    internal static AssemblyTypeDeclarationInventoryOutcome Read(
+        PEReader peReader)
     {
+        ArgumentNullException.ThrowIfNull(peReader);
+
         try
         {
             if (!MetadataFormatAdmission.AdmitImage(peReader))

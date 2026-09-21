@@ -25,7 +25,10 @@ public sealed record CSharpBodyProjection(
     MetadataMethodAddress Address,
     DecompilerResult Projection,
     CSharpBodyProjectionKind Kind,
-    bool ContributesToOutput);
+    bool ContributesToOutput)
+{
+    public SelectedPropertyAccessorSource? PropertySource { get; init; }
+}
 
 public sealed record CSharpDecompilationAttempt(
     CSharpDecompilationStatus Status,
@@ -36,6 +39,12 @@ public sealed record CSharpDecompilationAttempt(
     DecompilerSymbolSource Symbols,
     int BodyProjectionsAttempted)
 {
+    /// <summary>
+    /// The selected declaration without its optional containing context, indented
+    /// for a type body. Comparison consumers use this fragment, not standalone source.
+    /// </summary>
+    public string? MemberDeclarationText { get; init; }
+
     public string? Text => Projection.Output;
     public DecompilationFidelity Fidelity => Projection.Fidelity;
     public bool IsAvailable => Status == CSharpDecompilationStatus.Available;
@@ -293,7 +302,10 @@ public static class CSharpDecompilerService
             bodies,
             pdbSupplied,
             composed.Symbols,
-            tracker.Attempted);
+            tracker.Attempted)
+        {
+            MemberDeclarationText = composed.MemberDeclarationText,
+        };
     }
 
     static CSharpDecompilationAttempt Failure(
@@ -334,7 +346,10 @@ internal sealed record CSharpServiceCompositionResult(
     string? Text,
     ImmutableArray<string> Namespaces,
     DecompilerResult? Failure,
-    DecompilerSymbolSource Symbols);
+    DecompilerSymbolSource Symbols)
+{
+    internal string? MemberDeclarationText { get; init; }
+}
 
 internal sealed class CSharpCompositionBudgetExceededException : Exception
 {
@@ -369,7 +384,8 @@ internal sealed class CSharpCompositionTracker(
 
     internal void Complete(
         ProjectionTicket ticket,
-        DecompilerResult projection)
+        DecompilerResult projection,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         int index = _projections.Count;
@@ -378,7 +394,8 @@ internal sealed class CSharpCompositionTracker(
                 ticket.Address,
                 projection,
                 ticket.Kind,
-                ContributesToOutput: true));
+                ContributesToOutput: true,
+                propertySource));
         ticket.Complete(index);
         cancellationToken.ThrowIfCancellationRequested();
     }
@@ -403,14 +420,19 @@ internal sealed class CSharpCompositionTracker(
                         projection.Address,
                         projection.Projection,
                         projection.Kind,
-                        projection.ContributesToOutput)),
+                        projection.ContributesToOutput)
+                    {
+                        PropertySource =
+                            projection.PropertySource,
+                    }),
         ];
 
     sealed record ProjectionEntry(
         MetadataMethodAddress Address,
         DecompilerResult Projection,
         CSharpBodyProjectionKind Kind,
-        bool ContributesToOutput);
+        bool ContributesToOutput,
+        SelectedPropertyAccessorSource? PropertySource);
 
     internal sealed class ProjectionTicket(
         CSharpCompositionTracker owner,

@@ -855,10 +855,12 @@ internal sealed class CrossAssemblyTypeResolver
         return !unresolved;
     }
 
-    internal bool ExtensionArgumentsInferRecordedTypeArguments(
+    internal bool TryProveExtensionTypeArgumentInference(
         MethodRef method,
-        IReadOnlyList<IrExpression> arguments)
+        IReadOnlyList<IrExpression> arguments,
+        out ImmutableArray<LambdaOutputInference> lambdaOutputs)
     {
+        lambdaOutputs = [];
         if (method.IsExtension != MetadataFactState.Yes
             || method.TypeArgumentElisionOverloadSafety != MetadataFactState.Yes
             || arguments.Count != method.DefinitionParameterTypes.Length)
@@ -869,7 +871,8 @@ internal sealed class CrossAssemblyTypeResolver
         if (ParameterInferenceOutcome(
             method.DefinitionParameterTypes,
             method.TypeArguments,
-            arguments) != GenericInferenceOutcome.Recorded)
+            arguments,
+            out var selectedLambdaOutputs) != GenericInferenceOutcome.Recorded)
         {
             return false;
         }
@@ -880,7 +883,8 @@ internal sealed class CrossAssemblyTypeResolver
             GenericInferenceOutcome siblingOutcome = ParameterInferenceOutcome(
                 siblingParameters,
                 method.TypeArguments,
-                arguments);
+                arguments,
+                out _);
             if (siblingOutcome is not GenericInferenceOutcome.Recorded
                 and not GenericInferenceOutcome.NoMatch)
             {
@@ -888,21 +892,23 @@ internal sealed class CrossAssemblyTypeResolver
             }
         }
 
+        lambdaOutputs = selectedLambdaOutputs;
         return true;
     }
 
     GenericInferenceOutcome ParameterInferenceOutcome(
         ImmutableArray<TypeRef> parameterTemplates,
         ImmutableArray<TypeRef> typeArguments,
-        IReadOnlyList<IrExpression> arguments)
+        IReadOnlyList<IrExpression> arguments,
+        out ImmutableArray<LambdaOutputInference> lambdaOutputs)
     {
-        if (typeArguments.IsEmpty || parameterTemplates.Length != arguments.Count)
-            return GenericInferenceOutcome.Unsafe;
-
-        var receiverInferred = new bool[typeArguments.Length];
-        if (parameterTemplates[0].Kind == TypeRefKind.MethodGenericParameter
-            || !CollectMethodTypeParameters(parameterTemplates[0], receiverInferred)
-            || receiverInferred.Any(static value => !value))
+        lambdaOutputs = [];
+        if (typeArguments.IsEmpty
+            || parameterTemplates.Length != arguments.Count
+            || !TryIdentifyInferenceSources(
+                parameterTemplates,
+                typeArguments.Length,
+                out lambdaOutputs))
         {
             return GenericInferenceOutcome.Unsafe;
         }
@@ -959,6 +965,105 @@ internal sealed class CrossAssemblyTypeResolver
                 ? GenericInferenceOutcome.NoMatch
                 : GenericInferenceOutcome.Recorded
             : GenericInferenceOutcome.Unsafe;
+    }
+
+    static bool TryIdentifyInferenceSources(
+        ImmutableArray<TypeRef> parameterTemplates,
+        int typeArgumentCount,
+        out ImmutableArray<LambdaOutputInference> lambdaOutputs)
+    {
+        lambdaOutputs = [];
+        var receiverInferred = new bool[typeArgumentCount];
+        if (parameterTemplates.IsEmpty
+            || parameterTemplates[0].Kind == TypeRefKind.MethodGenericParameter
+            || !CollectMethodTypeParameters(parameterTemplates[0], receiverInferred))
+        {
+            return false;
+        }
+
+        if (receiverInferred.All(static value => value))
+            return true;
+
+        var outputInferred = (bool[])receiverInferred.Clone();
+        var outputs = ImmutableArray.CreateBuilder<LambdaOutputInference>();
+        for (int argumentIndex = 1; argumentIndex < parameterTemplates.Length; argumentIndex++)
+        {
+            TypeRef parameter = parameterTemplates[argumentIndex];
+            if (!ContainsUnfixedMethodTypeParameter(parameter, receiverInferred))
+                continue;
+
+            if (!TryGetDirectFuncOutputTypeParameter(
+                parameter,
+                out int typeArgumentIndex)
+                || (uint)typeArgumentIndex >= (uint)receiverInferred.Length
+                || receiverInferred[typeArgumentIndex]
+                || outputInferred[typeArgumentIndex]
+                || parameter.TypeArguments
+                    .Take(parameter.TypeArguments.Length - 1)
+                    .Any(input => ContainsUnfixedMethodTypeParameter(
+                        input,
+                        receiverInferred)))
+            {
+                return false;
+            }
+
+            outputInferred[typeArgumentIndex] = true;
+            outputs.Add(new LambdaOutputInference(
+                typeArgumentIndex,
+                argumentIndex));
+        }
+
+        if (outputInferred.Any(static value => !value))
+            return false;
+
+        lambdaOutputs = outputs.ToImmutable();
+        return true;
+    }
+
+    static bool TryGetDirectFuncOutputTypeParameter(
+        TypeRef parameter,
+        out int typeArgumentIndex)
+    {
+        typeArgumentIndex = -1;
+        if (parameter is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                } definition,
+                TypeArguments.Length: > 0,
+            }
+            || definition.Name != $"Func`{parameter.TypeArguments.Length}"
+            || parameter.TypeArguments[^1] is not
+                {
+                    Kind: TypeRefKind.MethodGenericParameter,
+                } output)
+        {
+            return false;
+        }
+        typeArgumentIndex = output.GenericParameterIndex;
+        return typeArgumentIndex >= 0;
+    }
+
+    static bool ContainsUnfixedMethodTypeParameter(
+        TypeRef type,
+        bool[] receiverInferred)
+    {
+        if (type.Kind == TypeRefKind.MethodGenericParameter)
+        {
+            int index = type.GenericParameterIndex;
+            return (uint)index >= (uint)receiverInferred.Length
+                || !receiverInferred[index];
+        }
+
+        return type.ElementType is { } element
+                && ContainsUnfixedMethodTypeParameter(element, receiverInferred)
+            || type.TypeArguments.Any(argument =>
+                ContainsUnfixedMethodTypeParameter(
+                    argument,
+                    receiverInferred));
     }
 
     static bool CollectMethodTypeParameters(TypeRef type, bool[] inferred)

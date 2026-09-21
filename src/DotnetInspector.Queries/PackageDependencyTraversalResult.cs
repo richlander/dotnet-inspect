@@ -89,6 +89,12 @@ public enum PackageDependencyTraversalEdgeEmissionAuthority
     /// <summary>Produced by recursive source authorization that issued an exact candidate.</summary>
     ResolvedCandidate,
 
+    /// <summary>
+    /// Produced by an exact declaration matching a supplied root whose owner
+    /// authorized exact-coordinate recurrence.
+    /// </summary>
+    SuppliedRoot,
+
     /// <summary>Produced by recursive source authorization when #5765 issued no exact candidate.</summary>
     FailedResolution,
 
@@ -250,9 +256,11 @@ public sealed record PackageDependencyTraversalSummary(
 
 /// <summary>
 /// The immutable, depth-bounded directed graph produced by one package dependency
-/// traversal operation: root-relative reachability, typed failures, and completion.
+/// traversal operation: its governing target, root-relative reachability, typed
+/// failures, and completion.
 /// </summary>
 public sealed record PackageDependencyTraversalOutcome(
+    TraversalTargetFrameworkPolicy TraversalTargetPolicy,
     ImmutableArray<PackageDependencyTraversalRootResult> Roots,
     ImmutableArray<PackageDependencyTraversalReachability> RootReachability,
     ImmutableArray<PackageDependencyTraversalNode> Nodes,

@@ -1,5 +1,5 @@
-using DotnetInspector.PortableQueries;
-using DotnetInspector.QueryOperations;
+using QuerySpace;
+using QuerySpace.Operations;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Queries.Tests;

@@ -6,6 +6,64 @@ namespace ILInspector.CSharp.Tests;
 
 public sealed partial class CSharpTypePrinterTests
 {
+    [Theory]
+    [InlineData(CSharpAccessorBodyKind.Auto)]
+    [InlineData(CSharpAccessorBodyKind.Block)]
+    [InlineData(CSharpAccessorBodyKind.Expression)]
+    public void PropertyInitializerPreservesPrimaryParameterAndTargetBody(CSharpAccessorBodyKind kind)
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Counter");
+        type.Kind = "struct";
+        type.Members.Add(property);
+        var body = new CSharpPropertyBody(
+            kind switch
+            {
+                CSharpAccessorBodyKind.Auto => CSharpAccessorBody.Auto,
+                CSharpAccessorBodyKind.Expression =>
+                    CSharpAccessorBody.Expression("field + 1") with { IsReplacementTarget = true },
+                _ => CSharpAccessorBody.Block("return field + 1;") with { IsReplacementTarget = true },
+            },
+            null)
+        {
+            Initializer = "@event",
+        };
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [new CSharpMemberPolicy(property, CSharpBodyPolicy.Full, body)],
+            primaryConstructorParameters: [new ApiParameter { Type = "int", Name = "event" }]));
+
+        Assert.Contains("struct Counter(int @event)", result.Source);
+        Assert.Contains("} = @event;", result.Source);
+        if (kind == CSharpAccessorBodyKind.Auto)
+            Assert.Contains("Value { get; } = @event;", result.Source);
+        else
+        {
+            var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
+            if (kind == CSharpAccessorBodyKind.Expression)
+            {
+                Assert.Contains("Value\n    {\n        get => field + 1;\n    } = @event;", result.Source);
+                Assert.Equal("=> field + 1;", result.Source.Substring(range.Start, range.Length));
+            }
+            string replacement = result.SourceArtifact.ReplaceBody("return field + 2;");
+            Assert.Contains("return field + 2;", replacement);
+            Assert.DoesNotContain("return field + 1;", replacement);
+            Assert.Contains("struct Counter(int @event)", replacement);
+            Assert.Contains("} = @event;", replacement);
+            Assert.StartsWith(result.Source[..range.Start], replacement);
+            Assert.EndsWith(result.Source[range.End..], replacement);
+        }
+    }
 
     [Theory]
     [InlineData(CSharpBodyPolicy.Full)]

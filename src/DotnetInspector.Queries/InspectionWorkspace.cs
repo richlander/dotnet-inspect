@@ -1112,14 +1112,23 @@ public sealed class InspectionWorkspaceCloseReport
 {
     internal InspectionWorkspaceCloseReport(
         ImmutableArray<InspectionWorkspaceGroupCloseResult> groups,
+        ImmutableArray<WorkspaceLibraryAdmissionCloseResult>
+            libraryAdmissions,
         ImmutableArray<Exception> artifactSessionCleanupFailures)
     {
         Groups = groups;
+        LibraryAdmissions = libraryAdmissions;
         ArtifactSessionCleanupFailures =
             artifactSessionCleanupFailures;
     }
 
     public ImmutableArray<InspectionWorkspaceGroupCloseResult> Groups
+    {
+        get;
+    }
+
+    public ImmutableArray<WorkspaceLibraryAdmissionCloseResult>
+        LibraryAdmissions
     {
         get;
     }
@@ -1135,6 +1144,7 @@ public sealed class InspectionWorkspaceCloseReport
 
     public bool Succeeded =>
         ArtifactSessionCleanupFailures.IsEmpty
+        && LibraryAdmissions.All(admission => admission.Succeeded)
         && Groups.All(group => group.Succeeded);
 }
 
@@ -1387,6 +1397,14 @@ public sealed partial class InspectionWorkspace :
                 throw new InvalidOperationException(
                     "The artifact session is already registered with this workspace.");
             }
+            if (_libraryAdmissions.Any(registration =>
+                    ReferenceEquals(
+                        registration.ArtifactSession,
+                        session)))
+            {
+                throw new InvalidOperationException(
+                    "The artifact session is already owned by a Workspace Library admission.");
+            }
 
             _artifactSessions.Add(
                 new WorkspaceArtifactSessionRegistration(
@@ -1415,6 +1433,7 @@ public sealed partial class InspectionWorkspace :
                 plan = new WorkspaceClosePlan(
                     admissions,
                     [.. _artifactSessions],
+                    [.. _libraryAdmissions],
                     _declarationLocator,
                     DetachPackageDeclarationLeases());
                 _state = InspectionWorkspaceState.Closing;
@@ -1558,6 +1577,13 @@ public sealed partial class InspectionWorkspace :
         Task<Exception?> locatorClose = plan.DeclarationLocator?.CloseAsync()
             ?? Task.FromResult<Exception?>(null);
         Task<ImmutableArray<Exception>> rootClose = CloseArtifactRootsAsync();
+        Task<WorkspaceLibraryAdmissionCloseResult>[]
+            libraryAdmissionCloseTasks =
+            [
+                .. plan.LibraryAdmissions.Select(
+                    static registration =>
+                        registration.ReleaseAsync()),
+            ];
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
                 plan.GroupAdmissions.Length];
@@ -1621,6 +1647,10 @@ public sealed partial class InspectionWorkspace :
             artifactCleanupFailures.AddRange(
                 await registration.ReleaseAsync().ConfigureAwait(false));
         }
+        WorkspaceLibraryAdmissionCloseResult[]
+            libraryAdmissionResults =
+                await Task.WhenAll(libraryAdmissionCloseTasks)
+                    .ConfigureAwait(false);
         var reportGroups =
             ImmutableArray.CreateBuilder<
                 InspectionWorkspaceGroupCloseResult>();
@@ -1638,6 +1668,7 @@ public sealed partial class InspectionWorkspace :
         }
         var report = new InspectionWorkspaceCloseReport(
             reportGroups.ToImmutable(),
+            [.. libraryAdmissionResults],
             artifactCleanupFailures.ToImmutable());
         lock (_gate)
         {
@@ -1723,6 +1754,8 @@ public sealed partial class InspectionWorkspace :
         ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
         ImmutableArray<WorkspaceArtifactSessionRegistration>
             ArtifactSessions,
+        ImmutableArray<WorkspaceLibraryAdmissionRegistration>
+            LibraryAdmissions,
         WorkspaceDeclarationLocator? DeclarationLocator,
         ImmutableArray<ArtifactRootQueryLease>
             PackageDeclarationLeases);

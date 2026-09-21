@@ -89,7 +89,8 @@ public enum CSharpAccessorBodyKind
 {
     Auto,
     Throw,
-    Block
+    Block,
+    Expression
 }
 
 public sealed record CSharpAccessorBody(CSharpAccessorBodyKind Kind, string? Source = null)
@@ -101,8 +102,11 @@ public sealed record CSharpAccessorBody(CSharpAccessorBodyKind Kind, string? Sou
     public static CSharpAccessorBody Block(string source)
         => new(CSharpAccessorBodyKind.Block, source);
 
+    public static CSharpAccessorBody Expression(string source)
+        => new(CSharpAccessorBodyKind.Expression, source);
+
     /// <summary>
-    /// Selects this exact rendered accessor block as the compilation unit's
+    /// Selects this exact rendered accessor body clause as the compilation unit's
     /// replaceable body. A print batch may select at most one body.
     /// </summary>
     public bool IsReplacementTarget { get; init; }
@@ -110,7 +114,10 @@ public sealed record CSharpAccessorBody(CSharpAccessorBodyKind Kind, string? Sou
 
 public sealed record CSharpPropertyBody(
     CSharpAccessorBody? Getter,
-    CSharpAccessorBody? Setter) : CSharpMemberBody;
+    CSharpAccessorBody? Setter) : CSharpMemberBody
+{
+    public string? Initializer { get; init; }
+}
 
 public sealed record CSharpEventBody(
     CSharpAccessorBody Adder,
@@ -243,14 +250,15 @@ public sealed class CSharpTypePrintRequest
             return;
         if (!Enum.IsDefined(accessor.Kind))
             throw new ArgumentOutOfRangeException(parameterName, accessor.Kind, "Accessor body kind must be defined.");
-        if (accessor.Kind == CSharpAccessorBodyKind.Block && accessor.Source is null)
-            throw new ArgumentException("Block accessor source cannot be null.", parameterName);
-        if (accessor.Kind != CSharpAccessorBodyKind.Block && accessor.Source is not null)
-            throw new ArgumentException("Only block accessors can carry source.", parameterName);
-        if (accessor.IsReplacementTarget && accessor.Kind != CSharpAccessorBodyKind.Block)
+        bool hasSource = accessor.Kind is CSharpAccessorBodyKind.Block or CSharpAccessorBodyKind.Expression;
+        if (hasSource && accessor.Source is null)
+            throw new ArgumentException("Block or expression accessor source cannot be null.", parameterName);
+        if (!hasSource && accessor.Source is not null)
+            throw new ArgumentException("Only block or expression accessors can carry source.", parameterName);
+        if (accessor.IsReplacementTarget && !hasSource)
         {
             throw new ArgumentException(
-                "Only block accessors can be selected as replacement targets.",
+                "Only block or expression accessors can be selected as replacement targets.",
                 parameterName);
         }
     }

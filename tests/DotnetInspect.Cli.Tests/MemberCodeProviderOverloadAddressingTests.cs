@@ -3,6 +3,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using ILInspector.Decompiler;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
@@ -52,6 +55,103 @@ public class MemberCodeProviderOverloadAddressingTests
         Assert.True(
             code.Attributes is null || code.Attributes.All(a => a.Name != "EditorBrowsable"),
             "EditorBrowsable must not be misattributed onto the surviving overload.");
+    }
+
+    [Fact]
+    public void
+        NonAvailableSharedAttempt_DoesNotPublishAggregateMemberTextAsBody()
+    {
+        string assemblyPath =
+            typeof(MemberOverloadDriftSpecimen)
+                .Assembly.Location;
+        using var pe =
+            new PEReader(
+                File.OpenRead(assemblyPath));
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(
+                pe,
+                includeAll: false);
+        ApiType type = surface.Types.Single(
+            candidate =>
+                candidate.FullName
+                == typeof(MemberOverloadDriftSpecimen)
+                    .FullName);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Name == "Describe");
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "non-available shared attempt"));
+        AssemblyMemberSourceRequest sourceRequest =
+            AssemblyMemberSourceRequest.From(
+                type,
+                member);
+        var diagnostic =
+            new DecompilerDiagnostic(
+                DiagnosticIds.ServiceInputFailure,
+                "synthetic aggregate failure");
+        var attempt =
+            new CSharpDecompilationAttempt(
+                CSharpDecompilationStatus.Incomplete,
+                new DecompilerResult(
+                    "public string Describe(string value) => value;",
+                    DecompilationFidelity.Partial,
+                    [diagnostic]),
+                [],
+                [],
+                PdbSupplied: false,
+                DecompilerSymbolSource.None,
+                BodyProjectionsAttempted: 1);
+        var inspection =
+            new InspectionEnvelope<
+                AssemblyMemberDecompilationEntry>(
+                new AssemblyMemberDecompilationEntry
+                    .Settled(
+                        new AssemblyContextSubject(
+                            assembly),
+                        sourceRequest,
+                        attempt,
+                        HouseOutcome: null!),
+                new InspectionShare.NonProjectable(
+                    "test/member-decompilation",
+                    "Synthetic non-available boundary."));
+        var request =
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false);
+
+        var (_, code) = Assert.Single(
+            MemberCodeProvider.Collect(
+                type,
+                [member],
+                assemblyPath,
+                overloadIndex: 0,
+                request,
+                decompilationInspection:
+                    inspection));
+
+        Assert.NotNull(code.DecompiledResult);
+        Assert.Null(code.DecompiledResult.Output);
+        Assert.Equal(
+            DecompilationFidelity.Partial,
+            code.DecompiledResult.Fidelity);
+        Assert.Contains(
+            diagnostic,
+            code.DecompiledResult.Diagnostics);
+        Assert.Equal(
+            DecompilerSymbolSource.None,
+            code.DecompiledResult.Trace?.Symbols);
     }
 }
 

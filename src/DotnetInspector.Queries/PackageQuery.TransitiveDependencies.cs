@@ -41,23 +41,19 @@ public static partial class PackageQuery
             plan.DependencyTarget.RequestedTargetFramework
             ?? throw new InvalidOperationException(
                 "Transitive dependency traversal requires an exact target framework.");
+        var traversalTargetPolicy =
+            new TraversalTargetFrameworkPolicy(requestedFramework);
         int maximumDepth = plan.DependencyDepth
             ?? throw new InvalidOperationException(
                 "Transitive dependency traversal requires a maximum depth.");
-        if (!PackageDependencyTraversalFrameworkMode.TryCreateExact(
-                requestedFramework,
-                out PackageDependencyTraversalFrameworkMode.Exact frameworkMode))
-        {
-            throw new InvalidOperationException(
-                "The planned dependency target is not a canonical target framework.");
-        }
 
         PackageDependencyEvidenceInput.Package input =
             PackageDependencyEvidenceQuery.CreatePackageInput(
                 package.RequiredManifest,
                 PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
                 requestedFramework,
-                source: package.Source);
+                source: package.Source,
+                allowCompatibleFallbackForRequestedTfm: true);
         PackageDependencyEvidenceOutcome evidence =
             PackageDependencyEvidenceQuery.Execute(
                 new PackageDependencyEvidenceRequest([input]));
@@ -91,7 +87,7 @@ public static partial class PackageQuery
                             PackageDependencyTraversalExpansionAuthority
                                 .RecursiveSources),
                     ],
-                    frameworkMode,
+                    traversalTargetPolicy,
                     services.CandidateResolver,
                     services.ManifestAcquirer,
                     new PackageDependencyTraversalWorkBudget(
