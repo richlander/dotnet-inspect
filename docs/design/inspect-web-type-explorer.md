@@ -11,7 +11,8 @@ Its normative claim is:
 > complete product-issued logical Type document primary, offers reversible
 > structural views immediately, and adds at most one explicitly selected
 > asynchronous insight lens without delaying or destabilizing the source.
-> Exact member drill-down uses the existing member Annotated Source viewer.
+> After its owner adopts an external opener, exact member drill-down uses the
+> existing member Annotated Source viewer.
 
 This owner receives one cohesive responsibility from
 [Inspect Web Surface Composition](inspect-web-surface-composition.md): the
@@ -107,7 +108,8 @@ It does not own:
   classification;
 - operation identity, cancellation, stale-result suppression, event ordering,
   or quiescence;
-- Annotated Source document construction or viewer-local interaction;
+- Annotated Source document construction, external-opener adoption, or
+  viewer-local interaction;
 - Decompiler style settings; or
 - a CLI Type Explorer or a shared interactive-rendering framework.
 
@@ -133,8 +135,11 @@ Type Explorer consumes, without redefining:
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md);
 - canonical route, history, effect authority, and destination focus from
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md); and
-- member document, selection, modal, and dismissal behavior from
-  [Annotated Source viewer interaction](annotated-source-viewer-interaction.md).
+- a future focused adoption by
+  [Annotated Source viewer interaction](annotated-source-viewer-interaction.md)
+  that defines an external exact-member opener and caller-owned dismissal
+  focus target. The current owner supports only its embedded reader as the
+  modal opener.
 
 The current Type Source `BrowserSource` text is not sufficient authority for
 structural projection. Browser code must not parse rendered C# to recover
@@ -183,9 +188,10 @@ Type Source -> Type Explorer -> member Annotated Source
 - Browser Back returns to the originating Type Source state.
 - Refresh restores the exact Type Explorer route or presents a visible typed
   restoration failure.
-- Opening member Annotated Source uses the existing modal above Type Explorer.
-- Dismissing Annotated Source returns focus to the exact member opener in the
-  preserved Type Explorer.
+- After the Annotated Source owner adds its external-opener capability, opening
+  a member uses its existing modal above Type Explorer.
+- Dismissing that modal uses the owner-issued external dismissal effect to
+  return focus to the exact member opener in the preserved Type Explorer.
 - Type Explorer does not change the active Type subject or current Type lens
   merely to render its routed surface.
 
@@ -324,12 +330,13 @@ identity. It:
 - enables **Selected body** when the member has a body;
 - scopes member-local evidence details;
 - provides a stable Annotated Source opener when that member supports the
-  existing viewer; and
+  existing viewer and its external-opener capability is available; and
 - does not itself navigate.
 
-Opening Annotated Source submits the exact owner-issued member/body destination.
-The action is absent or visibly unavailable when no exact body destination
-exists. Type Explorer never chooses the first overload, first body, or a
+Opening Annotated Source submits the exact owner-issued member/body destination
+through the separately adopted external-opener contract. The action is absent
+or visibly unavailable when that capability or an exact body destination is
+unavailable. Type Explorer never chooses the first overload, first body, or a
 display-name match as a fallback.
 
 The Annotated Source modal owns mixed IL/C#, Findings, coordinates,
@@ -554,6 +561,8 @@ Implementation must demonstrate:
    unqualified `0 references`.
 9. High-contrast and keyboard-only use retains every fact communicated by
    color or pointer interaction.
+10. Opening Annotated Source from Type Explorer and dismissing it restores the
+    exact Type Explorer member opener without requiring an embedded reader.
 
 ## Production adoption
 
@@ -564,12 +573,14 @@ ordered plan:
 2. Define the separately owned complete structured-Type document.
 3. Add Type Explorer to Shell Interaction's routed-surface classification.
 4. Add Navigation Consumer entry, return, restoration, and focus effects.
-5. Adopt the static Type Explorer in Inspect Web and replace #7005's Settings
+5. Add a focused Annotated Source adoption that defines an external exact-member
+   opener and caller-owned dismissal focus target.
+6. Adopt the static Type Explorer in Inspect Web and replace #7005's Settings
    destination. This is the first production-consumer slice.
-6. Define and adopt one references/callers insight.
-7. Add later insights one owner at a time.
+7. Define and adopt one references/callers insight.
+8. Add later insights one owner at a time.
 
-The design does not claim that stages 2 through 7 are implemented. Each stage
+The design does not claim that stages 2 through 8 are implemented. Each stage
 must name its owner, exact claim, real asset, pathological case, and gates.
 If stage 2 introduces a shared host-neutral artifact, its own plan includes
 both CLI and Browser consumers; this Browser design does not waive that rule.
@@ -583,6 +594,7 @@ The following gates are required as the corresponding stages land:
 | Structured-document owner tests | Exact Type and Member identity, complete logical-Type scope, validated spans and classifications, partial-authored rejection, and visible failure. |
 | Pure Type Explorer projection tests | Every structural pivot composes without changing identity or source order; bodyless and unclassified declarations remain truthful. |
 | Operation Authority adoption tests | Current progress and durable rows publish in order; replacement, cancellation, disposal, and stale events cannot mutate the active Type or insight. |
+| Annotated Source external-opener tests | An exact caller-issued member/body destination opens the existing modal, and ordinary dismissal restores the caller-issued stable opener without requiring an embedded reader. |
 | Production Browser Type Explorer test | The real `System.Text.Json` Type Source route opens Type Explorer, preserves structural controls, returns through history, and never opens Settings as the Explore destination. |
 | Production Browser async test | Initial document renders before analysis settles; member evidence fills reserved slots without focus, scroll, or member-order changes; failure remains visible. |
 | Production Browser member drill-down test | One exact supported member opens Annotated Source and dismissal restores Type Explorer selection, scroll, and focus. |
@@ -601,6 +613,7 @@ This design does not claim:
 - whole-Type Finding annotation;
 - Browser-side C# parsing or semantic reconstruction;
 - a change to Member Source Explore behavior;
+- Annotated Source external-opener support before its owner adopts it;
 - authored and decompiled source equivalence;
 - complete partial-Type authored source from one document;
 - inherited-member source injection;
