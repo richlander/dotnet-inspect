@@ -24,14 +24,8 @@ internal static class LibraryCallUseRowSelectionAdoption
             return true;
         }
 
-        return options.ParseSelect(parseResult)?
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray() is [var section]
-            && (section.Equals(
-                    LibraryCallUseSections.CallSites,
-                    StringComparison.OrdinalIgnoreCase)
-                || section.Equals(
-                    LibraryCallUseSections.DirectUseClusters,
-                    StringComparison.OrdinalIgnoreCase));
+        return LibraryCallUseSections.TryGetSemanticRows(
+            options.ParseSelect(parseResult),
+            out _);
     }
 }
