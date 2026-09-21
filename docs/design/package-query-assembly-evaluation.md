@@ -977,14 +977,13 @@ rows through its existing Sections and Markout path. Inspect Web lowers the
 same typed evidence through its host-specific Package Query renderer. Neither
 host parses a formatted evidence string to recover identity or semantics.
 
-For `package query --library-literal`, unprojected CLI `--json` serializes the
-complete `PackageAssemblySemanticQueryDocument`. `--envelope` emits the same
-Content inside the authoritative service value with result kind
-`package-assembly-semantic-query`. Candidate and semantic-query controls remain
-service inputs; row selection, Count, projection, discovery, section selection,
-and competing formats remain host shaping and are rejected with envelope
-output. Typed incomplete and failed Documents remain visible before a nonzero
-exit.
+For `package query --where "library-literal=TEXT" --tfm TFM`, unprojected CLI
+`--json` serializes the complete `PackageQueryDocument`. `--envelope` emits the
+same Content inside the authoritative service value with result kind
+`package-query`. Candidate and semantic-query controls remain service inputs;
+row selection, Count, projection, discovery, section selection, and competing
+formats remain host shaping and are rejected with envelope output. Typed
+incomplete and failed Documents remain visible before a nonzero exit.
 
 This is not a new broad information domain: the row grain remains one package
 candidate and the pattern producer supplies its existing typed evidence.

@@ -128,7 +128,7 @@ public static class SearchCommandDefinitions
                 CommandError.Write(
                     "'find --literal' is no longer valid because Find returns "
                     + "Type results. Use 'package query <ID-or-prefix*> "
-                    + "--library-literal TEXT --tfm TFM'. Package Query selects "
+                    + "--where \"library-literal=TEXT\" --tfm TFM'. Package Query selects "
                     + "the latest eligible listed version for an exact ID, so "
                     + "this is not an equivalent replacement for an older "
                     + "ID@VERSION query.");

@@ -41,7 +41,6 @@ type PackageOperations =
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion"
   | "runPackageActivity"
-  | "runPackageAssemblySemanticQuery"
   | "runPackageQuery"
   | "searchTypes";
 

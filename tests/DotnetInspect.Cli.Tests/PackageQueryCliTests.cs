@@ -378,26 +378,48 @@ public class PackageQueryCliTests
         Assert.True(
             PackageQueryOptions.TryCreate(
                 "Newtonsoft.Json",
-                [],
+                ["library-literal=Unexpected end when reading JSON"],
                 nuspecOnly: false,
                 take: null,
                 rowSelection: null,
                 includePrerelease: false,
-                libraryLiteral: "Unexpected end when reading JSON",
                 targetFramework: "net6.0",
                 out PackageQueryOptions? options,
                 out OptionError error),
             error.ToString());
 
-        PackageAssemblySemanticQueryCliPlan semantic =
-            Assert.IsType<PackageAssemblySemanticQueryCliPlan>(
-                options!.LibraryLiteralPlan);
-        Assert.IsType<
-            PackageAssemblySemanticQueryPopulationPlan.Exact>(
-                semantic.Population);
+        Assert.True(options!.Plan.RequiresLibraryLiteralEvaluation);
+        Assert.Equal(
+            "Unexpected end when reading JSON",
+            options.Plan.LibraryLiteral);
+        Assert.Equal("net6.0", options.Plan.LibraryTargetFramework);
+        Assert.Contains(
+            options.Plan.Terms,
+            term => term.Key == PackageQuery.LibraryTargetTermKey
+                && term.Value == "net6.0");
         Assert.Null(options.Plan.MaximumMatches);
         Assert.Equal(1, options.Plan.MaximumCandidates);
         Assert.False(options.SemanticHeadPushedDown);
+    }
+
+    [Fact]
+    public void LibraryLiteral_PreservesExactMultilineOperand()
+    {
+        const string literal = " \r\nmarker\\suffix ";
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Newtonsoft.Json",
+                [$"library-literal={literal}"],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                targetFramework: "net6.0",
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        Assert.Equal(literal, options!.Plan.LibraryLiteral);
     }
 
     [Fact]
@@ -409,8 +431,8 @@ public class PackageQueryCliTests
             "package",
             "query",
             "Newtonsoft.Json",
-            "--library-literal",
-            "marker",
+            "--where",
+            "library-literal=marker",
             "--tfm",
             "net6.0",
         ];
@@ -430,70 +452,77 @@ public class PackageQueryCliTests
         Assert.True(
             PackageQueryOptions.TryCreate(
                 input,
-                [],
+                ["library-literal=marker"],
                 nuspecOnly: false,
                 take,
                 rowSelection: Head(1),
                 includePrerelease: false,
-                libraryLiteral: "marker",
                 targetFramework: "net10.0",
                 out PackageQueryOptions? options,
                 out OptionError error),
             error.ToString());
 
-        var prefix = Assert.IsType<
-            PackageAssemblySemanticQueryPopulationPlan.Prefix>(
-                options!.LibraryLiteralPlan!.Population);
-        Assert.Equal(expectedCandidates, prefix.MaximumCandidates);
-        Assert.Null(options.Plan.MaximumMatches);
-        Assert.False(options.SemanticHeadPushedDown);
+        Assert.Equal(expectedCandidates, options!.Plan.MaximumCandidates);
+        Assert.True(options.Plan.RequiresLibraryLiteralEvaluation);
+        Assert.Equal(take is null ? 1 : null, options.Plan.MaximumMatches);
+        Assert.Equal(take is null, options.SemanticHeadPushedDown);
     }
 
     [Fact]
-    public void LibraryLiteral_ExactPackageRejectsMultipleCandidates()
+    public void LibraryLiteral_ExactPackageUsesOneCandidate()
     {
-        Assert.False(
+        Assert.True(
             PackageQueryOptions.TryCreate(
                 "Newtonsoft.Json",
-                [],
+                ["library-literal=marker"],
                 nuspecOnly: false,
                 take: 2,
                 rowSelection: null,
                 includePrerelease: false,
-                libraryLiteral: "marker",
                 targetFramework: "net6.0",
-                out _,
-                out OptionError error));
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
 
-        Assert.Contains(
-            "admits one candidate",
-            error.ToString(),
-            StringComparison.Ordinal);
+        Assert.Equal(1, options!.Plan.MaximumCandidates);
     }
 
     [Theory]
-    [InlineData(true, false, null, "requires package and assembly content")]
-    [InlineData(false, true, null, "cannot yet be combined with --where")]
-    [InlineData(false, false, null, "requires an explicit --tfm")]
-    [InlineData(false, false, "net10.0", "--take must be between 1 and 5")]
+    [InlineData(true, null, null, null, "require package archive content")]
+    [InlineData(false, null, null, null, "requires one exact target framework")]
+    [InlineData(false, "depends=Dependency.One", "net10.0", null, "")]
+    [InlineData(false, null, "net10.0", 6, "metadata-expensive terms admit at most 5")]
     public void LibraryLiteral_RejectsIncompatiblePlanning(
         bool nuspecOnly,
-        bool where,
+        string? additionalTerm,
         string? targetFramework,
+        int? take,
         string expected)
     {
-        Assert.False(
-            PackageQueryOptions.TryCreate(
-                "Contoso.*",
-                where ? ["depends=Dependency.One"] : [],
-                nuspecOnly,
-                take: targetFramework is null ? null : 6,
-                rowSelection: null,
-                includePrerelease: false,
-                libraryLiteral: "marker",
-                targetFramework,
-                out _,
-                out OptionError error));
+        string[] terms = additionalTerm is null
+            ? ["library-literal=marker"]
+            : ["library-literal=marker", additionalTerm];
+        bool accepted = PackageQueryOptions.TryCreate(
+            "Contoso.*",
+            terms,
+            nuspecOnly,
+            take,
+            rowSelection: null,
+            includePrerelease: false,
+            targetFramework,
+            out PackageQueryOptions? options,
+            out OptionError error);
+        if (additionalTerm is not null)
+        {
+            Assert.True(accepted, error.ToString());
+            Assert.NotNull(options);
+            Assert.Contains(
+                options.Plan.Terms,
+                term => term.Key == PackageQuery.DependsTermKey);
+            return;
+        }
+
+        Assert.False(accepted);
         Assert.Contains(expected, error.ToString());
     }
 
@@ -517,6 +546,7 @@ public class PackageQueryCliTests
     [InlineData(
         "dependency-target=net8.0",
         "requires a depends")]
+    [InlineData("library-literal=", "Missing value")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
@@ -1131,7 +1161,9 @@ public class PackageQueryCliTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("'find --literal' is no longer valid", result.Error);
-        Assert.Contains("--library-literal", result.Error);
+        Assert.Contains(
+            "library-literal=TEXT",
+            result.Error);
         Assert.Contains("not an equivalent replacement", result.Error);
     }
 
@@ -1757,8 +1789,8 @@ public class PackageQueryCliTests
             "package",
             "query",
             "Newtonsoft.Json",
-            "--library-literal",
-            "Unexpected end when reading JSON",
+            "--where",
+            "library-literal=Unexpected end when reading JSON",
             "--tfm",
             "net6.0",
         ];

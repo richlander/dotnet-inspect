@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
-using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PortableQueries;
@@ -15,7 +14,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
     public const int MaximumCandidates = 1_000;
 
     public required PackageQueryPlan Plan { get; init; }
-    internal PackageAssemblySemanticQueryCliPlan? LibraryLiteralPlan { get; init; }
     public bool SemanticHeadPushedDown { get; init; }
     public RowSelectionIntent<string> RowSelection => Plan.RowSelection;
     public bool Count { get; init; }
@@ -77,6 +75,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
         + "Selecting a nuspec-expensive term evaluates at most "
         + PackageQuery.MaximumNuspecExpensiveCandidates
         + " candidates. "
+        + "Selecting a metadata-expensive term evaluates at most "
+        + PackageQuery.MaximumMetadataExpensiveCandidates
+        + " candidates and requires --tfm. "
         + "Selecting a package-content term authorizes at most "
         + PackageQuery.MaximumPackageContentCandidates
         + " candidates; --nuspec-only rejects those terms. "
@@ -98,7 +99,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
             take,
             rowSelection,
             includePrerelease,
-            libraryLiteral: null,
             targetFramework: null,
             out options,
             out error);
@@ -110,80 +110,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
         int? take,
         RowSelectionIntent<string>? rowSelection,
         bool includePrerelease,
-        string? libraryLiteral,
         string? targetFramework,
         out PackageQueryOptions? options,
         out OptionError error)
     {
         options = null;
-        if (libraryLiteral is not null)
-        {
-            if (expressions.Count > 0)
-            {
-                error =
-                    "--library-literal cannot yet be combined with --where; "
-                    + "run the package filters and library-literal query separately.";
-                return false;
-            }
-            if (nuspecOnly)
-            {
-                error =
-                    "--library-literal requires package and assembly content "
-                    + "and cannot be combined with --nuspec-only.";
-                return false;
-            }
-            if (string.IsNullOrWhiteSpace(targetFramework))
-            {
-                error =
-                    "--library-literal requires an explicit --tfm "
-                    + "(for example --tfm net10.0).";
-                return false;
-            }
-
-            try
-            {
-                PackageAssemblySemanticQueryCliPlan semanticPlan =
-                    PackageAssemblySemanticQueryCliPlan.Create(
-                        input,
-                        libraryLiteral,
-                        targetFramework,
-                        take,
-                        includePrerelease);
-                int semanticMaximumCandidates =
-                    semanticPlan.Population
-                        is PackageAssemblySemanticQueryPopulationPlan.Prefix
-                            prefix
-                        ? prefix.MaximumCandidates
-                        : 1;
-                PackageQueryPlanResult packagePlan = PackageQuery.PlanInput(
-                    input,
-                    terms: null,
-                    maximumCandidates: semanticMaximumCandidates,
-                    maximumMatches: null,
-                    includePrerelease: includePrerelease,
-                    rowSelection: rowSelection);
-                if (packagePlan
-                    is PackageQueryPlanResult.Rejected semanticRejected)
-                {
-                    error = semanticRejected.Failure.Message;
-                    return false;
-                }
-
-                options = new PackageQueryOptions
-                {
-                    Plan = ((PackageQueryPlanResult.Accepted)packagePlan).Plan,
-                    LibraryLiteralPlan = semanticPlan,
-                };
-                error = "";
-                return true;
-            }
-            catch (ArgumentException ex)
-            {
-                error = ex.Message;
-                return false;
-            }
-        }
-
         var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)
         {
@@ -212,7 +143,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 terms.Add(new PortableQueryTerm(
                     registeredTerm.Descriptor.Key,
                     PortableQueryOperator.Equal,
-                    syntax.Value));
+                    registeredTerm.Descriptor.ControlKind
+                        == PackageQueryTermControlKind.MultilineInput
+                            ? syntax.ExactValue
+                            : syntax.Value));
                 continue;
             }
 
@@ -232,6 +166,11 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 registered.Descriptor.Key == term.Key
                 && registered.Descriptor.ExecutionClass
                     == PackageQueryExecutionClass.NuspecExpensive));
+        bool requiresMetadataExpensive = terms.Any(term =>
+            CliTerms.Any(registered =>
+                registered.Descriptor.Key == term.Key
+                && registered.Descriptor.ExecutionClass
+                    == PackageQueryExecutionClass.MetadataExpensive));
         if (nuspecOnly && requiresPackageContent)
         {
             error =
@@ -246,7 +185,9 @@ public sealed record PackageQueryOptions : IProjectionOptions
         int? semanticHead = requestedHead is <= MaximumCandidates
             ? requestedHead
             : null;
-        int defaultMaximumCandidates = requiresNuspecExpensive
+        int defaultMaximumCandidates = requiresMetadataExpensive
+            ? PackageQuery.MaximumMetadataExpensiveCandidates
+            : requiresNuspecExpensive
             ? PackageQuery.MaximumNuspecExpensiveCandidates
             : requiresPackageContent
                 ? PackageQuery.MaximumPackageContentCandidates
@@ -270,7 +211,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
             maximumCandidates,
             maximumMatches: semanticHead,
             includePrerelease,
-            rowSelection);
+            rowSelection,
+            targetFramework);
         if (result is PackageQueryPlanResult.Rejected rejected)
         {
             error = rejected.Failure.Message;

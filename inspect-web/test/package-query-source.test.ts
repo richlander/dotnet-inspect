@@ -10,7 +10,6 @@ import {
   createPackageQueryController,
   createQueryRequest,
   initialQueryState,
-  withLibraryLiteralDraft,
   withPreset,
   withTerm,
   type QueryResultRow,
@@ -46,6 +45,8 @@ const completionEvent: BrowserPackageQueryEvent = {
     scope: null,
     occurrences: null,
     notEvaluated: null,
+    evaluatedCandidates: null,
+    semanticMatches: null,
     kind: "Exhausted",
   },
 };
@@ -60,6 +61,19 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   operators: ["eq"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
+  multiline: false,
+};
+const LIBRARY_LITERAL_TERM: QueryTermDescriptor = {
+  key: "library-literal",
+  label: "Library literal",
+  summary: "Matches decoded string-literal uses.",
+  weight: 650,
+  tier: "package-content",
+  executionClass: "metadata-expensive",
+  operators: ["eq"],
+  valueKind: "decoded UTF-16 text",
+  example: "Microsoft.Extensions.",
+  multiline: true,
 };
 function succeeded(
   value: BrowserPackageQueryEvent,
@@ -74,7 +88,7 @@ function succeeded(
         results: [],
         failures: [],
         completion: value.completion!,
-        assemblySemantic: null,
+        libraryLiteralAssessments: [],
       },
       share: {
         kind: "NonProjectable",
@@ -125,48 +139,22 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     selectedAsset,
     occurrences,
   };
-  const assemblySemantic = {
-    population: {
-      requestedCandidates: 1,
-      candidates: 1,
-      completion: "ExactPackageComplete" as const,
-      isRequestedPopulationComplete: true,
-      failures: [],
-    },
-    results: [semanticResult],
-    candidateOutcomes: [{
-      kind: "Matched" as const,
-      candidateOrdinal: 1,
-      packageId: "contoso.package",
-      version: "2.0.0",
-      producer: "nuget.org",
-      result: semanticResult,
-      selectedAsset,
-      rootRequest: "opaque-root",
-      notApplicableReason: null,
-      failureKind: null,
-      failureStage: null,
-      nonEvaluationKind: null,
-      timeoutKind: null,
-      timeoutSeconds: null,
-      message: null,
-    }],
-    candidateCount: 1,
-    evaluatedCandidateCount: 1,
-    notEvaluatedCount: 0,
-    matchedPackageCount: 1,
-    occurrenceCount: 2,
-    semanticMissCount: 0,
-    notApplicableCount: 0,
-    failureCount: 0,
-    completion: {
-      population: "ExactPackageComplete" as const,
-      isRequestedPopulationComplete: true,
-      allCandidatesHaveTerminalOutcomes: true,
-      hasFailures: false,
-      isSemanticEvaluationComplete: true,
-      isOperationDeadlineExpired: false,
-    },
+  const libraryLiteralAssessment = {
+    kind: "Matched" as const,
+    candidateOrdinal: 1,
+    packageId: "contoso.package",
+    version: "2.0.0",
+    producer: "nuget.org",
+    result: semanticResult,
+    selectedAsset,
+    rootRequest: "opaque-root",
+    notApplicableReason: null,
+    failureKind: null,
+    failureStage: null,
+    nonEvaluationKind: null,
+    timeoutKind: null,
+    timeoutSeconds: null,
+    message: null,
   };
   return {
     version: 3,
@@ -219,8 +207,10 @@ function semanticSucceeded(): BrowserPackageQueryResult {
           scope: "Selected primary implementation libraries only.",
           occurrences: 2,
           notEvaluated: 0,
+          evaluatedCandidates: 1,
+          semanticMatches: 1,
         },
-        assemblySemantic,
+        libraryLiteralAssessments: [libraryLiteralAssessment],
       },
       share: {
         kind: "NonProjectable",
@@ -242,12 +232,11 @@ function semanticAssessmentSucceeded(
   kind: "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated",
 ): BrowserPackageQueryResult {
   const base = semanticSucceeded();
-  if (base.inspection === null
-      || base.inspection.content.assemblySemantic === null) {
+  if (base.inspection === null) {
     throw new Error("Expected the semantic test inspection.");
   }
   const selectedAsset =
-    base.inspection.content.assemblySemantic.results[0]!.selectedAsset;
+    base.inspection.content.libraryLiteralAssessments[0]!.selectedAsset;
   const outcome: BrowserPackageAssemblySemanticCandidateOutcome = {
     kind,
     candidateOrdinal: 1,
@@ -313,41 +302,10 @@ function semanticAssessmentSucceeded(
           notApplicable,
           occurrences: 0,
           notEvaluated,
+          evaluatedCandidates: 1 - notEvaluated,
+          semanticMatches: 0,
         },
-        assemblySemantic: {
-          ...base.inspection.content.assemblySemantic,
-          population: {
-            ...base.inspection.content.assemblySemantic.population,
-            failures: hasOperationDeadline
-              ? [{
-                  candidateOrdinal: null,
-                  packageId: null,
-                  version: null,
-                  authority: "nuget.org",
-                  kind: "Timeout",
-                  message: "The package source operation deadline expired.",
-                  timeoutKind: "Operation",
-                  timeoutSeconds: 25,
-                }]
-              : [],
-          },
-          results: [],
-          candidateOutcomes: [outcome],
-          evaluatedCandidateCount: 1 - notEvaluated,
-          notEvaluatedCount: notEvaluated,
-          matchedPackageCount: 0,
-          occurrenceCount: 0,
-          semanticMissCount: semanticMisses,
-          notApplicableCount: notApplicable,
-          failureCount,
-          completion: {
-            ...base.inspection.content.assemblySemantic.completion,
-            hasFailures: failureCount > 0 || hasOperationDeadline,
-            isSemanticEvaluationComplete:
-              notEvaluated === 0 && failureCount === 0,
-            isOperationDeadlineExpired: hasOperationDeadline,
-          },
-        },
+        libraryLiteralAssessments: [outcome],
       },
     },
   };
@@ -448,14 +406,14 @@ test("Browser source dispatches exact and prefix package input with unchanged K"
       const engine: BrowserPackageQueryEngine = {
         ...defaultControls,
         async run(...args) {
-          assert.deepEqual(args.slice(0, 7), [
+          assert.deepEqual(args.slice(0, 8), [
             "package-query-operation",
             searchText,
             '[{"key":"readme","operator":"eq","value":"true"},{"key":"depends","operator":"eq","value":"Microsoft.Extensions.Hosting"}]',
-            200, matchLimit, true, 20,
+            null, 200, matchLimit, true, 20,
           ]);
-          assert.ok(typeof args[7] === "object" && args[7] !== null);
-          assert.equal(args.length, 8);
+          assert.ok(typeof args[8] === "object" && args[8] !== null);
+          assert.equal(args.length, 9);
           return succeeded(completionEvent);
         },
       };
@@ -467,27 +425,25 @@ test("Browser source dispatches exact and prefix package input with unchanged K"
   }
 });
 
-test("Browser source uses progress-only callbacks and terminal semantic Document truth", async () => {
+test("Browser source composes library-literal terms and uses terminal Document truth", async () => {
   const rows: QueryResultRow[][] = [];
   const failures: string[] = [];
   const progress: unknown[] = [];
   const assessments: unknown[] = [];
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
-    async run() {
-      assert.fail("Library-literal qualification must use its shared operation.");
-    },
-    async runAssemblySemantic(...args) {
-      assert.deepEqual(args.slice(0, 7), [
+    async run(...args) {
+      assert.deepEqual(args.slice(0, 8), [
         "package-query-operation",
         "Contoso.Package",
-        "shared-literal-use-marker",
+        '[{"key":"library-literal","operator":"eq","value":"shared-literal-use-marker"}]',
         "net10.0",
-        1,
+        5,
+        100,
         true,
         20,
       ]);
-      const eventSink: unknown = args[7];
+      const eventSink: unknown = args[8];
       if (typeof eventSink !== "object" || eventSink === null)
         throw new Error("Expected Package Query event sink.");
       Reflect.set(eventSink, "event", JSON.stringify({
@@ -502,14 +458,28 @@ test("Browser source uses progress-only callbacks and terminal semantic Document
         },
         assessment: null,
       }));
-      return semanticSucceeded();
+      const result = semanticSucceeded();
+      Reflect.set(eventSink, "event", JSON.stringify({
+        kind: "Match",
+        row: result.inspection!.content.results[0],
+        failure: null,
+        completion: null,
+        progress: null,
+        assessment: null,
+      }));
+      return result;
     },
   };
   const request = {
-    ...withLibraryLiteralDraft(
-      createQueryRequest("Contoso.Package"),
+    ...withTerm(
+      {
+        ...createQueryRequest("Contoso.Package"),
+        targetFramework: "net10.0",
+      },
+      LIBRARY_LITERAL_TERM,
+      "eq",
       "shared-literal-use-marker",
-      "net10.0"),
+    ),
     includePrerelease: true,
   };
 
@@ -565,38 +535,81 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
   ] as const) {
     const assessments: unknown[] = [];
     const failures: string[] = [];
+    const retainedAssessmentKinds: unknown[] = [];
     const engine: BrowserPackageQueryEngine = {
       ...defaultControls,
-      async run() {
-        assert.fail("Library-literal qualification must use its shared operation.");
-      },
-      async runAssemblySemantic() {
-        return semanticAssessmentSucceeded(kind);
+      async run(...args) {
+        const result = semanticAssessmentSucceeded(kind);
+        const eventSink = args[8];
+        assert.ok(typeof eventSink === "object" && eventSink !== null);
+        if (kind === "NoMatch" || kind === "NotApplicable") {
+          const candidate =
+            result.inspection!.content.libraryLiteralAssessments[0]!;
+          Reflect.set(eventSink, "event", JSON.stringify({
+            kind: "Assessment",
+            row: null,
+            failure: null,
+            completion: null,
+            progress: null,
+            assessment: {
+              packageId: candidate.packageId,
+              version: candidate.version,
+              disposition: candidate.kind,
+              message: candidate.message,
+              assetPath: candidate.selectedAsset?.path ?? null,
+              rootRequest: candidate.rootRequest,
+            },
+          }));
+        }
+        for (const failure of result.inspection!.content.failures) {
+          Reflect.set(eventSink, "event", JSON.stringify({
+            kind: "Failure",
+            row: null,
+            failure,
+            completion: null,
+            progress: null,
+            assessment: null,
+          }));
+        }
+        return result;
       },
     };
 
-    const completion = await createBrowserPackageQueryDataSource(engine).run(
-      withLibraryLiteralDraft(
+    const completion = await createBrowserPackageQueryDataSource(engine, {
+      onInspection: inspection => {
+        if (inspection !== null) {
+          retainedAssessmentKinds.push(
+            inspection.content.libraryLiteralAssessments[0]?.kind);
+        }
+      },
+    }).run(
+      withTerm(
         createQueryRequest("Contoso.Package"),
+        LIBRARY_LITERAL_TERM,
+        "eq",
         "shared-literal-use-marker",
-        "net10.0"),
+      ),
       () => {},
       failure => failures.push(failure),
       () => {},
       new AbortController().signal,
       assessment => assessments.push(assessment));
 
-    assert.deepEqual(assessments, [{
-      packageId: "contoso.package",
-      version: "2.0.0",
-      disposition: kind,
-      message: `${kind} candidate`,
-      assetPath:
-        kind === "NoMatch" || kind === "Failure"
-          ? "lib/net10.0/Contoso.Package.dll"
-          : null,
-      rootRequest: kind === "NotEvaluated" ? null : "opaque-root",
-    }]);
+    assert.deepEqual(
+      assessments,
+      kind === "NoMatch" || kind === "NotApplicable"
+        ? [{
+            packageId: "contoso.package",
+            version: "2.0.0",
+            disposition: kind,
+            message: `${kind} candidate`,
+            assetPath: kind === "NoMatch"
+              ? "lib/net10.0/Contoso.Package.dll"
+              : null,
+            rootRequest: "opaque-root",
+          }]
+        : []);
+    assert.deepEqual(retainedAssessmentKinds, [kind]);
     assert.equal(
       failures.length,
       kind === "Failure" || kind === "NotEvaluated" ? 1 : 0);
@@ -607,7 +620,9 @@ test("Browser source preserves typed semantic non-match, applicability, failure,
     assert.equal(
       completion.notApplicableCount,
       kind === "NotApplicable" ? 1 : 0);
-    assert.equal(completion.failureCount, kind === "Failure" ? 1 : 0);
+    assert.equal(
+      completion.failureCount,
+      kind === "Failure" || kind === "NotEvaluated" ? 1 : 0);
     assert.equal(
       completion.notEvaluatedCount,
       kind === "NotEvaluated" ? 1 : 0);
@@ -623,8 +638,8 @@ test("Browser source preserves the default stable-only selection", async () => {
       ...defaultControls,
       async run(...args) {
         assert.equal(args[1], searchText);
-        assert.equal(args[5], false);
-        assert.equal(args.length, 8);
+        assert.equal(args[6], false);
+        assert.equal(args.length, 9);
         return succeeded(completionEvent);
       },
     };
@@ -783,8 +798,8 @@ test("V3 metadata rows preserve unknown downloads and source-authored evidence",
       const engine: BrowserPackageQueryEngine = {
         ...defaultControls,
         async run(...args) {
-          assert.ok(typeof args[7] === "object" && args[7] !== null);
-          Reflect.set(args[7], "event", JSON.stringify(event));
+          assert.ok(typeof args[8] === "object" && args[8] !== null);
+          Reflect.set(args[8], "event", JSON.stringify(event));
           return succeeded(completionEvent);
         },
       };
@@ -799,6 +814,7 @@ test("V3 metadata rows preserve unknown downloads and source-authored evidence",
         totalDownloads,
         description: null,
         producer: "nuget.org",
+        rootRequest: "V3 rows must continue opening by ID and version.",
         answers: [],
         evidence: [{
           id: "package.query.scope.prefix",
@@ -820,8 +836,8 @@ test("V3 rows preserve structured product term attribution", async () => {
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
     async run(...args) {
-      assert.ok(typeof args[7] === "object" && args[7] !== null);
-      Reflect.set(args[7], "event", JSON.stringify({
+      assert.ok(typeof args[8] === "object" && args[8] !== null);
+      Reflect.set(args[8], "event", JSON.stringify({
         ...toolMatchEvent,
         row: {
           ...toolMatchEvent.row!,
@@ -872,8 +888,8 @@ test("V3 row descriptions are projected unchanged from the producer", async () =
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
     async run(...args) {
-      assert.ok(typeof args[7] === "object" && args[7] !== null);
-      Reflect.set(args[7], "event", JSON.stringify({
+      assert.ok(typeof args[8] === "object" && args[8] !== null);
+      Reflect.set(args[8], "event", JSON.stringify({
         ...toolMatchEvent,
         row: {
           ...toolMatchEvent.row!,
@@ -985,8 +1001,8 @@ test("streamed metadata admission rejects unknown tiers and malformed typed data
     const engine: BrowserPackageQueryEngine = {
       ...defaultControls,
       async run(...args) {
-        assert.ok(typeof args[7] === "object" && args[7] !== null);
-        Reflect.set(args[7], "event", JSON.stringify({ ...toolMatchEvent, row }));
+        assert.ok(typeof args[8] === "object" && args[8] !== null);
+        Reflect.set(args[8], "event", JSON.stringify({ ...toolMatchEvent, row }));
         return succeeded(completionEvent);
       },
     };
@@ -1110,6 +1126,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       operators: ["eq"],
       valueKind: "assembly simple name",
       example: "Windows",
+      multiline: false,
     }],
   };
 
@@ -1174,6 +1191,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
     operators: ["eq"],
     valueKind: "assembly simple name",
     example: "Windows",
+    multiline: false,
   }]);
 });
 
@@ -1200,6 +1218,7 @@ test("Browser data source maps package-content rows and visible failures", async
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       candidates,
       _matches,
       _prerelease,
@@ -1310,7 +1329,7 @@ test("Browser data source streams matches and failures before terminal completio
     ...defaultControls,
     async run(...args) {
       receivedArguments = args;
-      const eventSink = args[7];
+      const eventSink = args[8];
       assert.ok(typeof eventSink === "object" && eventSink !== null);
       Reflect.set(eventSink, "event", JSON.stringify(progressEvent));
       Reflect.set(eventSink, "event", JSON.stringify(matchEvent));
@@ -1342,15 +1361,16 @@ test("Browser data source streams matches and failures before terminal completio
     new AbortController().signal);
 
   assert.equal(typeof receivedArguments[0], "string");
-  assert.deepEqual(receivedArguments.slice(1, 7), [
+  assert.deepEqual(receivedArguments.slice(1, 8), [
     "Microsoft.",
     '[{"key":"dependency-depth","operator":"eq","value":"2"}]',
+    null,
     5,
     100,
     false,
     20,
   ]);
-  assert.equal(receivedArguments.length, 8);
+  assert.equal(receivedArguments.length, 9);
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
     failures,
@@ -1586,7 +1606,7 @@ test("Browser source reports unexpected failure after a superseded observer fail
   const engine: BrowserPackageQueryEngine = {
     ...defaultControls,
     async run(...args) {
-      const eventSink = args[7];
+      const eventSink = args[8];
       assert.ok(typeof eventSink === "object" && eventSink !== null);
       Reflect.set(eventSink, "event", JSON.stringify({
         kind: "Progress",
@@ -1653,6 +1673,7 @@ test("Browser data source batches consecutive matches into one controller page",
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,
@@ -1689,6 +1710,7 @@ test("Browser progress is delivered while later engine work remains pending", as
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,
@@ -1738,6 +1760,7 @@ test("established durable events flush before producer failure is reported", asy
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,
@@ -1776,6 +1799,7 @@ test("established durable events reach the generation guard before cancellation 
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,
@@ -1816,6 +1840,7 @@ test("durable-event delivery failure remains visible during cancellation", async
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,
@@ -1911,6 +1936,7 @@ test("malformed streamed events fail visibly instead of becoming empty output", 
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,
@@ -1940,6 +1966,7 @@ test("terminal completion is rejected on the nonterminal callback channel", asyn
       _operationId,
       _prefix,
       _terms,
+      _targetFramework,
       _candidates,
       _matches,
       _prerelease,

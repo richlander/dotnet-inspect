@@ -1,9 +1,12 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using DotnetInspector.Fixtures;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.QueryOperations;
@@ -165,6 +168,73 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task LibraryLiteralPublishesOnlyFinalTypedMatches()
+    {
+        const string packageId = "Contoso.Match";
+        const string literal = "shared-literal-use-marker";
+        await using var fixture = new SemanticQueryFixture();
+        await fixture.CacheAssemblyAsync(
+            packageId,
+            File.ReadAllBytes(
+                FixtureCatalog.AnalysisStringLiterals.AssemblyPath()));
+        var source = new FakePackageSource(
+            [Match(packageId)],
+            new Dictionary<string, byte[]>());
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            [Term(PackageQuery.LibraryLiteralTermKey, literal)],
+            maximumCandidates: 5,
+            maximumMatches: 1,
+            targetFramework: "net11.0"));
+        var sink = new RecordingPackageQueryNonterminalSink();
+        var assessmentSink =
+            new RecordingLibraryLiteralAssessmentSink();
+        var semanticExecution = new PackageQueryAssemblySemanticExecution(
+            new FixedAuthorization(fixture.Authorization),
+            fixture.IssueOperation,
+            fixture.PayloadAcquisition,
+            PackageAssemblySemanticFindBudget.Default,
+            assessmentSink);
+
+        InspectionEnvelope<PackageQueryDocument> envelope =
+            await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                dependencyTraversalServices: null,
+                semanticExecution,
+                sink,
+                TestContext.Current.CancellationToken);
+
+        PackageQueryMatch match = Assert.Single(envelope.Content.Results);
+        Assert.NotNull(match.LibraryLiteral);
+        Assert.Equal(
+            packageId.ToLowerInvariant(),
+            match.Package.PackageId.ToLowerInvariant());
+        Assert.NotEmpty(match.LibraryLiteral.Occurrences);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                match.LibraryLiteral.RootRequest.Encode(),
+                out _));
+        PackageQueryLibraryLiteralAssessment assessment =
+            Assert.Single(envelope.Content.LibraryLiteralAssessments);
+        Assert.Equal(
+            PackageQueryLibraryLiteralAssessmentKind.Matched,
+            assessment.Kind);
+        Assert.Equal(1, envelope.Content.Summary.EvaluatedCandidates);
+        Assert.Equal(1, envelope.Content.Summary.SemanticMatches);
+        Assert.Equal(
+            match.LibraryLiteral.Occurrences.Length,
+            envelope.Content.Summary.Occurrences);
+        PackageQueryLibraryLiteralAssessment publishedAssessment =
+            Assert.Single(assessmentSink.Assessments);
+        Assert.Equal(assessment, publishedAssessment);
+        PackageQueryEvent.Match published = Assert.Single(
+            sink.Events.OfType<PackageQueryEvent.Match>());
+        Assert.NotNull(published.Value.LibraryLiteral);
+    }
+
+    [Fact]
     public void TermDescriptors_HaveStableOrderedVocabulary()
     {
         Assert.Equal(
@@ -186,6 +256,8 @@ public sealed class PackageQueryTests
                 ("tool-format", 510),
                 ("references", 550),
                 ("skill", 600),
+                ("library-literal", 650),
+                ("library-target", 660),
             ],
             PackageQuery.Terms.Select(term =>
                 (term.Key, term.Weight)));
@@ -208,6 +280,8 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Context,
             ],
             PackageQuery.Terms.Select(term => term.Role));
         Assert.Equal(
@@ -258,13 +332,17 @@ public sealed class PackageQueryTests
                 ("tool-format", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
                 ("references", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.Metadata),
                 ("skill", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
+                ("library-literal", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.MetadataExpensive),
+                ("library-target", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.MetadataExpensive),
             ],
             PackageQuery.Terms.Select(term =>
                 (term.Key, term.Tier, term.ExecutionClass)));
-        Assert.DoesNotContain(
-            PackageQuery.Terms,
-            term => term.ExecutionClass
-                == PackageQueryExecutionClass.MetadataExpensive);
+        Assert.Equal(
+            [PackageQuery.LibraryLiteralTermKey, PackageQuery.LibraryTargetTermKey],
+            PackageQuery.Terms
+                .Where(term => term.ExecutionClass
+                    == PackageQueryExecutionClass.MetadataExpensive)
+                .Select(term => term.Key));
         Assert.Equal(
             [
                 "search-metadata",
@@ -326,6 +404,16 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["none", "cross-prefix"],
             dependencies.Options.Select(option => option.Value));
+        PackageQueryTermDescriptor libraryLiteral =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.LibraryLiteralTermKey);
+        Assert.Equal(
+            PackageQueryTermControlKind.MultilineInput,
+            libraryLiteral.ControlKind);
+        PackageQueryTermDescriptor libraryTarget =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.LibraryTargetTermKey);
+        Assert.Equal(PackageQueryTermRole.Context, libraryTarget.Role);
         Assert.Equal(
             "dependencies",
             dependencies.SelectionGroupId);
@@ -4362,6 +4450,22 @@ public sealed class PackageQueryTests
         }
     }
 
+    private sealed class RecordingLibraryLiteralAssessmentSink
+        : IPackageQueryLibraryLiteralAssessmentSink
+    {
+        internal List<PackageQueryLibraryLiteralAssessment> Assessments
+            { get; } = [];
+
+        public ValueTask ReportAsync(
+            PackageQueryLibraryLiteralAssessment assessment,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assessments.Add(assessment);
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class CancelOnMatchSink(CancellationTokenSource cancellation)
         : IPackageQueryNonterminalSink
     {
@@ -4381,6 +4485,169 @@ public sealed class PackageQueryTests
             return ValueTask.CompletedTask;
         }
     }
+
+    private sealed class FixedAuthorization(
+                PackageSourceAuthorization authorization)
+                : IPackageSourceAuthorization
+            {
+                public PackageSourceAuthorization AuthorizeSourcesFor(
+                    string packageId) =>
+                    authorization;
+            }
+
+            private sealed class SemanticQueryFixture : IAsyncDisposable
+            {
+                private const string Framework = "net11.0";
+                private const string Version = "1.0.0";
+
+                internal PackageSourceAuthorization Authorization { get; } =
+                    PackageSourceAuthorization.Authorize(
+                        [PackageSource.NuGetOrg]);
+
+                private IPackageSourceClient Source { get; }
+
+                private PackageSourceSettlementLease Settlement { get; }
+
+                private InMemoryPackageStore Store { get; } = new();
+
+                internal PackagePayloadAcquisitionPlan PayloadAcquisition { get; }
+
+                internal SemanticQueryFixture()
+                {
+                    Source = PackageSourceClientFactory.CreateCustom(
+                        PackageSourceDescriptor.NuGetGallery,
+                        Authorization.Authorities[0].Association,
+                        factory => new MissingPayloadSource(factory));
+                    Settlement = PackageSourceSettlementService.IssueLease(
+                        _ => Source);
+                    PayloadAcquisition = new PackagePayloadAcquisitionPlan(
+                        (_, _) => Store);
+                }
+
+                internal PackageSourceOperationLease IssueOperation(
+                    CancellationToken cancellationToken) =>
+                    Settlement.IssueOperationLease(
+                        cancellationToken,
+                        operationTimeout:
+                            PackageAssemblySemanticFindBudget.Default.MaximumDuration);
+
+                internal Task CacheAssemblyAsync(
+                    string packageId,
+                    byte[] image) =>
+                    CacheAsync(
+                        packageId,
+                        ($"lib/{Framework}/{packageId}.dll", image));
+
+                private async Task CacheAsync(
+                    string packageId,
+                    params (string Path, byte[] Content)[] entries)
+                {
+                    using var buffer = new MemoryStream();
+                    using (var archive = new ZipArchive(
+                        buffer,
+                        ZipArchiveMode.Create,
+                        leaveOpen: true))
+                    {
+                        Write(
+                            archive,
+                            $"{packageId}.nuspec",
+                            Encoding.UTF8.GetBytes(
+                                $"<package><metadata><id>{packageId}</id><version>{Version}</version></metadata></package>"));
+                        foreach ((string path, byte[] content) in entries)
+                            Write(archive, path, content);
+                    }
+
+                    await Store.CommitAsync(
+                        packageId,
+                        Version,
+                        Source.Source.Producer.Key,
+                        new MemoryStream(
+                            buffer.ToArray(),
+                            writable: false),
+                        TestContext.Current.CancellationToken);
+                }
+
+                public async ValueTask DisposeAsync()
+                {
+                    await Settlement.DisposeAsync();
+                    Source.Dispose();
+                }
+
+                private static void Write(
+                    ZipArchive archive,
+                    string path,
+                    byte[] content)
+                {
+                    using Stream entry = archive.CreateEntry(path).Open();
+                    entry.Write(content);
+                }
+            }
+
+            private sealed class MissingPayloadSource(
+                PackageSourceResultFactory results)
+                : IPackageSourceClient
+            {
+                public PackageSourceResultIdentity Source => results.Source;
+
+                public PackageSourceCapabilities Capabilities =>
+                    PackageSourceCapabilities.PackagePayload;
+
+                public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                    GetPackageAsync(
+                        string packageId,
+                        string version,
+                        CancellationToken cancellationToken = default,
+                        NuGetOperationContext? operationContext = null) =>
+                    Task.FromResult(
+                        results.FailedPackage(
+                            PackageSourceCoordinate.Create(packageId, version),
+                            PackageSourceFailureKind.NotFound));
+
+                public Task<PackageSourceOperationResult<PackageSourceManifest>>
+                    GetManifestAsync(
+                        string packageId,
+                        string version,
+                        CancellationToken cancellationToken = default,
+                        NuGetOperationContext? operationContext = null) =>
+                    throw new NotSupportedException();
+
+                public Task<PackageSourceOperationResult<PackageVersionResult>>
+                    GetVersionsAsync(
+                        string packageId,
+                        CancellationToken cancellationToken = default,
+                        NuGetOperationContext? operationContext = null) =>
+                    throw new NotSupportedException();
+
+                public Task<PackageSourceOperationResult<PackageSearchResult>>
+                    SearchAsync(
+                        string query,
+                        int take = 20,
+                        bool prerelease = false,
+                        CancellationToken cancellationToken = default,
+                        NuGetOperationContext? operationContext = null) =>
+                    throw new NotSupportedException();
+
+                public Task<PackageSourceOperationResult<PackageSearchResult>>
+                    SearchByPrefixAsync(
+                        string prefix,
+                        int take = 100,
+                        bool prerelease = false,
+                        CancellationToken cancellationToken = default,
+                        NuGetOperationContext? operationContext = null) =>
+                    throw new NotSupportedException();
+
+                public Task<PackageSourceOperationResult<PackageSourcePayload>>
+                    TryGetSymbolsAsync(
+                        string packageId,
+                        string version,
+                        CancellationToken cancellationToken = default,
+                        NuGetOperationContext? operationContext = null) =>
+                    throw new NotSupportedException();
+
+                public void Dispose()
+                {
+                }
+            }
 
     private static async Task AssertNoMatchesAsync(
         FakePackageSource source,

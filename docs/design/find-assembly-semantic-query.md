@@ -119,7 +119,7 @@ The package-grain production route is the first production witness:
 
 ```console
 dotnet-inspect package query Newtonsoft.Json \
-  --library-literal "Unexpected end when reading JSON" --tfm net6.0
+  --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 ```
 
 Its package row reports the latest eligible listed `Newtonsoft.Json` version.
@@ -131,7 +131,7 @@ The bounded prefix form is:
 
 ```console
 dotnet-inspect package query 'Azure.Identity*' \
-  --library-literal "DefaultAzureCredential" --take 5 --tfm net8.0 -n 2
+  --where "library-literal=DefaultAzureCredential" --take 5 --tfm net8.0 -n 2
 ```
 
 The CLI:
@@ -382,8 +382,8 @@ package-grain CLI adoption is:
 
 | Gesture | Meaning |
 | --- | --- |
-| `package query ID --library-literal TEXT` | The latest eligible listed exact package candidate. |
-| `package query 'PREFIX*' --library-literal TEXT --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
+| `package query ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
+| `package query 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
 | `-n N` | Semantic Head over matched package Results after the admitted population is evaluated. |
 | `--count` | Count of the selected package Result set, available only when population formation and semantic evaluation are complete. |
 
@@ -461,9 +461,11 @@ occurrence-oriented presentation, but it must not:
 - reconstruct identity or reopening from display text; or
 - run a second semantic evaluator.
 
-The CLI adoption moved to `package query --library-literal`. Its separately
-owned adapter binds `-n` and Count to matched package Results, keeps
-occurrences as package evidence, and uses Sections/Markout for rendering.
+The CLI adoption moved to the composable
+`package query --where "library-literal=TEXT" --tfm TFM` vocabulary. The shared
+Package Query operation binds `-n` and Count to matched package Results, keeps
+occurrences as package evidence, and returns the same `PackageQueryDocument`
+that other Package Query terms use.
 
 Inspect Web is the second production consumer and already executes the same
 one-candidate evaluator and serial query through its Browser/Wasm managed
@@ -516,10 +518,11 @@ The counted delivery path under #6769 is:
    `PackageAssemblySemanticFindDocument`, name each occurrence as
    `PackageAssemblySemanticFindResult`, and separate the optional nonterminal
    candidate-outcome sink from the authoritative terminal envelope.
-5. **CLI adoption:** `package query --library-literal` adds Gallery-only exact
-   and bounded-prefix population, adopts the candidate execution bound, binds
-   semantic row selection and Count to package Results, retains occurrences as
-   evidence, and renders the package-grain Document through Sections/Markout.
+5. **Package Query adoption:** the composable `library-literal` term adds
+   Gallery-only exact and bounded-prefix population, adopts the candidate
+   execution bound, binds semantic row selection and Count to package Results,
+   retains occurrences as evidence, and returns the ordinary package-grain
+   `PackageQueryDocument`.
 6. **Browser/Wasm adoption — #6796:** in a focused Package Query experience
    change, consume the shared candidate and occurrence counts and typed
    outcomes while retaining package cards and bounded occurrence previews.

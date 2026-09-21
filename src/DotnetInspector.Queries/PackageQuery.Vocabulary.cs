@@ -14,11 +14,13 @@ public enum PackageQueryTermRole
 {
     Population,
     Inspection,
+    Context,
 }
 
 public enum PackageQueryTermControlKind
 {
     Input,
+    MultilineInput,
     Toggle,
     Choice,
 }
@@ -70,6 +72,8 @@ internal enum PackageQueryPredicateKind
     ToolFormat,
     AssemblyReference,
     Skill,
+    LibraryLiteral,
+    LibraryTarget,
 }
 
 internal sealed record PackageQueryPredicate(
@@ -83,7 +87,8 @@ internal sealed record PackageQueryPredicate(
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat
             or PackageQueryPredicateKind.AssemblyReference
-            or PackageQueryPredicateKind.Skill;
+            or PackageQueryPredicateKind.Skill
+            or PackageQueryPredicateKind.LibraryLiteral;
 }
 
 internal sealed class PackageQueryKeyDeclaration(
@@ -166,6 +171,14 @@ internal sealed class PackageQueryVocabulary
                                 == PackageQueryPredicateKind.DependsTransitive)
                         && maximum
                             > PackageQuery.MaximumNuspecExpensiveCandidates)
+                    {
+                        return false;
+                    }
+                    if (terms.Any(term =>
+                            term.Predicate.Kind
+                                == PackageQueryPredicateKind.LibraryLiteral)
+                        && maximum
+                            > PackageQuery.MaximumMetadataExpensiveCandidates)
                     {
                         return false;
                     }

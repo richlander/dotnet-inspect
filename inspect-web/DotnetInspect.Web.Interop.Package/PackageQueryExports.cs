@@ -59,7 +59,8 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.Role
                                 == PackageQueryTermRole.Inspection
                             && term.Descriptor.ControlKind
-                                == PackageQueryTermControlKind.Input)
+                                is PackageQueryTermControlKind.Input
+                                    or PackageQueryTermControlKind.MultilineInput)
                         .Select(term =>
                         new BrowserPackageQueryTermDescriptor(
                             term.Descriptor.Key,
@@ -84,7 +85,9 @@ namespace DotnetInspect.Web.Interop.Package
                                     PortableQueryModel.TextOf),
                             ],
                             term.Descriptor.ValueKind,
-                            term.Descriptor.ExampleValue)),
+                            term.Descriptor.ExampleValue,
+                            term.Descriptor.ControlKind
+                                == PackageQueryTermControlKind.MultilineInput)),
                 ]);
 
         private static PortableQueryOperator SingleControlOperator(
@@ -121,7 +124,8 @@ namespace DotnetInspect.Web.Interop.Package
             IReadOnlyCollection<PortableQueryTerm>? terms,
             int maximumCandidates,
             int maximumMatches,
-            bool includePrerelease) =>
+            bool includePrerelease,
+            string? targetFramework) =>
             PackageQuery.PlanInput(
                 text,
                 EcosystemPackCatalog.PackageQueryMemberships,
@@ -132,7 +136,8 @@ namespace DotnetInspect.Web.Interop.Package
                 RowSelectionIntent<string>.Create(
                 [
                     RowSelectionIntentOperation<string>.Head(maximumMatches),
-                ]));
+                ]),
+                targetFramework);
 
         internal static bool TryCreateTerms(
             BrowserPackageQueryTerm[] wireTerms,
@@ -169,7 +174,8 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
+            string? targetFramework = null)
             => await ExecuteAsync(
                 prefix,
                 terms,
@@ -180,7 +186,8 @@ namespace DotnetInspect.Web.Interop.Package
                 matchCredit,
                 emit,
                 cancellationToken,
-                deadline).ConfigureAwait(false);
+                deadline,
+                targetFramework).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
@@ -192,7 +199,8 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
+            string? targetFramework = null)
         {
             ArgumentNullException.ThrowIfNull(terms);
             ArgumentNullException.ThrowIfNull(emit);
@@ -202,7 +210,8 @@ namespace DotnetInspect.Web.Interop.Package
                 terms,
                 maximumCandidates,
                 maximumMatches,
-                includePrerelease);
+                includePrerelease,
+                targetFramework);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
@@ -254,15 +263,62 @@ namespace DotnetInspect.Web.Interop.Package
                     new AuthorizedPackageDependencyManifestSource(
                         candidateSource));
             }
+            await using PackageSourceSettlementLease? semanticSettlement =
+                plan.RequiresLibraryLiteralEvaluation
+                    ? PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                BrowserPackageWorkspace.Gallery.Source.Association)
+                                ? BrowserPackageWorkspace.Gallery
+                                : throw new InvalidOperationException(
+                                    "Browser library-literal Package Query requested an unauthorized package source."))
+                    : null;
+            PackageAssemblySemanticFindBudget? semanticBudget =
+                plan.RequiresLibraryLiteralEvaluation
+                    ? BrowserAssemblySemanticBudget()
+                    : null;
+            PackageQueryAssemblySemanticExecution? semanticExecution =
+                semanticSettlement is null
+                    ? null
+                    : new(
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                        token => semanticSettlement.IssueOperationLease(
+                            token,
+                            BrowserPackageWorkspace.GalleryOperationTimeout,
+                            semanticBudget!.MaximumDuration),
+                        new PackagePayloadAcquisitionPlan(
+                            static (_, _) =>
+                                BrowserPackageWorkspace.SessionPackageStore,
+                            transferPolicy:
+                                BrowserPackageWorkspace.PackageTransferPolicy),
+                        semanticBudget!,
+                        new LibraryLiteralAssessmentSink(emit));
             var envelope = await PackageQueryInspection.ExecuteAsync(
                     BrowserPackageWorkspace.Gallery,
                     plan,
                     contentProvider,
                     traversalServices,
+                    semanticExecution,
                     observer,
                     cancellationToken)
                 .ConfigureAwait(false);
             return Complete(envelope);
+        }
+
+        private static PackageAssemblySemanticFindBudget
+            BrowserAssemblySemanticBudget()
+        {
+            PackageAssemblySemanticFindBudget defaults =
+                PackageAssemblySemanticFindBudget.Default;
+            PackageAssemblyEvaluationBudget evaluation = defaults.Evaluation;
+            return new(
+                defaults.Payload,
+                new(
+                    evaluation.MaximumEntryBytes,
+                    evaluation.MaximumRetainedImageBytes,
+                    evaluation.SemanticBudget,
+                    BrowserPackageWorkspace.GalleryOperationTimeout));
         }
 
         internal static Task<BrowserPackageQueryEvent> PumpAsync(
@@ -529,6 +585,55 @@ namespace DotnetInspect.Web.Interop.Package
             }
         }
 
+        private sealed class LibraryLiteralAssessmentSink(
+            Action<BrowserPackageQueryEvent> emit)
+            : IPackageQueryLibraryLiteralAssessmentSink
+        {
+            public ValueTask ReportAsync(
+                PackageQueryLibraryLiteralAssessment assessment,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BrowserPackageAssemblySemanticCandidateOutcome projected =
+                    Project(assessment);
+                BrowserPackageAssemblyAssessment? browserAssessment =
+                    projected.Kind switch
+                    {
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .NoMatch =>
+                            new(
+                                projected.PackageId,
+                                projected.Version,
+                                BrowserPackageAssemblyAssessmentKind.NoMatch,
+                                projected.Message!,
+                                projected.SelectedAsset?.Path,
+                                projected.RootRequest!),
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .NotApplicable =>
+                            new(
+                                projected.PackageId,
+                                projected.Version,
+                                BrowserPackageAssemblyAssessmentKind
+                                    .NotApplicable,
+                                projected.Message!,
+                                projected.SelectedAsset?.Path,
+                                projected.RootRequest!),
+                        _ => null,
+                    };
+                if (browserAssessment is not null)
+                {
+                    emit(new(
+                        BrowserPackageQueryEventKind.Assessment,
+                        Row: null,
+                        Failure: null,
+                        Completion: null,
+                        Progress: null,
+                        browserAssessment));
+                }
+                return ValueTask.CompletedTask;
+            }
+        }
+
         internal static BrowserPackageQueryInspection Complete(
             InspectionEnvelope<PackageQueryDocument> envelope)
         {
@@ -587,6 +692,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryProgressPhase.PackageContent,
                             PackageQueryProgressPhase.DependencyTraversal =>
                                 BrowserPackageQueryProgressPhase.DependencyTraversal,
+                            PackageQueryProgressPhase.Assembly =>
+                                BrowserPackageQueryProgressPhase.Assembly,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query progress phase."),
                         },
@@ -662,7 +769,8 @@ namespace DotnetInspect.Web.Interop.Package
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
                         match.Value.Package.Source.Producer.Display.ToString(),
-                        match.Value.Package.Description)
+                        match.Value.Package.Description,
+                        match.Value.LibraryLiteral?.RootRequest.Encode())
                     {
                         Owners = [.. match.Value.Package.Owners],
                         Manifest = match.Value.Package.Manifest is { } manifest
@@ -697,6 +805,12 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryFailureKind.PackageContentEvaluation,
                             PackageQueryFailureKind.DependencyTraversal =>
                                 BrowserPackageQueryFailureKind.DependencyTraversal,
+                            PackageQueryFailureKind.AssemblyAcquisition =>
+                                BrowserPackageQueryFailureKind.AssemblyAcquisition,
+                            PackageQueryFailureKind.AssemblyEvaluation =>
+                                BrowserPackageQueryFailureKind.AssemblyEvaluation,
+                            PackageQueryFailureKind.AssemblyNotEvaluated =>
+                                BrowserPackageQueryFailureKind.AssemblyNotEvaluated,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query failure kind."),
                         },
@@ -757,7 +871,19 @@ namespace DotnetInspect.Web.Interop.Package
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query completion kind."),
                         },
-                        completed.Value.SourceCandidates)),
+                        completed.Value.SourceCandidates,
+                        completed.Value.SemanticMisses,
+                        completed.Value.NotApplicable,
+                        completed.Value.Scope)
+                    {
+                        Occurrences = completed.Value.Occurrences,
+                        NotEvaluated =
+                            completed.Value.NotEvaluatedCandidates,
+                        EvaluatedCandidates =
+                            completed.Value.EvaluatedCandidates,
+                        SemanticMatches =
+                            completed.Value.SemanticMatches,
+                    }),
                 _ => throw new InvalidOperationException(
                     "Unknown package-query event."),
             };
@@ -777,8 +903,98 @@ namespace DotnetInspect.Web.Interop.Package
                         Project(new PackageQueryEvent.Failure(failure)).Failure!),
                 ],
                 Project(new PackageQueryEvent.Completed(document.Summary))
-                    .Completion!);
+                    .Completion!)
+            {
+                LibraryLiteralAssessments =
+                [
+                    .. document.LibraryLiteralAssessments.Select(Project),
+                ],
+            };
         }
+
+        private static BrowserPackageAssemblySemanticCandidateOutcome Project(
+            PackageQueryLibraryLiteralAssessment assessment) =>
+            new(
+                assessment.Kind switch
+                {
+                    PackageQueryLibraryLiteralAssessmentKind.Matched =>
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind.Matched,
+                    PackageQueryLibraryLiteralAssessmentKind.NoMatch =>
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind.NoMatch,
+                    PackageQueryLibraryLiteralAssessmentKind.NotApplicable =>
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .NotApplicable,
+                    PackageQueryLibraryLiteralAssessmentKind.Failure =>
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind.Failure,
+                    PackageQueryLibraryLiteralAssessmentKind.NotEvaluated =>
+                        BrowserPackageAssemblySemanticCandidateOutcomeKind
+                            .NotEvaluated,
+                    _ => throw new InvalidOperationException(
+                        "Unknown library-literal assessment kind."),
+                },
+                assessment.CandidateOrdinal,
+                assessment.PackageId,
+                assessment.Version,
+                assessment.Source.Producer.Display.ToString(),
+                Result: null,
+                assessment.SelectedAsset is { } selected
+                    ? new BrowserPackageAssemblySemanticSelectedAsset(
+                        selected.Path,
+                        selected.AssemblyName,
+                        selected.TargetFramework,
+                        Sequence: "Implementation",
+                        Ordinal: 0,
+                        selected.UnevaluatedSiblings,
+                        assessment.RootRequest?.Encode() ?? "")
+                    : null,
+                assessment.RootRequest?.Encode(),
+                assessment.NotApplicableReason switch
+                {
+                    PackageQueryLibraryLiteralNotApplicableReason
+                        .NoCompileAssets =>
+                        BrowserPackageAssemblyNotApplicableReason.NoCompileAssets,
+                    PackageQueryLibraryLiteralNotApplicableReason
+                        .NoMatchingTargetFramework =>
+                        BrowserPackageAssemblyNotApplicableReason
+                            .NoMatchingTargetFramework,
+                    PackageQueryLibraryLiteralNotApplicableReason
+                        .EmptyCompileGroup =>
+                        BrowserPackageAssemblyNotApplicableReason.EmptyCompileGroup,
+                    PackageQueryLibraryLiteralNotApplicableReason
+                        .NoImplementationCounterpart =>
+                        BrowserPackageAssemblyNotApplicableReason
+                            .NoImplementationCounterpart,
+                    null => null,
+                    _ => throw new InvalidOperationException(
+                        "Unknown library-literal applicability reason."),
+                },
+                assessment.FailureKind switch
+                {
+                    PackageQueryLibraryLiteralFailureKind.Acquisition =>
+                        BrowserPackageAssemblySemanticFailureKind.Acquisition,
+                    PackageQueryLibraryLiteralFailureKind.Evaluation =>
+                        BrowserPackageAssemblySemanticFailureKind.Evaluation,
+                    null => null,
+                    _ => throw new InvalidOperationException(
+                        "Unknown library-literal failure kind."),
+                },
+                assessment.FailureStage,
+                assessment.NonEvaluationKind switch
+                {
+                    PackageQueryLibraryLiteralNonEvaluationKind
+                        .OperationDeadline =>
+                        BrowserPackageAssemblySemanticNonEvaluationKind
+                            .OperationDeadline,
+                    null => null,
+                    _ => throw new InvalidOperationException(
+                        "Unknown library-literal non-evaluation reason."),
+                },
+                TimeoutKind:
+                    assessment.NonEvaluationKind is null
+                        ? null
+                        : "Operation",
+                TimeoutSeconds: null,
+                assessment.Message);
 
         private static BrowserPackageQueryManifest Project(
             PackageManifestFacts manifest) =>
@@ -923,6 +1139,7 @@ public static partial class PackageExports
         string operationId,
         string prefix,
         string termsJson,
+        string? targetFramework,
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
@@ -949,7 +1166,8 @@ public static partial class PackageExports
                 terms,
                 maximumCandidates,
                 maximumMatches,
-                includePrerelease);
+                includePrerelease,
+                targetFramework);
         if (planResult is PackageQueryPlanResult.Rejected rejected)
         {
             return JsonSerializer.Serialize(
