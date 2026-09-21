@@ -37,6 +37,41 @@ public class MetricSectionTests
 
     [Fact]
     public async Task
+        LibraryMetrics_RendersWholeLibraryDistributionRows()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                IncludeSections =
+                    [SectionNames.LibraryMetrics],
+                Markdown = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "## Library Metrics",
+            result.Output);
+        Assert.Contains(
+            "Physical evidence bodies",
+            result.Output);
+        Assert.Contains(
+            "Normal-Flow Cyclomatic Complexity",
+            result.Output);
+        Assert.Contains(
+            "Async state-machine bodies",
+            result.Output);
+        Assert.Contains(
+            "Maximum Bodies",
+            result.Output);
+        Assert.Contains(
+            "logical owners",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task
         TypeImplementationProfiles_OrdersByBodySizeAndShowsOverloadEdges()
     {
         var result = await ConsoleCapture.RunAsync(
@@ -163,6 +198,25 @@ public class MetricSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(
             "## Type Metrics",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task
+        LibraryMetrics_RemainsExplicitOnly()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName =
+                    FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                Verbosity = Verbosity.Detailed,
+                Markdown = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(
+            "## Library Metrics",
             result.Output);
     }
 

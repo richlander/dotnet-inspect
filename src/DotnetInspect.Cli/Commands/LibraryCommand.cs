@@ -462,6 +462,24 @@ public partial class LibraryCommand
             IncludeSections =
                 implementationProfilesSelection.Sections,
         };
+        var libraryMetricsSelection =
+            SelectResolver.NormalizeExactOnlySection(
+                options.Select,
+                options.IncludeSections,
+                options.ExactIncludeSections,
+                sections.SelectableSectionNames,
+                SectionNames.LibraryMetrics);
+        if (libraryMetricsSelection.Error is not null)
+        {
+            CommandError.Write(
+                libraryMetricsSelection.Error);
+            return 1;
+        }
+        options = options with
+        {
+            IncludeSections =
+                libraryMetricsSelection.Sections,
+        };
 
         if (MetadataRootSelectionError(options) is { } metadataRootError)
         {

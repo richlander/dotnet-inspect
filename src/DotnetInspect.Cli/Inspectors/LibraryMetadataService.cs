@@ -529,7 +529,8 @@ internal static class LibraryMetadataService
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         }
         if (queries?.Contains(
-                ImplementationProfilesQuery.Definition) == true)
+                ImplementationProfilesQuery.Definition) == true
+            || queries?.Contains(LibraryMetricsQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures
                 .ImplementationProfiles;
@@ -2212,6 +2213,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                LibraryMetricsQuery.Definition,
+                out LibraryMetricsResult? libraryMetrics))
+        {
+            ApplyLibraryMetricsResult(path, inspection, logger, libraryMetrics);
+        }
+
+        if (results.TryGet(
                 OptimizationOpportunitiesQuery.Definition,
                 out OptimizationOpportunitiesResult? optimizationOpportunities))
         {
@@ -2479,6 +2487,34 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     "Unknown implementation profiles result "
+                    + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyLibraryMetricsResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        LibraryMetricsResult result)
+    {
+        inspection.LibraryMetricsQueryResult = result;
+
+        switch (result)
+        {
+            case LibraryMetricsResult.Available:
+            case LibraryMetricsResult.Unavailable:
+            case LibraryMetricsResult.NoMetadata:
+                break;
+
+            case LibraryMetricsResult.Failed failed:
+                logger.LogWarning(
+                    $"Error collecting library metrics in {path}: "
+                    + failed.Error.Message);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown library metrics result "
                     + $"'{result.GetType().Name}'.");
         }
     }

@@ -8,6 +8,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using InertText;
 using DotnetInspect.Cli.Output;
 using Markout;
@@ -838,6 +839,78 @@ public class LibraryInspectionView
             is ImplementationProfilesResult.Available
             { Profiles.IsEmpty: false };
 
+    public bool HasLibraryMetrics =>
+        _data.LibraryMetricsQueryResult
+            is LibraryMetricsResult.Available
+            or LibraryMetricsResult.Unavailable;
+
+    [MarkoutSection(
+        Name = SectionNames.LibraryMetrics,
+        ShowWhenProperty = nameof(HasLibraryMetrics))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricMinimumEmpty),
+        nameof(LibraryMetricRow.Minimum))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPercentileEmpty),
+        nameof(LibraryMetricRow.P50))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPercentileEmpty),
+        nameof(LibraryMetricRow.P90))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPercentileEmpty),
+        nameof(LibraryMetricRow.P95))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPercentileEmpty),
+        nameof(LibraryMetricRow.P99))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricMaximumEmpty),
+        nameof(LibraryMetricRow.Maximum))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricMaximumBodiesEmpty),
+        nameof(LibraryMetricRow.MaximumBodies))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricPresentEmpty),
+        nameof(LibraryMetricRow.Present))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricAbsentEmpty),
+        nameof(LibraryMetricRow.Absent))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(LibraryMetricNotesEmpty),
+        nameof(LibraryMetricRow.Notes))]
+    public List<LibraryMetricRow>? LibraryMetricsSection
+    {
+        get
+        {
+            switch (_data.LibraryMetricsQueryResult)
+            {
+                case LibraryMetricsResult.Available available:
+                    return LibraryMetricRows(available.Document);
+
+                case LibraryMetricsResult.Unavailable unavailable:
+                    return
+                    [
+                        new(
+                            "Unavailable",
+                            unavailable.Outcome.Reason.ToString(),
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            unavailable.Outcome.Message),
+                    ];
+
+                default:
+                    return null;
+            }
+        }
+    }
+
     [MarkoutSection(
         Name = SectionNames.MemberMetrics,
         ShowWhenProperty = nameof(HasImplementationProfiles))]
@@ -911,6 +984,161 @@ public class LibraryInspectionView
         }
     }
 
+    private static List<LibraryMetricRow> LibraryMetricRows(
+        LibraryStructuralReportDocument document)
+    {
+        LibraryStructuralPopulationReceipt population = document.Population;
+        var rows = new List<LibraryMetricRow>
+        {
+            new(
+                "Population",
+                "Physical evidence bodies",
+                population.PhysicalEvidenceBodyCount.ToString(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                $"profiled {population.ProfiledPhysicalEvidenceBodyCount}; logical owners {population.LogicalOwnerCount}"),
+            new(
+                "Population",
+                "Complete profiles",
+                population.CompleteProfileCount.ToString(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "Population",
+                "Incomplete profiles",
+                population.IncompleteProfileCount.ToString(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                FormatReasonCounts(population.IncompleteReasons)),
+            new(
+                "Population",
+                "Unavailable bodies",
+                population.Coverage.UnavailableBodies.Length.ToString(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                FormatReasonCounts(population.UnavailableReasons)),
+        };
+
+        rows.AddRange(
+            document.Distributions.Select(static distribution => new LibraryMetricRow(
+                "Distribution",
+                FormatMetric(distribution.Metric),
+                distribution.CompleteBodyCount.ToString(),
+                FormatNullable(distribution.Minimum),
+                FormatNullable(distribution.P50),
+                FormatNullable(distribution.P90),
+                FormatNullable(distribution.P95),
+                FormatNullable(distribution.P99),
+                FormatNullable(distribution.Maximum),
+                FormatMaximumBodies(distribution.MaximumBodies),
+                null,
+                null,
+                distribution.AdditionalMaximumBodyCount > 0
+                    ? $"{distribution.AdditionalMaximumBodyCount} additional maximum bodies"
+                    : null)));
+
+        LibraryStructuralBooleanDisposition asyncDisposition =
+            document.AsyncStateMachinePresence;
+        rows.Add(
+            new(
+                "Disposition",
+                "Async state-machine bodies",
+                asyncDisposition.CompleteBodyCount.ToString(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                asyncDisposition.PresentCount.ToString(),
+                asyncDisposition.AbsentCount.ToString(),
+                null));
+
+        rows.AddRange(
+            document.Diagnostics.Select(static diagnostic => new LibraryMetricRow(
+                "Diagnostic",
+                $"{diagnostic.Method} [0x{diagnostic.MethodToken:X8}]",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                diagnostic.Message)));
+
+        return rows;
+    }
+
+    private static string FormatMetric(LibraryStructuralMetric metric) =>
+        metric switch
+        {
+            LibraryStructuralMetric.InstructionCount => "Instruction Count",
+            LibraryStructuralMetric.NormalFlowCyclomaticComplexity =>
+                "Normal-Flow Cyclomatic Complexity",
+            LibraryStructuralMetric.LoopCount => "Loop Count",
+            LibraryStructuralMetric.ExceptionRegionCount =>
+                "Exception Region Count",
+            LibraryStructuralMetric.DirectCallCount => "Direct Call Count",
+            LibraryStructuralMetric.AllocationCount => "Allocation Count",
+            _ => metric.ToString(),
+        };
+
+    private static string? FormatNullable(int? value) =>
+        value?.ToString();
+
+    private static string? FormatMaximumBodies(
+        IReadOnlyCollection<LibraryStructuralExtremeBody> bodies) =>
+        bodies.Count == 0
+            ? null
+            : string.Join(
+                "; ",
+                bodies.Select(static body =>
+                    MarkoutInline.Code(
+                        LibraryMetadataService.FormatMethod(
+                            body.EvidenceMethod))));
+
+    private static string? FormatReasonCounts(
+        IReadOnlyCollection<LibraryStructuralReasonCount> counts) =>
+        counts.Count == 0
+            ? null
+            : string.Join(
+                "; ",
+                counts.Select(static count => $"{count.Reason}: {count.Count}"));
+
     public static bool ImplementationProfileUnsafeEmpty(
         List<ImplementationProfileRow>? rows)
         => rows is null || rows.All(row => row.Unsafe is null);
@@ -932,6 +1160,39 @@ public class LibraryInspectionView
     public static bool ImplementationProfileIncompleteEmpty(
         List<ImplementationProfileRow>? rows)
         => rows is null || rows.All(row => row.Incomplete is null);
+
+    public static bool LibraryMetricMinimumEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Minimum is null);
+
+    public static bool LibraryMetricPercentileEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null
+            || rows.All(row =>
+                row.P50 is null
+                && row.P90 is null
+                && row.P95 is null
+                && row.P99 is null);
+
+    public static bool LibraryMetricMaximumEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Maximum is null);
+
+    public static bool LibraryMetricMaximumBodiesEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.MaximumBodies is null);
+
+    public static bool LibraryMetricPresentEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Present is null);
+
+    public static bool LibraryMetricAbsentEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Absent is null);
+
+    public static bool LibraryMetricNotesEmpty(
+        List<LibraryMetricRow>? rows)
+        => rows is null || rows.All(row => row.Notes is null);
 
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,
@@ -1886,6 +2147,74 @@ public record PerformanceRow(
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Confidence { get; init; } = LibraryViewText.Contain(Confidence);
+}
+
+[MarkoutSerializable]
+public record LibraryMetricRow(
+    string Category,
+    string Measure,
+    string? Bodies,
+    string? Minimum,
+    string? P50,
+    string? P90,
+    string? P95,
+    string? P99,
+    string? Maximum,
+    string? MaximumBodies,
+    string? Present,
+    string? Absent,
+    string? Notes)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Category { get; init; } = LibraryViewText.Contain(Category);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Measure { get; init; } = LibraryViewText.Contain(Measure);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Bodies { get; init; } = LibraryViewText.Contain(Bodies);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Minimum { get; init; } = LibraryViewText.Contain(Minimum);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? P50 { get; init; } = LibraryViewText.Contain(P50);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? P90 { get; init; } = LibraryViewText.Contain(P90);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? P95 { get; init; } = LibraryViewText.Contain(P95);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? P99 { get; init; } = LibraryViewText.Contain(P99);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Maximum { get; init; } = LibraryViewText.Contain(Maximum);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Maximum Bodies")]
+    [MarkoutSkipNull]
+    public string? MaximumBodies { get; init; } = MaximumBodies;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Present { get; init; } = LibraryViewText.Contain(Present);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Absent { get; init; } = LibraryViewText.Contain(Absent);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Notes { get; init; } = LibraryViewText.Contain(Notes);
 }
 
 /// <summary>
