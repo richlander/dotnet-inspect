@@ -1,5 +1,5 @@
 using System.Reflection;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Sections.Tests;
 

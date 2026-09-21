@@ -1,4 +1,4 @@
-namespace DotnetInspector.RowSelection;
+namespace QuerySpace.Rows;
 
 public sealed class RowSelectionPlan<TOrder>
     where TOrder : notnull

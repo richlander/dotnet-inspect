@@ -587,6 +587,21 @@ public static class TypeCommand
                             fallbackPackageVersion: packageVersion);
                     }
 
+                    if (effectiveOptions.DllPath is { } decompilationPath
+                        && AuthorizesWholeTypeDecompilation(
+                            apiType,
+                            effectiveOptions))
+                    {
+                        effectiveOptions =
+                            await AttachTypeDecompilationInspectionAsync(
+                                apiType,
+                                effectiveOptions,
+                                decompilationPath,
+                                sourceAssembly,
+                                context.HttpClient,
+                                cancellationToken);
+                    }
+
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
                     bool validatesProjection = hasProjection
                         && (!effectiveOptions.JsonOutput || effectiveOptions.Count)
@@ -1813,6 +1828,59 @@ public static class TypeCommand
         TypeOptions options)
         => ApiCommand.GetRequestedMemberSections(apiType, options)
             .Contains(SectionNames.SourceFiles);
+
+    private static bool AuthorizesWholeTypeDecompilation(
+        ApiType apiType,
+        TypeOptions options)
+        => options.Verbosity != Verbosity.Quiet
+           && options.IncludeSections is { Count: > 0 }
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Contains(SectionNames.DecompiledSource);
+
+    private static async Task<TypeOptions>
+        AttachTypeDecompilationInspectionAsync(
+            ApiType apiType,
+            TypeOptions options,
+            string apiDllPath,
+            ResolvedAssemblyReference? sourceAssembly,
+            HttpClient httpClient,
+            CancellationToken cancellationToken)
+    {
+        string typeAssemblyPath =
+            apiType.SourceAssemblyPath
+            ?? apiDllPath;
+        DecompilationInspectionPreparation.Prepared preparation =
+            await DecompilationInspectionPreparation.CreateAsync(
+                    typeAssemblyPath,
+                    sourceAssembly,
+                    options,
+                    httpClient,
+                    "type decompilation",
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [preparation.Participant]);
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                        group,
+                        preparation.Participant,
+                        AssemblyTypeSourceRequest.From(
+                            apiType,
+                            options.RenderOptions),
+                        preparation.QueryContext,
+                        preparation.PortablePdb,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+        return options with
+        {
+            TypeDecompilationInspection = inspection,
+        };
+    }
 
     private static bool ShouldRejectQuietShape(TypeOptions options)
     {
