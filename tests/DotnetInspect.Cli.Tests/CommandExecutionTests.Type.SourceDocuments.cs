@@ -300,23 +300,6 @@ public partial class CommandExecutionTests
         Assert.Contains("| Name | column |", output);
     }
 
-    [Fact]
-    public async Task Type_SourceFiles_Bare_EmitsUrlColumn()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--bare", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal(2, lines.Length);
-        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
-        Assert.All(lines, line => Assert.StartsWith("https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/", line));
-        Assert.DoesNotContain("url", lines);
-    }
-
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -769,11 +752,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_CountAndBare_ComposesForTableSection()
+    public async Task Type_Count_RendersScalarForTableSection()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonConvert", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Member Index", "--count", "--bare", "--tips", "q");
+            "-S", "Member Index", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -781,11 +764,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_CountAndBare_ComposesForVectorSection()
+    public async Task Type_Count_RendersScalarForVectorSection()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--count", "--bare", "--tips", "q");
+            "-S", "Source Files", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

@@ -109,7 +109,6 @@ public static class ApiCommandDefinitions
             opts.Head,
             opts.Tail,
             opts.Count);
-        typeCommand.Options.Add(opts.Bare);
         typeCommand.Options.Add(opts.Taste);
         typeCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(typeCommand);
@@ -423,7 +422,6 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Envelope);
-        memberCommand.Options.Add(opts.Bare);
         memberCommand.Options.Add(opts.Taste);
         memberCommand.Options.Add(opts.ReadableNames);
         memberCommand.Options.Add(opts.Focus);

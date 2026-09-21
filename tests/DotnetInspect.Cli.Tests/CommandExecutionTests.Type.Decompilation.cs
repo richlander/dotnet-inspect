@@ -80,7 +80,6 @@ public partial class CommandExecutionTests
             TestAssemblyPath,
             "-S",
             "Decompiled Source",
-            "--bare",
             "--tips",
             "q",
         ];
@@ -188,7 +187,7 @@ public partial class CommandExecutionTests
             [
                 "type", fixtureType.FullName!,
                 "--library", TestAssemblyPath,
-                "-S", "Decompiled Source", "--bare", "--tips", "q",
+                "-S", "Decompiled Source", "--tips", "q",
                 .. includeAll ? new[] { "--all" } : [],
             ]);
 
@@ -250,7 +249,6 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-S",
                 "Decompiled Source",
-                "--bare",
                 "--tips",
                 "q");
         var (allExit, allOutput, allError) =
@@ -261,7 +259,6 @@ public partial class CommandExecutionTests
                 TestAssemblyPath,
                 "-S",
                 "Decompiled Source",
-                "--bare",
                 "--all",
                 "--tips",
                 "q");
@@ -364,7 +361,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Decompiled Source", "--bare");
+            "-S", "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -407,7 +404,7 @@ public partial class CommandExecutionTests
         // defining assembly.
         var (exit, output, error) = await RunAppAsync(
             "type", "System.DayOfWeek", "--platform", "System.Runtime",
-            "-S", "Decompiled Source", "--bare");
+            "-S", "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -417,15 +414,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_DecompiledSource_Bare_EmitsBareListing()
+    public async Task Type_DecompiledSource_Default_EmitsNativeListing()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source", "--bare");
+            "-S", "Decompiled Source");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        // Bare C#: no markdown heading, no section title, no code fence, no tips.
+        // Native C#: no markdown heading, section title, code fence, or tips.
         Assert.StartsWith("using System.Collections;", output);
         Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.DoesNotContain("# ", output);
@@ -434,14 +431,103 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_BareWithoutSection_Errors()
+    public async Task Type_DecompiledSource_ExplicitMarkdown_RestoresDocumentFraming()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
+            "-S", "Decompiled Source", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("# System.Collections.Generic.Stack", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("```csharp", output);
+    }
+
+    [Fact]
+    public async Task Type_MultipleSelectedSections_RemainMarkdownDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
+            "-S", "Decompiled Source,Member Index", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("# System.Collections.Generic.Stack", output);
+        Assert.Contains("## Member Index", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("```csharp", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_DecompiledSource_EnvironmentMarkdown_RestoresDocumentFraming(bool print)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
+
+            var (exit, output, error) = await RunAppAsync(
+            [
+                "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
+                "-S", "Decompiled Source", "--tips", "q",
+                .. print ? new[] { "--print" } : [],
+            ]);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.StartsWith(
+                print ? "# Decompiled Source" : "# System.Collections.Generic.Stack",
+                output);
+            Assert.Contains("```csharp", output);
+            if (!print)
+                Assert.Contains("## Decompiled Source", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Type_DecompiledSource_WithEmptySibling_RemainsMarkdownDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonNamingPolicy", "--platform", "System.Text.Json",
+            "-S", "Decompiled Source,Fields", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: section 'Fields' has no data", error);
+        Assert.StartsWith("# System.Text.Json.JsonNamingPolicy", output);
+        Assert.DoesNotContain("## Fields", output);
+        Assert.Contains("## Decompiled Source", output);
+        Assert.Contains("```csharp", output);
+    }
+
+    [Fact]
+    public async Task Type_Bare_IsRetired()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "String", "--platform", "System.Private.CoreLib", "--bare", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--bare requires exactly one -S section", error);
+        Assert.Contains("Unrecognized option '--bare'", error);
+    }
+
+    [Fact]
+    public async Task Type_Help_DoesNotAdvertiseBare()
+    {
+        var (exit, output, error) = await RunAppAsync("type", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("--bare", output);
     }
 
     [Fact]

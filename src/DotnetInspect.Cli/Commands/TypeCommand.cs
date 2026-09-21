@@ -123,7 +123,6 @@ public static class TypeCommand
             PlainText = options.PlainText,
             MermaidOutput = options.MermaidOutput,
             EmbeddedMermaid = options.EmbeddedMermaid,
-            Bare = options.Bare,
             NoHeader = options.NoHeader,
             MemberFilter = memberFilter,
             KindFilter = options.KindFilter,
@@ -933,7 +932,6 @@ public static class TypeCommand
             || options.EnvelopeOutput;
 
         return completeFormat
-            && !options.Bare
             && !options.Tree
             && !options.ShapeOutput
             && !options.Print
@@ -1807,7 +1805,6 @@ public static class TypeCommand
            && !options.Jsonl
            && !options.NoHeader
            && !options.PlainText
-           && !options.Bare
            && !options.Count
            && !options.MarkdownExplicitlySet;
 
