@@ -1,9 +1,22 @@
 import type {
+  BrowserLibraryApiDiffChange,
   BrowserLibraryApiDiffEndpoint,
+  BrowserLibraryApiDiffMember,
+  BrowserLibraryApiDiffMemberIdentity,
   BrowserLibraryApiDiffResult,
+  BrowserLibraryApiDiffSucceeded,
   BrowserLibraryApiDiffType,
 } from "./facades/inspect-web-metadata.d.ts";
-import type { EffectiveDiffTarget } from "./package-comparison-targets.ts";
+import {
+  renderCompareEmpty,
+  renderCompareFrame,
+  renderCompareLoading,
+  renderCompareRetry,
+} from "./compare-surface.ts";
+import type {
+  CompareMode,
+  EffectiveDiffTarget,
+} from "./package-comparison-targets.ts";
 import type {
   OperationAuthorityPage,
   OperationCancelReason,
@@ -350,6 +363,104 @@ function validateTypeIdentity(value: unknown, description: string): void {
   }
 }
 
+const changeKinds = [
+  "TypeAdded",
+  "TypeRemoved",
+  "TypeKindChanged",
+  "SealedAdded",
+  "SealedRemoved",
+  "AbstractAdded",
+  "AbstractRemoved",
+  "BaseTypeChanged",
+  "InterfaceAdded",
+  "InterfaceRemoved",
+  "TypeParameterCountChanged",
+  "TypeParameterVarianceChanged",
+  "TypeParameterConstraintTightened",
+  "TypeParameterConstraintLoosened",
+  "MemberAdded",
+  "MemberRemoved",
+  "MemberSignatureChanged",
+  "VirtualRemoved",
+  "AbstractMemberAdded",
+  "EnumValueChanged",
+  "TypeAttributeAdded",
+  "TypeAttributeRemoved",
+  "MemberAttributeAdded",
+  "MemberAttributeRemoved",
+] as const;
+
+function validateChanges(value: unknown, description: string): void {
+  if (!Array.isArray(value))
+    throw new Error(`${description} must be an array.`);
+  for (const [index, entry] of value.entries()) {
+    const change = requireRecord(entry, `${description}[${index}]`);
+    requireEnum(change.kind, `${description}[${index}].kind`, changeKinds);
+    requireEnum(
+      change.classification,
+      `${description}[${index}].classification`,
+      ["Additive", "Breaking", "PotentiallyBreaking"],
+    );
+    requireEnum(change.category, `${description}[${index}].category`, [
+      "Signature",
+      "Attribute",
+    ]);
+    requireString(change.message, `${description}[${index}].message`);
+    requireNullableString(
+      change.oldValue,
+      `${description}[${index}].oldValue`,
+    );
+    requireNullableString(
+      change.newValue,
+      `${description}[${index}].newValue`,
+    );
+  }
+}
+
+function validateMemberIdentity(value: unknown, description: string): void {
+  const identity = requireRecord(value, description);
+  for (const property of [
+    "declaringTypeIdentifier",
+    "stableSelector",
+    "canonicalSignature",
+    "fingerprint",
+    "typeFullName",
+    "memberName",
+    "display",
+  ]) {
+    requireString(identity[property], `${description}.${property}`);
+  }
+}
+
+function validateMembers(value: unknown, description: string): void {
+  if (!Array.isArray(value))
+    throw new Error(`${description} must be an array.`);
+  for (const [index, entry] of value.entries()) {
+    const member = requireRecord(entry, `${description}[${index}]`);
+    requireString(
+      member.documentIdentifier,
+      `${description}[${index}].documentIdentifier`,
+    );
+    requireEnum(member.pairKind, `${description}[${index}].pairKind`, [
+      "Changed",
+      "Added",
+      "Removed",
+    ]);
+    requireEnum(member.role, `${description}[${index}].role`, [
+      "Before",
+      "After",
+      "Both",
+    ]);
+    if (member.before !== null)
+      validateMemberIdentity(member.before, `${description}[${index}].before`);
+    if (member.after !== null)
+      validateMemberIdentity(member.after, `${description}[${index}].after`);
+    if (member.before === null && member.after === null)
+      throw new Error(`${description}[${index}] has no side.`);
+    validateChanges(member.changes, `${description}[${index}].changes`);
+  }
+}
+
 function validateSucceeded(value: unknown): void {
   const succeeded = requireRecord(value, "Library API Diff success");
   requireString(
@@ -412,6 +523,14 @@ function validateSucceeded(value: unknown): void {
       validateTypeIdentity(type.before, "Library API Diff before Type");
     if (type.after !== null)
       validateTypeIdentity(type.after, "Library API Diff after Type");
+    validateMembers(
+      type.members,
+      `Library API Diff success.types[${index}].members`,
+    );
+    validateChanges(
+      type.changes,
+      `Library API Diff success.types[${index}].changes`,
+    );
   }
 }
 
@@ -885,87 +1004,470 @@ function typeMetrics(type: BrowserLibraryApiDiffType): string {
   ].filter(Boolean).join(" · ");
 }
 
+function attributeText(
+  value: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return escapeHtml(value).replaceAll("\r", "&#13;");
+}
+
+// The exact Library, Type, or Member the Compare surface is projecting from the
+// complete Library-root document. Type and Member never run their own partial
+// comparison; they narrow the same root result.
+export type LibraryApiDiffSubject =
+  | { readonly kind: "library" }
+  | { readonly kind: "type"; readonly typeIdentifier: string }
+  | {
+      readonly kind: "member";
+      readonly typeIdentifier: string;
+      readonly memberFingerprint: string;
+    };
+
+export interface LibraryApiDiffRenderOptions {
+  readonly subject?: LibraryApiDiffSubject;
+  readonly subjectLabel?: string;
+  // Exact current-side identities the Browser has joined to loaded Navigation
+  // subjects. A current-side row whose identity is absent stays visible but
+  // inert: Compare never derives a subject from display text.
+  readonly activatableTypes?: ReadonlySet<string>;
+  readonly activatableMembers?: ReadonlySet<string>;
+  readonly targetText?: string;
+  readonly mode?: CompareMode;
+}
+
 function renderTypeRow(
   type: BrowserLibraryApiDiffType,
   escapeHtml: (value: unknown) => string,
+  activatableTypes: ReadonlySet<string> | undefined,
 ): string {
   const before = type.before?.identifier ?? "";
   const after = type.after?.identifier ?? "";
-  const beforeAttribute = escapeHtml(before).replaceAll("\r", "&#13;");
-  const afterAttribute = escapeHtml(after).replaceAll("\r", "&#13;");
+  const beforeAttribute = attributeText(before, escapeHtml);
+  const afterAttribute = attributeText(after, escapeHtml);
   const definition = type.typeDefinitionChanged === true
     ? '<span class="library-api-diff-definition">Type definition changed</span>'
     : "";
-  return `<li class="library-api-diff-type" data-before-type-id="${beforeAttribute}" data-after-type-id="${afterAttribute}">
-    <span class="library-api-diff-state library-api-diff-state-${String(type.state).toLowerCase()}">${escapeHtml(type.state)}</span>
-    <span class="library-api-diff-type-copy">
+  const activatable =
+    type.after !== null && activatableTypes?.has(after) === true;
+  const inertReason = type.after === null
+    ? "Removed in the current version; Before-side evidence only"
+    : activatable
+      ? ""
+      : "Not joined to a loaded Type";
+  const copy = `<span class="library-api-diff-type-copy">
       <strong>${escapeHtml(type.display)}</strong>
       <span>${escapeHtml(typeMetrics(type))}</span>
       ${definition}
-    </span>
-  </li>`;
+      ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
+    </span>`;
+  const state = `<span class="library-api-diff-state library-api-diff-state-${String(type.state).toLowerCase()}">${escapeHtml(type.state)}</span>`;
+  return `<li class="library-api-diff-type${activatable ? "" : " library-api-diff-type-inert"}" data-before-type-id="${beforeAttribute}" data-after-type-id="${afterAttribute}">${
+    activatable
+      ? `<button type="button" class="library-api-diff-row" data-compare-type-id="${afterAttribute}" aria-label="Open ${escapeHtml(type.display)} Compare">${state}${copy}</button>`
+      : `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>`
+  }</li>`;
 }
 
-function renderFrame(
-  input: LibraryApiDiffOperationInput | null,
-  status: string,
-  content: string,
+function classificationLabel(
+  classification: BrowserLibraryApiDiffChange["classification"],
+): string {
+  switch (classification) {
+    case "Breaking": return "Breaking";
+    case "Additive": return "Additive";
+    case "PotentiallyBreaking": return "Potentially breaking";
+    default: return String(classification);
+  }
+}
+
+// Producer kinds are PascalCase identifiers; spell them as quiet words.
+function changeKindLabel(kind: BrowserLibraryApiDiffChange["kind"]): string {
+  return String(kind).replaceAll(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+function classificationClass(
+  classification: BrowserLibraryApiDiffChange["classification"],
+): string {
+  return `library-api-diff-change-${String(classification).toLowerCase()}`;
+}
+
+function changeChips(
+  changes: readonly BrowserLibraryApiDiffChange[],
   escapeHtml: (value: unknown) => string,
 ): string {
-  const target = input === null
-    ? "Package Diff target"
-    : `${input.targetVersion} → ${input.currentVersion}`;
-  return `<section class="library-api-diff" aria-labelledby="library-api-diff-title">
-    <header class="library-api-diff-head">
-      <div>
-        <p class="library-api-diff-kicker">Compare · Diff</p>
-        <h1 id="library-api-diff-title">Library API diff</h1>
-        <p class="library-api-diff-target">${escapeHtml(target)}</p>
-      </div>
-      <button type="button" class="library-api-diff-change-target" id="library-api-diff-change-target">Change target</button>
-    </header>
-    <p class="library-api-diff-status" role="status">${escapeHtml(status)}</p>
-    ${content}
+  if (changes.length === 0) return "";
+  return `<span class="library-api-diff-change-chips">${changes.map(change =>
+    `<span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(
+      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`,
+    )}</span>`).join("")}</span>`;
+}
+
+// One row per Metadata-issued compatibility change. The classification and
+// message come from the producer; the Browser never re-derives either.
+function renderChangeRows(
+  changes: readonly BrowserLibraryApiDiffChange[],
+  escapeHtml: (value: unknown) => string,
+  label: string,
+): string {
+  if (changes.length === 0) return "";
+  return `<ol class="library-api-diff-changes" aria-label="${escapeHtml(label)}">${changes.map(change => {
+    // Identical old and new text (a modifier change the producer spells in
+    // its message) adds nothing beside the message, so it stays out.
+    const values = (change.oldValue !== null || change.newValue !== null)
+      && change.oldValue !== change.newValue
+      ? `<span class="library-api-diff-change-values"><code>${escapeHtml(change.oldValue ?? "—")}</code> → <code>${escapeHtml(change.newValue ?? "—")}</code></span>`
+      : "";
+    return `<li class="library-api-diff-change">
+      <span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(classificationLabel(change.classification))}</span>
+      <span class="library-api-diff-change-copy">
+        <strong>${escapeHtml(changeKindLabel(change.kind))}</strong>
+        <span>${escapeHtml(change.message)}</span>
+        ${values}
+        <span class="library-api-diff-change-category">${escapeHtml(String(change.category))}</span>
+      </span>
+    </li>`;
+  }).join("")}</ol>`;
+}
+
+function memberStateLabel(member: BrowserLibraryApiDiffMember): string {
+  switch (member.pairKind) {
+    case "Changed": return "Changed";
+    case "Added": return "Added";
+    case "Removed": return "Removed";
+    default: return String(member.pairKind);
+  }
+}
+
+function renderMemberRow(
+  member: BrowserLibraryApiDiffMember,
+  escapeHtml: (value: unknown) => string,
+  activatableMembers: ReadonlySet<string> | undefined,
+): string {
+  const display = member.after?.display ?? member.before?.display ?? "";
+  const fingerprint = member.after?.fingerprint ?? "";
+  const activatable =
+    member.after !== null && activatableMembers?.has(fingerprint) === true;
+  const inertReason = member.after === null
+    ? "Removed in the current version; Before-side evidence only"
+    : activatable
+      ? ""
+      : "Not joined to a loaded Member";
+  const signatures = member.before !== null && member.after !== null
+    && member.before.canonicalSignature !== member.after.canonicalSignature
+    ? `<span class="library-api-diff-signature-change"><code>${escapeHtml(member.before.canonicalSignature)}</code> → <code>${escapeHtml(member.after.canonicalSignature)}</code></span>`
+    : "";
+  const copy = `<span class="library-api-diff-type-copy">
+      <strong>${escapeHtml(display)}</strong>
+      ${changeChips(member.changes, escapeHtml)}
+      ${signatures}
+      ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
+    </span>`;
+  const state = `<span class="library-api-diff-state library-api-diff-state-${String(member.pairKind).toLowerCase()}">${escapeHtml(memberStateLabel(member))}</span>`;
+  return `<li class="library-api-diff-member${activatable ? "" : " library-api-diff-member-inert"}" data-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" data-member-before-fingerprint="${attributeText(member.before?.fingerprint ?? "", escapeHtml)}">${
+    activatable
+      ? `<button type="button" class="library-api-diff-row" data-compare-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" aria-label="Open ${escapeHtml(display)} Compare">${state}${copy}</button>`
+      : `<div class="library-api-diff-row" aria-disabled="true">${state}${copy}</div>`
+  }</li>`;
+}
+
+function memberIdentityEvidence(
+  label: string,
+  identity: BrowserLibraryApiDiffMemberIdentity | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (identity === null) {
+    return `<section class="library-api-diff-endpoint">
+      <h2>${escapeHtml(label)}</h2>
+      <p class="library-api-diff-absent">Not present on this side.</p>
+    </section>`;
+  }
+  return `<section class="library-api-diff-endpoint">
+    <h2>${escapeHtml(label)}</h2>
+    <p><code>${escapeHtml(identity.display)}</code></p>
+    <dl>
+      <div><dt>Declaring type</dt><dd><code>${escapeHtml(identity.typeFullName)}</code></dd></div>
+      <div><dt>Stable selector</dt><dd><code>${escapeHtml(identity.stableSelector)}</code></dd></div>
+      <div><dt>Canonical signature</dt><dd><code>${escapeHtml(identity.canonicalSignature)}</code></dd></div>
+      <div><dt>Digest</dt><dd><code>${escapeHtml(identity.fingerprint)}</code></dd></div>
+    </dl>
   </section>`;
+}
+
+function findType(
+  value: BrowserLibraryApiDiffSucceeded,
+  typeIdentifier: string,
+): BrowserLibraryApiDiffType | undefined {
+  return value.types.find(type => type.after?.identifier === typeIdentifier)
+    ?? value.types.find(type =>
+      type.after === null && type.before?.identifier === typeIdentifier);
+}
+
+function findMember(
+  type: BrowserLibraryApiDiffType,
+  fingerprint: string,
+): BrowserLibraryApiDiffMember | undefined {
+  return type.members.find(member => member.after?.fingerprint === fingerprint)
+    ?? type.members.find(member =>
+      member.after === null && member.before?.fingerprint === fingerprint);
+}
+
+interface RenderedContent {
+  readonly status: string;
+  readonly content: string;
+}
+
+function renderLibrarySubject(
+  value: BrowserLibraryApiDiffSucceeded,
+  escapeHtml: (value: unknown) => string,
+  options: LibraryApiDiffRenderOptions,
+): RenderedContent {
+  const aggregate = value.aggregate;
+  const metrics = [
+    `${aggregate.changedTypeCount.toLocaleString()} changed ${
+      aggregate.changedTypeCount === 1 ? "Type" : "Types"
+    }`,
+    compactCount(aggregate.addedTypeCount, "added"),
+    compactCount(aggregate.removedTypeCount, "removed"),
+    compactCount(aggregate.changedMemberCount, "changed members"),
+    compactCount(aggregate.breakingCount, "breaking"),
+    compactCount(aggregate.additiveCount, "additive"),
+    compactCount(aggregate.potentiallyBreakingCount, "potentially breaking"),
+  ].filter(Boolean);
+  if (value.types.length === 0) {
+    return {
+      status: "Comparison complete. No changed Types.",
+      content: renderCompareEmpty(
+        "No public API changes",
+        "The selected Library is unchanged between these versions.",
+        escapeHtml,
+      ),
+    };
+  }
+  return {
+    status: `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
+    content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
+      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+      <ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
+        renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`,
+  };
+}
+
+function renderTypeSubject(
+  value: BrowserLibraryApiDiffSucceeded,
+  typeIdentifier: string,
+  escapeHtml: (value: unknown) => string,
+  options: LibraryApiDiffRenderOptions,
+): RenderedContent {
+  const type = findType(value, typeIdentifier);
+  if (type === undefined) {
+    return {
+      status: "Comparison complete. No changed Members.",
+      content: renderCompareEmpty(
+        "No public API changes",
+        "This Type is unchanged between these versions.",
+        escapeHtml,
+      ),
+    };
+  }
+  const metrics = [
+    `${type.changedMemberCount.toLocaleString()} changed ${
+      type.changedMemberCount === 1 ? "Member" : "Members"
+    }`,
+    compactCount(type.breakingCount, "breaking"),
+    compactCount(type.additiveCount, "additive"),
+    compactCount(type.potentiallyBreakingCount, "potentially breaking"),
+    type.typeDefinitionChanged === true ? "Type definition changed" : "",
+    type.state === "Addition"
+      ? "Added Type"
+      : type.state === "Deletion" ? "Removed Type" : "",
+  ].filter(Boolean);
+  // Type-level compatibility changes (kind, base type, interfaces, generic
+  // parameters, attributes) precede the Member inventory.
+  const typeChanges = renderChangeRows(
+    type.changes,
+    escapeHtml,
+    "Type-level changes",
+  );
+  // A whole-Type immersive destination is owner-issued. None is issued today,
+  // so the row is absent rather than advertised with a placeholder.
+  if (type.members.length === 0) {
+    return {
+      status: `Comparison complete. ${metrics[0] ?? "No changed Members"}.`,
+      content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
+        `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}${
+        renderCompareEmpty(
+          "No changed Members",
+          type.typeDefinitionChanged === true
+            ? "Only the Type definition changed between these versions."
+            : "No Member-level changes were reported for this Type.",
+          escapeHtml,
+        )}`,
+    };
+  }
+  return {
+    status: `Comparison complete. ${type.members.length.toLocaleString()} changed Members.`,
+    content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
+      `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}
+      <ol class="library-api-diff-members" aria-label="Changed Members">${type.members.map(member =>
+        renderMemberRow(member, escapeHtml, options.activatableMembers)).join("")}</ol>`,
+  };
+}
+
+function renderMemberSubject(
+  value: BrowserLibraryApiDiffSucceeded,
+  typeIdentifier: string,
+  memberFingerprint: string,
+  escapeHtml: (value: unknown) => string,
+): RenderedContent {
+  const type = findType(value, typeIdentifier);
+  const member = type === undefined
+    ? undefined
+    : findMember(type, memberFingerprint);
+  if (type === undefined || member === undefined) {
+    return {
+      status: "Comparison complete. This Member is unchanged.",
+      content: renderCompareEmpty(
+        "No public API change",
+        "This Member is unchanged between these versions.",
+        escapeHtml,
+      ),
+    };
+  }
+  const classification = [
+    `${memberStateLabel(member)} Member`,
+    `Relation ${String(member.role)}`,
+    ...member.changes.map(change =>
+      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
+    type.typeDefinitionChanged === true ? "Type definition changed" : "",
+  ].filter(Boolean);
+  // A Member inside an added or removed Type carries no change of its own:
+  // the classified change belongs to the Type entry.
+  const carriedByType = member.changes.length === 0
+    && (type.state === "Addition" || type.state === "Deletion");
+  const changes = member.changes.length > 0
+    ? renderChangeRows(member.changes, escapeHtml, "What changed")
+    : `<p class="library-api-diff-note">${escapeHtml(carriedByType
+      ? `No Member-level change is classified: the containing Type was ${type.state === "Addition" ? "added" : "removed"} as a whole.`
+      : "No classified compatibility change is recorded for this Member.")}</p>`;
+  // Explore opens only an owner-issued immersive destination. None is issued
+  // for Member Diff today, so no Explore action is rendered.
+  return {
+    status: `Comparison complete. Member ${memberStateLabel(member).toLowerCase()}.`,
+    content: `<div class="library-api-diff-metrics">${classification.map(metric =>
+      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+      <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
+        <h2 id="library-api-diff-changes-title">What changed</h2>
+        ${changes}
+      </section>
+      <div class="library-api-diff-member-detail">
+        ${memberIdentityEvidence("Before", member.before, escapeHtml)}
+        ${memberIdentityEvidence("After", member.after, escapeHtml)}
+      </div>
+      <p class="library-api-diff-note">Correspondence identifier <code>${escapeHtml(member.documentIdentifier)}</code></p>`,
+  };
+}
+
+function renderSucceeded(
+  value: BrowserLibraryApiDiffSucceeded,
+  escapeHtml: (value: unknown) => string,
+  options: LibraryApiDiffRenderOptions,
+): RenderedContent {
+  const subject = options.subject ?? { kind: "library" };
+  switch (subject.kind) {
+    case "library":
+      return renderLibrarySubject(value, escapeHtml, options);
+    case "type":
+      return renderTypeSubject(
+        value,
+        subject.typeIdentifier,
+        escapeHtml,
+        options,
+      );
+    case "member":
+      return renderMemberSubject(
+        value,
+        subject.typeIdentifier,
+        subject.memberFingerprint,
+        escapeHtml,
+      );
+    default: {
+      const exhaustive: never = subject;
+      throw new Error(`Unhandled Compare subject: ${String(exhaustive)}`);
+    }
+  }
+}
+
+function frame(
+  input: LibraryApiDiffOperationInput | null,
+  rendered: RenderedContent,
+  escapeHtml: (value: unknown) => string,
+  options: LibraryApiDiffRenderOptions,
+): string {
+  const target = options.targetText
+    ?? (input === null
+      ? "Package Diff target"
+      : `${input.targetVersion} → ${input.currentVersion}`);
+  return renderCompareFrame({
+    subjectKind: options.subject?.kind ?? "library",
+    subjectLabel: options.subjectLabel ?? "Library API diff",
+    mode: options.mode ?? "diff",
+    targetText: target,
+    status: rendered.status,
+    content: rendered.content,
+    escapeHtml,
+  });
 }
 
 export function renderLibraryApiDiff(
   state: LibraryApiDiffState,
   escapeHtml: (value: unknown) => string,
+  options: LibraryApiDiffRenderOptions = {},
 ): string {
   if (state.status === "idle") {
-    return renderFrame(
+    return frame(
       null,
-      "Choose a Gallery Package Library to compare.",
-      "",
+      {
+        status: "Choose a Gallery Package Library to compare.",
+        content: "",
+      },
       escapeHtml,
+      options,
     );
   }
   if (state.status === "target-loading"
     || state.status === "target-unavailable") {
-    return renderFrame(
+    return frame(
       null,
-      state.message,
-      state.status === "target-loading"
-        ? '<div class="library-api-diff-loading" aria-hidden="true"></div>'
-        : '<div class="library-api-diff-empty">Choose another Package Diff target to continue.</div>',
+      {
+        status: state.message,
+        content: state.status === "target-loading"
+          ? renderCompareLoading()
+          : renderCompareEmpty(
+              "No comparison target",
+              "Choose another Package Diff target to continue.",
+              escapeHtml,
+            ),
+      },
       escapeHtml,
+      options,
     );
   }
   if (state.status === "loading") {
-    return renderFrame(
+    return frame(
       state.input,
-      "Comparing complete public API surfaces...",
-      '<div class="library-api-diff-loading" aria-hidden="true"></div>',
+      {
+        status: "Comparing complete public API surfaces...",
+        content: renderCompareLoading(),
+      },
       escapeHtml,
+      options,
     );
   }
   if (state.status === "failed") {
-    return renderFrame(
+    return frame(
       state.input,
-      state.error,
-      '<button type="button" class="library-api-diff-retry" id="library-api-diff-retry">Retry comparison</button>',
+      { status: state.error, content: renderCompareRetry() },
       escapeHtml,
+      options,
     );
   }
 
@@ -988,35 +1490,12 @@ export function renderLibraryApiDiff(
       const value = result.value;
       if (value === null)
         throw new Error("Library API Diff success has no value.");
-      const aggregate = value.aggregate;
-      const metrics = [
-        `${aggregate.changedTypeCount.toLocaleString()} changed ${
-          aggregate.changedTypeCount === 1 ? "Type" : "Types"
-        }`,
-        compactCount(aggregate.changedMemberCount, "changed members"),
-        compactCount(aggregate.breakingCount, "breaking"),
-        compactCount(aggregate.additiveCount, "additive"),
-        compactCount(
-          aggregate.potentiallyBreakingCount,
-          "potentially breaking",
-        ),
-      ].filter(Boolean);
-      const content = value.types.length === 0
-        ? `<div class="library-api-diff-empty">
-            <strong>No public API changes</strong>
-            <span>The selected Library is unchanged between these versions.</span>
-          </div>`
-        : `<div class="library-api-diff-metrics">${metrics.map(metric =>
-            `<span>${escapeHtml(metric)}</span>`).join("")}</div>
-          <ol class="library-api-diff-types">${value.types.map(type =>
-            renderTypeRow(type, escapeHtml)).join("")}</ol>`;
-      return renderFrame(
+      const rendered = renderSucceeded(value, escapeHtml, options);
+      return frame(
         input,
-        value.types.length === 0
-          ? "Comparison complete. No changed Types."
-          : `Comparison complete. ${aggregate.changedTypeCount.toLocaleString()} changed Types.`,
-        content + diagnosticHtml,
+        { status: rendered.status, content: rendered.content + diagnosticHtml },
         escapeHtml,
+        options,
       );
     }
     case "Unavailable": {
@@ -1027,13 +1506,19 @@ export function renderLibraryApiDiff(
         endpointEvidence(unavailable.target, "Target", escapeHtml),
         endpointEvidence(unavailable.current, "Current", escapeHtml),
       ].join("");
-      return renderFrame(
+      return frame(
         input,
-        `Comparison unavailable: ${String(unavailable.kind)}.`,
-        (evidence
-          || '<div class="library-api-diff-empty">One or both API surfaces are incomplete.</div>')
-          + diagnosticHtml,
+        {
+          status: `Comparison unavailable: ${String(unavailable.kind)}.`,
+          content: (evidence
+            || renderCompareEmpty(
+              "Comparison unavailable",
+              "One or both API surfaces are incomplete.",
+              escapeHtml,
+            )) + diagnosticHtml,
+        },
         escapeHtml,
+        options,
       );
     }
     case "Rejected": {
@@ -1045,43 +1530,70 @@ export function renderLibraryApiDiff(
         : ` Bound ${rejected.bound.toLocaleString()}, observed ${
           rejected.observed?.toLocaleString() ?? "unknown"
         }.`;
-      return renderFrame(
+      return frame(
         input,
-        `Comparison rejected: ${String(rejected.kind)}.`,
-        `<div class="library-api-diff-empty">${escapeHtml(
-          `The complete result could not be admitted.${bound}`,
-        )}</div>${diagnosticHtml}`,
+        {
+          status: `Comparison rejected: ${String(rejected.kind)}.`,
+          content: renderCompareEmpty(
+            "Comparison rejected",
+            `The complete result could not be admitted.${bound}`,
+            escapeHtml,
+          ) + diagnosticHtml,
+        },
         escapeHtml,
+        options,
       );
     }
     case "Failed":
-      return renderFrame(
+      return frame(
         input,
-        result.error ?? "Library API Diff failed.",
-        '<button type="button" class="library-api-diff-retry" id="library-api-diff-retry">Retry comparison</button>',
+        {
+          status: result.error ?? "Library API Diff failed.",
+          content: renderCompareRetry(),
+        },
         escapeHtml,
+        options,
       );
     case "Canceled":
-      return renderFrame(
+      return frame(
         input,
-        "Comparison canceled.",
-        '<button type="button" class="library-api-diff-retry" id="library-api-diff-retry">Run comparison</button>',
+        {
+          status: "Comparison canceled.",
+          content: renderCompareRetry("Run comparison"),
+        },
         escapeHtml,
+        options,
       );
     default:
       throw new Error("Unknown Library API Diff result kind.");
   }
 }
 
-export function bindLibraryApiDiff(
+export interface LibraryApiDiffRowActions {
+  // Both identities are owner-issued: the exact current-side Type identifier
+  // and the exact current-side Member digest carried by the diff document.
+  readonly activateType: (typeIdentifier: string) => void;
+  readonly activateMember: (memberFingerprint: string) => void;
+}
+
+export function bindLibraryApiDiffRows(
   root: ParentNode,
-  actions: {
-    readonly changeTarget: () => void;
-    readonly retry: () => void;
-  },
+  actions: LibraryApiDiffRowActions,
 ): void {
-  root.querySelector("#library-api-diff-change-target")
-    ?.addEventListener("click", actions.changeTarget);
-  root.querySelector("#library-api-diff-retry")
-    ?.addEventListener("click", actions.retry);
+  for (const button of root.querySelectorAll<HTMLButtonElement>(
+    "[data-compare-type-id]",
+  )) {
+    button.addEventListener("click", () => {
+      const identifier = button.dataset.compareTypeId;
+      if (identifier) actions.activateType(identifier);
+    });
+  }
+  for (const button of root.querySelectorAll<HTMLButtonElement>(
+    "[data-compare-member-fingerprint]",
+  )) {
+    button.addEventListener("click", () => {
+      const fingerprint = button.dataset.compareMemberFingerprint;
+      if (fingerprint) actions.activateMember(fingerprint);
+    });
+  }
 }
