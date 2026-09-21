@@ -554,7 +554,9 @@ public sealed record ResourceExplanationRequest
     {
         ArgumentOutOfRangeException.ThrowIfNegative(depth);
         ArgumentOutOfRangeException.ThrowIfLessThan(resourceLimit, 1);
-        ArgumentOutOfRangeException.ThrowIfNegative(relationshipLimit);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            relationshipLimit,
+            1);
 
         Depth = depth;
         ResourceLimit = resourceLimit;
@@ -606,8 +608,9 @@ public sealed record ResourceExplanationTraversalReceipt
         ArgumentOutOfRangeException.ThrowIfLessThan(
             requestedResourceLimit,
             1);
-        ArgumentOutOfRangeException.ThrowIfNegative(
-            requestedRelationshipLimit);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            requestedRelationshipLimit,
+            1);
         ArgumentOutOfRangeException.ThrowIfNegative(completedDepth);
         ArgumentOutOfRangeException.ThrowIfNegative(visitedResourceCount);
         ArgumentOutOfRangeException.ThrowIfNegative(

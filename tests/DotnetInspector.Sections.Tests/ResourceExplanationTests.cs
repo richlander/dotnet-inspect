@@ -6,6 +6,39 @@ namespace DotnetInspector.Sections.Tests;
 public class ResourceExplanationTests
 {
     [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    public void Request_RequiresPositiveTraversalLimits(
+        int resourceLimit,
+        int relationshipLimit)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ResourceExplanationRequest(
+                depth: 0,
+                resourceLimit,
+                relationshipLimit));
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 0)]
+    public void TraversalReceipt_RequiresPositiveRequestedLimits(
+        int resourceLimit,
+        int relationshipLimit)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ResourceExplanationTraversalReceipt(
+                requestedDepth: 0,
+                requestedResourceLimit: resourceLimit,
+                requestedRelationshipLimit: relationshipLimit,
+                completedDepth: 0,
+                visitedResourceCount: 0,
+                emittedRelationshipCount: 0,
+                ResourceExplanationCompleteness.Complete,
+                truncationReasons: []));
+    }
+
+    [Theory]
     [InlineData(".hidden")]
     [InlineData("_private")]
     [InlineData("-option")]
