@@ -351,6 +351,22 @@ public partial class PlatformLibraryRealizationTests
                     TypeAttributes.Public,
                     "External",
                     "ExportOnly`1");
+                AddDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "Boolean");
+                TypeDefinitionHandle container = AddDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "Nested",
+                    "Container");
+                TypeDefinitionHandle nestedBoolean = AddDefinition(
+                    metadata,
+                    TypeAttributes.NestedPublic,
+                    string.Empty,
+                    "Boolean");
+                metadata.AddNestedType(nestedBoolean, container);
                 TypeDefinitionHandle outer = AddDefinition(
                     metadata,
                     TypeAttributes.Public,
@@ -424,6 +440,25 @@ public partial class PlatformLibraryRealizationTests
                             "External.ExportOnly",
                             cancellationToken))
                     .Candidate.Kind);
+
+            Assert.Equal(
+                Name("System", "Boolean"),
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "Boolean",
+                            cancellationToken))
+                    .Candidate.Name);
+            Assert.Equal(
+                Name("Nested", "Container", "Boolean"),
+                Assert.IsType<
+                        PlatformTypeCatalogQueryOutcome.Resolved>(
+                        PlatformTypeCatalogQuery.Execute(
+                            catalog,
+                            "Nested.Container.Boolean",
+                            cancellationToken))
+                    .Candidate.Name);
 
             Assert.Equal(
                 Name("Nested", "Outer`1", "Inner`2"),

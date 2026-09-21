@@ -115,6 +115,48 @@ public sealed class TsTypeMapperTests
             TsTypeMapper.MapJsonWireType("int[][]", RecordNames));
     }
 
+    [Fact]
+    public void MapJsonWireType_MapsAuthenticDateTimeOffsetToOpaqueString()
+    {
+        ApiTypeReferenceIdentity identity = FrameworkIdentity(
+            "System.DateTimeOffset");
+
+        Assert.Equal(
+            "DateTimeOffsetString",
+            TsTypeMapper.MapJsonWireType(
+                "System.DateTimeOffset",
+                RecordNames,
+                typeShape: ApiTypeShape.Named(identity)));
+    }
+
+    [Fact]
+    public void MapJsonWireType_DoesNotBrandLocalDateTimeOffset()
+    {
+        var localIdentity = new ApiTypeReferenceIdentity(
+            FixtureAssembly,
+            "System.DateTimeOffset");
+
+        Assert.Equal(
+            "LocalDateTimeOffset",
+            TsTypeMapper.MapJsonWireType(
+                "System.DateTimeOffset",
+                new HashSet<string>(
+                    ["System.DateTimeOffset"],
+                    StringComparer.Ordinal),
+                mappedTypeNames:
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["System.DateTimeOffset"] =
+                            "LocalDateTimeOffset",
+                    },
+                typeShape: ApiTypeShape.Named(localIdentity),
+                identityNames:
+                    new Dictionary<ApiTypeReferenceIdentity, string>
+                    {
+                        [localIdentity] = "LocalDateTimeOffset",
+                    }));
+    }
+
     [Theory]
     [InlineData("string?", "string")]
     [InlineData("int?", "number")]
@@ -1126,6 +1168,15 @@ public sealed class TsTypeMapperTests
             Kind = JsExportDelegateKind.Action,
             ParameterTypes = [parameterType],
         };
+
+    static ApiTypeReferenceIdentity FrameworkIdentity(string fullName) =>
+        new(
+            new ApiAssemblyIdentity(
+                "System.Private.CoreLib",
+                new Version(11, 0, 0, 0),
+                culture: null,
+                publicKeyToken: "7cec85d7bea7798e"),
+            fullName);
 
     static void AssertDelegateRejected(
         string displayType,

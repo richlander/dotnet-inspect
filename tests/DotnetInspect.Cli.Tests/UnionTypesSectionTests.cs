@@ -40,6 +40,7 @@ public class UnionTypesSectionTests
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
             PackagePath = packagePath,
+            NamesakeLibrary = true,
             IncludeSections = ["Union Types"],
             Tabular = true,
             Jsonl = true,

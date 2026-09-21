@@ -27,9 +27,9 @@ public sealed record BrowserPackageChangesPackageScope(
     string[] PackageIds);
 
 public sealed record BrowserPackageChangesResolvedRequest(
-    string ReferenceTime,
-    string FromExclusive,
-    string ThroughInclusive,
+    DateTimeOffset ReferenceTime,
+    DateTimeOffset FromExclusive,
+    DateTimeOffset ThroughInclusive,
     bool UsedDefaultInterval,
     BrowserPackageChangesPackageScope PackageScope,
     string SecuritySelection,
@@ -49,7 +49,7 @@ public sealed record BrowserPackageChangesCatalogActivity(
     string NormalizedVersion,
     string LeafUrl,
     string CommitId,
-    string CommitTimestamp,
+    DateTimeOffset CommitTimestamp,
     string CatalogKind,
     string Activity);
 
@@ -58,15 +58,15 @@ public sealed record BrowserPackageChangesAdvisoryReference(
     string? CveId,
     string Severity,
     string AdvisoryUrl,
-    string PublishedAt,
-    string UpdatedAt);
+    DateTimeOffset PublishedAt,
+    DateTimeOffset UpdatedAt);
 
 public sealed record BrowserPackageChangesAdvisoryEvidence(
     string Availability,
     BrowserPackageChangesAdvisoryReference[] Advisories);
 
 public sealed record BrowserPackageChangesPackageReceipt(
-    string ReceivedAt,
+    DateTimeOffset ReceivedAt,
     string Basis);
 
 public sealed record BrowserPackageChangesSecurityRelease(
@@ -102,7 +102,7 @@ public sealed record BrowserPackageChangesAdvisoryPackage(
 public sealed record BrowserPackageChangesAdvisoryAcquisition(
     string PackageProducerKey,
     string AdvisoryProducer,
-    string ObservedAt,
+    DateTimeOffset ObservedAt,
     int ApiRequests,
     long ResponseBytes,
     bool Complete,
@@ -113,7 +113,7 @@ public sealed record BrowserPackageChangesProgress(
     string Phase,
     long Completed,
     long? Total,
-    string? CapturedHorizon,
+    DateTimeOffset? CapturedHorizon,
     int CatalogPagesAcquired,
     int CatalogHttpAttempts,
     long CatalogDecodedBytes);
@@ -125,7 +125,7 @@ public sealed record BrowserPackageChangesFailure(
     BrowserPackageChangesReceiptFailure? PackageReceiptFailure);
 
 public sealed record BrowserPackageChangesSummary(
-    string? CapturedHorizon,
+    DateTimeOffset? CapturedHorizon,
     string? CatalogCompletion,
     BrowserPackageChangesPackageSourceFailure? CatalogFailure,
     int CatalogPagesAcquired,
