@@ -2951,7 +2951,7 @@ One restoration attempt proceeds in this order:
    `UnsupportedCompleteRestorationGroup_ReturnsTypedFailure` gates refusal.
 4. Ask the consuming host for construction authority over one fresh Workspace
    created from that exact plan. Inspect Web begins a
-   `WorkspaceRealizationCoordinator` candidate and supplies its
+   `WorkspaceReplacementCoordinator` candidate and supplies its
    `WorkspaceRealizationConstructionLease`; the CLI supplies its sole
    invocation Workspace lifetime. Populate complete explicit membership and
    registrations through ordinary Artifact and Scope operations. Resolve and
