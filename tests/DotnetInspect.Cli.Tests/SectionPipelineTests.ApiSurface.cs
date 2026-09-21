@@ -779,7 +779,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.MemberIndex,
-                SectionNames.ImplementationProfiles,
+                SectionNames.TypeMetrics,
                 SectionNames.CloneCandidates,
             ],
             Uncategorized(broad));
@@ -790,14 +790,14 @@ public partial class SectionPipelineTests
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
             ],
             Uncategorized(overload));
         Assert.Equal(
             [
                 SectionNames.FindingCensus,
                 SectionNames.CloneCandidates,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
             ],
             Uncategorized(detail));
     }
