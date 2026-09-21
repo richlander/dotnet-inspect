@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace DotnetInspector.Sections;
+namespace QuerySpace.Rows;
 
 public enum RowQueryOrderPurpose
 {
@@ -190,7 +190,7 @@ public sealed class RowQueryKey<TRow>
         return new(
             identity,
             key,
-            QueryEngineSnapshot.Own(operatorCopy),
+            QuerySpaceSnapshot.Own(operatorCopy),
             Bind,
             orderComparerFactory is null
                 ? null
@@ -403,8 +403,8 @@ public sealed class RowQueryVocabulary<TRow>
 
         return new(
             identity,
-            QueryEngineSnapshot.Own(keyCopy),
-            QueryEngineSnapshot.Own(orderCopy),
+            QuerySpaceSnapshot.Own(keyCopy),
+            QuerySpaceSnapshot.Own(orderCopy),
             defaultBaselineOrder,
             defaultTopRanking,
             keysByKey,

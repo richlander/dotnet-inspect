@@ -1,5 +1,5 @@
-using DotnetInspector.RowSelection;
-using DotnetInspector.RowSelectionConsumer;
+using QuerySpace.Rows;
+using QuerySpace.Consumer;
 
 namespace DotnetInspector.RowSelection.Tests;
 
@@ -67,4 +67,25 @@ public sealed class RowSelectionBoundaryTests
             observation.FailureAvailableCount);
     }
 
+    [Fact]
+    public void QuerySpaceDirectConsumerExecutes()
+    {
+        QuerySpaceConsumerObservation observation =
+            QuerySpaceDirectConsumer.Execute();
+
+        Assert.Equal(
+            ["high", "middle"],
+            observation.Names);
+        Assert.DoesNotContain(
+            observation.RowType.GetInterfaces(),
+            IsQuerySpaceInterface);
+        Assert.DoesNotContain(
+            observation.CollectionType.GetInterfaces(),
+            IsQuerySpaceInterface);
+    }
+
+    private static bool IsQuerySpaceInterface(Type type) =>
+        type.Namespace?.StartsWith(
+            "QuerySpace",
+            StringComparison.Ordinal) is true;
 }

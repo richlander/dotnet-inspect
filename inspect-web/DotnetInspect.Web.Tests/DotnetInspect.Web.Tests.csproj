@@ -59,6 +59,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
     <ProjectReference Include="..\..\src\UntrustedDocuments\UntrustedDocuments.csproj" />
+    <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.CloneTransportFixtures\InspectWeb.CloneTransportFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.DocumentationFixtures\InspectWeb.DocumentationFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.CloneSearchFixtures\DotnetInspector.CloneSearchFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
