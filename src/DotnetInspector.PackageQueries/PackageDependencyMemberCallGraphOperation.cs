@@ -379,12 +379,12 @@ public static class PackageDependencyMemberCallGraphOperation
             }
 
             WorkspacePackageOccurrenceDescriptor? occurrence =
-                request.Scope.FindPackageOccurrence(binding);
+                request.Scope.FindExactPackageOccurrence(binding);
             if (occurrence?.Realization.Status
                 is not ArtifactRootRealizationStatus.Ready)
             {
                 throw new ArgumentException(
-                    "Every traversal root binding must be Ready in the captured Workspace Scope.",
+                    "Every traversal root binding must identify its exact retained Ready occurrence in the captured Workspace Scope.",
                     nameof(request));
             }
         }
@@ -530,7 +530,7 @@ public static class PackageDependencyMemberCallGraphOperation
         {
             PackageRootBinding? binding = candidates.FirstOrDefault(
                 candidate => ReferenceEquals(
-                    routes.Scope.FindPackageOccurrence(candidate),
+                    routes.Scope.FindExactPackageOccurrence(candidate),
                     occurrence));
             if (binding is null
                 || !admitted.Add(occurrence.Occurrence.Identity))

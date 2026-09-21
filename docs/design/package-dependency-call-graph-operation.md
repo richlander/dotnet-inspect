@@ -263,14 +263,16 @@ Release gates cover:
    unavailable routes preserve their typed outcomes;
 5. root selection and the independent default or explicit traversal TFM
    remain distinguishable;
-6. only exact routed Package occurrences enter the package-role demand;
-7. the exact root implementation MethodDef remains the graph seed;
-8. a dependency boundary call enters the external-focused graph without
+6. every traversal root binding identifies its exact retained generation and
+   selection in the captured Workspace Scope;
+7. only exact routed Package occurrences enter the package-role demand;
+8. the exact root implementation MethodDef remains the graph seed;
+9. a dependency boundary call enters the external-focused graph without
    retaining dependency-internal continuation;
-9. route and graph evidence remain usable after source-operation and
+10. route and graph evidence remain usable after source-operation and
    package-role cleanup;
-10. cleanup failure cannot return a success-shaped graph; and
-11. existing edge realization, Workspace route, package-role, and ordinary
+11. cleanup failure cannot return a success-shaped graph; and
+12. existing edge realization, Workspace route, package-role, and ordinary
     call-graph behavior remain unchanged.
 
 ## Non-claims
