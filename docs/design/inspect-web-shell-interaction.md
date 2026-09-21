@@ -378,7 +378,11 @@ opens directly as a transient Library with Type and Member API navigation; the
 Open surface keeps rejection visible and retains focus for correction.
 A page-level drop remains available across ordinary and full-bleed routed
 surfaces and opens the overlay before work begins so progress and typed
-rejection remain visible. Routed navigation retires any in-flight Open
+rejection remain visible. File drag/drop browser defaults remain suppressed
+while Open work is busy, so a second drop cannot navigate the tab away from the
+in-flight operation. Each Open rerender restores focus inside the modal to its
+title, progress status, or rejection as appropriate. Routed navigation retires
+any in-flight Open
 operation, and beginning Open work retires older routed acquisition; a retired
 completion cannot replace the user's newer destination or rerender a dismissed
 overlay. Failed routed acquisition restores an active uploaded Library rather

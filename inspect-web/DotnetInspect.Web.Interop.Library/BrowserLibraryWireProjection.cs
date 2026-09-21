@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Text.Json;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -66,7 +67,7 @@ internal static class BrowserLibraryWireProjection
             }
         }
 
-        return new(
+        return AdmitTransport(new(
             new BrowserUploadedLibraryResult(
                 outcome,
                 content.DeclaredName.ToString(),
@@ -79,7 +80,91 @@ internal static class BrowserLibraryWireProjection
                 failure,
                 isComplete),
             Project(inspection.Share),
-            diagnostics);
+            diagnostics));
+    }
+
+    static BrowserUploadedLibraryInspection AdmitTransport(
+        BrowserUploadedLibraryInspection inspection)
+    {
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            inspection,
+            BrowserLibraryJsonContext.Default.BrowserUploadedLibraryInspection);
+        long collectionEntries =
+            BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+            + BrowserOrdinaryWorkerJsonBudget.CollectionEntries(document.RootElement);
+        if (collectionEntries
+            > BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerCollectionEntries)
+        {
+            return TransportRejected(
+                inspection,
+                "collection-entry",
+                BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerCollectionEntries,
+                collectionEntries);
+        }
+
+        long transportedCharacters =
+            BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(document.RootElement)
+            + BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead;
+        if (transportedCharacters
+            > BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerJsonCharacters)
+        {
+            return TransportRejected(
+                inspection,
+                "serialized-character",
+                BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerJsonCharacters,
+                transportedCharacters);
+        }
+
+        return inspection;
+    }
+
+    static BrowserUploadedLibraryInspection TransportRejected(
+        BrowserUploadedLibraryInspection inspection,
+        string limit,
+        long bound,
+        long observed)
+    {
+        string detail =
+            $"The Browser Library result transport truncated at the ordinary Worker "
+            + $"{limit} limit ({bound}): observed {observed}.";
+        BrowserUploadedLibraryResult content = inspection.Content;
+        var rejection = new BrowserUploadedLibraryInspection(
+            content with
+            {
+                Outcome = BrowserUploadedLibraryInspectionOutcome.Rejected,
+                Surface = null,
+                InspectionFailures = [],
+                Failure = new(
+                    BrowserUploadedLibraryFailureKind.ProjectionTruncated,
+                    detail),
+                IsComplete = false,
+            },
+            inspection.Share,
+            [
+                new(
+                    "embedded-library.browser-projection-truncated",
+                    "Error",
+                    detail,
+                    content.DeclaredName),
+            ]);
+
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            rejection,
+            BrowserLibraryJsonContext.Default.BrowserUploadedLibraryInspection);
+        if (BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+                + BrowserOrdinaryWorkerJsonBudget.CollectionEntries(document.RootElement)
+                > BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerCollectionEntries
+            || BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(
+                document.RootElement)
+                + BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+                > BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerJsonCharacters)
+        {
+            throw new InvalidOperationException(
+                "The bounded uploaded-Library transport rejection exceeds "
+                    + "the ordinary Worker admission limits.");
+        }
+
+        return rejection;
     }
 
     static BrowserUploadedLibraryFailure Project(

@@ -84,6 +84,15 @@ public static class EmbeddedLibraryInspection
             TextPolicy.Field,
             declaredName,
             maxLength: 260);
+        if (safeName.IsTruncated)
+        {
+            return Rejected(
+                safeName,
+                content.IsDefault ? 0 : content.Length,
+                digest: "",
+                EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName,
+                "The uploaded image file name exceeds the 260-character display limit.");
+        }
         if (content.IsDefaultOrEmpty)
         {
             return Rejected(

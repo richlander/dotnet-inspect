@@ -15931,9 +15931,6 @@ function openLibraryDialog() {
     ? ""
     : "Wait for the browser inspection engine to finish starting.";
   render({ synchronizeUrl: false });
-  afterCurrentNavigationFrame(() =>
-    document.querySelector<HTMLElement>("#library-open-title")
-      ?.focus({ preventScroll: true }));
 }
 
 function closeLibraryDialog() {

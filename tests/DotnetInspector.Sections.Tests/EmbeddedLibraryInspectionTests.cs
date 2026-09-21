@@ -77,6 +77,12 @@ public sealed class EmbeddedLibraryInspectionTests
                 GenerousLimits,
                 maximumImageBytes: 8,
                 cancellationToken: TestContext.Current.CancellationToken);
+        InspectionEnvelope<EmbeddedLibraryInspectionResult> truncatedName =
+            await EmbeddedLibraryInspection.ExecuteAsync(
+                new string('\u202e', 50) + ".dll",
+                [1],
+                GenerousLimits,
+                cancellationToken: TestContext.Current.CancellationToken);
 
         AssertFailure(
             unnamed,
@@ -87,8 +93,12 @@ public sealed class EmbeddedLibraryInspectionTests
         AssertFailure(
             oversized,
             EmbeddedLibraryInspectionFailureKind.ResourceBudget);
+        AssertFailure(
+            truncatedName,
+            EmbeddedLibraryInspectionFailureKind.InvalidDeclaredName);
         Assert.Null(empty.Content.Provenance);
         Assert.Null(oversized.Content.Provenance);
+        Assert.Null(truncatedName.Content.Provenance);
     }
 
     [Fact]

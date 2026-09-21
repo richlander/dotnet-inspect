@@ -142,6 +142,85 @@ public sealed class BrowserUploadedLibraryTests
                 && diagnostic.Severity == "Error");
     }
 
+    [Fact]
+    public async Task OpenUploadedLibrary_RejectsWorkerCollectionEntryOverflow()
+    {
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(BrowserUploadedLibraryTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection =
+            await EmbeddedLibraryInspection.ExecuteAsync(
+                "DotnetInspect.Web.Tests.dll",
+                [.. content],
+                BrowserApiSurfacePolicy.Limits,
+                cancellationToken: TestContext.Current.CancellationToken);
+        var oversizedSurface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "Transport",
+                    Name = "Amplifier",
+                    MetadataName = "Amplifier",
+                    Kind = "class",
+                    Members =
+                    [
+                        .. Enumerable.Range(0, 20_000).Select(index =>
+                            new ApiMember
+                            {
+                                Name = $"M{index}",
+                                Kind = "method",
+                                Signature = $"void M{index}()",
+                                SignatureModel = new ApiSignature
+                                {
+                                    ReturnType = "void",
+                                    MemberName = $"M{index}",
+                                },
+                            }),
+                    ],
+                },
+            ],
+        };
+        var oversizedInspection =
+            new InspectionEnvelope<EmbeddedLibraryInspectionResult>(
+                inspection.Content with { Surface = oversizedSurface },
+                inspection.Share,
+                inspection.Diagnostics);
+
+        BrowserUploadedLibraryInspection projected =
+            BrowserLibraryWireProjection.Project(oversizedInspection);
+
+        Assert.Equal(
+            BrowserUploadedLibraryInspectionOutcome.Rejected,
+            projected.Content.Outcome);
+        Assert.False(projected.Content.IsComplete);
+        Assert.Null(projected.Content.Surface);
+        Assert.Empty(projected.Content.InspectionFailures);
+        BrowserUploadedLibraryFailure failure =
+            Assert.IsType<BrowserUploadedLibraryFailure>(
+                projected.Content.Failure);
+        Assert.Equal(
+            BrowserUploadedLibraryFailureKind.ProjectionTruncated,
+            failure.Kind);
+        Assert.Contains("collection-entry limit", failure.Detail);
+
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            projected,
+            BrowserLibraryJsonContext.Default.BrowserUploadedLibraryInspection);
+        Assert.True(
+            BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+                + BrowserOrdinaryWorkerJsonBudget.CollectionEntries(
+                    document.RootElement)
+                <= BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerCollectionEntries);
+        Assert.True(
+            BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(
+                document.RootElement)
+                + BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+                <= BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerJsonCharacters);
+    }
+
     static BrowserUploadedLibraryInspection Deserialize(string json) =>
         JsonSerializer.Deserialize(
             json,

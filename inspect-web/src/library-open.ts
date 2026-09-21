@@ -81,17 +81,21 @@ export function bindLibraryOpenDocument(
   actions: LibraryOpenActions,
 ): () => void {
   const dragover = (event: DragEvent) => {
-    if (!hasFiles(event) || currentView().busy) return;
+    if (!hasFiles(event)) return;
     event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = currentView().busy ? "none" : "copy";
+    }
+    if (currentView().busy) return;
     root.querySelector("#library-open-dropzone")
       ?.classList.add("is-dragging");
   };
   const drop = (event: DragEvent) => {
-    if (!hasFiles(event) || currentView().busy) return;
+    if (!hasFiles(event)) return;
     event.preventDefault();
     root.querySelector("#library-open-dropzone")
       ?.classList.remove("is-dragging");
+    if (currentView().busy) return;
     submitLibraryUpload(event.dataTransfer?.files ?? [], "drop", actions);
   };
   const paste = (event: ClipboardEvent) => {
@@ -120,12 +124,14 @@ export function renderLibraryOpenDialog(
 ): string {
   if (!view.open) return "";
   const status = view.busy
-    ? `<div class="library-open-status" role="status" aria-live="polite">
+    ? `<div id="library-open-status" class="library-open-status"
+        role="status" aria-live="polite" tabindex="-1">
         <span class="loader" aria-hidden="true"></span>
         <span>Opening ${escapeHtml(view.fileName || "managed assembly")}…</span>
       </div>`
     : view.error
-      ? `<div class="library-open-error" role="alert">${escapeHtml(view.error)}</div>`
+      ? `<div id="library-open-error" class="library-open-error"
+          role="alert" tabindex="-1">${escapeHtml(view.error)}</div>`
       : `<p class="library-open-hint">The Library stays in this tab and is not uploaded to a server.</p>`;
   return `<div id="library-open-backdrop" class="modal-backdrop">
     <section id="library-open-dialog" class="application-dialog library-open-dialog"
@@ -187,6 +193,15 @@ export function bindLibraryOpen(
     }
   });
   dropzone?.addEventListener("dragleave", dragleave);
+
+  if (dialog && !dialog.contains(root.activeElement)) {
+    const focusTarget = view.error
+      ? root.querySelector<HTMLElement>("#library-open-error")
+      : view.busy
+        ? root.querySelector<HTMLElement>("#library-open-status")
+        : root.querySelector<HTMLElement>("#library-open-title");
+    focusTarget?.focus({ preventScroll: true });
+  }
 
   return () => dropzone?.removeEventListener("dragleave", dragleave);
 }

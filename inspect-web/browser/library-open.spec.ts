@@ -28,6 +28,28 @@ async function dropLibrary(page: Page, name: string, bytes: number[]) {
   }
 }
 
+async function dropLibraryAndReadDefaultPrevented(
+  page: Page,
+  name: string,
+  bytes: number[],
+) {
+  return page.evaluate(({ fileName, content }) => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File(
+      [new Uint8Array(content)],
+      fileName,
+      { type: "application/octet-stream" },
+    ));
+    const event = new DragEvent("drop", {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer,
+    });
+    document.body.dispatchEvent(event);
+    return event.defaultPrevented;
+  }, { fileName: name, content: bytes });
+}
+
 async function waitForWorkspaceReady(page: Page) {
   await expect(page.locator("#app"))
     .not.toHaveAttribute("aria-busy", "true");
@@ -46,6 +68,7 @@ test("global drop keeps managed-image rejection visible", async ({ page }) => {
     .toBeVisible();
   await expect(page.locator(".library-open-error"))
     .toHaveText("The dropped file is not a managed assembly.");
+  await expect(page.locator(".library-open-error")).toBeFocused();
 });
 
 test("routed navigation retires an in-flight upload", async ({ page }) => {
@@ -62,6 +85,16 @@ test("routed navigation retires an in-flight upload", async ({ page }) => {
     JSON.stringify(["Deferred.dll", 4]),
   );
   await expect(page.locator(".library-open-status")).toBeVisible();
+  await expect(page.locator(".library-open-status")).toBeFocused();
+  expect(await dropLibraryAndReadDefaultPrevented(
+    page,
+    "Ignored.dll",
+    [5, 6, 7, 8],
+  )).toBe(true);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-library-upload-request",
+    JSON.stringify(["Deferred.dll", 4]),
+  );
 
   await page.goBack();
   await expect(page.locator("#library-open-dialog")).toHaveCount(0);

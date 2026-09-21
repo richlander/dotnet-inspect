@@ -977,7 +977,8 @@ operation is host-neutral: its request carries a declared file name, immutable
 bytes, an explicit retained-image bound, and API-projection limits. It carries
 no path, package coordinate, project coordinate, or platform coordinate.
 The declared name is bounded inert display and provenance text; it is not
-normalized or interpreted as a filesystem path.
+normalized or interpreted as a filesystem path, and input that cannot fit the
+declared inert bound is rejected rather than silently truncated.
 
 The operation:
 
@@ -1006,10 +1007,11 @@ The Browser host rejects empty input and bounds one upload at 32 MiB before
 materialization and managed dispatch, then reasserts both constraints inside
 the operation. The UI may use the declared bounds to avoid an unnecessary
 browser allocation, but the product operation is the enforcement gate. If
-Browser DTO lowering exceeds its independent
-transport-text bound, the Browser facade converts that truncation to the same
-typed `ProjectionTruncated` rejection shape; it never serializes partial
-Library content as available. `EmbeddedLibraryInspectionTests` gates
+Browser DTO lowering exceeds its independent retained-text bound or the
+ordinary Worker's serialized-character or collection-entry bound, the Browser
+facade converts that truncation to the same typed `ProjectionTruncated`
+rejection shape; it never serializes partial Library content as available.
+`EmbeddedLibraryInspectionTests` gates
 managed-image projection, upload provenance, byte bounds, native and malformed
 rejection, netmodule rejection, and Windows Metadata rejection. Inspect Web's
 Browser boundary and TypeScript Open tests gate the production call sites and
