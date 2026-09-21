@@ -61,6 +61,12 @@ substrates, and inspection producers that will extend that space.
   bounds, source batching, consumer paging, and rendering distinct while
   exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
   consumers, and other hosts.
+  [QuerySpace Library Boundary](design/query-space-library.md) separately owns
+  the target independent `QuerySpace` assembly, package, public namespace,
+  dependency and lifetime boundaries, and optional execution-witness seams.
+  It composes the existing query owners physically without taking their
+  semantics; `DotnetInspector.QueryEngine` remains the transitional carrier
+  until the focused migration under #7976 retires it.
   [Resource Explanation](design/resource-explanation.md) owns exact,
   shell-safe product-resource paths and a bounded host-neutral explanation
   Document over owner-issued structural, query, and value-vocabulary
