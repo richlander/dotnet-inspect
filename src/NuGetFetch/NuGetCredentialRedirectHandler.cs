@@ -3,7 +3,11 @@ using System.Net.Http.Headers;
 
 namespace NuGetFetch;
 
-internal sealed class NuGetCredentialRedirectHandler(
+/// <summary>
+/// Follows bounded NuGet redirects while retaining credentials only for
+/// same-origin targets.
+/// </summary>
+public sealed class NuGetCredentialRedirectHandler(
     HttpMessageHandler innerHandler)
     : DelegatingHandler(innerHandler)
 {

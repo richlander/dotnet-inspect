@@ -26,6 +26,7 @@ public sealed class WorkspacePatCredentialResolverTests
         await MissingEnvironmentVariable_DoesNotEchoASecret();
         await DuplicateBindings_AreRejectedBeforeReadingSecrets();
         await CredentialProviderScope_DoesNotUpgradeAnonymousOrigin();
+        await WorkspacePackageRequests_FollowBoundedRedirects();
     }
 
     private static async Task EnvironmentBinding_ProducesEphemeralCredential()
@@ -352,6 +353,30 @@ public sealed class WorkspacePatCredentialResolverTests
             inner.Requests);
     }
 
+    private static async Task WorkspacePackageRequests_FollowBoundedRedirects()
+    {
+        var transport = new RedirectTransportHandler();
+        using HttpMessageHandler handler =
+            WorkspacePatCredentialResolver.CreatePackageRequestHandler(
+                transport,
+                credentialSource: null);
+        using var invoker = new HttpMessageInvoker(handler);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://feed.example/v3/index.json");
+        using HttpResponseMessage response = await invoker.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            [
+                "https://feed.example/v3/index.json",
+                "https://feed.example/v3/redirected-index.json",
+            ],
+            transport.Requests);
+    }
+
     private static WorkspacePackageSourceDefinition PatSource() =>
         new(
             "github",
@@ -373,6 +398,29 @@ public sealed class WorkspacePatCredentialResolverTests
             Requests.Add(uri.AbsoluteUri);
             return Task.FromResult<PackageSourceCredential?>(
                 new("provider", "secret"));
+        }
+    }
+
+    private sealed class RedirectTransportHandler : HttpMessageHandler
+    {
+        internal List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!.AbsoluteUri);
+            if (Requests.Count == 1)
+            {
+                var redirect = new HttpResponseMessage(
+                    System.Net.HttpStatusCode.Found);
+                redirect.Headers.Location =
+                    new Uri("redirected-index.json", UriKind.Relative);
+                return Task.FromResult(redirect);
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK));
         }
     }
 }

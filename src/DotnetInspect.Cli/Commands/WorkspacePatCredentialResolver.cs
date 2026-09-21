@@ -119,7 +119,10 @@ internal static class WorkspacePatCredentialResolver
             return new WorkspacePackageSourceRuntime(
                 sources,
                 DotnetInspector.Networking.HttpClientFactory
-                    .CreateCredentialFreeClient(),
+                    .CreateClientWithAuthentication(
+                        inner => CreatePackageRequestHandler(
+                            inner,
+                            credentialSource: null)),
                 UnavailableWorkspaceCredentialSource.Instance,
                 credentialProvider: null);
         }
@@ -137,9 +140,9 @@ internal static class WorkspacePatCredentialResolver
             HttpClient client =
                 DotnetInspector.Networking.HttpClientFactory
                     .CreateClientWithAuthentication(
-                    inner => new PluginAuthenticationHandler(
-                        scopedProvider,
-                        inner));
+                        inner => CreatePackageRequestHandler(
+                            inner,
+                            scopedProvider));
             return new WorkspacePackageSourceRuntime(
                 sources,
                 client,
@@ -184,6 +187,22 @@ internal static class WorkspacePatCredentialResolver
             }
         }
 
+    }
+
+    internal static HttpMessageHandler CreatePackageRequestHandler(
+        HttpMessageHandler innerHandler,
+        ICredentialSource? credentialSource)
+    {
+        ArgumentNullException.ThrowIfNull(innerHandler);
+        HttpMessageHandler handler = innerHandler;
+        if (credentialSource is not null)
+        {
+            handler = new PluginAuthenticationHandler(
+                credentialSource,
+                handler);
+        }
+
+        return new NuGetCredentialRedirectHandler(handler);
     }
 
     private static async Task<string> ReadSecretAsync(
