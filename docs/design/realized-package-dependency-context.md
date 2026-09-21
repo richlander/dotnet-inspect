@@ -272,7 +272,7 @@ silently move to another package occurrence.
 
 ## Production adoption
 
-Issue #7401 is the end-to-end tracker. There are seven capability steps:
+Issue #7401 is the end-to-end tracker. There are eight capability steps:
 
 1. Artifact Acquisition preserves compatible target-selection authorization
    independently from observed compatible implementation fallback under #7230.
@@ -285,10 +285,13 @@ Issue #7401 is the end-to-end tracker. There are seven capability steps:
 5. Package Dependency Traversal retains one
    `TraversalTargetFrameworkPolicy` and uses its target for compatible
    candidate-manifest selection without replacing the root selection.
-6. #6424 combines admitted declarations with destination realization, while
-   call-graph composition uses #6228 Platform subsumption to omit package routes
-   supplied by the selected Platform.
-7. Retain the shared result through CLI and Browser/Wasm call-graph
+6. [Package dependency edge
+   realization](package-dependency-edge-realization.md) combines each admitted
+   resolved edge with exact destination PackageHouse realization and optional
+   #6228 Platform subsumption.
+7. Workspace composition batches those edge results, retains destination
+   Package Root lifetimes, and emits package or Platform call-graph routes.
+8. Retain the shared result through CLI and Browser/Wasm call-graph
    experiences. Inspect Web keeps its package TFM as the root/member selection
    contract and adds an independent call-graph traversal-TFM selector defaulted
    to `net12.0`.

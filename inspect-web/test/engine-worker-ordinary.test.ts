@@ -80,6 +80,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
@@ -697,6 +698,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
   let platformDocumentationArguments: readonly unknown[] = [];
+  let libraryQueryArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -710,6 +712,41 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       },
       queryMemberDocumentation: async () =>
         contractViolation(null),
+      queryLibraries: (...args) => {
+        libraryQueryArguments = args;
+        return Promise.resolve({
+          content: {
+            results: [{
+              assetId: "compile:ref/net11.0/Example.dll",
+              library: "Example",
+              path: "ref/net11.0/Example.dll",
+              source: "Example.Package",
+              version: "1.0.0.0",
+              sourceKind: "Package",
+              targetFramework: "net11.0",
+              matchedReferences: ["System.Runtime"],
+            }],
+            failures: [],
+            summary: {
+              populationCandidates: 1,
+              candidateLimit: 256,
+              candidates: 1,
+              matches: 1,
+              failures: 0,
+              incompleteReasons: "None",
+              isComplete: true,
+            },
+          },
+          share: {
+            kind: "Available",
+            fullUrl: null,
+            packet: "packet",
+            path: null,
+            reason: null,
+          },
+          diagnostics: [],
+        });
+      },
       queryPlatformMemberDocumentation: (...args) => {
         platformDocumentationArguments = args;
         return Promise.resolve(contractViolation(null));
@@ -772,6 +809,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const libraryQuery = state.client.package.queryLibraries(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  );
   const platformDocumentation =
     state.client.package.queryPlatformMemberDocumentation(
       "net11.0",
@@ -816,6 +860,23 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual((await libraryQuery).content.results, [{
+    assetId: "compile:ref/net11.0/Example.dll",
+    library: "Example",
+    path: "ref/net11.0/Example.dll",
+    source: "Example.Package",
+    version: "1.0.0.0",
+    sourceKind: "Package",
+    targetFramework: "net11.0",
+    matchedReferences: ["System.Runtime"],
+  }]);
+  assert.deepEqual(libraryQueryArguments, [
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  ]);
   assert.equal(await platformDocumentation, null);
   assert.deepEqual(platformDocumentationArguments, [
     "net11.0",
@@ -1520,6 +1581,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "matchPackageDependencyCoordinate",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraries",
       "queryLibraryApi",
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
@@ -1604,7 +1666,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 71);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 72);
 
   const state = fixture();
   const groups = [
