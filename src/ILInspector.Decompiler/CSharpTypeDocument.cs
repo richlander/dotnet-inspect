@@ -450,11 +450,11 @@ static class CSharpTypeDocumentValidator
         ValidateArtifactBodyAssociations(data.Artifacts, data.Bodies);
         ValidateFrameBodyReferences(data.Frame, data.Bodies);
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
-        ValidateArtifactCompleteness(data.Artifacts, data.Bodies, data.Declarations);
         ValidateArtifactBodyDeclarationRoles(
             data.Artifacts,
             data.Bodies,
             data.Declarations);
+        ValidateArtifactCompleteness(data.Artifacts, data.Bodies, data.Declarations);
         ValidateBodyOwnershipAndContributionActivation(
             data.Frame,
             data.Artifacts,
@@ -807,54 +807,89 @@ static class CSharpTypeDocumentValidator
         ImmutableArray<CSharpTypePhysicalBody> bodies,
         ImmutableArray<CSharpTypeDeclaration> declarations)
     {
+        foreach (CSharpTypePhysicalArtifact artifact in artifacts)
+        {
+            CSharpTypeArtifactRepresentation representation =
+                artifact.Representation;
+            bool valid = representation.Role switch
+            {
+                CSharpTypeArtifactRole.Declaration =>
+                    IsPrimaryDeclarationArtifact(
+                        artifact,
+                        representation,
+                        declarations),
+                CSharpTypeArtifactRole.Getter =>
+                    IsAccessorArtifact(
+                        artifact,
+                        representation,
+                        declarations,
+                        CSharpTypeDeclarationKind.Property),
+                CSharpTypeArtifactRole.Setter =>
+                    IsAccessorArtifact(
+                        artifact,
+                        representation,
+                        declarations,
+                        CSharpTypeDeclarationKind.Property),
+                CSharpTypeArtifactRole.Init =>
+                    IsAccessorArtifact(
+                        artifact,
+                        representation,
+                        declarations,
+                        CSharpTypeDeclarationKind.Property),
+                CSharpTypeArtifactRole.Adder =>
+                    IsAccessorArtifact(
+                        artifact,
+                        representation,
+                        declarations,
+                        CSharpTypeDeclarationKind.Event),
+                CSharpTypeArtifactRole.Remover =>
+                    IsAccessorArtifact(
+                        artifact,
+                        representation,
+                        declarations,
+                        CSharpTypeDeclarationKind.Event),
+                CSharpTypeArtifactRole.BackingStorage =>
+                    artifact.Kind == CSharpTypeArtifactKind.Field
+                    && representation.Kind
+                        == CSharpTypeArtifactRepresentationKind.Declaration
+                    && declarations[representation.TargetId!.Value].Kind
+                        is CSharpTypeDeclarationKind.Property
+                            or CSharpTypeDeclarationKind.Event,
+                CSharpTypeArtifactRole.EnumStorage =>
+                    artifact.Kind == CSharpTypeArtifactKind.Field
+                    && representation.Kind
+                        == CSharpTypeArtifactRepresentationKind.TypeFrame,
+                CSharpTypeArtifactRole.DelegateSignature =>
+                    artifact.Kind == CSharpTypeArtifactKind.Method
+                    && representation.Kind
+                        == CSharpTypeArtifactRepresentationKind.TypeFrame,
+                CSharpTypeArtifactRole.LoweredImplementationHelper =>
+                    artifact.Kind == CSharpTypeArtifactKind.Method
+                    && representation.Kind
+                        == CSharpTypeArtifactRepresentationKind.PhysicalBody,
+                _ => false,
+            };
+            if (!valid)
+            {
+                throw new ArgumentException(
+                    $"Artifact {artifact.Id} role is inconsistent with its kind, representation, or target.");
+            }
+        }
+
         foreach (CSharpTypePhysicalBody body in bodies)
         {
             CSharpTypePhysicalArtifact artifact = artifacts[body.ArtifactId];
-            CSharpTypeArtifactRepresentation representation =
-                artifact.Representation;
-            bool valid = body.Role switch
+            bool valid = (artifact.Representation.Role, body.Role) switch
             {
-                CSharpTypeBodyRole.Method =>
-                    representation.Role switch
-                    {
-                        CSharpTypeArtifactRole.Declaration =>
-                            representation.Kind
-                                == CSharpTypeArtifactRepresentationKind.Declaration
-                            && IsOrdinaryBodyDeclaration(
-                                declarations[representation.TargetId!.Value].Kind),
-                        CSharpTypeArtifactRole.DelegateSignature =>
-                            representation.Kind
-                                == CSharpTypeArtifactRepresentationKind.TypeFrame,
-                        CSharpTypeArtifactRole.LoweredImplementationHelper =>
-                            representation.Kind
-                                == CSharpTypeArtifactRepresentationKind.PhysicalBody,
-                        _ => false,
-                    },
-                CSharpTypeBodyRole.Getter =>
-                    IsAccessor(
-                        representation,
-                        CSharpTypeArtifactRole.Getter,
-                        CSharpTypeDeclarationKind.Property),
-                CSharpTypeBodyRole.Setter =>
-                    IsAccessor(
-                        representation,
-                        CSharpTypeArtifactRole.Setter,
-                        CSharpTypeDeclarationKind.Property),
-                CSharpTypeBodyRole.Init =>
-                    IsAccessor(
-                        representation,
-                        CSharpTypeArtifactRole.Init,
-                        CSharpTypeDeclarationKind.Property),
-                CSharpTypeBodyRole.Adder =>
-                    IsAccessor(
-                        representation,
-                        CSharpTypeArtifactRole.Adder,
-                        CSharpTypeDeclarationKind.Event),
-                CSharpTypeBodyRole.Remover =>
-                    IsAccessor(
-                        representation,
-                        CSharpTypeArtifactRole.Remover,
-                        CSharpTypeDeclarationKind.Event),
+                (CSharpTypeArtifactRole.Declaration
+                    or CSharpTypeArtifactRole.DelegateSignature
+                    or CSharpTypeArtifactRole.LoweredImplementationHelper,
+                    CSharpTypeBodyRole.Method) => true,
+                (CSharpTypeArtifactRole.Getter, CSharpTypeBodyRole.Getter) => true,
+                (CSharpTypeArtifactRole.Setter, CSharpTypeBodyRole.Setter) => true,
+                (CSharpTypeArtifactRole.Init, CSharpTypeBodyRole.Init) => true,
+                (CSharpTypeArtifactRole.Adder, CSharpTypeBodyRole.Adder) => true,
+                (CSharpTypeArtifactRole.Remover, CSharpTypeBodyRole.Remover) => true,
                 _ => false,
             };
             if (!valid)
@@ -864,21 +899,53 @@ static class CSharpTypeDocumentValidator
             }
         }
 
-        bool IsAccessor(
+        static bool IsPrimaryDeclarationArtifact(
+            CSharpTypePhysicalArtifact artifact,
             CSharpTypeArtifactRepresentation representation,
-            CSharpTypeArtifactRole role,
+            ImmutableArray<CSharpTypeDeclaration> declarations)
+        {
+            if (representation.Kind
+                    != CSharpTypeArtifactRepresentationKind.Declaration)
+            {
+                return false;
+            }
+
+            CSharpTypeDeclaration declaration =
+                declarations[representation.TargetId!.Value];
+            return artifact.Kind == DeclarationArtifactKind(declaration.Kind)
+                && artifact.Anchor == declaration.Anchor
+                && artifact.MetadataToken == declaration.DeclarationToken;
+        }
+
+        static bool IsAccessorArtifact(
+            CSharpTypePhysicalArtifact artifact,
+            CSharpTypeArtifactRepresentation representation,
+            ImmutableArray<CSharpTypeDeclaration> declarations,
             CSharpTypeDeclarationKind declarationKind)
-            => representation.Role == role
+            => artifact.Kind == CSharpTypeArtifactKind.Method
                 && representation.Kind
                     == CSharpTypeArtifactRepresentationKind.Declaration
                 && declarations[representation.TargetId!.Value].Kind
                     == declarationKind;
 
-        static bool IsOrdinaryBodyDeclaration(CSharpTypeDeclarationKind kind)
-            => kind is CSharpTypeDeclarationKind.Constructor
-                or CSharpTypeDeclarationKind.Finalizer
-                or CSharpTypeDeclarationKind.Method
-                or CSharpTypeDeclarationKind.Operator;
+        static CSharpTypeArtifactKind DeclarationArtifactKind(
+            CSharpTypeDeclarationKind kind)
+            => kind switch
+            {
+                CSharpTypeDeclarationKind.Field
+                    or CSharpTypeDeclarationKind.EnumValue =>
+                    CSharpTypeArtifactKind.Field,
+                CSharpTypeDeclarationKind.Constructor
+                    or CSharpTypeDeclarationKind.Finalizer
+                    or CSharpTypeDeclarationKind.Method
+                    or CSharpTypeDeclarationKind.Operator =>
+                    CSharpTypeArtifactKind.Method,
+                CSharpTypeDeclarationKind.Property =>
+                    CSharpTypeArtifactKind.Property,
+                CSharpTypeDeclarationKind.Event =>
+                    CSharpTypeArtifactKind.Event,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            };
     }
 
     static void ValidateArtifactBodyAssociations(

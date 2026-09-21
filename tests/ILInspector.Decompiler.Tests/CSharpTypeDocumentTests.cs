@@ -220,6 +220,18 @@ public class CSharpTypeDocumentTests
             Assert.Throws<ArgumentException>(() => Create(input)).Message);
 
         input = Input();
+        input.Artifacts[0] = input.Artifacts[0] with
+        {
+            Representation = input.Artifacts[0].Representation with
+            {
+                Role = CSharpTypeArtifactRole.Getter,
+            },
+        };
+        Assert.Contains(
+            "Artifact 0 role is inconsistent",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+
+        input = Input();
         input.Artifacts[3] = input.Artifacts[3] with
         {
             Representation = input.Artifacts[3].Representation with
@@ -442,6 +454,13 @@ public class CSharpTypeDocumentTests
         Assert.True(missing["source"]!.AsObject().Remove("kind"));
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(missing.ToJsonString()));
+
+        JsonObject contradictory = Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        contradictory["artifacts"]!.AsArray()[0]!["role"] =
+            (int)CSharpTypeArtifactRole.Getter;
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(
+                contradictory.ToJsonString()));
 
         Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
             new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));
