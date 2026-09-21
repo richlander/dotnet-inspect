@@ -1981,6 +1981,7 @@ async function installRetainedWorkspacePosting(
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
 ): Promise<void> {
+  const detailNavigationSeq = navigationSequence.current();
   const activeTabId = posting.definition.activeTabId;
   const packageInventory = activeTabId === null
     ? posting.packages[0]
@@ -2011,62 +2012,65 @@ async function installRetainedWorkspacePosting(
     throw new Error("A newer retained Workspace replaced this installation.");
   }
 
-  let packageModel: AppPackage | null = null;
-  let platformModel: AppPackage | null = null;
-  try {
-    packageModel = admittedPackage
-      ? createNuGetPackageModel(admittedPackage.surface)
-      : null;
-    platformModel = admittedPlatform
-      ? createRuntimePackageModel(admittedPlatform.surface)
-      : null;
-  } catch (error) {
-    detailFailure = errorMessage(error) || "The active row details could not be projected.";
-  }
-  state.packages = [
-    ...(packageModel ? [packageModel] : []),
-    ...(platformModel ? [platformModel] : []),
-  ];
-  state.package = packageModel ?? platformModel;
-  state.platformSelection = admittedPlatform
-    ? {
-      tfm: admittedPlatform.surface.activeFramework,
-      version: admittedPlatform.surface.version,
-      includeAllLibraries: false,
-      filter: "",
+  if (navigationSequence.isCurrent(detailNavigationSeq)) {
+    let packageModel: AppPackage | null = null;
+    let platformModel: AppPackage | null = null;
+    try {
+      packageModel = admittedPackage
+        ? createNuGetPackageModel(admittedPackage.surface)
+        : null;
+      platformModel = admittedPlatform
+        ? createRuntimePackageModel(admittedPlatform.surface)
+        : null;
+    } catch (error) {
+      detailFailure = errorMessage(error)
+        || "The active row details could not be projected.";
     }
-    : null;
-  state.rootKind = state.package?.isRuntimePack ? "platform" : "package";
-  state.workspaceSubjectOpen = true;
-  state.atPackageRoot = true;
-  state.atLibraryRoot = false;
+    state.packages = [
+      ...(packageModel ? [packageModel] : []),
+      ...(platformModel ? [platformModel] : []),
+    ];
+    state.package = packageModel ?? platformModel;
+    state.platformSelection = admittedPlatform
+      ? {
+        tfm: admittedPlatform.surface.activeFramework,
+        version: admittedPlatform.surface.version,
+        includeAllLibraries: false,
+        filter: "",
+      }
+      : null;
+    state.rootKind = state.package?.isRuntimePack ? "platform" : "package";
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    if (detailFailure !== null) {
+      if (packageInventory !== undefined) {
+        const presentation = retainedWorkspacePresentation;
+        if (presentation !== null) {
+          retainedWorkspacePresentation = withNavigationPackageDetailFailure(
+            presentation,
+            packageInventory.consumerPackageSubjectId,
+            detailFailure,
+          );
+        }
+      } else if (selectedPlatformInventory !== undefined) {
+        const presentation = retainedWorkspacePresentation;
+        if (presentation !== null) {
+          retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+            presentation,
+            selectedPlatformInventory.navigationId,
+            detailFailure,
+          );
+        }
+      }
+    }
+  }
   state.loading = false;
   state.error = "";
   state.errorTitle = "";
   state.errorDetail = "";
   state.retryAction = null;
   activeWorkspaceUrl = posting.canonicalLocation;
-  if (detailFailure !== null) {
-    if (packageInventory !== undefined) {
-      const presentation = retainedWorkspacePresentation;
-      if (presentation !== null) {
-        retainedWorkspacePresentation = withNavigationPackageDetailFailure(
-          presentation,
-          packageInventory.consumerPackageSubjectId,
-          detailFailure,
-        );
-      }
-    } else if (selectedPlatformInventory !== undefined) {
-      const presentation = retainedWorkspacePresentation;
-      if (presentation !== null) {
-        retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
-          presentation,
-          selectedPlatformInventory.navigationId,
-          detailFailure,
-        );
-      }
-    }
-  }
 
   const association: InstalledLocationAssociation = {
     identity: Symbol(posting.retainedDefinitionId),
