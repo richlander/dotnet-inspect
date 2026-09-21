@@ -394,6 +394,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     0,
                     new IOException("group fixture")),
             ],
+            [],
             [new IOException("artifact fixture")]);
 
         ImmutableArray<PackageVersionCellWorkspaceCleanupFailure> failures =
