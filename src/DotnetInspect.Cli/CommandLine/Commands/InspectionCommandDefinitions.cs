@@ -364,7 +364,7 @@ public static class InspectionCommandDefinitions
 
     public static Command CreateLibraryCommand(SharedOptions opts)
     {
-        var assemblyCommand = new Command("library", "Inspect a .NET library file");
+        var assemblyCommand = new Command("library", "Inspect .NET libraries");
 
         var assemblyPathArg = new Argument<string?>("source")
         {
@@ -378,6 +378,16 @@ public static class InspectionCommandDefinitions
         var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S \"Reference Hierarchy\": maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description =
+                "Source: canonical Base64URL Workspace packet string",
+        };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description =
+                "Narrow package inspection to its uniquely named Library",
+        };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
         asmPrereleaseOption.Aliases.Add("--prerelease");
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
@@ -405,6 +415,8 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(referenceDepthOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmPackageOption);
+        assemblyCommand.Options.Add(workspaceOption);
+        assemblyCommand.Options.Add(namesakeLibraryOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
@@ -486,6 +498,10 @@ public static class InspectionCommandDefinitions
             }
             var explicitPackage = parseResult.GetValue(asmPackageOption);
             var explicitPlatform = parseResult.GetValue(asmPlatformOption);
+            string? workspacePacket =
+                parseResult.GetValue(workspaceOption);
+            bool namesakeLibrary =
+                parseResult.GetValue(namesakeLibraryOption);
 
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
@@ -499,7 +515,40 @@ public static class InspectionCommandDefinitions
                 && (opts.ParseSchema(parseResult)
                     || discoverDetails);
 
-            if (structuralDiscovery)
+            if (namesakeLibrary
+                && (string.IsNullOrWhiteSpace(explicitPackage)
+                    || !string.IsNullOrWhiteSpace(source)))
+            {
+                CommandError.Write(
+                    "--namesake-library requires --package and cannot be "
+                        + "combined with an exact Library source.");
+                return 1;
+            }
+            if (workspacePacket is not null)
+            {
+                if (string.IsNullOrWhiteSpace(explicitPackage))
+                {
+                    CommandError.Write(
+                        "--workspace on library requires --package to identify "
+                            + "one Package in the selected Workspace context.");
+                    return 1;
+                }
+                if (explicitPlatform is not null
+                    || requestedFramework is not null
+                    || requestedPlatformVersion is not null
+                    || parseResult.GetValue(asmTfmOption) is not null
+                    || parseResult.GetValue(asmPrereleaseOption))
+                {
+                    CommandError.Write(
+                        "--workspace supplies the Package location and target; "
+                            + "it cannot be combined with --platform, "
+                            + "--framework, --version, --tfm, or --preview.");
+                    return 1;
+                }
+
+                assemblyPath = source;
+            }
+            else if (structuralDiscovery)
             {
                 assemblyPath = source;
             }
@@ -719,6 +768,8 @@ public static class InspectionCommandDefinitions
             {
                 SourceIntent = sourceIntent,
                 AssemblyName = assemblyPath,
+                WorkspacePacket = workspacePacket,
+                NamesakeLibrary = namesakeLibrary,
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
