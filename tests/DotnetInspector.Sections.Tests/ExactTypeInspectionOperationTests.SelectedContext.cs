@@ -40,7 +40,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         WorkspaceContextInput input = SelectedContextInput(
             HostingPackageId,
             LoggingPackageId);
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         (WorkspaceRealizationCandidate candidate,
             WorkspaceDeclarationContext context) =
             await PrepareSelectedContextCandidateAsync(
@@ -107,7 +107,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         WorkspaceContextInput input = SelectedContextInput(
             HostingPackageId,
             LoggingPackageId);
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         (WorkspaceRealizationCandidate candidate,
             WorkspaceDeclarationContext context) =
             await PrepareSelectedContextCandidateAsync(
@@ -161,7 +161,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
         WorkspaceContextInput input =
             SelectedContextInput(LoggingPackageId);
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         (WorkspaceRealizationCandidate candidate,
             WorkspaceDeclarationContext context) =
             await PrepareSelectedContextCandidateAsync(
@@ -249,7 +249,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             NuGetCache.GetSourceKey(SourceUrl),
             Framework,
             runtimeIdentifier: null);
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
                 await coordinator.BeginCandidateAsync(
@@ -361,7 +361,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             "assemblies/CoordinateUnavailable.dll",
             new string('0', 64),
             assemblyName);
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
                 await coordinator.BeginCandidateAsync(
@@ -499,7 +499,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         WorkspaceRealizationCandidate Candidate,
         WorkspaceDeclarationContext Context)>
         PrepareSelectedContextCandidateAsync(
-            WorkspaceRealizationCoordinator coordinator,
+            WorkspaceReplacementCoordinator coordinator,
             WorkspaceContextInput input,
             WorkspaceContextLoadOptions options)
     {
@@ -527,7 +527,7 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     static async Task ActivateAsync(
-        WorkspaceRealizationCoordinator coordinator,
+        WorkspaceReplacementCoordinator coordinator,
         WorkspaceRealizationCandidate candidate)
     {
         Assert.IsType<WorkspaceRealizationCandidateCompletionResult.Ready>(
@@ -539,7 +539,7 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     static async Task<WorkspaceRealizationOperationLease> AdmitAsync(
-        WorkspaceRealizationCoordinator coordinator) =>
+        WorkspaceReplacementCoordinator coordinator) =>
         Assert.IsType<WorkspaceRealizationOperationAdmission.Admitted>(
             await coordinator.EnterOperationAsync(
                 TestContext.Current.CancellationToken))

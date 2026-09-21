@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.IO.Compression;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Tests;
@@ -152,6 +154,124 @@ public sealed class PackageSectionGrowthTests
         }
     }
 
+    [Fact]
+    public async Task
+        PackageDomainInventory_DependencyHierarchyCanExceedInformativeRange()
+    {
+        const int DependencyCount = 31;
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-package-growth-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string dependencies = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, DependencyCount).Select(index =>
+                $"""<dependency id="Hierarchy.Dependency.{index:D2}" version="[1.0.0]" />"""));
+
+        try
+        {
+            for (int index = 0; index < DependencyCount; index++)
+            {
+                await CreatePackageArchiveAsync(
+                    tempDirectory,
+                    $"Hierarchy.Dependency.{index:D2}");
+            }
+
+            string packagePath = await CreatePackageArchiveAsync(
+                tempDirectory,
+                "Hierarchy.Growth",
+                extraNuspecMetadata:
+                $$"""
+                <dependencies>
+                  <group targetFramework="net11.0">
+                    {{dependencies}}
+                  </group>
+                </dependencies>
+                """);
+            var result = await Run(
+                "package",
+                packagePath,
+                "--source",
+                tempDirectory,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Dependency Hierarchy",
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.True(result.ExitCode == 0, result.Error);
+            Assert.True(int.TryParse(result.Output.Trim(), out int count));
+            Assert.Equal(DependencyCount, count);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void
+        PackageDomainInventory_IdentifierConfusionCanExceedInformativeRange()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Identifier.Growth",
+            Version = "1.0.0",
+            DependencyGroups =
+            [
+                new DependencyGroup
+                {
+                    TargetFramework = "net11.0",
+                    Dependencies =
+                    [
+                        .. Enumerable.Range(0, 31).Select(index =>
+                            new PackageDependency
+                            {
+                                Id = $"Ѕystem.Dependency.{index:D2}",
+                                Version = "1.0.0",
+                            }),
+                    ],
+                },
+            ],
+        };
+
+        Assert.Equal(
+            31,
+            new InspectionResultView(result).IdentifierConfusion.Count);
+    }
+
+    [Fact]
+    public void PackageDomainInventory_MissingSourceCanExceedInformativeRange()
+    {
+        List<PackageSourceLinkFile> missing =
+        [
+            .. Enumerable.Range(0, 31).Select(index =>
+                new PackageSourceLinkFile(
+                    $"lib/net11.0/Library.{index:D2}.dll",
+                    $"/src/Missing.{index:D2}.cs")),
+        ];
+        var result = new InspectionResult
+        {
+            PackageName = "SourceLink.Growth",
+            Version = "1.0.0",
+            SourceAvailability = new PackageSourceAvailability(
+                TotalLibraries: 31,
+                AuditedLibraries: 31,
+                TotalSourceFiles: 31,
+                AccessibleSourceFiles: 0,
+                EmbeddedSourceFiles: 0,
+                MissingFiles: missing,
+                UnavailableLibraries: null,
+                FailedLibraries: null),
+        };
+
+        Assert.Equal(
+            31,
+            new InspectionResultView(result).MissingSourceFiles?.Count);
+    }
+
     static async Task AssertCountAsync(
         string packagePath,
         string section,
@@ -181,6 +301,21 @@ public sealed class PackageSectionGrowthTests
             Path.GetTempPath(),
             $"dotnet-inspect-package-growth-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDirectory);
+        string packagePath = await CreatePackageArchiveAsync(
+            tempDirectory,
+            id,
+            addEntries,
+            isTool);
+        return (packagePath, tempDirectory);
+    }
+
+    static async Task<string> CreatePackageArchiveAsync(
+        string tempDirectory,
+        string id,
+        Action<ZipArchive>? addEntries = null,
+        bool isTool = false,
+        string extraNuspecMetadata = "")
+    {
         string packagePath = Path.Combine(
             tempDirectory,
             $"{id.ToLowerInvariant()}.1.0.0.nupkg");
@@ -206,15 +341,16 @@ public sealed class PackageSectionGrowthTests
                         <authors>dotnet-inspect</authors>
                         <description>Package section growth probe.</description>
                         {{packageTypes}}
+                        {{extraNuspecMetadata}}
                       </metadata>
                     </package>
                     """);
             }
 
-            addEntries(archive);
+            addEntries?.Invoke(archive);
         }
 
-        return (packagePath, tempDirectory);
+        return packagePath;
     }
 
     static void AddTextEntry(
