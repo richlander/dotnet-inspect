@@ -17,7 +17,7 @@ using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class CompiledDocumentationQueryTests
+public sealed partial class CompiledDocumentationQueryTests
 {
     private const int MaximumAvailableJsonCodeUnits = 1_100;
     private const int MaximumBoundedNonAvailableJsonCodeUnits = 1_024;
@@ -1307,7 +1307,7 @@ public sealed class CompiledDocumentationQueryTests
             AssemblyReferenceIdentity.FromAssemblyDefinition(reader));
     }
 
-    private sealed class LibraryFixture : IAsyncDisposable
+    internal sealed partial class LibraryFixture : IAsyncDisposable
     {
         private readonly ArtifactFixture _artifacts;
         private readonly LibraryContentOwner _owner;

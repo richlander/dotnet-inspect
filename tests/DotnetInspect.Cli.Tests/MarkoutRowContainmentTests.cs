@@ -174,6 +174,7 @@ public class MarkoutRowContainmentTests
         "CostFactRow.Operation",
         "DiscoveryRow.Kind",
         "DiscoveryRow.Name",
+        "DiscoveryRow.Path",
         "EnumValueRow.Description",
         "EnumValueRow.Name",
         "EnumValueRow.Value",
@@ -368,9 +369,9 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt246MembersAcross51Types()
+    public void ResidualCensus_IsPinnedAt247MembersAcross51Types()
     {
-        Assert.Equal(246, NotSelfContaining.Length);
+        Assert.Equal(247, NotSelfContaining.Length);
         Assert.Equal(
             51,
             NotSelfContaining
