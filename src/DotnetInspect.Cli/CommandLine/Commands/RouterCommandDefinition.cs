@@ -1443,7 +1443,7 @@ public static class RouterCommandDefinition
                         "--library",
                         out value))
                 {
-                    return true;
+                    return !string.IsNullOrWhiteSpace(value);
                 }
 
                 if (tokens[i].Equals(
@@ -1453,7 +1453,7 @@ public static class RouterCommandDefinition
                     && !IsKnownOption(rootCommand, tokens[i + 1]))
                 {
                     value = tokens[i + 1];
-                    return true;
+                    return !string.IsNullOrWhiteSpace(value);
                 }
             }
 

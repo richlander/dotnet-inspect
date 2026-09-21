@@ -2748,29 +2748,36 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--library=")]
-    [InlineData("--library:")]
-    public async Task Router_AttachedEmptyLibraryValue_PreservesBoundedParseError(
-        string libraryOption)
+    [InlineData("--library=", null)]
+    [InlineData("--library:", null)]
+    [InlineData("--library", "")]
+    public async Task Router_EmptyLibraryValue_RoutesPackageAggregate(
+        string libraryOption,
+        string? libraryValue)
     {
-        var direct = await RunAppAsync(
-            "type",
-            "System.String",
-            libraryOption);
-        var routed = await RunAppAsync(
-            "System.String",
-            libraryOption);
+        string target = $"Missing.Package.{Guid.NewGuid():N}";
+        string[] libraryTokens = libraryValue is null
+            ? [libraryOption]
+            : [libraryOption, libraryValue];
+        string[] executionTail =
+            [.. libraryTokens, "--offline", "--tips", "q"];
+        string[] schemaTail =
+            [.. libraryTokens, "-D", "--schema", "--offline", "--tips", "q"];
 
-        Assert.Equal(direct, routed);
-        Assert.Equal(1, routed.Exit);
-        Assert.Empty(routed.Output);
-        Assert.Single(
-            routed.Error.Split(
-                Environment.NewLine,
-                StringSplitOptions.RemoveEmptyEntries));
-        Assert.DoesNotContain("Usage:", routed.Error);
-        Assert.DoesNotContain("Options:", routed.Error);
-        Assert.DoesNotContain("Commands:", routed.Error);
+        var directExecution = await RunAppAsync(
+            ["package", target, .. executionTail]);
+        var routedExecution = await RunAppAsync(
+            [target, .. executionTail]);
+        var directSchema = await RunAppAsync(
+            ["package", target, .. schemaTail]);
+        var routedSchema = await RunAppAsync(
+            [target, .. schemaTail]);
+
+        Assert.Equal(directExecution, routedExecution);
+        Assert.Equal(1, routedExecution.Exit);
+        Assert.DoesNotContain("File not found: --tips", routedExecution.Error);
+        Assert.Equal(directSchema, routedSchema);
+        Assert.DoesNotContain("File not found: --tips", routedSchema.Error);
     }
 
     [Theory]
