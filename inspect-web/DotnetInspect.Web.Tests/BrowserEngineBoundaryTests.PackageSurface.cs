@@ -1354,6 +1354,51 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryLibraries_UsesTransportAdmittedSurfacePopulation()
+    {
+        const string packageId = "Library.Query.Transport.Truncation";
+        byte[] oversized = BuildTransportAmplificationImage(
+            "A.Oversized",
+            typeCount: 10_000,
+            namespaceLength: 1_000);
+        byte[] matching = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                ("lib/net11.0/A.Oversized.dll", oversized),
+                ("lib/net11.0/Z.Match.dll", matching)));
+
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
+        string json = await PackageExports.QueryLibraries(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            JsonSerializer.Serialize(
+                surface.Assemblies.Select(assembly => assembly.Id).ToArray(),
+                BrowserPackageJsonContext.Default.StringArray),
+            """["System.Runtime"]""");
+        BrowserLibraryQueryInspection query =
+            Assert.IsType<BrowserLibraryQueryInspection>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserPackageJsonContext.Default
+                        .BrowserLibraryQueryInspection));
+
+        Assert.Empty(surface.Assemblies);
+        Assert.Contains(
+            "truncated",
+            surface.InspectionError,
+            StringComparison.Ordinal);
+        Assert.Empty(query.Content.Results);
+        Assert.Equal(0, query.Content.Summary.PopulationCandidates);
+        Assert.True(query.Content.Summary.IsComplete);
+    }
+
+    [Fact]
     public void SurfaceProjection_QualifiedCollisionIdIsAccountedBeforeCommit()
     {
         var type = new ApiType

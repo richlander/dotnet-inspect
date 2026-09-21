@@ -1239,7 +1239,7 @@ type $ManagedExports = {
             readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
             readonly "PackageCacheStats.1310674786": () => string;
             readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
-            readonly "QueryLibraries.1579276339": (packageId: string, version: string, targetFramework: string, requiredReferencesJson: string) => Promise<string>;
+            readonly "QueryLibraries.1330709314": (packageId: string, version: string, targetFramework: string, admittedAssetIdsJson: string, requiredReferencesJson: string) => Promise<string>;
             readonly "QueryLibraryApi.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
@@ -1491,9 +1491,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "QueryLibraries.1579276339");
+    value = $ownDataProperty(value, "QueryLibraries.1330709314");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraries.1579276339\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraries.1330709314\u0027 is not callable.");
     }
   }
   {
@@ -1809,8 +1809,8 @@ export async function prefetchPlatformPacks(targetFramework: string, platformVer
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
 }
 
-export async function queryLibraries(packageId: string, version: string, targetFramework: string, requiredReferencesJson: string): Promise<BrowserLibraryQueryInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraries.1579276339"](packageId, version, targetFramework, requiredReferencesJson);
+export async function queryLibraries(packageId: string, version: string, targetFramework: string, admittedAssetIdsJson: string, requiredReferencesJson: string): Promise<BrowserLibraryQueryInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraries.1330709314"](packageId, version, targetFramework, admittedAssetIdsJson, requiredReferencesJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserLibraryQueryInspection;
 }

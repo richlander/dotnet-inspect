@@ -35,6 +35,7 @@ test("Library Query filters exact assets and retains the current Library", async
       surface.package,
       surface.version,
       surface.activeFramework,
+      JSON.stringify(surface.assemblies.map(assembly => assembly.id)),
       JSON.stringify(["System.Runtime"]),
     ]),
   );

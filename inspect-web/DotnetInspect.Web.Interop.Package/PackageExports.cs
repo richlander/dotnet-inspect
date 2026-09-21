@@ -217,6 +217,7 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
+        string admittedAssetIdsJson,
         string requiredReferencesJson)
     {
         BrowserLibraryQueryInspection inspection =
@@ -224,6 +225,7 @@ public static partial class PackageExports
                 packageId,
                 version,
                 targetFramework,
+                admittedAssetIdsJson,
                 requiredReferencesJson);
         return JsonSerializer.Serialize(
             inspection,
@@ -236,8 +238,16 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
+        string admittedAssetIdsJson,
         string requiredReferencesJson)
     {
+        string[] admittedAssetIds =
+            JsonSerializer.Deserialize(
+                admittedAssetIdsJson,
+                BrowserPackageJsonContext.Default.StringArray)
+            ?? throw new ArgumentException(
+                "The admitted Browser Library roster is required.",
+                nameof(admittedAssetIdsJson));
         string[] requiredReferences =
             JsonSerializer.Deserialize(
                 requiredReferencesJson,
@@ -271,31 +281,19 @@ public static partial class PackageExports
                 version,
                 targetFramework);
         BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserWorkspaceParticipant[] population =
+            LibraryQueryPopulation(scope, admittedAssetIds);
         InspectionEnvelope<LibraryQueryDocument> envelope =
-            scope.SurfaceParticipants.IsEmpty
+            population.Length == 0
                 ? LibraryQueryInspection.ExecuteParticipants(
                     group: null,
                     population: [],
                     plan: plan)
                 : scope.UseSurface(group =>
-                {
-                    if (group.Participants.Length
-                        != scope.SurfaceParticipants.Length
-                        || group.Participants.Where((participant, index) =>
-                            !ReferenceEquals(
-                                participant.Assembly.Registration,
-                                scope.SurfaceParticipants[index]
-                                    .Assembly.Registration)).Any())
-                    {
-                        throw new InvalidOperationException(
-                            "The Browser surface occurrence order does not "
-                            + "match the Library Query population.");
-                    }
-
-                    return LibraryQueryInspection.ExecuteParticipants(
+                    LibraryQueryInspection.ExecuteParticipants(
                         group,
                         [
-                            .. scope.SurfaceParticipants.Select(participant =>
+                            .. population.Select(participant =>
                                 new LibraryQueryParticipant(
                                     participant.Participant,
                                     participant.Asset.Path,
@@ -304,19 +302,53 @@ public static partial class PackageExports
                                     AssemblySetSourceKind.Package,
                                     participant.Asset.TargetFramework)),
                         ],
-                        plan);
-                });
+                        plan));
         BrowserLibraryQueryInspection inspection =
-            ProjectLibraryQuery(scope, envelope);
+            ProjectLibraryQuery(population, envelope);
         return inspection;
     }
 
-    private static BrowserLibraryQueryInspection ProjectLibraryQuery(
+    private static BrowserWorkspaceParticipant[] LibraryQueryPopulation(
         BrowserInspectionScope scope,
+        IReadOnlyList<string> admittedAssetIds)
+    {
+        var participantsById =
+            scope.SurfaceParticipants.ToDictionary(
+                participant => participant.Asset.Id,
+                StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var population =
+            new List<BrowserWorkspaceParticipant>(admittedAssetIds.Count);
+        foreach (string assetId in admittedAssetIds)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                assetId,
+                nameof(admittedAssetIds));
+            if (!seen.Add(assetId))
+            {
+                throw new ArgumentException(
+                    "The admitted Browser Library roster contains a duplicate asset ID.",
+                    nameof(admittedAssetIds));
+            }
+            if (!participantsById.TryGetValue(
+                    assetId,
+                    out BrowserWorkspaceParticipant? participant))
+            {
+                throw new ArgumentException(
+                    "The admitted Browser Library roster contains an asset outside the current package surface.",
+                    nameof(admittedAssetIds));
+            }
+            population.Add(participant);
+        }
+        return [.. population];
+    }
+
+    private static BrowserLibraryQueryInspection ProjectLibraryQuery(
+        IReadOnlyList<BrowserWorkspaceParticipant> population,
         InspectionEnvelope<LibraryQueryDocument> envelope)
     {
         Dictionary<string, BrowserWorkspaceParticipant> participantsByPath =
-            scope.SurfaceParticipants.ToDictionary(
+            population.ToDictionary(
                 participant => participant.Asset.Path,
                 StringComparer.Ordinal);
 

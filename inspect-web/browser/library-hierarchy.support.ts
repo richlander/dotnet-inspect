@@ -610,18 +610,22 @@ async function installFacades(
           ...(versions[1] === undefined ? {} : { previousVersion: versions[1] }),
         };
       }
-      export async function queryLibraries(id, version, framework, requiredReferencesJson) {
+      export async function queryLibraries(id, version, framework, admittedAssetIdsJson, requiredReferencesJson) {
         const queryMode = packageLoading.libraryQuery ?? "ready";
         document.documentElement.dataset.libraryQueryRequest =
-          JSON.stringify([id, version, framework, requiredReferencesJson]);
+          JSON.stringify([id, version, framework, admittedAssetIdsJson, requiredReferencesJson]);
         if (queryMode === "deferred-error") {
           await new Promise(resolve => document.addEventListener(
             "finish-library-query", resolve, { once: true }));
           throw new Error("Library Query offline");
         }
         const surface = surfaceFor(id, version, framework);
-        const selected = surface.assemblies[0];
-        const results = queryMode === "empty"
+        const admittedAssetIds = JSON.parse(admittedAssetIdsJson);
+        const admitted = surface.assemblies.filter(assembly =>
+          admittedAssetIds.includes(assembly.id));
+        const selected = admitted[0];
+        const failed = admitted[2];
+        const results = queryMode === "empty" || !selected
           ? []
           : [{
               assetId: selected.id,
@@ -633,11 +637,11 @@ async function installFacades(
               targetFramework: surface.activeFramework,
               matchedReferences: JSON.parse(requiredReferencesJson),
             }];
-        const failures = queryMode === "partial"
+        const failures = queryMode === "partial" && failed
           ? [{
-              assetId: surface.assemblies[2].id,
-              library: surface.assemblies[2].name,
-              path: surface.assemblies[2].asset,
+              assetId: failed.id,
+              library: failed.name,
+              path: failed.asset,
               source: surface.package,
               kind: "InvalidMetadata",
               message: "Invalid metadata image.",
@@ -648,9 +652,9 @@ async function installFacades(
             results,
             failures,
             summary: {
-              populationCandidates: surface.assemblies.length,
+              populationCandidates: admittedAssetIds.length,
               candidateLimit: 256,
-              candidates: surface.assemblies.length,
+              candidates: admittedAssetIds.length,
               matches: results.length,
               failures: failures.length,
               incompleteReasons: failures.length ? "EvaluationFailures" : "None",

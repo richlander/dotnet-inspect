@@ -813,6 +813,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example",
     "1.0.0",
     "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
     "[\"System.Runtime\"]",
   );
   const platformDocumentation =
@@ -873,6 +874,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example",
     "1.0.0",
     "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
     "[\"System.Runtime\"]",
   ]);
   assert.equal(await platformDocumentation, null);

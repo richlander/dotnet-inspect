@@ -876,7 +876,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryLibraries: valueOperation(
       "ordinary-package-query-libraries",
-      4,
+      5,
       (
         facades,
         ...args: Parameters<PackageFacade["queryLibraries"]>

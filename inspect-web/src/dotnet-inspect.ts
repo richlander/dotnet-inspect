@@ -3418,7 +3418,10 @@ function packageLibraryInventory() {
 }
 
 function libraryQuerySignature(pkg: AppPackage, reference: string) {
-  return `${packageIdentityKey(pkg)}|references=${reference.trim().toLowerCase()}`;
+  const admittedAssetIds = pkg.assemblies.map(assembly => assembly.id);
+  return `${packageIdentityKey(pkg)}|libraries=${
+    JSON.stringify(admittedAssetIds)
+  }|references=${reference.trim().toLowerCase()}`;
 }
 
 function libraryQueryOwnsCurrentPackage() {
@@ -3475,27 +3478,33 @@ async function runLibraryQuery(requiredReference: string) {
   renderPreservingContentFrameFocus();
 
   try {
+    const admittedAssetIds =
+      JSON.stringify(pkg.assemblies.map(assembly => assembly.id));
     const inspection = await inspectLibraries(
       pkg.id,
       pkg.version,
       pkg.activeFramework,
+      admittedAssetIds,
       JSON.stringify([reference]));
     if (state.libraryQuerySequence === sequence
       && state.libraryQueryKey === key
-      && packageIdentityEquals(state.package, pkg)) {
+      && state.package
+      && libraryQuerySignature(state.package, reference) === key) {
       state.libraryQueryInspection = inspection;
     }
   } catch (error) {
     if (state.libraryQuerySequence === sequence
       && state.libraryQueryKey === key
-      && packageIdentityEquals(state.package, pkg)) {
+      && state.package
+      && libraryQuerySignature(state.package, reference) === key) {
       state.libraryQueryError =
         errorMessage(error) || "Library Query failed.";
     }
   } finally {
     if (state.libraryQuerySequence === sequence
       && state.libraryQueryKey === key
-      && packageIdentityEquals(state.package, pkg)) {
+      && state.package
+      && libraryQuerySignature(state.package, reference) === key) {
       state.libraryQueryLoading = false;
       renderPreservingContentFrameFocus();
     }

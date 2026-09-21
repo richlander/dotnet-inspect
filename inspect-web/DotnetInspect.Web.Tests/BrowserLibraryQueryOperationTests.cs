@@ -25,6 +25,7 @@ public sealed class BrowserLibraryQueryOperationTests
                 package.PackageId,
                 package.Version,
                 Framework,
+                AdmittedAssetIds(package),
                 """["DotnetInspect.Web.Core"]"""));
 
         BrowserLibraryQueryRow result =
@@ -71,6 +72,7 @@ public sealed class BrowserLibraryQueryOperationTests
                 id,
                 Version,
                 Framework,
+                "[]",
                 """["System.Runtime"]"""));
 
         Assert.Empty(inspection.Content.Results);
@@ -82,12 +84,44 @@ public sealed class BrowserLibraryQueryOperationTests
         Assert.True(inspection.Content.Summary.IsComplete);
     }
 
+    [Fact]
+    public async Task QueryLibrariesRejectsAssetOutsideCurrentSurface()
+    {
+        (BrowserPackage package, _) = await RegisterAsync();
+
+        ArgumentException error = await Assert.ThrowsAsync<ArgumentException>(
+            () => PackageExports.QueryLibraries(
+                package.PackageId,
+                package.Version,
+                Framework,
+                """["compile:ref/net11.0/Missing.dll"]""",
+                """["System.Runtime"]"""));
+
+        Assert.Contains(
+            "outside the current package surface",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
     static BrowserLibraryQueryInspection Read(string json) =>
         JsonSerializer.Deserialize(
             json,
             BrowserPackageJsonContext
                 .Default
                 .BrowserLibraryQueryInspection)!;
+
+    static string AdmittedAssetIds(BrowserPackage package)
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                package.Content,
+                package.PackageId,
+                Framework);
+        Assert.True(selection.IsSelected);
+        return JsonSerializer.Serialize(
+            selection.Assets.Select(asset => asset.Id).ToArray(),
+            BrowserPackageJsonContext.Default.StringArray);
+    }
 
     static async Task<(BrowserPackage Package, PackageCompileAsset PackageAsset)>
         RegisterAsync()

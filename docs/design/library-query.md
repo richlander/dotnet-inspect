@@ -147,11 +147,16 @@ accounting, completion, or result semantics.
 
 ## Browser/Wasm adoption
 
-Inspect Web supplies the current package surface as typed
-`LibraryQueryParticipant` values. Each value associates one exact
-`AssemblyContextParticipant` with the product-issued package asset path, package
-source and version, source kind, and target framework. The shared execution
-path evaluates direct references through
+Inspect Web supplies the exact Library roster admitted by the current package
+surface as typed `LibraryQueryParticipant` values. The Browser returns the
+product-issued asset IDs from that rendered roster to the package export, which
+validates each ID against the opened scope before constructing participants.
+Assemblies omitted by API-surface extraction or transport bounds do not enter
+the query population; the package surface's existing typed inspection notice
+remains the visible account of that omission. Each participant associates one
+exact `AssemblyContextParticipant` with the product-issued package asset path,
+package source and version, source kind, and target framework. The shared
+execution path evaluates direct references through
 `AssemblyContextReferencesQuery.ExecuteParticipant`; the Browser host does not
 open Metadata or reimplement matching, candidate accounting, completion, or
 failure semantics.

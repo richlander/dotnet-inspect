@@ -1133,7 +1133,7 @@ test("Library Query filters only Library navigation by exact asset identity", ()
     /function libraryQueryStatusHtml\(\)[\s\S]*No admitted libraries directly reference/);
   assert.match(
     appSource,
-    /async function runLibraryQuery\([\s\S]*inspectLibraries\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*JSON\.stringify\(\[reference\]\)\)[\s\S]*state\.libraryQuerySequence === sequence[\s\S]*packageIdentityEquals\(state\.package, pkg\)/);
+    /async function runLibraryQuery\([\s\S]*JSON\.stringify\(pkg\.assemblies\.map\(assembly => assembly\.id\)\)[\s\S]*inspectLibraries\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*admittedAssetIds,\s*JSON\.stringify\(\[reference\]\)\)[\s\S]*state\.libraryQuerySequence === sequence[\s\S]*libraryQuerySignature\(state\.package, reference\) === key/);
   const activatePackage =
     appSource.match(/function activatePackage\([\s\S]*?\n}\n\nfunction isDefaultAccessibility/)?.[0]
     ?? "";
