@@ -72,9 +72,10 @@ correspondence outcomes. Neither Workspace contains both versions.
 
 The neighboring one-Workspace protected replacement remains implemented by
 `NavigationScopeOperations.EvaluateCoordinateReplacementAsync` only until
-#6751 step 5 removes it. The portable production consumer moved to this producer
-under #8128. The protected path continues to use the same retention policy but
-retains its Scope association, settlement, protection, and completion behavior.
+issue #6751 step 5 removes it. The portable production consumer moved to this
+producer under #8128. The protected path continues to use the same retention
+policy but retains its Scope association, settlement, protection, and completion
+behavior.
 
 ## Boundary and composition
 
