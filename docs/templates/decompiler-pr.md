@@ -231,7 +231,7 @@ Then acquire the independent SourceLink-backed lens from the PR head:
 
 ```bash
 dotnet-inspect member {Type} {MethodSelector} {scope} \
-  -S "Source Diff" -v:d --bare > /tmp/source-diff.txt
+  -S "Source Diff" -v:d > /tmp/source-diff.txt
 ```
 
 Paste both outputs verbatim under their respective headings. The structural

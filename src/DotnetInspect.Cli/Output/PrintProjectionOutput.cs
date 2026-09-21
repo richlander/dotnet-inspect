@@ -1,6 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CSharpText;
 using DotnetInspect.Cli.Models;
+using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspect.Cli.Output;
 
@@ -14,6 +17,9 @@ public sealed record PrintableDocument(
 {
     [JsonIgnore]
     public ContainmentSelectedText? SelectedContent { get; init; }
+
+    [JsonIgnore]
+    public string? Language { get; init; }
 }
 
 /// <summary>
@@ -26,16 +32,19 @@ public sealed record PrintableRow(
     string Section,
     string Label,
     string? Path,
-    string? Url);
+    string? Url)
+{
+    public string? Language { get; init; }
+}
 
 public sealed record PrintProjectionOptions(
     RowSelector? Row,
     bool JsonOutput,
     bool Jsonl,
     bool JsonArray,
-    bool Bare,
     ProjectionDestination Destination,
-    Func<PrintableRow, ProjectionDestination>? ResolveDestination = null);
+    Func<PrintableRow, ProjectionDestination>? ResolveDestination = null,
+    bool Markdown = false);
 
 public sealed record PrintableContent(
     string Content,
@@ -60,7 +69,15 @@ public static class PrintProjectionOutput
         var rows = new List<PrintableRow>(documents.Count);
         foreach (var document in documents)
         {
-            var row = new PrintableRow(document.Row, document.Section, document.Label, document.Path, document.Url);
+            var row = new PrintableRow(
+                document.Row,
+                document.Section,
+                document.Label,
+                document.Path,
+                document.Url)
+            {
+                Language = document.Language
+            };
             content[row] = document.SelectedContent is { } selected
                 ? PrintableContent.FromContainmentSelection(selected)
                 : new PrintableContent(document.Content);
@@ -143,7 +160,8 @@ public static class PrintProjectionOutput
             payload.SelectedContent?.ToString()
                 ?? payload.Content)
         {
-            SelectedContent = payload.SelectedContent
+            SelectedContent = payload.SelectedContent,
+            Language = selectedRow.Language
         };
 
         if (options.Jsonl)
@@ -170,11 +188,15 @@ public static class PrintProjectionOutput
             return 0;
         }
 
-        WriteContentOutput(payload, destination);
+        WriteContentOutput(selected, payload, destination, options.Markdown);
         return 0;
     }
 
-    private static void WriteContentOutput(PrintableContent output, ProjectionDestination destination)
+    private static void WriteContentOutput(
+        PrintableDocument selected,
+        PrintableContent output,
+        ProjectionDestination destination,
+        bool markdown)
     {
         if (destination.ExactTransfer
             && output.ExactBytes is { } bytes
@@ -184,12 +206,43 @@ public static class PrintProjectionOutput
             return;
         }
 
-        if (output.SelectedContent is { } selected)
-            ProjectionDestinationWriter.WriteSelectedText(destination, selected);
+        if (markdown)
+        {
+            var writer = new MarkoutWriter(new MarkdownFormatter());
+            PrintProjectionMarkdownViewContext.Default.Serialize(
+                new PrintProjectionMarkdownView(
+                    selected.Label,
+                    new CodeSection(selected.Language ?? "text", selected.Content)),
+                writer);
+            ProjectionDestinationWriter.WriteRenderedText(
+                destination,
+                writer.Complete().TrimEnd() + '\n');
+            return;
+        }
+
+        if (output.SelectedContent is { } selectedContent)
+            ProjectionDestinationWriter.WriteSelectedText(destination, selectedContent);
         else
             ProjectionDestinationWriter.WriteRenderedText(destination, output.Content);
     }
 }
+
+[MarkoutSerializable(
+    AutoFields = false,
+    TitleProperty = nameof(Title))]
+internal sealed record PrintProjectionMarkdownView(
+    string Title,
+    CodeSection Content)
+{
+    [MarkoutIgnore]
+    public string Title { get; init; } = CSharpIdentifier.ContainRenderedText(Title);
+
+    [MarkoutSection(Headless = true)]
+    public CodeSection Content { get; init; } = Content;
+}
+
+[MarkoutContext(typeof(PrintProjectionMarkdownView))]
+internal partial class PrintProjectionMarkdownViewContext : MarkoutSerializerContext;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
