@@ -4303,6 +4303,9 @@ success-shaped rejection.
 the accepted and clean-rejection paths through the public API.
 `WorkspaceAdmission_SameWorkspaceDuplicateDoesNotRetireAcceptedResources`
 gates the pre-transfer duplicate-session boundary.
+`WorkspaceAdmission_CloseRejectsNewAdmissionAndOperationIssuance` gates
+close serialization, closing and closed rejection, and rejected-batch
+settlement.
 `WorkspaceAdmission_CleanupFailureProducesTypedFailedOutcome` directly gates
 failure visibility.
 

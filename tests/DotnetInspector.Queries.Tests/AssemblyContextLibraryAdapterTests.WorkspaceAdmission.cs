@@ -73,6 +73,122 @@ public sealed partial class AssemblyContextLibraryAdapterTests
 
     [Fact]
     public async Task
+        WorkspaceAdmission_CloseRejectsNewAdmissionAndOperationIssuance()
+    {
+        AssemblySource source =
+            AssemblySource.FromPathlessRuntimeImage();
+        var workspace = new InspectionWorkspace();
+        var participant =
+            new AssemblyContextParticipant(
+                source.Assembly,
+                new TestBindingPolicy());
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+
+        async Task<AssemblyContextLibraryAdapterResult.Completed>
+            MaterializeAsync() =>
+                Assert.IsType<
+                    AssemblyContextLibraryAdapterResult.Completed>(
+                        await AssemblyContextLibraryAdapter
+                            .MaterializeAsync(
+                                group,
+                                participant,
+                                AssemblyContextLibraryRole.ApiOnly,
+                                Limits(source.Bytes.Length),
+                                cancellationToken:
+                                    TestContext.Current
+                                        .CancellationToken));
+
+        AssemblyContextLibraryAdapterResult.Completed acceptedBatch =
+            await MaterializeAsync();
+        AssemblyContextLibraryAdapterResult.Completed closingBatch =
+            await MaterializeAsync();
+        AssemblyContextLibraryAdapterResult.Completed closedBatch =
+            await MaterializeAsync();
+        WorkspaceRegistrationRevision registrations =
+            CurrentRegistrations(workspace);
+        var accepted = Assert.IsType<
+            WorkspaceLibraryAdmissionOutcome.Accepted>(
+                await workspace.AdmitLibraryBatchAsync(
+                    registrations,
+                    acceptedBatch.Artifacts,
+                    [acceptedBatch.Owner]));
+        WorkspaceLibraryOccurrence occurrence =
+            Assert.Single(accepted.Receipt.Occurrences);
+        LibraryOperationLease activeLease =
+            Assert.IsType<
+                WorkspaceLibraryOperationIssueOutcome.Issued>(
+                    workspace.IssueLibraryOperation(
+                        occurrence))
+                .Lease;
+        Task<InspectionWorkspaceCloseReport>? close = null;
+
+        try
+        {
+            close = workspace.CloseAsync();
+            Assert.False(close.IsCompleted);
+
+            var closingOperation = Assert.IsType<
+                WorkspaceLibraryOperationIssueOutcome.Rejected>(
+                    workspace.IssueLibraryOperation(
+                        occurrence));
+            Assert.Equal(
+                WorkspaceLibraryOperationRejection
+                    .WorkspaceClosing,
+                closingOperation.Reason);
+
+            var closingAdmission = Assert.IsType<
+                WorkspaceLibraryAdmissionOutcome.Rejected>(
+                    await workspace.AdmitLibraryBatchAsync(
+                        registrations,
+                        closingBatch.Artifacts,
+                        [closingBatch.Owner]));
+            Assert.Equal(
+                WorkspaceLibraryAdmissionRejection
+                    .WorkspaceClosing,
+                closingAdmission.Reason);
+            Assert.Equal(
+                LibraryContentOwnerState.Released,
+                closingBatch.Owner.State);
+            Assert.Empty(
+                closingBatch.Artifacts.CleanupFailures);
+        }
+        finally
+        {
+            activeLease.Dispose();
+        }
+
+        InspectionWorkspaceCloseReport report =
+            await close.WaitAsync(
+                TestContext.Current.CancellationToken);
+        Assert.True(report.Succeeded);
+
+        var closedOperation = Assert.IsType<
+            WorkspaceLibraryOperationIssueOutcome.Rejected>(
+                workspace.IssueLibraryOperation(
+                    occurrence));
+        Assert.Equal(
+            WorkspaceLibraryOperationRejection.WorkspaceClosed,
+            closedOperation.Reason);
+
+        var closedAdmission = Assert.IsType<
+            WorkspaceLibraryAdmissionOutcome.Rejected>(
+                await workspace.AdmitLibraryBatchAsync(
+                    registrations,
+                    closedBatch.Artifacts,
+                    [closedBatch.Owner]));
+        Assert.Equal(
+            WorkspaceLibraryAdmissionRejection.WorkspaceClosed,
+            closedAdmission.Reason);
+        Assert.Equal(
+            LibraryContentOwnerState.Released,
+            closedBatch.Owner.State);
+        Assert.Empty(
+            closedBatch.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
         WorkspaceAdmission_RejectsStaleRevisionAndSettlesTransferredResources()
     {
         AssemblySource source =
