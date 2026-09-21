@@ -154,6 +154,30 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void DependencyPrefixPlanner_IsReachableFromBrowserConsumer()
+    {
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Microsoft.Extensions.Http",
+                    [
+                        new PortableQueryTerm(
+                            PackageQuery.DependsPrefixTermKey,
+                            PortableQueryOperator.Equal,
+                            "Microsoft.Extensions."),
+                    ],
+                    MaximumCandidates: 1))).Plan;
+
+        BoundPackageQueryTerm term = Assert.Single(plan.BoundTerms);
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            term.Predicate.PackagePrefix!.Prefix);
+        Assert.Equal(
+            PackageQueryExecutionClass.Nuspec,
+            term.Descriptor.ExecutionClass);
+    }
+
+    [Fact]
     public async Task QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
     {
         const string artifactText = "Artifact\u202e";
