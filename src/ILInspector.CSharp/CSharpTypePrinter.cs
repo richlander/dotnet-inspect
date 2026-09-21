@@ -794,6 +794,7 @@ public sealed class CSharpTypePrinter
         }
 
         var body = (CSharpPropertyBody)member.Body!;
+        string initializer = body.Initializer is { } expression ? $" = {expression};" : "";
         string declaration = propertyFormatter.FormatMemberWithBody(
             type.Type,
             member.Member,
@@ -809,7 +810,7 @@ public sealed class CSharpTypePrinter
                     member.Member,
                     SetterKeyword(member.Member)) + ";");
             return new RenderedFragment(
-                $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}");
+                $"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}{initializer}");
         }
 
         var fragments = new List<RenderedFragment>
@@ -833,7 +834,7 @@ public sealed class CSharpTypePrinter
                     formatter,
                     indent + 1));
         }
-        fragments.Add(new RenderedFragment($"{pad}}}"));
+        fragments.Add(new RenderedFragment($"{pad}}}{initializer}"));
         return Join(fragments, "\n");
     }
 
