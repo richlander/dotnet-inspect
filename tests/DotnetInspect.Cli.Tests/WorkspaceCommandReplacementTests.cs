@@ -235,6 +235,54 @@ public sealed partial class WorkspaceCommandTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task PackageUpdate_HonorsExplicitNuGetSourceOptions()
+    {
+        const string component =
+            "packages/microsoft.codeanalysis.csharp@5.9.0/netstandard2.0/~";
+        string packet = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":4,"t":[["Microsoft.CodeAnalysis.CSharp","5.9.0","netstandard2.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+                """,
+                TestContext.Current.CancellationToken));
+        string missingConfig = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-nuget-{Guid.NewGuid():N}.config");
+
+        var baseline = await RunCliAsync([
+            "workspace",
+            "package",
+            "update",
+            component,
+            "--packet",
+            packet,
+            "--version",
+            "5.9.0",
+        ]);
+        var restricted = await RunCliAsync([
+            "workspace",
+            "--nugetconfig",
+            missingConfig,
+            "package",
+            "update",
+            component,
+            "--packet",
+            packet,
+            "--version",
+            "5.9.0",
+        ]);
+
+        Assert.Equal(0, baseline.ExitCode);
+        Assert.NotEmpty(baseline.Output);
+        Assert.Equal(1, restricted.ExitCode);
+        Assert.Empty(restricted.Output);
+        Assert.Contains(
+            "InputRestorationFailed",
+            restricted.Error,
+            StringComparison.Ordinal);
+    }
+
     static string ReplacementPacket(string subject = "type", string facet = "type.metadata")
     {
         string json = $$$"""

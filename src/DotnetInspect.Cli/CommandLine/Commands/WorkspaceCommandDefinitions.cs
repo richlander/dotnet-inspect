@@ -329,7 +329,7 @@ public static class WorkspaceCommandDefinitions
         command.Subcommands.Add(
             UtilityCommandDefinitions.CreateWorkspacePacketCommand());
         command.Subcommands.Add(CreateWorkspaceComponentCommand());
-        command.Subcommands.Add(CreateWorkspacePackageCommand());
+        command.Subcommands.Add(CreateWorkspacePackageCommand(opts));
         return command;
     }
 
@@ -382,7 +382,7 @@ public static class WorkspaceCommandDefinitions
         return command;
     }
 
-    static Command CreateWorkspacePackageCommand()
+    static Command CreateWorkspacePackageCommand(SharedOptions opts)
     {
         var command = new Command(
             "package",
@@ -394,7 +394,7 @@ public static class WorkspaceCommandDefinitions
         });
 
         Command add = CreatePackageAddCommand();
-        Command update = CreatePackageUpdateCommand();
+        Command update = CreatePackageUpdateCommand(opts);
         Command remove = CreatePackageRemoveCommand();
         command.Subcommands.Add(add);
         command.Subcommands.Add(update);
@@ -470,7 +470,7 @@ public static class WorkspaceCommandDefinitions
         return command;
     }
 
-    static Command CreatePackageUpdateCommand()
+    static Command CreatePackageUpdateCommand(SharedOptions opts)
     {
         var command = new Command(
             "update",
@@ -559,6 +559,8 @@ public static class WorkspaceCommandDefinitions
                         : OutputFormat.Markdown,
                     ShareFormat = shareFormat,
                     PatBindings = patBindings,
+                    SourceOptions =
+                        opts.ParseNuGetSourceOptions(parseResult),
                 },
                 cancellationToken).ConfigureAwait(false);
         });
