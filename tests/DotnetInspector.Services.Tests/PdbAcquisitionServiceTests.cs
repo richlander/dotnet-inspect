@@ -304,6 +304,8 @@ public class PdbAcquisitionServiceTests
         using var client =
             new HttpClient(
                 new SymbolPackageHandler(snupkg));
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
 
         PdbStoreAcquisitionException exception =
             await Assert.ThrowsAsync<PdbStoreAcquisitionException>(
@@ -316,10 +318,24 @@ public class PdbAcquisitionServiceTests
                     [NuGetFetch.PackageSource.NuGetOrg]),
                 log: null,
                 cancellationToken:
-                    TestContext.Current.CancellationToken));
+                    TestContext.Current.CancellationToken,
+                evidence: evidence));
         Assert.Equal(
             PortablePdbStoreFailureKind.ReadFailed,
             exception.StoreFailure);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Failed,
+            document.Outcome);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.ReadFailed,
+            document.StoreFailure);
+        Assert.False(document.FromCache);
+        Assert.Equal(
+            "nuget.org",
+            document.SymbolServer);
+        Assert.NotEmpty(document.NetworkAttempts);
     }
 
     [Fact]

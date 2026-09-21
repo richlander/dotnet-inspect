@@ -1315,6 +1315,61 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task
+        AcquirePdbAsync_CanceledPartialBodyPreservesStatusAndBytes()
+    {
+        var stream = new PartialThenStallingStream();
+        var handler = new CountingHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(stream),
+            });
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new InMemoryPdbStore());
+        var evidence =
+            new PortablePdbAcquisitionEvidenceCollector();
+        using var cancellation =
+            new CancellationTokenSource();
+
+        Task<PortablePdbAcquisitionResult> acquisition =
+            downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "Partial.pdb",
+                isPortable: true,
+                isPlatformAssembly: true,
+                cancellationToken: cancellation.Token,
+                evidence: evidence);
+
+        await stream.BlockingReadStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => acquisition);
+        PortablePdbAcquisitionEvidenceDocument document =
+            evidence.ToDocument();
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Canceled,
+            document.Outcome);
+        PortablePdbNetworkAttemptEvidence attempt =
+            Assert.Single(document.NetworkAttempts);
+        Assert.Equal(
+            PortablePdbAcquisitionNetworkRoute.MicrosoftSymbolServer,
+            attempt.Route);
+        Assert.Equal(
+            PortablePdbNetworkAttemptOutcome.Canceled,
+            attempt.Outcome);
+        Assert.Equal(HttpStatusCode.OK, attempt.StatusCode);
+        Assert.Equal(1, attempt.RequestCount);
+        Assert.Equal(4, attempt.BodyBytesRead);
+    }
+
+    [Fact]
     public async Task DownloadPdbAsync_PrivateMappingDoesNotProbeNuGetOrgSnupkg()
     {
         string configPath = Path.Combine(
@@ -1395,6 +1450,65 @@ public class SymbolPackageDownloaderTests : IDisposable
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
+    }
+
+    private sealed class PartialThenStallingStream : Stream
+    {
+        private int _readCount;
+
+        public TaskCompletionSource BlockingReadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length =>
+            throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                "PDB!"u8.CopyTo(buffer.Span);
+                return 4;
+            }
+
+            BlockingReadStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            return 0;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ThrowingHandler : HttpMessageHandler

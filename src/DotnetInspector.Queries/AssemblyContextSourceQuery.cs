@@ -995,6 +995,7 @@ public static partial class AssemblyContextSourceQuery
                 context,
                 available.Value.Retained,
                 bindingPolicyVersion,
+                pdbEvidence,
                 cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -1378,6 +1379,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         ResolvedAssemblyReference retained,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence,
         CancellationToken cancellationToken)
     {
         TypePdbInspection pdb =
@@ -1390,7 +1392,8 @@ public static partial class AssemblyContextSourceQuery
                     bindingPolicyVersion,
                     context.TypeSourceLimits,
                     context.TypeSourceTimeout,
-                    cancellationToken)
+                    cancellationToken,
+                    pdbEvidence: pdbEvidence)
                 .ConfigureAwait(false);
         Exception? primaryFailure = null;
         AssemblyTypeSourceEntry result;

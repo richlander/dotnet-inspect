@@ -1151,15 +1151,26 @@ public sealed partial class AssemblyContextSourceQueryTests
             FindRepositoryRoot(), "src", "ILInspector.SourceLink", fileName));
         using var host = QueryHost.WithPdb(pdbPath, bytes);
         var request = AssemblyTypeSourceRequest.AuthoredDocument(ordinary.Type, selected.FilePath);
-        InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
+        EvidenceInspectionEnvelope<
+            AssemblyTypeSourceEntry,
+            TypeSourcePdbAcquisitionEvidence> enriched;
         await using (var workspace = new InspectionWorkspace())
         {
             using AssemblyContextGroup group =
                 workspace.CreateAssemblyContextGroup([assembly.Participant]);
-            inspection = await TypeSourceInspection.ExecuteAsync(
-                group, assembly.Participant, request, host.Context,
-                TestContext.Current.CancellationToken);
+            enriched = await TypeSourceInspection
+                .ExecuteWithPdbLatencyHedgeAndEvidenceAsync(
+                    group,
+                    assembly.Participant,
+                    request,
+                    host.Context,
+                    new TypeSourcePdbLatencyHedge(
+                        TimeSpan.FromSeconds(1),
+                        new ObservedFakeTimeProvider()),
+                    TestContext.Current.CancellationToken);
         }
+        InspectionEnvelope<AssemblyTypeSourceEntry> inspection =
+            enriched.Inspection;
 
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
         var source = Assert.IsType<AssemblyTypeSource.Pdb>(available.Source);
@@ -1179,6 +1190,13 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(0, assembly.Policy.SelectionCount);
         Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.Equal(
+            PortablePdbExternalAcquisitionOutcome.Acquired,
+            enriched.Evidence.ExternalAcquisition.Outcome);
+        Assert.False(
+            enriched.Evidence.ExternalAcquisition.FromCache);
+        Assert.NotEmpty(
+            enriched.Evidence.ExternalAcquisition.NetworkAttempts);
     }
 
     [Theory]

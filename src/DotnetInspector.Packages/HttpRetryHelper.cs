@@ -55,6 +55,11 @@ public static class HttpRetryHelper
         long BodyBytesRead = 0,
         int RequestCount = 1);
 
+    internal readonly record struct HttpBodyFetchProgress(
+        int RequestCount,
+        HttpStatusCode? StatusCode,
+        long BodyBytesRead);
+
     public readonly record struct HttpRetryResult(HttpResponseMessage? Response, HttpStatusCode? StatusCode)
     {
         public bool IsSuccess => Response is not null;
@@ -370,7 +375,34 @@ public static class HttpRetryHelper
     /// body under the untrusted-fetch timeout. Transient failures while reading the body are
     /// retried with the request.
     /// </summary>
-    public static async Task<HttpBodyFetchResult> GetBytesAfterHeadersWithRetryAsync(
+    public static Task<HttpBodyFetchResult> GetBytesAfterHeadersWithRetryAsync(
+        HttpClient client,
+        string url,
+        Func<HttpResponseMessage, bool> responseValidator,
+        int retryCount = DefaultRetryCount,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        AuthenticationHeaderValue? auth = null,
+        NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
+        long maxDownloadSize = 500_000_000,
+        Action<HttpRequestMessage>? configureRequest = null,
+        bool preservePathAndQuery = false) =>
+        GetBytesAfterHeadersWithProgressAsync(
+            client,
+            url,
+            responseValidator,
+            retryCount,
+            log,
+            cancellationToken,
+            auth,
+            trafficKind,
+            maxDownloadSize,
+            configureRequest,
+            preservePathAndQuery,
+            progress: null);
+
+    internal static async Task<HttpBodyFetchResult>
+        GetBytesAfterHeadersWithProgressAsync(
         HttpClient client,
         string url,
         Func<HttpResponseMessage, bool> responseValidator,
@@ -382,7 +414,7 @@ public static class HttpRetryHelper
         long maxDownloadSize = 500_000_000,
         Action<HttpRequestMessage>? configureRequest = null,
         bool preservePathAndQuery = false,
-        Action<int>? requestStarted = null)
+        Action<HttpBodyFetchProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -416,12 +448,19 @@ public static class HttpRetryHelper
                     configureRequest?.Invoke(request);
                     request.Options.Set(BrowserStreamingResponse, true);
                     requestCount++;
-                    requestStarted?.Invoke(requestCount);
+                    progress?.Invoke(new(
+                        requestCount,
+                        StatusCode: null,
+                        bodyBytesRead));
 
                     using var response = await client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
                         timeout.Token).ConfigureAwait(false);
+                    progress?.Invoke(new(
+                        requestCount,
+                        response.StatusCode,
+                        bodyBytesRead));
 
                     if (response.IsSuccessStatusCode)
                     {
@@ -440,7 +479,14 @@ public static class HttpRetryHelper
                             response.Content,
                             maxDownloadSize,
                             timeout.Token,
-                            read => bodyBytesRead += read).ConfigureAwait(false);
+                            read =>
+                            {
+                                bodyBytesRead += read;
+                                progress?.Invoke(new(
+                                    requestCount,
+                                    response.StatusCode,
+                                    bodyBytesRead));
+                            }).ConfigureAwait(false);
                         return new HttpBodyFetchResult(
                             bytes,
                             HttpBodyFetchStatus.Success,

@@ -129,12 +129,16 @@ public static class PdbAcquisitionService
             }
             catch (IOException exception)
             {
+                evidence?.RecordStoreFailure(
+                    PortablePdbStoreFailureKind.ReadFailed);
                 throw new PdbStoreAcquisitionException(
                     PortablePdbStoreFailureKind.ReadFailed,
                     exception);
             }
             catch (UnauthorizedAccessException exception)
             {
+                evidence?.RecordStoreFailure(
+                    PortablePdbStoreFailureKind.ReadFailed);
                 throw new PdbStoreAcquisitionException(
                     PortablePdbStoreFailureKind.ReadFailed,
                     exception);
@@ -142,6 +146,7 @@ public static class PdbAcquisitionService
         }
         else if (result.StoreFailure is { } storeFailure)
         {
+            evidence?.RecordStoreFailure(storeFailure);
             throw new PdbStoreAcquisitionException(storeFailure);
         }
         else if (result.WindowsPdbDetected)

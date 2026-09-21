@@ -132,6 +132,21 @@ public sealed class PortablePdbAcquisitionEvidenceCollector
         }
     }
 
+    /// <summary>
+    /// Settles acquisition as failed when retained PDB content cannot be
+    /// consumed from the configured store.
+    /// </summary>
+    public void RecordStoreFailure(
+        PortablePdbStoreFailureKind storeFailure)
+    {
+        lock (_gate)
+        {
+            _outcome =
+                PortablePdbExternalAcquisitionOutcome.Failed;
+            _storeFailure = storeFailure;
+        }
+    }
+
     public PortablePdbAcquisitionEvidenceDocument ToDocument()
     {
         lock (_gate)
@@ -601,14 +616,15 @@ public partial class SymbolPackageDownloader
         long started = evidence is null
             ? 0
             : Stopwatch.GetTimestamp();
-        int requestCount = 0;
-        Action<int>? requestStarted = evidence is null
+        HttpRetryHelper.HttpBodyFetchProgress progress = default;
+        Action<HttpRetryHelper.HttpBodyFetchProgress>? progressChanged =
+            evidence is null
             ? null
-            : count => requestCount = count;
+            : value => progress = value;
         try
         {
             HttpRetryHelper.HttpBodyFetchResult result =
-                await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                await HttpRetryHelper.GetBytesAfterHeadersWithProgressAsync(
                     _client,
                     url,
                     static _ => true,
@@ -618,8 +634,8 @@ public partial class SymbolPackageDownloader
                         NetworkTrafficKind.SymbolDownload,
                     maxDownloadSize:
                         maxDownloadSize,
-                    requestStarted:
-                        requestStarted).ConfigureAwait(false);
+                    progress:
+                        progressChanged).ConfigureAwait(false);
             evidence?.RecordNetworkAttempt(
                 route,
                 url,
@@ -648,11 +664,11 @@ public partial class SymbolPackageDownloader
             evidence?.RecordNetworkAttempt(
                 route,
                 url,
-                requestCount,
+                progress.RequestCount,
                 outcome:
                     PortablePdbNetworkAttemptOutcome.Canceled,
-                statusCode: null,
-                bodyBytesRead: 0,
+                progress.StatusCode,
+                progress.BodyBytesRead,
                 elapsed: Stopwatch.GetElapsedTime(started));
             throw;
         }
@@ -661,11 +677,11 @@ public partial class SymbolPackageDownloader
             evidence?.RecordNetworkAttempt(
                 route,
                 url,
-                requestCount,
+                progress.RequestCount,
                 outcome:
                     PortablePdbNetworkAttemptOutcome.Failed,
-                statusCode: null,
-                bodyBytesRead: 0,
+                progress.StatusCode,
+                progress.BodyBytesRead,
                 elapsed: Stopwatch.GetElapsedTime(started));
             throw;
         }

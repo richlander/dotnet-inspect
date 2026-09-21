@@ -464,12 +464,18 @@ symbol-package, or symbol-server route and records:
 - bytes read across attempts; and
 - monotonic elapsed duration.
 
+Canceled and failed attempts retain any response status and body-byte count
+observed before settlement rather than reporting the operation as if no
+response arrived.
+
 `Acquired` is emitted only after the downloaded or cached content has passed
 Portable PDB format and identity validation and has been retained by the
 configured store. `Unavailable` means no route produced retained matching
 content; `WindowsPdbDetected` and `StoreFailure` preserve the corresponding
-validation and persistence distinctions. A cache hit records `FromCache` and
-does not fabricate a network attempt.
+validation and persistence distinctions. A retained PDB that cannot be reopened
+by the acquisition service settles as `Failed` with `StoreFailure = ReadFailed`
+while preserving its route and cache origin. A cache hit records `FromCache`
+and does not fabricate a network attempt.
 
 This operation-scoped evidence is captured directly in the downloader rather
 than reconstructed from process-global `NetworkTelemetry` subscriptions.

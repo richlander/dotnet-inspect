@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Libraries;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
@@ -47,7 +48,8 @@ public static partial class AssemblyContextSourceQuery
                     : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
             retainLibrary,
-            retainedOperationLimits)
+            retainedOperationLimits,
+            pdbEvidence: null)
             .ConfigureAwait(false);
         PdbMemberSourceInspection inspection = authored switch
         {
@@ -82,7 +84,8 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainLibrary = true)
+        bool retainLibrary = true,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence = null)
     {
         var findingSubject = new FindingSubject(
             "type", request.Type.ToMetadataFullName());
@@ -97,7 +100,8 @@ public static partial class AssemblyContextSourceQuery
                 retainLibrary
                 && request.OriginalDocumentPath is null
                 ? context.TypeDecompilationLimits
-                : null).ConfigureAwait(false);
+                : null,
+            pdbEvidence).ConfigureAwait(false);
         try
         {
             PdbTypeSourceInspection inspection = authored switch
@@ -156,10 +160,14 @@ public static partial class AssemblyContextSourceQuery
         CancellationToken cancellationToken,
         bool retainLibrary,
         SourceHouseDecompilationLimits?
-            retainedOperationLimits)
+            retainedOperationLimits,
+        PortablePdbAcquisitionEvidenceCollector? pdbEvidence)
     {
         var opened = await OpenSourceLinkAsync(
-            retained, context, cancellationToken).ConfigureAwait(false);
+            retained,
+            context,
+            pdbEvidence,
+            cancellationToken).ConfigureAwait(false);
 
         AssemblyContextLibraryPortablePdb? companion = null;
         ImmutableArray<byte>? pdbImage = null;
