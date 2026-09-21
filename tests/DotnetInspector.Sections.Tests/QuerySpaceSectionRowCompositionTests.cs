@@ -169,6 +169,80 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
+    public void ExecutionUsesDeclarationSnapshotAfterCallerMutation()
+    {
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(CreateRowVocabulary());
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [],
+                [],
+                [PortableQueryStage.Head(1)],
+                []);
+        QuerySpaceRowIntentAssociation association =
+            new(
+                queryScope.Descriptor.Identity,
+                rowIntent,
+                ["left"]);
+        QuerySpaceRequest request =
+            QuerySpaceRequest.Create(
+                querySpace.Descriptor,
+                PortableQueryIntent.Empty,
+                ["left"],
+                [association],
+                QuerySpaceTerminalRequirement.Rows);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                queryScope,
+                schema);
+        var source = new List<ScoreRow>
+        {
+            new(1),
+            new(2),
+        };
+        SectionRowSetDeclaration<
+            string,
+            Projection,
+            ScoreRow> declaration =
+                Declaration(
+                    "left",
+                    schema,
+                    source,
+                    static (projection, rows) =>
+                        projection with
+                        {
+                            Left =
+                                rows.Select(
+                                    static row => row.Score)
+                                    .ToArray(),
+                        });
+
+        QuerySpaceSectionRowResolutionResult<Projection> resolution =
+            QuerySpaceSectionRowResolver.Resolve(
+                querySpace,
+                request,
+                [declaration],
+                sectionScope);
+
+        Assert.True(resolution.IsSuccess);
+        source.Clear();
+        source.Add(new(99));
+
+        SectionRowsOutcome<string, Projection> rows =
+            QuerySpaceSectionRowExecutor.ApplyRows(
+                resolution.Request!);
+
+        Assert.True(rows.IsSuccess);
+        Assert.Equal(
+            [1],
+            rows.Rebind(Projection.Empty).Left);
+    }
+
+    [Fact]
     public void PredicatesRunBeforeBaselineComparerResolution()
     {
         var predicateException =

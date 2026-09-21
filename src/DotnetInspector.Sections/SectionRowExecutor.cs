@@ -204,10 +204,10 @@ internal sealed class TypedSectionRowCohort<
                 TRow> rowSet =
                     _rowSets[index];
             sequences[index] =
-                RowsCohortSequence<TIdentity, TRow>.CreateBound(
-                    rowSet.Identity,
-                    rowSet.Rows,
-                    _keys[rowSet.Identity]);
+                RowsCohortSequence<TIdentity, TRow>
+                    .CreateBoundFromDeclaration(
+                        rowSet,
+                        _keys[rowSet.Identity]);
         }
 
         RowsCohortResult<TIdentity, TRow> selected =
