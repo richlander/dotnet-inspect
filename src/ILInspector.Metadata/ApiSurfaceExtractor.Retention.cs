@@ -102,6 +102,7 @@ public static partial class ApiSurfaceExtractor
         AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.DeclaringTypeDefinitionName);
         AddText(ref count, member.EnumValueLiteral);
+        AddText(ref count, member.ConstantValueLiteral);
         AddText(ref count, member.JsonPropertyName);
         AddText(ref count, member.GetterAccessibility);
         AddText(ref count, member.SetterAccessibility);

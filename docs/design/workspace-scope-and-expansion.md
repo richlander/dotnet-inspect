@@ -188,7 +188,9 @@ The claim is:
 > For one exact open Workspace, construction or replacement retains one
 > complete ordered registration revision. Replacement either publishes the
 > entire validated request against the exact current revision, reports a
-> no-op, or leaves that revision unchanged.
+> no-op, or leaves that revision unchanged. Each retained Ecosystem declaration
+> has one exact Workspace-bound occurrence and one Workspace-to-Ecosystem
+> contribution relation.
 
 `WorkspaceRegistration` is a closed union of exact-library coordinates,
 package-prefix declarations, and lower ecosystem declarations. Each arm
@@ -292,6 +294,24 @@ sequence, not parallel state. A closing or closed
 Workspace instead returns `Unavailable` with its historical last revision
 and the existing Workspace lifetime failure. It does not return that revision
 as current.
+
+`EcosystemContributions` is the revision's owner-ordered sequence of exact
+Workspace-to-Ecosystem contribution relations. Each relation binds a separate
+opaque relation identity and one
+`WorkspaceEcosystemRegistrationOccurrence`, whose occurrence identity binds
+the exact Workspace and exact lower declaration object. Subject and route
+consumers use those issued values rather than the declaration ID, list
+position, or display text.
+
+Publishing a replacement preserves an Ecosystem occurrence and its contribution
+relation only when the exact declaration object remains in the new
+registration set. Reordering that declaration preserves both identities while
+changing owner order. An equal-value replacement declaration receives fresh
+identities. Removal retires the current occurrence and relation; later
+re-adding even the original declaration object issues fresh identities rather
+than reviving historical evidence. Historical revisions remain immutable.
+Constructing two Workspaces from one reusable plan issues independent live
+occurrences and relations for each Workspace.
 
 `ReplaceRegistrations(expectedRevision, registrations)` is a synchronous,
 in-memory operation. It shares the existing Workspace
@@ -494,6 +514,14 @@ factory, CLI flag or browser behavior is introduced here.
 Platform and `Microsoft.Extensions.` declarations. They cover complete initial
 state, identity/equality boundaries, stale/foreign requests, close, historical
 revisions, competing replacements, and unchanged physical/Package state.
+`EcosystemOccurrenceAndContributionFollowExactDeclarationAcrossRevisions`
+gates exact Workspace/declaration binding, owner order, historical immutability,
+and identity preservation across reorder.
+`SameEcosystemIdWithNewDeclarationReplacesIssuedCorrespondence` gates fresh
+occurrence and relation issuance for equal-text replacement and
+removal/re-addition.
+`ReusedPlanIssuesWorkspaceLocalEcosystemOccurrences` gates independent live
+identities when one resource-free plan constructs multiple Workspaces.
 The plan cases also exercise non-friend construction, sharing across independent
 owners, exact revision-to-plan association, unchanged historical plans, and
 reuse after close without transferring revision authority.
@@ -584,6 +612,8 @@ It owns:
 - one independent immutable current `WorkspaceRegistrationRevision`;
 - ordered committed Package occurrences, typed Package descriptors, and their
   Workspace-bound identities;
+- ordered exact Ecosystem registration occurrences and Workspace-to-Ecosystem
+  contribution relations;
 - explicit Package addition, replacement, removal, and Clear operations;
 - complete ordered inert registration and exact-revision replacement;
 - one immutable traversal target-framework policy issued by

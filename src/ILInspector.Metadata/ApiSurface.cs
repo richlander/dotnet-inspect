@@ -412,7 +412,13 @@ public sealed record ApiSurfaceInspectionFailure(
     public int? OwningTypeToken { get; init; }
 
     [JsonIgnore]
+    public int? OwningTypeParentToken { get; init; }
+
+    [JsonIgnore]
     public MetadataTypeDefinitionName? OwningTypeDefinition { get; init; }
+
+    [JsonIgnore]
+    public TypeAttributes? OwningTypeAttributes { get; init; }
 
     [JsonIgnore]
     public ImmutableArray<MetadataTypeDefinitionName>
@@ -1533,6 +1539,10 @@ public class ApiMember
 
     /// <summary>Lossless decimal literal text for enum constants, including unsigned 64-bit values.</summary>
     public string? EnumValueLiteral { get; set; }
+
+    /// <summary>Exact C# initializer text for a non-enum metadata constant.</summary>
+    [JsonIgnore]
+    public string? ConstantValueLiteral { get; set; }
 
     // Source information (populated with --source-url)
     public string? SourceFilePath { get; set; }
