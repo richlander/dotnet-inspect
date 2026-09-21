@@ -195,7 +195,8 @@ import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.t
 import { bindSavedWorkspaces, restoreSavedWorkspaceFocus } from "./saved-workspaces-view.ts";
 import {
   createNavigationDescriptorPresentation,
-  resolveNavigationPresentationAction,
+  withNavigationPackageDetailFailure,
+  withNavigationPlatformDetailFailure,
   type NavigationDescriptorPresentation,
 } from "./navigation-descriptor-presentation.ts";
 import {
@@ -624,7 +625,6 @@ import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
   BrowserPackageSurface as CatalogPackageSurface,
-  BrowserRetainedNavigationAction,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspacePackage,
   BrowserRetainedWorkspacePackageInventory,
@@ -1809,6 +1809,12 @@ function parkActiveCompatibilityWorkspace(): void {
 }
 
 function postRetainedWorkspace(posting: BrowserRetainedWorkspacePosting): void {
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  if (captureWorkspaceFocus(focusedElement) !== null) {
+    focusApplicationMenuButton(document);
+  }
   parkActiveCompatibilityWorkspace();
   activeRetainedWorkspacePosting = posting;
   retainedWorkspacePostings.set(posting.retainedDefinitionId, posting);
@@ -1975,39 +1981,57 @@ async function installRetainedWorkspacePosting(
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
 ): Promise<void> {
-  const [packages, platforms] = await Promise.all([
-    Promise.all(posting.packages.map(inventory =>
-      admitRetainedPackage(posting, inventory))),
-    Promise.all(posting.platforms.map(inventory =>
-      admitRetainedPlatform(posting, inventory))),
-  ]);
+  const activeTabId = posting.definition.activeTabId;
+  const packageInventory = activeTabId === null
+    ? posting.packages[0]
+    : posting.packages.find(inventory =>
+        inventory.navigationId === activeTabId);
+  const selectedPlatformInventory = packageInventory === undefined
+    ? activeTabId === null
+      ? posting.platforms[0]
+      : posting.platforms.find(inventory =>
+          inventory.navigationId === activeTabId)
+    : undefined;
+  let admittedPackage: BrowserRetainedWorkspacePackage | null = null;
+  let admittedPlatform: BrowserRetainedWorkspacePlatform | null = null;
+  let detailFailure: string | null = null;
+  try {
+    if (packageInventory !== undefined) {
+      admittedPackage = await admitRetainedPackage(posting, packageInventory);
+    } else if (selectedPlatformInventory !== undefined) {
+      admittedPlatform = await admitRetainedPlatform(
+        posting,
+        selectedPlatformInventory,
+      );
+    }
+  } catch (error) {
+    detailFailure = errorMessage(error) || "The active row details are unavailable.";
+  }
   if (activeRetainedWorkspacePosting?.realizationId !== posting.realizationId) {
     throw new Error("A newer retained Workspace replaced this installation.");
   }
 
-  const packageModels = packages.map(item =>
-    createNuGetPackageModel(item.surface));
-  const platformModels = platforms.map(item =>
-    createRuntimePackageModel(item.surface));
-  state.packages = [...packageModels, ...platformModels];
-  const activeTabId = posting.definition.activeTabId;
-  const activePackageIndex = posting.packages.findIndex(
-    inventory => inventory.navigationId === activeTabId);
-  const activePlatformIndex = posting.platforms.findIndex(
-    inventory => inventory.navigationId === activeTabId);
-  state.package = activePackageIndex >= 0
-    ? packageModels[activePackageIndex] ?? null
-    : activePlatformIndex >= 0
-      ? platformModels[activePlatformIndex] ?? null
-      : packageModels[0] ?? platformModels[0] ?? null;
-  const selectedPlatform =
-    activePlatformIndex >= 0
-      ? platforms[activePlatformIndex]
-      : platforms[0];
-  state.platformSelection = selectedPlatform
+  let packageModel: AppPackage | null = null;
+  let platformModel: AppPackage | null = null;
+  try {
+    packageModel = admittedPackage
+      ? createNuGetPackageModel(admittedPackage.surface)
+      : null;
+    platformModel = admittedPlatform
+      ? createRuntimePackageModel(admittedPlatform.surface)
+      : null;
+  } catch (error) {
+    detailFailure = errorMessage(error) || "The active row details could not be projected.";
+  }
+  state.packages = [
+    ...(packageModel ? [packageModel] : []),
+    ...(platformModel ? [platformModel] : []),
+  ];
+  state.package = packageModel ?? platformModel;
+  state.platformSelection = admittedPlatform
     ? {
-      tfm: selectedPlatform.surface.activeFramework,
-      version: selectedPlatform.surface.version,
+      tfm: admittedPlatform.surface.activeFramework,
+      version: admittedPlatform.surface.version,
       includeAllLibraries: false,
       filter: "",
     }
@@ -2022,6 +2046,27 @@ async function installRetainedWorkspacePosting(
   state.errorDetail = "";
   state.retryAction = null;
   activeWorkspaceUrl = posting.canonicalLocation;
+  if (detailFailure !== null) {
+    if (packageInventory !== undefined) {
+      const presentation = retainedWorkspacePresentation;
+      if (presentation !== null) {
+        retainedWorkspacePresentation = withNavigationPackageDetailFailure(
+          presentation,
+          packageInventory.consumerPackageSubjectId,
+          detailFailure,
+        );
+      }
+    } else if (selectedPlatformInventory !== undefined) {
+      const presentation = retainedWorkspacePresentation;
+      if (presentation !== null) {
+        retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+          presentation,
+          selectedPlatformInventory.navigationId,
+          detailFailure,
+        );
+      }
+    }
+  }
 
   const association: InstalledLocationAssociation = {
     identity: Symbol(posting.retainedDefinitionId),
@@ -2047,49 +2092,62 @@ async function installRetainedWorkspacePosting(
   render({ synchronizeUrl: false });
 }
 
-function navigationActionsEqual(
-  left: BrowserRetainedNavigationAction,
-  right: BrowserRetainedNavigationAction,
-): boolean {
-  return left.session === right.session
-    && left.generation === right.generation
-    && left.id === right.id
-    && left.source === right.source
-    && left.kind === right.kind;
-}
-
-async function activateRetainedPackageAction(token: string): Promise<void> {
+async function activateRetainedPackageAction(
+  navigationId: string,
+): Promise<void> {
   const posting = activeRetainedWorkspacePosting;
   const presentation = retainedWorkspacePresentation;
   if (posting === null || presentation === null) {
     throw new Error("The retained Workspace is no longer active.");
   }
-  const intent = resolveNavigationPresentationAction(presentation, token);
+  const navigationSeq = navigationSequence.begin();
+  const inventory = posting.packages.find(
+    candidate => candidate.navigationId === navigationId);
   const item = presentation.packages.find(
-    candidate => candidate.subject.action === token);
+    candidate => candidate.navigationId === navigationId);
   if (item === undefined) {
     throw new Error("The retained Package action is no longer available.");
   }
-  const inventory = posting.packages.find(
-    candidate =>
-      candidate.consumerPackageSubjectId === item.subject.identity);
   if (inventory === undefined) {
     throw new Error("The retained Package inventory is no longer available.");
   }
-  const admitted = await admitRetainedPackage(posting, inventory);
+  let packageModel: AppPackage;
+  try {
+    const admitted = await admitRetainedPackage(posting, inventory);
+    packageModel = createNuGetPackageModel(admitted.surface);
+  } catch (error) {
+    const currentPresentation = retainedWorkspacePresentation;
+    const currentPosting = activeRetainedWorkspacePosting;
+    if (currentPresentation !== null
+      && navigationSequence.isCurrent(navigationSeq)
+      && currentPosting?.realizationId === posting.realizationId) {
+      if (currentPresentation.packages.some(
+        candidate => candidate.navigationId === navigationId)) {
+        retainedWorkspacePresentation = withNavigationPackageDetailFailure(
+          currentPresentation,
+          inventory.consumerPackageSubjectId,
+          errorMessage(error) || "The Package details are unavailable.",
+        );
+        render({ synchronizeUrl: false });
+      }
+    }
+    return;
+  }
   const currentPresentation = retainedWorkspacePresentation;
   const currentPosting = activeRetainedWorkspacePosting;
   if (currentPresentation === null
+    || !navigationSequence.isCurrent(navigationSeq)
     || currentPosting?.realizationId !== posting.realizationId) {
     return;
   }
-  const currentIntent = resolveNavigationPresentationAction(
+  if (!currentPresentation.packages.some(
+    candidate => candidate.navigationId === navigationId)) return;
+  retainedWorkspacePresentation = withNavigationPackageDetailFailure(
     currentPresentation,
-    token,
+    inventory.consumerPackageSubjectId,
+    null,
   );
-  if (!navigationActionsEqual(intent, currentIntent)) return;
 
-  const packageModel = createNuGetPackageModel(admitted.surface);
   const existing = state.packages.find(candidate =>
     packageIdentityKey(candidate) === packageIdentityKey(packageModel));
   if (existing) {
@@ -2100,6 +2158,65 @@ async function activateRetainedPackageAction(token: string): Promise<void> {
   }
   selectWorkspacePackage(packageModel, {
     stayInWorkspace: false,
+    navigationSeq,
+    renderSelection: false,
+  });
+  state.atPackageRoot = true;
+  render({ synchronizeUrl: false });
+}
+
+async function activateRetainedPlatformAction(
+  navigationId: string,
+): Promise<void> {
+  const posting = activeRetainedWorkspacePosting;
+  const inventory = posting?.platforms.find(
+    candidate => candidate.navigationId === navigationId);
+  if (posting === null || inventory === undefined) {
+    throw new Error("The retained Platform is no longer available.");
+  }
+  const navigationSeq = navigationSequence.begin();
+
+  let platformModel: AppPackage;
+  try {
+    const admitted = await admitRetainedPlatform(posting, inventory);
+    platformModel = createRuntimePackageModel(admitted.surface);
+  } catch (error) {
+    const currentPresentation = retainedWorkspacePresentation;
+    if (currentPresentation !== null
+      && navigationSequence.isCurrent(navigationSeq)
+      && activeRetainedWorkspacePosting?.realizationId
+        === posting.realizationId) {
+      retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+        currentPresentation,
+        navigationId,
+        errorMessage(error) || "The Platform details are unavailable.",
+      );
+      render({ synchronizeUrl: false });
+    }
+    return;
+  }
+  const currentPresentation = retainedWorkspacePresentation;
+  if (currentPresentation === null
+    || !navigationSequence.isCurrent(navigationSeq)
+    || activeRetainedWorkspacePosting?.realizationId
+      !== posting.realizationId) {
+    return;
+  }
+  retainedWorkspacePresentation = withNavigationPlatformDetailFailure(
+    currentPresentation,
+    navigationId,
+    null,
+  );
+
+  const existing = state.packages.find(candidate =>
+    packageIdentityKey(candidate) === packageIdentityKey(platformModel));
+  state.packages = existing
+    ? state.packages.map(candidate =>
+        candidate === existing ? platformModel : candidate)
+    : [...state.packages, platformModel];
+  selectWorkspacePackage(platformModel, {
+    stayInWorkspace: false,
+    navigationSeq,
     renderSelection: false,
   });
   state.atPackageRoot = true;
@@ -2142,7 +2259,9 @@ function retainedWorkspaceItems() {
         : definition.id === failedManagedRetainedDefinitionId
           ? "Activation failed" as const
           : definition.id === retainedWorkspaceActivation?.state.activeDefinitionId
-            ? "Active" as const
+            ? state.loading
+              ? "Activating" as const
+              : "Active" as const
             : "Activate" as const,
       deletionDisabled:
         retainedWorkspaceActivation?.state.pendingDefinitionId === definition.id
@@ -2406,6 +2525,7 @@ async function activateManagedRetainedWorkspace(
     if (result.status === "activated" || result.status === "noEffect") {
       failedManagedRetainedDefinitionId = null;
       render({ synchronizeUrl: false });
+      afterCurrentNavigationFrame(focusWorkspaceOrHeading);
     }
 }
 
@@ -5801,16 +5921,26 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   packageQueryLiveAnnouncer.reset();
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
+  const retainedWorkspacePostingVisible =
+    state.workspaceSubjectOpen
+    && activeRetainedWorkspacePosting !== null;
   const workspaceCatalogVisible =
     state.workspaceSubjectOpen
-    && (isProductHomeDemosPath(location.pathname) || state.platformSelection !== null)
+    && (isProductHomeDemosPath(location.pathname)
+      || state.platformSelection !== null
+      || retainedWorkspacePostingVisible)
     && state.engineReady;
   const showingInterstitial =
-    (state.loading && !loadingPackageContent)
+    (state.loading
+      && !loadingPackageContent
+      && !retainedWorkspacePostingVisible)
     || state.error
     || (!state.home && !state.package && !workspaceCatalogVisible);
   if (!showingInterstitial) loadingBotSrc = null;
-  if ((state.loading && !loadingPackageContent) || state.error) {
+  if ((state.loading
+      && !loadingPackageContent
+      && !retainedWorkspacePostingVisible)
+    || state.error) {
     renderLoading();
     return;
   }
@@ -6720,12 +6850,20 @@ function renderWorkspaceView() {
     canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
       state: savedWorkspaces.state,
-      canSave: state.engineReady && !state.loading && !state.error && (state.packages.length > 0 || state.platformSelection !== null),
+      canSave: state.engineReady
+        && !state.loading
+        && !state.error
+        && (state.packages.length > 0
+          || state.platformSelection !== null
+          || activeRetainedWorkspacePosting !== null),
       canOpen: state.engineReady && !state.loading && !state.error,
     },
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     ...(retainedWorkspacePresentation
-      ? { navigationPackages: retainedWorkspacePresentation.packages }
+      ? {
+          navigationPackages: retainedWorkspacePresentation.packages,
+          navigationPlatforms: retainedWorkspacePresentation.platforms,
+        }
       : {}),
     packages: state.packages,
     platform: presentPlatform ? state.platformSelection : null,
@@ -9781,9 +9919,13 @@ function bindWorkspaceSubjectEvents() {
     onSelect: selectRetainedWorkspace,
     onActivateWorkspace: selectRetainedWorkspace,
     onDeleteWorkspace: deleteRetainedWorkspace,
-    onProductNavigationAction: token => observeAsync(
-      activateRetainedPackageAction(token),
+    onProductPackageAction: navigationId => observeAsync(
+      activateRetainedPackageAction(navigationId),
       "Activating retained Package",
+    ),
+    onProductPlatformAction: navigationId => observeAsync(
+      activateRetainedPlatformAction(navigationId),
+      "Activating retained Platform",
     ),
     onActivate: action =>
       observeAction(
@@ -11782,6 +11924,9 @@ async function captureSavedWorkspacePacket(): Promise<string> {
   if (!state.engineReady || state.loading || state.error) {
     throw new Error("Wait until the Workspace is ready before saving.");
   }
+  if (activeRetainedWorkspacePosting !== null) {
+    return activeRetainedWorkspacePosting.canonicalPacket;
+  }
   const snapshot = captureWorkspaceUrlState();
   if (!snapshot || snapshot.tabs.length === 0) {
     throw new Error("Load a package before saving the Workspace.");
@@ -12894,6 +13039,7 @@ async function openSavedWorkspaceEntry(entry: SavedWorkspace): Promise<void> {
   if (result.status === "activated" || result.status === "noEffect") {
     failedManagedRetainedDefinitionId = null;
     render({ synchronizeUrl: false });
+    afterCurrentNavigationFrame(focusWorkspaceOrHeading);
   }
 }
 

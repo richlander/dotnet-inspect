@@ -2337,6 +2337,8 @@ test.describe("bounded network-backed two-host demo", () => {
     });
 
     const compatibilityUrl = page.url();
+    await open.focus();
+    await expect(open).toBeFocused();
     await open.click();
     await expect(page.locator("[data-navigation-order]"))
       .toContainText("System.Text.Json", { timeout: 180_000 });
@@ -2350,6 +2352,37 @@ test.describe("bounded network-backed two-host demo", () => {
       name: "Delete System.Text.Json 9.0.4",
       exact: true,
     })).toBeEnabled({ timeout: 180_000 });
+    await expect(page.locator('[data-workspace-select]').first())
+      .toBeFocused({ timeout: 180_000 });
+    await page.getByRole(
+      "button",
+      { name: "Save Workspace", exact: true },
+    ).click();
+    await page.getByLabel("Workspace name", { exact: true })
+      .fill("Re-saved System.Text.Json 9.0.4");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const resavedPacket = await page.evaluate<string | null>(() => {
+      const raw = localStorage.getItem("inspect-saved-workspaces");
+      if (raw === null) return null;
+      const value: unknown = JSON.parse(raw);
+      if (typeof value !== "object" || value === null
+        || !("entries" in value) || !Array.isArray(value.entries)) {
+        return null;
+      }
+      const entries: unknown[] = Array.from(value.entries);
+      const entry = entries.find(candidate =>
+        typeof candidate === "object"
+        && candidate !== null
+        && "name" in candidate
+        && candidate.name === "Re-saved System.Text.Json 9.0.4");
+      return entry
+        && typeof entry === "object"
+        && "packet" in entry
+        && typeof entry.packet === "string"
+        ? entry.packet
+        : null;
+    });
+    expect(resavedPacket).toBe(persisted.entries[0]!.packet);
     await expect.poll(
       () => new URL(page.url()).searchParams.get("w"),
       { timeout: 180_000 },

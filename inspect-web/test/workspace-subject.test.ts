@@ -224,10 +224,11 @@ test("Workspace removal remains available while occurrence activation loads or f
   }
 });
 
-test("Workspace product rows preserve runtime-specific removal identity", () => {
+test("Workspace product rows do not expose compatibility mutation controls", () => {
   const packages: NavigationPackagePresentationItem[] =
     ["linux-x64", "win-x64"].map((runtimeIdentifier, order) => ({
       order,
+      navigationId: `navigation-${order}`,
       subject: {
         key: `package-${order}`,
         identity: `package-${order}`,
@@ -247,6 +248,7 @@ test("Workspace product rows preserve runtime-specific removal identity", () => 
       runtimeIdentifier,
       realization: "Ready",
       realizationFailure: null,
+      detailFailure: null,
       summary: {
         selectedCompileFramework: "net10.0",
         libraryCount: 1,
@@ -264,16 +266,9 @@ test("Workspace product rows preserve runtime-specific removal identity", () => 
     error: "",
     escapeHtml,
   });
-  const removalKeys = packages.map(item => workspacePackageRemovalKey({
-    id: item.package,
-    version: item.version,
-    activeFramework: item.framework ?? "",
-    runtimeIdentifier: item.runtimeIdentifier,
-  }));
-
-  assert.notEqual(removalKeys[0], removalKeys[1]);
-  assert.ok(html.includes(`data-workspace-remove="${removalKeys[0]}"`));
-  assert.ok(html.includes(`data-workspace-remove="${removalKeys[1]}"`));
+  assert.doesNotMatch(html, /data-workspace-remove=/);
+  assert.match(html, /Choose a package to inspect it\.<\/p>/);
+  assert.doesNotMatch(html, /adjacent close button/);
 });
 
 test("Workspace Add is offered independently of occurrence loading and disabled until ready", () => {
@@ -343,6 +338,16 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`remove:${name}`, listener),
   };
+  const productPackage = {
+    dataset: { productPackageAction: "package-navigation" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`product-package:${name}`, listener),
+  };
+  const productPlatform = {
+    dataset: { productPlatformAction: "platform-navigation" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`product-platform:${name}`, listener),
+  };
   const frameworkLibrary = {
     dataset: {
       workspaceFrameworkLibrary: "System.Text.Json",
@@ -366,6 +371,10 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
         : selector === "[data-workspace-delete]" ? [workspaceDelete]
         : selector === "[data-workspace-activate]"
         ? [activate]
+        : selector === "[data-product-package-action]"
+          ? [productPackage]
+        : selector === "[data-product-platform-action]"
+          ? [productPlatform]
         : selector === "[data-workspace-demo]" ? [demo, invalidDemo]
           : selector === "[data-workspace-remove]" ? [remove] : [],
   };
@@ -382,6 +391,10 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
       onActivate: action => {
         calls.push(`activate:${action}`);
       },
+      onProductPackageAction: id =>
+        calls.push(`product-package:${id}`),
+      onProductPlatformAction: id =>
+        calls.push(`product-platform:${id}`),
       onDemo: id => {
         calls.push(`demo:${id}`);
       },
@@ -399,6 +412,8 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
   listeners.get("switch:click")?.(fakeDom.event());
   listeners.get("delete:click")?.(fakeDom.event());
   listeners.get("activate:click")?.(fakeDom.event());
+  listeners.get("product-package:click")?.(fakeDom.event());
+  listeners.get("product-platform:click")?.(fakeDom.event());
   listeners.get("demo:click")?.(fakeDom.event());
   listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
@@ -410,6 +425,8 @@ test("Workspace selection, switching, deletion, and occurrence activation dispat
     "switch:workspace-2",
     "delete:workspace-2",
     "activate:opaque-action",
+    "product-package:package-navigation",
+    "product-platform:platform-navigation",
     "demo:stj-serializer",
     "retry",
     "add",

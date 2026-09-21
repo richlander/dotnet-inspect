@@ -2,6 +2,7 @@ import type { PackageControlPackage } from "./package-controls.ts";
 import type { PlatformNavigationState } from "./platform-subject.ts";
 import type {
   NavigationPackagePresentationItem,
+  NavigationPlatformPresentationItem,
 } from "./navigation-descriptor-presentation.ts";
 import {
   packageIdentityKey,
@@ -48,6 +49,7 @@ export interface WorkspaceViewRenderOptions {
   savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   navigationPackages?: readonly NavigationPackagePresentationItem[];
+  navigationPlatforms?: readonly NavigationPlatformPresentationItem[];
   packages: readonly PackageControlPackage[];
   platform?: PlatformNavigationState | null;
   frameworkLibraries?: readonly {
@@ -68,7 +70,8 @@ export interface WorkspaceSubjectBindingActions {
   onActivateWorkspace: (workspaceId: string) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
   onActivate: (action: string) => void;
-  onProductNavigationAction?: (token: string) => void;
+  onProductPackageAction?: (navigationId: string) => void;
+  onProductPlatformAction?: (navigationId: string) => void;
   onDemo: (demo: ProductHomeDemoId) => void;
   onRetry: () => void;
   onRemove?: (key: string) => void;
@@ -167,19 +170,15 @@ export function renderWorkspaceView(
       const framework = item.framework
         ?? item.summary.selectedCompileFramework
         ?? "";
-      const key = workspacePackageRemovalKey({
-        id: item.package,
-        version: item.version,
-        activeFramework: framework,
-        runtimeIdentifier: item.runtimeIdentifier,
-      });
       const runtimeIdentifier = item.runtimeIdentifier
         ? ` · ${item.runtimeIdentifier}`
         : "";
       const status = item.subject.state.toLowerCase() === "available"
         ? ""
         : ` · ${item.subject.state}`;
-      const evidence = item.subject.evidence ?? item.realizationFailure;
+      const evidence = item.detailFailure
+        ?? item.subject.evidence
+        ?? item.realizationFailure;
       const label =
         `${item.package} ${item.version} ${framework}${runtimeIdentifier}`;
       const accessibleLabel = `Inspect ${label}`
@@ -187,12 +186,11 @@ export function renderWorkspaceView(
         + (status ? `. ${item.subject.state}` : "")
         + (evidence ? `. ${evidence}` : "");
       return `<li class="workspace-occurrence-row" data-navigation-order="${item.order}">
-        <button class="workspace-occurrence${item.subject.current ? " active" : ""}" type="button" ${item.subject.action ? `data-product-navigation-action="${escapeHtml(item.subject.action)}"` : item.subject.current ? "" : "disabled"} data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}"${item.subject.current ? ' aria-current="page"' : ""} aria-label="${escapeHtml(accessibleLabel)}">
+        <button class="workspace-occurrence${item.subject.current ? " active" : ""}" type="button" data-product-package-action="${escapeHtml(item.navigationId)}" data-product-navigation-id="${escapeHtml(item.subject.identity ?? "")}" data-navigation-state="${escapeHtml(item.subject.state)}"${item.subject.current ? ' aria-current="page"' : ""} aria-label="${escapeHtml(accessibleLabel)}">
           <span>NuGet package</span>
           <strong>${escapeHtml(item.package)}</strong>
           <small>${escapeHtml(item.version)} · ${escapeHtml(framework)}${escapeHtml(runtimeIdentifier)}${item.subject.current ? " · Current" : ""}${escapeHtml(status)}${evidence ? ` · ${escapeHtml(evidence)}` : ""}</small>
         </button>
-        ${packageRemoveButton("data-workspace-remove", key, `Remove ${label} from Workspace`, escapeHtml)}
       </li>`;
     }).join("")
     : packages.filter(item => !item.isRuntimePack).map(item => {
@@ -215,11 +213,27 @@ export function renderWorkspaceView(
     </li>`;
     }).join("");
   const platform = options.platform;
-  const platformRows = platform ? `<li class="workspace-occurrence-row">
-    <button class="workspace-occurrence" type="button" data-workspace-platform aria-label="Inspect Platform ${escapeHtml(platform.tfm)} ${escapeHtml(platform.version)}">
-      <span>Platform</span><strong>.NET Platform</strong>
-      <small>${escapeHtml(platform.version)} · ${escapeHtml(platform.tfm)}</small>
-    </button></li>` : "";
+  const platformRows = options.navigationPlatforms
+    ? options.navigationPlatforms.map(item => {
+      const runtimeIdentifier = item.runtimeIdentifier
+        ? ` · ${item.runtimeIdentifier}`
+        : "";
+      const evidence = item.detailFailure;
+      const label = `${item.family} ${item.version} ${item.framework}`
+        + runtimeIdentifier;
+      return `<li class="workspace-occurrence-row" data-navigation-order="${item.order}">
+        <button class="workspace-occurrence${item.current ? " active" : ""}" type="button" data-product-platform-action="${escapeHtml(item.navigationId)}"${item.current ? ' aria-current="page"' : ""} aria-label="Inspect Platform ${escapeHtml(label)}${item.current ? ". Current" : ""}${evidence ? `. ${escapeHtml(evidence)}` : ""}">
+          <span>Platform</span><strong>${escapeHtml(item.family)}</strong>
+          <small>${escapeHtml(item.version)} · ${escapeHtml(item.framework)}${escapeHtml(runtimeIdentifier)}${item.current ? " · Current" : ""}${evidence ? ` · ${escapeHtml(evidence)}` : ""}</small>
+        </button>
+      </li>`;
+    }).join("")
+    : platform ? `<li class="workspace-occurrence-row">
+      <button class="workspace-occurrence" type="button" data-workspace-platform aria-label="Inspect Platform ${escapeHtml(platform.tfm)} ${escapeHtml(platform.version)}">
+        <span>Platform</span><strong>.NET Platform</strong>
+        <small>${escapeHtml(platform.version)} · ${escapeHtml(platform.tfm)}</small>
+      </button></li>`
+    : "";
   const frameworkLibraryRows = (options.frameworkLibraries ?? []).map(library =>
     `<li class="workspace-occurrence-row">
       <button class="workspace-occurrence" type="button"
@@ -236,7 +250,9 @@ export function renderWorkspaceView(
   const rows = packageRows;
   const packageCount = navigationPackages?.length
     ?? packages.filter(item => !item.isRuntimePack).length;
-  const coordinateCount = packageCount + (platform ? 1 : 0)
+  const platformCount = options.navigationPlatforms?.length
+    ?? (platform ? 1 : 0);
+  const coordinateCount = packageCount + platformCount
     + (options.frameworkLibraries?.length ?? 0);
   const status = loading
     ? `<p class="workspace-empty">Reading Workspace package occurrences…</p>`
@@ -262,7 +278,9 @@ export function renderWorkspaceView(
     ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
     <section class="document-section workspace-section">
       <div class="section-title"><h2>Packages</h2><span>${packageCount} coordinate${packageCount === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
-      <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
+      <p>${navigationPackages
+        ? "Choose a package to inspect it."
+        : "Choose a package to inspect it, or remove it with the adjacent close button."}</p>
       ${content}
     </section>
     ${frameworkLibraryRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Libraries</h2></div><ul class="workspace-detail-list loaded">${frameworkLibraryRows}</ul></section>` : ""}
@@ -295,10 +313,20 @@ export function bindWorkspaceSubject(
       if (action !== undefined) actions.onActivate(action);
     }));
   root.querySelectorAll<HTMLElement>(
-    "[data-product-navigation-action]",
+    "[data-product-package-action]",
   ).forEach(button => button.addEventListener("click", () => {
-    const token = button.dataset.productNavigationAction;
-    if (token !== undefined) actions.onProductNavigationAction?.(token);
+    const navigationId = button.dataset.productPackageAction;
+    if (navigationId !== undefined) {
+      actions.onProductPackageAction?.(navigationId);
+    }
+  }));
+  root.querySelectorAll<HTMLElement>(
+    "[data-product-platform-action]",
+  ).forEach(button => button.addEventListener("click", () => {
+    const navigationId = button.dataset.productPlatformAction;
+    if (navigationId !== undefined) {
+      actions.onProductPlatformAction?.(navigationId);
+    }
   }));
   root.querySelectorAll<HTMLElement>("[data-workspace-demo]").forEach(button =>
     button.addEventListener("click", () => {

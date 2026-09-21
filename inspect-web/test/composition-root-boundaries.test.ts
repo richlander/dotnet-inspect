@@ -207,7 +207,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
-    /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onProductNavigationAction: token => observeAsync\(\s+activateRetainedPackageAction\(token\),\s+"Activating retained Package",\s+\),\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
+    /onSelect: selectRetainedWorkspace,\s+onActivateWorkspace: selectRetainedWorkspace,\s+onDeleteWorkspace: deleteRetainedWorkspace,\s+onProductPackageAction: navigationId => observeAsync\(\s+activateRetainedPackageAction\(navigationId\),\s+"Activating retained Package",\s+\),\s+onProductPlatformAction: navigationId => observeAsync\(\s+activateRetainedPlatformAction\(navigationId\),\s+"Activating retained Platform",\s+\),\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
   assert.match(
     appSource,
     /function selectRetainedWorkspace\(workspaceId: string\): void \{\s*navigationSequence\.begin\(\)/);

@@ -173,7 +173,7 @@ test("bare home paints before wasm engine download", () => {
     /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*reportEngineStatus\("Loading \.NET WebAssembly…"\);[\s\S]*await startEngine\(window\.location\.origin\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
   assert.match(
     renderDispatch,
-    /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(\(state\.loading && !loadingPackageContent\) \|\| state\.error\)/);
+    /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\)/);
   assert.match(
     bootstrap,
     /state\.engineStartupFailed = false;[\s\S]*const reportEngineStatus = \(message: string\) => \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*if \(state\.home\) \{[\s\S]*if \(!state\.credits\) render\(\);[\s\S]*catch \(error\) \{[\s\S]*showEngineFailure\(error\)/);
@@ -454,7 +454,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
   assert.match(
     appSource,
-    /if \(\(state\.loading && !loadingPackageContent\) \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
+    /if \(\(state\.loading[\s\S]*!loadingPackageContent[\s\S]*!retainedWorkspacePostingVisible\)[\s\S]*\|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.workspaceSubjectOpen && isProductHomeDemosPath\(location\.pathname\)\)/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\),\s*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
@@ -1349,6 +1349,62 @@ test("browser history reuses available identities and publishes only unavailable
   assert.match(
     appSource,
     /function restoreRetainedWorkspaceSnapshot\([\s\S]*activeWorkspaceUrl = snapshot\.url;\s*if \(restoreUrl\) \{\s*workspaceLocation\.replace\(\s*snapshot\.url,\s*withPlatformRootParentHistory\(\s*history\.state,\s*navigationSnapshotHasPlatformRootParent\(snapshot\.navigation\)\)\)[\s\S]*function selectRetainedWorkspace\(workspaceId: string\)[\s\S]*activateRetainedWorkspaceProjection\(workspaceId, false\)[\s\S]*workspaceLocation\.push\(\s*activeWorkspaceUrl \?\? "\/demos",\s*withPlatformRootParentHistory\(\s*history\.state,\s*navigationSnapshotHasPlatformRootParent\(\s*navigationHistory\.snapshot\(\)\)\)\)[\s\S]*function deleteRetainedWorkspace\(workspaceId: string\)[\s\S]*restoreRetainedWorkspaceSnapshot\(transition\.activatedSnapshot\)/);
+});
+
+test("managed Saved Open keeps compact rows, packet fidelity, and focus ownership", () => {
+  const post = appSource.match(
+    /function postRetainedWorkspace\([\s\S]*?\n}\n\nfunction clearRetainedWorkspacePosting/,
+  )?.[0] ?? "";
+  const install = appSource.match(
+    /async function installRetainedWorkspacePosting\([\s\S]*?\n}\n\nasync function activateRetainedPackageAction/,
+  )?.[0] ?? "";
+  const packageAction = appSource.match(
+    /async function activateRetainedPackageAction\([\s\S]*?\n}\n\nasync function activateRetainedPlatformAction/,
+  )?.[0] ?? "";
+  const platformAction = appSource.match(
+    /async function activateRetainedPlatformAction\([\s\S]*?\n}\n\nfunction retainedWorkspaceItems/,
+  )?.[0] ?? "";
+  const capture = appSource.match(
+    /async function captureSavedWorkspacePacket\(\)[\s\S]*?\n}\n\nasync function buildStateUrl/,
+  )?.[0] ?? "";
+  const renderDispatch = appSource.match(
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
+  )?.[0] ?? "";
+
+  assert.match(
+    post,
+    /captureWorkspaceFocus\(focusedElement\)[\s\S]*focusApplicationMenuButton\(document\)[\s\S]*activeRetainedWorkspacePosting = posting;[\s\S]*render\(\{ synchronizeUrl: false \}\)/);
+  assert.doesNotMatch(install, /Promise\.all/);
+  assert.match(
+    install,
+    /posting\.packages\.find\([\s\S]*navigationId === activeTabId[\s\S]*posting\.platforms\.find\([\s\S]*navigationId === activeTabId/);
+  assert.match(
+    install,
+    /try \{[\s\S]*admitRetainedPackage[\s\S]*admitRetainedPlatform[\s\S]*catch \(error\) \{[\s\S]*detailFailure = errorMessage\(error\)[\s\S]*state\.packages = \[[\s\S]*packageModel[\s\S]*platformModel/);
+  assert.match(
+    install,
+    /withNavigationPackageDetailFailure\([\s\S]*withNavigationPlatformDetailFailure\(/);
+  assert.match(
+    install,
+    /browserRestoration[\s\S]*render\(\{ synchronizeUrl: false \}\);/);
+  assert.match(
+    appSource,
+    /async function openSavedWorkspaceEntry\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
+  assert.match(
+    appSource,
+    /async function activateManagedRetainedWorkspace\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*afterCurrentNavigationFrame\(focusWorkspaceOrHeading\)/);
+  assert.match(
+    packageAction,
+    /catch \(error\) \{[\s\S]*withNavigationPackageDetailFailure\([\s\S]*render\(\{ synchronizeUrl: false \}\);[\s\S]*return;/);
+  assert.match(
+    platformAction,
+    /catch \(error\) \{[\s\S]*withNavigationPlatformDetailFailure\([\s\S]*render\(\{ synchronizeUrl: false \}\);[\s\S]*return;/);
+  assert.match(
+    renderDispatch,
+    /retainedWorkspacePostingVisible[\s\S]*!retainedWorkspacePostingVisible[\s\S]*workspaceCatalogVisible/);
+  assert.match(
+    capture,
+    /if \(activeRetainedWorkspacePosting !== null\) \{\s*return activeRetainedWorkspacePosting\.canonicalPacket;\s*\}/);
 });
 
 test("same-origin links retain different-coordinate Workspaces", () => {
