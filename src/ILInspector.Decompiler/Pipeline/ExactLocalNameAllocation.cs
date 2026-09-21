@@ -19,14 +19,13 @@ internal sealed record ExactLocalNameAllocation(
         int localCount,
         ImmutableArray<string?> localNames,
         IEnumerable<string> reservedNames,
-        IReadOnlySet<int> retainedLocalSlots)
+        IReadOnlySet<int> retainedLocalSlots,
+        IReadOnlyDictionary<int, IrNode>? declarationScopes = null)
     {
         var displayNames = new string?[localCount];
         var dispositions = new ExactLocalNameDisposition[localCount];
         var reserved = new HashSet<string>(reservedNames, StringComparer.Ordinal);
         var users = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-        IReadOnlyDictionary<int, IrNode>? declarationScopes = null;
-
         for (var index = 0;
             index < localCount && index < localNames.Length;
             index++)
@@ -61,7 +60,9 @@ internal sealed record ExactLocalNameAllocation(
 
         bool Disjoint(int left, int right)
         {
-            declarationScopes ??= CSharpPrinter.LocalDeclarationScopes(scope, localCount);
+            declarationScopes ??=
+                LocalDeclarationPlan.Create(scope, localCount)
+                    .DeclarationScopes;
             return declarationScopes.TryGetValue(left, out var leftScope)
                 && declarationScopes.TryGetValue(right, out var rightScope)
                 && !ScopesOverlap(leftScope, rightScope);
