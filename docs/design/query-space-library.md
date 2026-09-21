@@ -9,16 +9,18 @@ semantic selection, Query Operation, and Query Space composition contracts
 move from `DotnetInspector.QueryEngine`.
 
 The `QuerySpace` project now carries portable intent and payload contracts,
-row-query and semantic-selection contracts, Query Operation registration, and
-the first immutable Query Space descriptor and request contracts.
+row-query and semantic-selection contracts, Query Operation registration,
+immutable Query Space descriptor and request contracts, executable typed row
+scope bindings, and named multi-sequence row-query execution.
 `DotnetInspector.QueryEngine` is retired. Section-owned Count outcomes now live
-in `DotnetInspector.Sections`.
+in `DotnetInspector.Sections`, which composes one explicit structural row
+association into a complete-source Rows or Count request.
 
-The existing portable-query, row-query, row-selection, Query Operation, and
-direct-consumer Release gates verify this physical boundary and the initial
-composition structure. Row-execution restructuring, complete section-row
-resolution, source generation, System.Text.Json integration, and broader
-product adoption remain separate focused slices under the
+The existing portable-query, row-query, row-selection, Query Operation,
+Sections, and direct-consumer Release gates verify this physical boundary and
+the initial executable composition structure. Complete section-row resolution,
+source generation, System.Text.Json integration, and broader product adoption
+remain separate focused slices under the
 [adoption sequence](#adoption-sequence). Later properties in
 [Required evidence](#required-evidence) remain **unverified** until their named
 adoption lands.
@@ -492,7 +494,7 @@ does not reopen this document to absorb its adopting owner's semantics.
 
 | Gate or evidence | Required property |
 | --- | --- |
-| `QuerySpaceDirectConsumerExecutes` | An independent consumer constructs a descriptor and request, resolves and executes a representative plan through public APIs over an existing application-owned collection, and verifies the detached result. Its row and collection types implement no QuerySpace interface, execution requires no separately allocated source wrapper, and the consumer has no dotnet-inspect host dependency. |
+| `QuerySpaceDirectConsumerExecutes` | An independent consumer constructs an executable Query Space binding and structural request, resolves its row association through the public Sections composition API, executes it over an existing application-owned collection, and verifies the detached result. Its row and collection types implement no QuerySpace interface, execution requires no separately allocated source wrapper, and the consumer has no dotnet-inspect host dependency. |
 | Existing portable-query gates | Moving the types preserves intent, identity, ordering, payload, compatibility, and failure behavior. |
 | Existing row-query and row-selection gates | Moving the types preserves predicate, order, stage, failure, and reference-evaluator behavior. |
 | Existing Query Operation gates | Moving the types preserves executable registration and capability projection. |

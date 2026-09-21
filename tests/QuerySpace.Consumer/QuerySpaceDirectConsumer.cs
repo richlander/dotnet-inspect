@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using DotnetInspector.Sections;
 using QuerySpace.Composition;
 using QuerySpace.Operations;
 using QuerySpace.Rows;
@@ -56,10 +57,13 @@ public static class QuerySpaceDirectConsumer
             new("low", 1),
             new("high", 3),
             new("middle", 2));
-        QuerySpaceDescriptor querySpace = CreateQuerySpace();
+        RowQueryVocabulary<ApplicationRow> rowVocabulary =
+            CreateRowVocabulary();
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(rowVocabulary);
         QuerySpaceRequest queryRequest =
             QuerySpaceRequest.Create(
-                querySpace,
+                querySpace.Descriptor,
                 PortableQueryIntent.Create(
                     [
                         new(
@@ -96,6 +100,76 @@ public static class QuerySpaceDirectConsumer
                 ],
                 QuerySpaceTerminalRequirement.Rows);
 
+        QuerySpaceRowScopeBinding<ApplicationRow> rowScope =
+            (QuerySpaceRowScopeBinding<ApplicationRow>)
+                AssertSingle(querySpace.RowScopes);
+        SectionRowSchemaIdentity<ApplicationRow> schema =
+            SectionRowSchemaIdentity<ApplicationRow>.Create();
+        var sectionScope =
+            new SectionQuerySpaceRowScopeBinding<ApplicationRow>(
+                rowScope,
+                schema);
+        var declaration =
+            new SectionRowSetDeclaration<
+                string,
+                ApplicationRowsProjection,
+                ApplicationRow>(
+                    "results",
+                    schema,
+                    rows,
+                    static (projection, selected) =>
+                        projection with
+                        {
+                            Rows = selected,
+                        });
+        QuerySpaceSectionRowResolutionResult<
+            ApplicationRowsProjection> resolution =
+                QuerySpaceSectionRowResolver.Resolve(
+                    querySpace,
+                    queryRequest,
+                    [declaration],
+                    sectionScope);
+        QuerySpaceSectionRowExecutionRequest<
+            ApplicationRowsProjection> executionRequest =
+                resolution.Request
+            ?? throw new InvalidOperationException(
+                "The direct-consumer request failed: "
+                + $"{resolution.Failure?.RowQueryFailure.Reason}.");
+        var resolvedAssociation =
+            (ResolvedQuerySpaceRowAssociation<ApplicationRow>)
+                resolution.Association!;
+        SectionRowsOutcome<
+            string,
+            ApplicationRowsProjection> result =
+                QuerySpaceSectionRowExecutor.ApplyRows(
+                    executionRequest);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(
+                "The direct-consumer execution failed.");
+        }
+
+        rows.Replace(
+            1,
+            new ApplicationRow("replacement", 100));
+
+        ApplicationRowsProjection projection =
+            result.Rebind(ApplicationRowsProjection.Empty);
+        return new(
+            [
+                .. projection.Rows.Select(
+                    static row => row.Name),
+            ],
+            typeof(ApplicationRow),
+            typeof(ApplicationRows),
+            queryRequest.QuerySpace,
+            resolvedAssociation.Association.Scope,
+            queryRequest.Terminal);
+    }
+
+    private static RowQueryVocabulary<ApplicationRow>
+        CreateRowVocabulary()
+    {
         RowQueryKey<ApplicationRow> score =
             RowQueryKey<ApplicationRow>.Create(
                 RowQueryKeyIdentity.Create(),
@@ -125,65 +199,17 @@ public static class QuerySpaceDirectConsumer
                         Comparer<int>.Default,
                         direction,
                         missingLast: true));
-
-        RowQueryVocabulary<ApplicationRow> descriptor =
-            RowQueryVocabulary<ApplicationRow>.Create(
-                RowQueryVocabularyIdentity.Create(),
-                [score],
-                []);
-        RowQueryIntent request =
-            RowQueryIntent.Create(
-                [
-                    new RowQueryPredicateIntent(
-                        "score",
-                        RowQueryOperator.GreaterOrEqual,
-                        new RowQueryValueToken("2"))
-                ],
-                RowQueryOrderIntent.Keys(
-                    [
-                        new RowQueryOrderTermIntent(
-                            "score",
-                            RowQueryOrderDirection.Descending)
-                    ]),
-                RowSelectionIntent<RowQueryOrderIntent>.Create(
-                    [
-                        RowSelectionIntentOperation<
-                            RowQueryOrderIntent>.Head(2)
-                    ]));
-        RowQueryResolutionResult<ApplicationRow> resolution =
-            RowQueryResolver.Resolve(
-                descriptor,
-                request);
-        ResolvedRowQueryPlan<ApplicationRow> plan =
-            resolution.Plan
-            ?? throw new InvalidOperationException(
-                $"The direct-consumer request failed: {resolution.Failure?.Reason}.");
-        RowSelectionResult<ApplicationRow> result =
-            RowQueryExecutor.Apply(
-                rows,
-                plan);
-        if (!result.IsSuccess)
-        {
-            throw new InvalidOperationException(
-                "The direct-consumer execution failed.");
-        }
-
-        rows.Replace(
-            1,
-            new ApplicationRow("replacement", 100));
-
-        return new(
-            [.. result.Values.Select(static row => row.Name)],
-            typeof(ApplicationRow),
-            typeof(ApplicationRows),
-            queryRequest.QuerySpace,
-            AssertSingle(queryRequest.RowIntents).Scope,
-            queryRequest.Terminal);
+        return RowQueryVocabulary<ApplicationRow>.Create(
+            RowQueryVocabularyIdentity.Create(),
+            [score],
+            []);
     }
 
-    private static QuerySpaceDescriptor CreateQuerySpace()
+    private static QuerySpaceBinding CreateQuerySpace(
+        RowQueryVocabulary<ApplicationRow> vocabulary)
     {
-        var vocabulary = new ApplicationOperationVocabulary();
+        var operationVocabulary =
+            new ApplicationOperationVocabulary();
         var applicability = new QueryOperationApplicability(
             ["application"],
             ["row"],
@@ -195,7 +221,7 @@ public static class QuerySpaceDirectConsumer
                     ApplicationOperationPredicate,
                     ApplicationOperationPlan>.Create(
                     "application.query",
-                    vocabulary,
+                    operationVocabulary,
                     ["application"],
                     ["row"],
                     ["results"],
@@ -233,26 +259,29 @@ public static class QuerySpaceDirectConsumer
                     "default",
                     [],
                     []);
-        var rows = new QuerySpaceRowScopeDescriptor(
-            "rows.application",
-            "rows.application.vocabulary",
-            ["results"],
-            [
-                new(
-                    "row.score",
-                    "score",
-                    [PortableQueryOperator.AtLeast],
-                    "integer",
-                    null,
-                    "Score",
+        var rows =
+            new QuerySpaceRowScopeBinding<ApplicationRow>(
+                new QuerySpaceRowScopeDescriptor(
+                    "rows.application",
+                    "rows.application.vocabulary",
+                    ["results"],
+                    [
+                        new(
+                            "row.score",
+                            "score",
+                            [PortableQueryOperator.AtLeast],
+                            "integer",
+                            null,
+                            "Score",
+                            [],
+                            "Filter and order by score.",
+                            supportsOrdering: true),
+                    ],
                     [],
-                    "Filter and order by score.",
-                    supportsOrdering: true),
-            ],
-            [],
-            [RowSelectionStageKind.Head]);
+                    [RowSelectionStageKind.Head]),
+                vocabulary);
 
-        return QuerySpaceDescriptor.Create(
+        return QuerySpaceBinding.Create(
             "application.space",
             route,
             [rows],
@@ -263,6 +292,13 @@ public static class QuerySpaceDirectConsumer
                     QuerySpaceTerminalRequirement.Rows,
                     "application.rows"),
             ]);
+    }
+
+    private sealed record ApplicationRowsProjection(
+        IReadOnlyList<ApplicationRow> Rows)
+    {
+        public static ApplicationRowsProjection Empty { get; } =
+            new([]);
     }
 
     private static T AssertSingle<T>(IReadOnlyList<T> values) =>
