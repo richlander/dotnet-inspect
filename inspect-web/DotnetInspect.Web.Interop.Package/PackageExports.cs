@@ -677,21 +677,29 @@ public static partial class PackageExports
     /// PackageHouse-selected Library.
     /// </summary>
     [JSExport]
-    public static Task<string> QueryMemberDocumentation(
+    public static async Task<string> QueryMemberDocumentation(
         string packageId,
         string version,
         string framework,
         string assemblyName,
-        string documentationId) =>
-        QueryMemberDocumentationCore(
-            packageId,
-            version,
-            framework,
-            assemblyName,
-            documentationId,
-            authoredSourceCapabilities: null);
+        string documentationId)
+    {
+        DocumentationQueryOutcome documentation =
+            await QueryMemberDocumentationCore(
+                    packageId,
+                    version,
+                    framework,
+                    assemblyName,
+                    documentationId,
+                    authoredSourceCapabilities: null)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            documentation,
+            DocumentationQueryJsonContext.Default
+                .DocumentationQueryOutcome);
+    }
 
-    internal static Task<string>
+    internal static async Task<string>
         QueryMemberDocumentationWithCapabilities(
             string packageId,
             string version,
@@ -699,38 +707,40 @@ public static partial class PackageExports
             string assemblyName,
             string documentationId,
             IReadOnlyList<ISourceHouseSourceCapability>
-                authoredSourceCapabilities) =>
-        QueryMemberDocumentationCore(
-            packageId,
-            version,
-            framework,
-            assemblyName,
-            documentationId,
-            authoredSourceCapabilities);
-
-    private static async Task<string> QueryMemberDocumentationCore(
-        string packageId,
-        string version,
-        string framework,
-        string assemblyName,
-        string documentationId,
-        IReadOnlyList<ISourceHouseSourceCapability>?
-            authoredSourceCapabilities)
+                authoredSourceCapabilities)
     {
         DocumentationQueryOutcome documentation =
-            await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
-                packageId,
-                version,
-                framework,
-                assemblyName,
-                documentationId,
-                authoredSourceCapabilities:
-                    authoredSourceCapabilities);
+            await QueryMemberDocumentationCore(
+                    packageId,
+                    version,
+                    framework,
+                    assemblyName,
+                    documentationId,
+                    authoredSourceCapabilities)
+                .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             documentation,
             DocumentationQueryJsonContext.Default
                 .DocumentationQueryOutcome);
     }
+
+    private static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationCore(
+            string packageId,
+            string version,
+            string framework,
+            string assemblyName,
+            string documentationId,
+            IReadOnlyList<ISourceHouseSourceCapability>?
+                authoredSourceCapabilities) =>
+        BrowserPackageWorkspace.QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            framework,
+            assemblyName,
+            documentationId,
+            authoredSourceCapabilities:
+                authoredSourceCapabilities);
 
     /// <summary>
     /// One exact member's shared compiled-documentation outcome from a
