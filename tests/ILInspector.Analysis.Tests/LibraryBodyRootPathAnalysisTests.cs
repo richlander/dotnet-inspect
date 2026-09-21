@@ -18,18 +18,22 @@ public class LibraryBodyRootPathAnalysisTests
     [Fact]
     public void FindShortestPaths_UsesShortestStableLocalWitnesses()
     {
-        LibraryBodyIndex index = RootPathIndex();
-        MethodIdentity create = RootPathMethod(index, "Create");
-        MethodIdentity createOuter = RootPathMethod(index, "CreateOuter");
+        LibraryCallGraphAnalysisResult callGraph = RootPathCallGraph();
+        MethodIdentity create = RootPathMethod(callGraph, "Create");
+        MethodIdentity createOuter =
+            RootPathMethod(callGraph, "CreateOuter");
         MethodIdentity mapped =
-            RootPathMethod(index, "CreateMappedTextDiff");
-        MethodIdentity addChange = RootPathMethod(index, "AddChange");
-        MethodIdentity cycleRoot = RootPathMethod(index, "CycleRoot");
-        MethodIdentity cycleUse = RootPathMethod(index, "CycleUse");
+            RootPathMethod(callGraph, "CreateMappedTextDiff");
+        MethodIdentity addChange =
+            RootPathMethod(callGraph, "AddChange");
+        MethodIdentity cycleRoot =
+            RootPathMethod(callGraph, "CycleRoot");
+        MethodIdentity cycleUse =
+            RootPathMethod(callGraph, "CycleUse");
 
         LibraryBodyRootPathResult result =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [
                     Address(createOuter),
                     Address(cycleRoot),
@@ -70,7 +74,7 @@ public class LibraryBodyRootPathAnalysisTests
         MethodIdentity first = Method(mvid, 2, "First");
         MethodIdentity second = Method(mvid, 3, "Second");
         MethodIdentity destination = Method(mvid, 4, "Destination");
-        LibraryBodyIndex equalPaths = Index(
+        LibraryCallGraphAnalysisResult equalPaths = CallGraph(
             [root, first, second, destination],
             [
                 Call(root, second, 4),
@@ -94,18 +98,49 @@ public class LibraryBodyRootPathAnalysisTests
     }
 
     [Fact]
-    public void FindShortestPaths_PreservesPhysicalReceiptsAndSemanticCaller()
+    public void FindShortestPaths_DoesNotMaterializeCompatibilityIndex()
     {
-        LibraryBodyIndex index = RootPathIndex();
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+        LibraryCallGraphAnalysisResult callGraph =
+            execution.CallGraph;
+        MethodIdentity create =
+            RootPathMethod(callGraph, "Create");
         MethodIdentity mapped =
-            RootPathMethod(index, "CreateMappedTextDiff");
-        MethodIdentity addChange = RootPathMethod(index, "AddChange");
-        MethodIdentity asyncRoot = RootPathMethod(index, "AsyncRoot");
-        MethodIdentity asyncUse = RootPathMethod(index, "AsyncUse");
+            RootPathMethod(callGraph, "CreateMappedTextDiff");
+
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
 
         LibraryBodyRootPathResult result =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
+                [Address(create)],
+                [Address(mapped)],
+                s_generousLimits);
+
+        Assert.Single(result.Witnesses);
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
+    }
+
+    [Fact]
+    public void FindShortestPaths_PreservesPhysicalReceiptsAndSemanticCaller()
+    {
+        LibraryCallGraphAnalysisResult callGraph = RootPathCallGraph();
+        MethodIdentity mapped =
+            RootPathMethod(callGraph, "CreateMappedTextDiff");
+        MethodIdentity addChange =
+            RootPathMethod(callGraph, "AddChange");
+        MethodIdentity asyncRoot =
+            RootPathMethod(callGraph, "AsyncRoot");
+        MethodIdentity asyncUse =
+            RootPathMethod(callGraph, "AsyncUse");
+
+        LibraryBodyRootPathResult result =
+            LibraryBodyRootPathAnalysis.FindShortestPaths(
+                callGraph,
                 [
                     Address(mapped),
                     Address(asyncRoot),
@@ -135,9 +170,13 @@ public class LibraryBodyRootPathAnalysisTests
             physical.EvidenceMethod.MetadataToken);
         Assert.Equal("MoveNext", physical.EvidenceMethod.Name);
 
-        LibraryBodyIndex iteratorIndex = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
-        DirectCall iteratorCall = iteratorIndex.DirectCalls.Single(
+        LibraryCallGraphAnalysisResult iteratorCallGraph =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence))
+            .CallGraph;
+        DirectCall iteratorCall = iteratorCallGraph.DirectCalls.Single(
             call => call.Kind == CallKind.Call
                 && call.Caller.Name == "MoveNext"
                 && call.Caller.DeclaringType.Name.Contains(
@@ -145,17 +184,17 @@ public class LibraryBodyRootPathAnalysisTests
                     StringComparison.Ordinal)
                 && call.Callee.Name == "IteratorUse");
         MethodIdentity iteratorDestination =
-            iteratorIndex.DeclaredMethods.Single(method =>
+            iteratorCallGraph.DeclaredMethods.Single(method =>
                 method.MetadataToken
                 == MethodDefinitionMap
-                    .Create(iteratorIndex.DeclaredMethods)
+                    .Create(iteratorCallGraph.DeclaredMethods)
                     .Resolve(iteratorCall));
         MethodIdentity iteratorRoot =
-            iteratorIndex.DeclaredMethods.Single(method =>
+            iteratorCallGraph.DeclaredMethods.Single(method =>
                 method.Name == "IteratorRoot");
         LibraryBodyRootPathResult iteratorResult =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                iteratorIndex,
+                iteratorCallGraph,
                 [Address(iteratorRoot)],
                 [Address(iteratorDestination)],
                 s_generousLimits);
@@ -171,14 +210,14 @@ public class LibraryBodyRootPathAnalysisTests
     [Fact]
     public void FindShortestPaths_HonorsExactRootSetAndLocalParticipant()
     {
-        LibraryBodyIndex index = RootPathIndex();
-        MethodIdentity getter = RootPathMethod(index, "get_Value");
-        MethodIdentity setter = RootPathMethod(index, "set_Value");
-        MethodIdentity use = RootPathMethod(index, "AccessorUse");
+        LibraryCallGraphAnalysisResult callGraph = RootPathCallGraph();
+        MethodIdentity getter = RootPathMethod(callGraph, "get_Value");
+        MethodIdentity setter = RootPathMethod(callGraph, "set_Value");
+        MethodIdentity use = RootPathMethod(callGraph, "AccessorUse");
 
         LibraryBodyRootPathResult publicRootsOnly =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(getter)],
                 [Address(use)],
                 s_generousLimits);
@@ -189,7 +228,7 @@ public class LibraryBodyRootPathAnalysisTests
 
         LibraryBodyRootPathResult callerSelectedBoth =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(setter), Address(getter)],
                 [Address(use)],
                 s_generousLimits);
@@ -198,8 +237,13 @@ public class LibraryBodyRootPathAnalysisTests
             callerSelectedBoth.Witnesses
                 .Select(static witness => witness.Root.Name));
 
-        LibraryBodyIndex external = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath());
+        LibraryCallGraphAnalysisResult external =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphIndirectCaller
+                    .AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence))
+            .CallGraph;
         MethodIdentity externalCaller = external.DeclaredMethods.Single(
             static method => method.Name == "RunRootPath");
         Assert.Contains(
@@ -210,7 +254,7 @@ public class LibraryBodyRootPathAnalysisTests
 
         Assert.Throws<ArgumentException>(
             () => LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(externalCaller)],
                 [Address(use)],
                 s_generousLimits));
@@ -223,7 +267,7 @@ public class LibraryBodyRootPathAnalysisTests
         MethodIdentity root = Method(mvid, 1, "Root");
         MethodIdentity middle = Method(mvid, 2, "Middle");
         MethodIdentity destination = Method(mvid, 3, "Destination");
-        LibraryBodyIndex line = Index(
+        LibraryCallGraphAnalysisResult line = CallGraph(
             [root, middle, destination],
             [
                 Call(root, middle, 4),
@@ -267,7 +311,7 @@ public class LibraryBodyRootPathAnalysisTests
         Assert.Empty(edgeLimited.Witnesses);
 
         MethodIdentity secondRoot = Method(mvid, 4, "SecondRoot");
-        LibraryBodyIndex twoRoots = Index(
+        LibraryCallGraphAnalysisResult twoRoots = CallGraph(
             [root, secondRoot, destination],
             [
                 Call(root, destination, 4),
@@ -306,7 +350,7 @@ public class LibraryBodyRootPathAnalysisTests
             failed.MetadataToken,
             failed.Name,
             "Synthetic body failure");
-        LibraryBodyIndex index = Index(
+        LibraryCallGraphAnalysisResult callGraph = CallGraph(
             [root, destination, failed],
             [
                 Call(root, destination, 4),
@@ -322,7 +366,7 @@ public class LibraryBodyRootPathAnalysisTests
 
         LibraryBodyRootPathResult result =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(root)],
                 [Address(destination)],
                 s_generousLimits);
@@ -342,19 +386,22 @@ public class LibraryBodyRootPathAnalysisTests
                     LibraryBodyRootPathBoundary.UnresolvedLocalCalls>())
             .Count);
 
-        LibraryBodyIndex full = RootPathIndex();
+        LibraryCallGraphAnalysisResult full = RootPathCallGraph();
         MethodIdentity create = RootPathMethod(full, "Create");
         MethodIdentity mapped =
             RootPathMethod(full, "CreateMappedTextDiff");
-        LibraryBodyIndex scoped = LibraryBodyIndex.Open(
-            full.Path,
-            LibraryBodyAnalysisFeatures.MethodEvidence,
-            bodyScope:
-                new HashSet<int>
-                {
-                    create.MetadataToken,
-                    mapped.MetadataToken,
-                });
+        LibraryCallGraphAnalysisResult scoped =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence,
+                    bodyScope:
+                        new HashSet<int>
+                        {
+                            create.MetadataToken,
+                            mapped.MetadataToken,
+                        }))
+            .CallGraph;
 
         LibraryBodyRootPathResult scopedResult =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
@@ -380,13 +427,13 @@ public class LibraryBodyRootPathAnalysisTests
         MethodIdentity lifted =
             Method(mvid, 2, "<MissingOwner>g__Use|0_0");
         MethodIdentity destination = Method(mvid, 3, "Destination");
-        LibraryBodyIndex index = Index(
+        LibraryCallGraphAnalysisResult callGraph = CallGraph(
             [root, lifted, destination],
             [Call(lifted, destination, 4)]);
 
         LibraryBodyRootPathResult result =
             LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(root)],
                 [Address(destination)],
                 s_generousLimits);
@@ -407,17 +454,18 @@ public class LibraryBodyRootPathAnalysisTests
     {
         Guid mvid = Guid.NewGuid();
         MethodIdentity method = Method(mvid, 1, "Method");
-        LibraryBodyIndex index = Index([method], []);
+        LibraryCallGraphAnalysisResult callGraph =
+            CallGraph([method], []);
 
         Assert.Throws<ArgumentException>(
             () => LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [],
                 [Address(method)],
                 s_generousLimits));
         Assert.Throws<ArgumentException>(
             () => LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(method)],
                 [
                     new MetadataMethodAddress(
@@ -427,7 +475,7 @@ public class LibraryBodyRootPathAnalysisTests
                 s_generousLimits));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => LibraryBodyRootPathAnalysis.FindShortestPaths(
-                index,
+                callGraph,
                 [Address(method)],
                 [Address(method)],
                 new(1, 1, 1, 0)));
@@ -435,7 +483,7 @@ public class LibraryBodyRootPathAnalysisTests
         LibraryBodyRootPathWitness self =
             Assert.Single(
                 LibraryBodyRootPathAnalysis.FindShortestPaths(
-                    index,
+                    callGraph,
                     [Address(method)],
                     [Address(method)],
                     new(0, 1, 1, 1))
@@ -444,14 +492,17 @@ public class LibraryBodyRootPathAnalysisTests
         Assert.Empty(self.Steps);
     }
 
-    static LibraryBodyIndex RootPathIndex() =>
-        LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+    static LibraryCallGraphAnalysisResult RootPathCallGraph() =>
+        LibraryBodyAnalysisService.ExecutePath(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence))
+        .CallGraph;
 
     static MethodIdentity RootPathMethod(
-        LibraryBodyIndex index,
+        LibraryCallGraphAnalysisResult callGraph,
         string name) =>
-        index.DeclaredMethods.Single(method =>
+        callGraph.DeclaredMethods.Single(method =>
             method.DeclaringType.Name == "RootPathEntry"
             && method.Name == name);
 
@@ -471,7 +522,7 @@ public class LibraryBodyRootPathAnalysisTests
         .. witness.Steps.Select(static step => step.Callee.Name),
     ];
 
-    static LibraryBodyIndex Index(
+    static LibraryCallGraphAnalysisResult CallGraph(
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<DirectCall> calls,
         ImmutableArray<AnalysisDiagnostic> diagnostics = default) =>
@@ -479,7 +530,8 @@ public class LibraryBodyRootPathAnalysisTests
             methods,
             [],
             diagnostics: diagnostics,
-            directCalls: calls);
+            directCalls: calls)
+        .CallGraphAnalysis;
 
     static MethodIdentity Method(
         Guid moduleVersionId,
