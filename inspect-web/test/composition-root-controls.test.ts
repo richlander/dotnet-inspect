@@ -1271,8 +1271,7 @@ test("typed scope bar owns its rendered control bindings", () => {
     statementSignatures(libraryLens.body.body),
     [
       'assign:contentFramePane = "detail"',
-      "assign:state.libraryLens = lens",
-      "call:render()",
+      "call:selectLibraryLens(lens)",
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");

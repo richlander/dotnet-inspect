@@ -1439,10 +1439,21 @@ and Navigation adoption rather than an implicit exception here.
 
 Because standalone lens activation requires the request's exact subject to
 equal the snapshot's active subject (see
-[Explicit activation](#explicit-activation)), switching lenses never silently
-changes the Library subject to obtain a supported arity. An unsupported arity
-is reported as `Unavailable` for that lens while the current Library subject
-remains active and selectable for a supported lens.
+[Explicit activation](#explicit-activation)), standalone activation never
+silently changes the Library subject to obtain a supported arity. An
+unsupported arity is reported as `Unavailable` for that lens while the current
+Library subject remains active and selectable for a supported lens.
+
+A host may expose a compound subject-and-lens gesture when the user moves from
+`All libraries` to a single-library-only inspector. Inspect Web defines that
+gesture by selecting the first case-insensitive Package-ID namesake in its
+alphabetically ordered Library inventory, or the first Library in that
+inventory when no namesake exists, and then activating the requested inspector.
+The transition runs only for user inspector navigation. Restoration,
+rerendering, and asynchronous settlement do not repeat it. A later explicit
+`All libraries` gesture remains active and receives the unsupported-arity
+result, while moving to an aggregate-capable inspector retains the selected
+exact Library rather than automatically returning to the aggregate.
 
 ## Activation and reconciliation
 
