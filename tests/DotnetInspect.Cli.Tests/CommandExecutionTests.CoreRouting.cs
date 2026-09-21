@@ -2751,6 +2751,7 @@ public partial class CommandExecutionTests
     [InlineData("--library=", null)]
     [InlineData("--library:", null)]
     [InlineData("--library", "")]
+    [InlineData("--library", " ")]
     public async Task Router_EmptyLibraryValue_RoutesPackageAggregate(
         string libraryOption,
         string? libraryValue)

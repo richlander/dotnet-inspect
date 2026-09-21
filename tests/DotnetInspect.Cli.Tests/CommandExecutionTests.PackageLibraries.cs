@@ -505,14 +505,34 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task PackageCommand_LibraryFlag_BareUsesSingleLibraryAggregate()
+    [Theory]
+    [InlineData("--library", null)]
+    [InlineData("--library=", null)]
+    [InlineData("--library:", null)]
+    [InlineData("--library", "")]
+    [InlineData("--library", " ")]
+    public async Task PackageCommand_LibraryFlag_BareUsesSingleLibraryAggregate(
+        string libraryOption,
+        string? libraryValue)
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
         try
         {
+            string[] libraryTokens = libraryValue is null
+                ? [libraryOption]
+                : [libraryOption, libraryValue];
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library", "-S", "Library Info");
+                ["package", packagePath, .. libraryTokens, "-S", "Library Info"]);
+            var schema = await RunAppAsync(
+                [
+                    "package",
+                    packagePath,
+                    .. libraryTokens,
+                    "-D",
+                    "--schema",
+                    "--tips",
+                    "q",
+                ]);
 
             Assert.Equal(0, exit);
             Assert.Contains("# Test.Primary 1.0.0", output);
@@ -521,6 +541,8 @@ public partial class CommandExecutionTests
                 output);
             Assert.DoesNotContain("## Package Info", output);
             Assert.DoesNotContain("Tip:", error);
+            Assert.Equal(0, schema.Exit);
+            Assert.Contains("@Library", schema.Output);
         }
         finally
         {

@@ -180,7 +180,6 @@ public static class PackageOptionsParser
             return new UnrecognizedOption(badOption);
 
         var explicitVersion = parseResult.GetValue(args.VersionOption);
-        var libraryValue = parseResult.GetValue(args.LibraryOption);
         bool namesakeLibrary =
             parseResult.GetValue(args.NamesakeLibraryOption);
         bool explicitLibrary =
@@ -191,14 +190,12 @@ public static class PackageOptionsParser
             return new InvalidArguments(
                 "--namesake-library cannot be combined with --library.");
         }
-        bool allLibraries =
-            explicitLibrary
-            && string.IsNullOrWhiteSpace(libraryValue);
+        bool allLibraries = IsAggregateLibraryTarget(
+            parseResult.CommandResult,
+            args);
         var packageLibrary = namesakeLibrary
             ? ""
-            : explicitLibrary
-                ? libraryValue
-                : null;
+            : GetExactLibrary(parseResult.CommandResult, args);
 
         bool hasExplicitVersionSelector =
             parseResult.GetResult(args.VersionOption) is { Implicit: false };
