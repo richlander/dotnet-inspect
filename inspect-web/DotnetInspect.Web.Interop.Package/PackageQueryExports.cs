@@ -6,6 +6,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Web;
