@@ -296,6 +296,76 @@ public sealed class NavigationCoordinateSuccessorQueryTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public async Task BindingFromDifferentContentGeneration_IsTypedFailure(
+        bool sourceEndpoint)
+    {
+        PackageRootBinding source =
+            ApiCoordinateCorrespondenceQueryTests.Binding(
+                "1.0.0",
+                ("ref/net11.0/_._", ""));
+        PackageRootBinding foreignSource =
+            ApiCoordinateCorrespondenceQueryTests.Binding(
+                "1.0.0",
+                ("ref/net11.0/_._", ""));
+        PackageRootBinding destination =
+            ApiCoordinateCorrespondenceQueryTests.Binding(
+                "2.0.0",
+                ("ref/net11.0/_._", ""));
+        PackageRootBinding foreignDestination =
+            ApiCoordinateCorrespondenceQueryTests.Binding(
+                "2.0.0",
+                ("ref/net11.0/_._", ""));
+        await using var sourceWorkspace = new InspectionWorkspace();
+        await using var destinationWorkspace = new InspectionWorkspace();
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationFacetAvailabilityProvider availability =
+            AllAvailable(registry);
+        PreparedSource prepared = await PrepareSourceAsync(
+            sourceWorkspace,
+            source,
+            registry,
+            availability,
+            StructuralSubjectKind.Package,
+            memberName: null,
+            "package.overview",
+            declaringType: null);
+        WorkspaceScopeSnapshot destinationScope =
+            await AddAsync(destinationWorkspace, destination);
+
+        Assert.NotSame(
+            source.ContentGenerationIdentity,
+            foreignSource.ContentGenerationIdentity);
+        Assert.NotSame(
+            destination.SelectionIdentity,
+            foreignDestination.SelectionIdentity);
+        NavigationCoordinateSuccessorPreparationResult result =
+            await NavigationCoordinateSuccessorQuery.PrepareAsync(
+                sourceWorkspace,
+                prepared.Initialization.State,
+                sourceEndpoint ? foreignSource : source,
+                destinationWorkspace,
+                destinationScope,
+                sourceEndpoint ? destination : foreignDestination,
+                registry,
+                availability,
+                Cancellation);
+
+        NavigationCoordinateSuccessorPreparationResult.Failed failed =
+            Assert.IsType<
+                NavigationCoordinateSuccessorPreparationResult.Failed>(
+                    result);
+        Assert.Equal(
+            sourceEndpoint
+                ? NavigationCoordinateSuccessorFailureKind
+                    .SourceBindingMismatch
+                : NavigationCoordinateSuccessorFailureKind
+                    .DestinationBindingMismatch,
+            failed.Failure.Kind);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public async Task ClosedEndpoint_ReturnsTypedRootFailure(
         bool sourceEndpoint)
     {

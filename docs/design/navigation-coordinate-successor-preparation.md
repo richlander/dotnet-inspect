@@ -27,7 +27,10 @@ The source and destination Workspaces must have distinct identities. The source
 Navigation state and active occurrence must belong to the source Workspace.
 The destination Scope and requested occurrence must belong to the destination
 Workspace. Each binding must match its exact occurrence and retained immutable
-package-content snapshot.
+package-content snapshot. Before Root access, the producer compares the
+binding's opaque content-generation and selection identities with the
+owner-issued association retained by that Scope occurrence; an equal
+resource-free Root request alone is insufficient.
 
 This is a pure preparation boundary over two already-realized endpoints. It
 does not acquire a Package, populate or publish a Workspace, select a
@@ -159,8 +162,9 @@ Release gates in `NavigationCoordinateSuccessorQueryTests` prove:
 - the source and destination Workspaces never contain the other's Package
   version;
 - same-Workspace input, a foreign source state, a foreign destination Scope,
-  and mismatched source or destination bindings fail with their exact typed
-  reason;
+  and mismatched source or destination bindings — including independently
+  acquired same-coordinate bindings with empty compile selection — fail with
+  their exact typed reason;
 - source and destination Root or observation failure remains typed; and
 - the existing protected same-Workspace replacement suite remains green.
 

@@ -401,6 +401,7 @@ public static class NavigationCoordinateSuccessorQuery
         occurrence.Occurrence.Correspondence
             is PackageArtifactRootCorrespondence correspondence
         && correspondence.Matches(PackageArtifactRootRequest.From(binding))
+        && occurrence.Occurrence.Package.Matches(binding)
         && binding.ReferencesRetainedContent();
 
     static NavigationCoordinateSuccessorPreparationResult.Failed Failed(

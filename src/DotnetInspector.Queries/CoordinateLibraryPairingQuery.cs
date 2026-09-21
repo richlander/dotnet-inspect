@@ -463,6 +463,7 @@ public static class CoordinateLibraryPairingQuery
         if (occurrence.Occurrence.Correspondence
                 is not PackageArtifactRootCorrespondence candidate
             || !candidate.Matches(PackageArtifactRootRequest.From(binding))
+            || !occurrence.Occurrence.Package.Matches(binding)
             || !binding.ReferencesRetainedContent())
         {
             return new(
