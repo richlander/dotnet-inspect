@@ -47,16 +47,19 @@ public static class WorkspaceTypeScenarioProjection
                     version3.Definitions,
                 CompleteRestorationResolvedState.Version4 version4 =>
                     version4.Definitions,
+                CompleteRestorationResolvedState.Version5 version5 =>
+                    version5.Definitions,
                 _ => throw new InvalidOperationException(
                     "Unknown complete-restoration resolved state."),
             };
-        if (source.Scenario.SchemaVersion
-            != InspectionDefinitionSchema.Version4)
+        if (source.Scenario.SchemaVersion is not (
+                InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5))
         {
             return Failed(
                 "scenario.schemaVersion",
                 "A derived Type scenario requires Workspace packet schema "
-                    + "version 4.");
+                    + "version 4 or 5.");
         }
 
         WorkspaceDefinition workspace =
