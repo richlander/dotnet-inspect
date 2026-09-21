@@ -323,7 +323,8 @@ public static class RouterCommandDefinition
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,
-                rootCommand);
+                rootCommand,
+                ct);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -542,7 +543,8 @@ public static class RouterCommandDefinition
         public static async Task<string[]> RewriteAsync(
             string[] tokens,
             NuGetSourceOptions sourceOptions,
-            RootCommand rootCommand)
+            RootCommand rootCommand,
+            CancellationToken cancellationToken)
         {
             var target = tokens[0];
             var tail = tokens[1..];
@@ -606,6 +608,53 @@ public static class RouterCommandDefinition
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
+            if (!hasExplicitApiSource
+                && frameworkSpec is null
+                && !hasTypeOption
+                && !hasMemberOption)
+            {
+                CliPlatformTypeCatalogOutcome catalogOutcome =
+                    await PlatformTypeCatalogRouting.LoadAsync(
+                        context,
+                        sourceOptions,
+                        cancellationToken);
+                switch (catalogOutcome)
+                {
+                    case CliPlatformTypeCatalogOutcome.Completed completed:
+                        CliPlatformTypeRouteOutcome route =
+                            PlatformTypeCatalogRouting.Resolve(
+                                completed.Catalog,
+                                target,
+                                cancellationToken);
+                        switch (route)
+                        {
+                            case CliPlatformTypeRouteOutcome.Resolved resolved:
+                                if (resolved.MemberSelector is null
+                                    && !resolved.InputWasFullName)
+                                {
+                                    CommandError.WriteNote(
+                                        $"Type '{target}' resolved via the target-bound Platform catalog to {resolved.TypeName} in {resolved.AssemblyName}.");
+                                }
+                                return RoutePlatformCatalogResult(
+                                    resolved,
+                                    tail);
+                            case CliPlatformTypeRouteOutcome.Ambiguous ambiguous:
+                                CommandError.Write(
+                                    $"Type '{ambiguous.Pattern}' matched multiple platform types. The target-bound catalog contains {ambiguous.Query.Candidates.Length} equally preferred candidates.");
+                                return tokens;
+                            case CliPlatformTypeRouteOutcome.Rejected rejected:
+                                CommandError.Write(
+                                    $"Platform type lookup failed ({rejected.Query.Kind}).");
+                                return tokens;
+                        }
+                        break;
+                    case CliPlatformTypeCatalogOutcome.NotCompleted failure:
+                        CommandError.Write(
+                            $"Platform type catalog routing failed ({failure.Kind}).");
+                        return tokens;
+                }
+            }
+
             var exactTypeLookup = LookupExactGenericPlatformType(
                 target,
                 allowSimpleName: hasTypeOption || hasMemberOption,
@@ -1356,6 +1405,31 @@ public static class RouterCommandDefinition
                     return false;
             }
         }
+
+        private static string[] RoutePlatformCatalogResult(
+            CliPlatformTypeRouteOutcome.Resolved resolved,
+            string[] tail) =>
+            resolved.MemberSelector is null
+                ? [
+                    "type",
+                    resolved.TypeName,
+                    "--platform",
+                    resolved.AssemblyName,
+                    "--framework",
+                    resolved.Framework,
+                    .. tail,
+                ]
+                : [
+                    "member",
+                    resolved.TypeName,
+                    "--platform",
+                    resolved.AssemblyName,
+                    "--framework",
+                    resolved.Framework,
+                    "-m",
+                    resolved.MemberSelector,
+                    .. tail,
+                ];
 
         private static string[] RouteExactGenericPlatformType(
             PlatformTypeLookupOutcome.Resolved resolved,
