@@ -532,25 +532,30 @@ internal static class TypeScriptFacadeEmitter
                     TypeScriptIdentifier.IsStrictModeBindingIdentifier);
             IReadOnlyList<ApiTypeReferenceIdentity> dateTimeOffsetIdentities =
                 DtsEmitter.FindDateTimeOffsetIdentities(surface);
-            string? dateTimeOffsetName =
+            bool usesDateTimeOffset =
+                DtsEmitter.UsesDateTimeOffset(surface);
+            string dateTimeOffsetIdentity =
                 dateTimeOffsetIdentities.Count == 0
+                    ? TsTypeMapper.DateTimeOffsetFullName
+                    : CanonicalDateTimeOffsetIdentity(
+                        dateTimeOffsetIdentities);
+            string? dateTimeOffsetName =
+                !usesDateTimeOffset
                     ? null
                     : Allocate(
                         moduleBindings,
                         TsTypeMapper.DateTimeOffsetJsonStringName,
                         "type",
-                        CanonicalDateTimeOffsetIdentity(
-                            dateTimeOffsetIdentities),
+                        dateTimeOffsetIdentity,
                         TypeScriptIdentifier.IsTypeDeclarationIdentifier);
             string? dateTimeOffsetBrandName =
-                dateTimeOffsetIdentities.Count == 0
+                !usesDateTimeOffset
                     ? null
                     : Allocate(
                         moduleBindings,
                         "dateTimeOffsetStringBrand",
                         "brand",
-                        CanonicalDateTimeOffsetIdentity(
-                            dateTimeOffsetIdentities) + "#brand",
+                        dateTimeOffsetIdentity + "#brand",
                         TypeScriptIdentifier.IsStrictModeBindingIdentifier);
             var typeNames = new Dictionary<ApiType, string>();
             foreach (ApiType type in surface.Records

@@ -15,7 +15,9 @@ public sealed record InertWidgetDto(
 
 public sealed record TimestampDto(
     DateTimeOffset ObservedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    TimestampSelection Selection,
+    NullableTimestampSelection NullableSelection);
 
 public sealed class InertStringWriteConverter : JsonConverter<InertString>
 {
@@ -257,18 +259,21 @@ public static partial class TypeScriptFixtureExports
     public static async Task<string> GetTimestampAsync()
     {
         await Task.Yield();
+        var observedAt = new DateTimeOffset(
+            2026,
+            9,
+            21,
+            10,
+            30,
+            45,
+            TimeSpan.FromHours(-7))
+            .AddTicks(1_234_567);
         return JsonSerializer.Serialize(
             new TimestampDto(
-                new DateTimeOffset(
-                    2026,
-                    9,
-                    21,
-                    10,
-                    30,
-                    45,
-                    TimeSpan.FromHours(-7))
-                    .AddTicks(1_234_567),
-                null),
+                observedAt,
+                null,
+                new TimestampSelection(observedAt),
+                new NullableTimestampSelection((DateTimeOffset?)null)),
             FixtureJsonContext.Default.TimestampDto);
     }
 

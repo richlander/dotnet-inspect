@@ -91,18 +91,49 @@ TS
 
 cat > "$scratch/timestamp-usage.ts" <<'TS'
 import { getTimestampAsync } from "./facade.js";
-import type { DateTimeOffsetString } from "./facade.js";
+import type {
+  DateTimeOffsetString,
+  NullableTimestampSelection,
+  TimestampSelection,
+} from "./facade.js";
+
+type TimestampArray =
+  Extract<TimestampSelection, ReadonlyArray<unknown>>;
+type TimestampMap =
+  Extract<TimestampSelection, Readonly<Record<string, unknown>>>;
 
 export async function readTimestamp(): Promise<string> {
   const value = await getTimestampAsync();
   const timestamp: DateTimeOffsetString = value.observedAt;
+  const selection: TimestampSelection = value.selection;
+  const nullableSelection: NullableTimestampSelection =
+    value.nullableSelection;
+  declareTimestampAlternatives(selection, [], {});
+  void nullableSelection;
   const display: string = timestamp;
   return display;
+}
+
+function declareTimestampAlternatives(
+  direct: TimestampSelection,
+  array: TimestampArray,
+  map: TimestampMap,
+): void {
+  const first: DateTimeOffsetString | null | undefined = array[0];
+  const named: DateTimeOffsetString | undefined = map["timestamp"];
+  void direct;
+  void first;
+  void named;
 }
 
 // A plain string has not crossed an authenticated DateTimeOffset JSON boundary.
 // @ts-expect-error
 export const untreated: DateTimeOffsetString =
+  "2026-09-21T10:30:45.1234567-07:00";
+
+// A plain string cannot enter the DateTimeOffset union alternative either.
+// @ts-expect-error
+export const untreatedSelection: TimestampSelection =
   "2026-09-21T10:30:45.1234567-07:00";
 TS
 

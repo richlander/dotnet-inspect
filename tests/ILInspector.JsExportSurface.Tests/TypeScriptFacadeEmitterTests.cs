@@ -838,40 +838,11 @@ public sealed class TypeScriptFacadeEmitterTests
     public void Emit_AllocatesDateTimeOffsetBrandBeforeUnrelatedTypes()
     {
         ApiAssemblyIdentity assembly = AssemblyIdentity();
-        var dateTimeOffsetIdentity = new ApiTypeReferenceIdentity(
-            new ApiAssemblyIdentity(
-                "System.Private.CoreLib",
-                new Version(11, 0, 0, 0),
-                culture: null,
-                publicKeyToken: "7cec85d7bea7798e"),
-            "System.DateTimeOffset",
-            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-                MetadataTypeDefinitionName.Create(
-                    "System",
-                    System.Collections.Immutable.ImmutableArray.Create(
-                        "DateTimeOffset")))
-                .Name);
-        var container = new ApiType
+        var timestampSelection = new ApiType
         {
             Namespace = "Fixture",
-            Name = "Container",
+            Name = "TimestampSelection",
             Kind = "class",
-            Members =
-            [
-                new ApiMember
-                {
-                    Name = "ObservedAt",
-                    Kind = "property",
-                    HasGetter = true,
-                    SignatureModel = new ApiSignature
-                    {
-                        ReturnType = "System.DateTimeOffset",
-                        ReturnTypeReferences = [dateTimeOffsetIdentity],
-                        ReturnTypeShape =
-                            ApiTypeShape.Named(dateTimeOffsetIdentity),
-                    },
-                },
-            ],
         };
         var unrelated = new ApiType
         {
@@ -909,11 +880,27 @@ public sealed class TypeScriptFacadeEmitterTests
             new global::ILInspector.JsExportSurface.JsExportSurface
             {
                 AssemblyIdentity = assembly,
-                Records = [container, unrelated, unrelatedBrand],
+                Records = [unrelated, unrelatedBrand],
+                Unions =
+                [
+                    new JsExportUnion
+                    {
+                        Definition = timestampSelection,
+                        CaseTypes =
+                        [
+                            TypeRef.CoreLib(
+                                "System",
+                                "DateTimeOffset"),
+                            TypeRef.CoreLib("System", "Boolean"),
+                        ],
+                        IncludesNull = true,
+                    },
+                ],
                 WireDirections =
                     new Dictionary<ApiType, JsonWireDirection>
                     {
-                        [container] = JsonWireDirection.Serialize,
+                        [timestampSelection] =
+                            JsonWireDirection.Serialize,
                         [unrelated] = JsonWireDirection.Serialize,
                         [unrelatedBrand] = JsonWireDirection.Serialize,
                     },
@@ -934,7 +921,8 @@ public sealed class TypeScriptFacadeEmitterTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "readonly ObservedAt: DateTimeOffsetString;",
+            "export type TimestampSelection = "
+                + "DateTimeOffsetString | boolean | null;",
             source,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -990,8 +978,22 @@ public sealed class TypeScriptFacadeEmitterTests
             export interface TimestampDto {
               readonly observedAt: DateTimeOffsetString;
               readonly completedAt: DateTimeOffsetString | null;
+              readonly selection: TimestampSelection;
+              readonly nullableSelection: NullableTimestampSelection;
             }
             """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type NullableTimestampSelection = "
+                + "DateTimeOffsetString | boolean | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type TimestampSelection = DateTimeOffsetString "
+                + "| ReadonlyArray<DateTimeOffsetString | null> "
+                + "| Readonly<Record<string, DateTimeOffsetString>> "
+                + "| null;",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1018,7 +1020,7 @@ public sealed class TypeScriptFacadeEmitterTests
             .GetTimestampAsync();
 
         Assert.Equal(
-            """{"observedAt":"2026-09-21T10:30:45.1234567-07:00","completedAt":null}""",
+            """{"observedAt":"2026-09-21T10:30:45.1234567-07:00","completedAt":null,"selection":"2026-09-21T10:30:45.1234567-07:00","nullableSelection":null}""",
             json);
     }
 

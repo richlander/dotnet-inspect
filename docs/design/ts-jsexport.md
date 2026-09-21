@@ -273,7 +273,8 @@ optional one-to-seven fractional second digits rather than assuming the fixed
 seven digits produced by an explicit round-trip format string. Validation also
 rejects impossible Gregorian dates, out-of-range time or offset components, and
 values whose offset would place the UTC instant outside the `DateTimeOffset`
-range.
+range. The same mapping composes through supported union alternatives,
+including nullable and collection-contained case trees.
 
 The mapping requires the exact platform type identity carried by the
 authenticated source-generated JSON shape. A producer-defined type with the

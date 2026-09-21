@@ -343,7 +343,7 @@ static class DtsEmitter
                 .Append("]: \"InertString\";\n};\n\n");
         }
 
-        if (FindDateTimeOffsetIdentities(surface).Count > 0)
+        if (UsesDateTimeOffset(surface))
         {
             string dateTimeOffsetName =
                 allocatedDateTimeOffsetName
@@ -1012,7 +1012,11 @@ static class DtsEmitter
                         && surface.Records.Any(record =>
                             ReferenceEquals(record, item.Type)))
                     .Select(item => item.Identity)
-                    .ToHashSet()));
+                    .ToHashSet(),
+                UsesDateTimeOffset(surface)
+                    ? allocatedDateTimeOffsetName
+                        ?? TsTypeMapper.DateTimeOffsetJsonStringName
+                    : null));
     }
 
     static (ApiTypeReferenceIdentity Identity, ApiType Type)[] TypeIdentities(
@@ -2014,6 +2018,38 @@ static class DtsEmitter
                     identity => identity.FullName,
                     StringComparer.Ordinal),
         ];
+
+    internal static bool UsesDateTimeOffset(
+        ILInspector.JsExportSurface.JsExportSurface surface) =>
+        FindDateTimeOffsetIdentities(surface).Count > 0
+        || surface.Unions
+            .Where(union => ShouldEmit(surface, union.Definition))
+            .SelectMany(union => union.CaseTypes)
+            .Any(ContainsDateTimeOffset);
+
+    static bool ContainsDateTimeOffset(TypeRef root)
+    {
+        var pending = new Stack<TypeRef>();
+        pending.Push(root);
+        while (pending.TryPop(out TypeRef? current))
+        {
+            if (current is
+                {
+                    Kind: TypeRefKind.Definition,
+                    Namespace: "System",
+                    Name: "DateTimeOffset",
+                }
+                && TsTypeMapper.IsAuthenticFrameworkMapping(current))
+            {
+                return true;
+            }
+            if (current.ElementType is { } element)
+                pending.Push(element);
+            foreach (TypeRef argument in current.TypeArguments)
+                pending.Push(argument);
+        }
+        return false;
+    }
 
     static IEnumerable<ApiTypeShape> JsonWireShapes(
         ILInspector.JsExportSurface.JsExportSurface surface)

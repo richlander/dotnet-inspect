@@ -339,6 +339,8 @@ function managedExports(methods = {}) {
               ?? (async () => JSON.stringify({
                 observedAt: "2026-09-21T10:30:45.1234567-07:00",
                 completedAt: null,
+                selection: "2026-09-21T10:30:45.1234567-07:00",
+                nullableSelection: null,
               })),
             [getRuntimeApiAsyncKey]:
               methods.getRuntimeApiAsync
@@ -590,6 +592,8 @@ async function freshFacade() {
     {
       observedAt: "2026-09-21T10:30:45.1234567-07:00",
       completedAt: null,
+      selection: "2026-09-21T10:30:45.1234567-07:00",
+      nullableSelection: null,
     },
   );
   assert.deepEqual(
