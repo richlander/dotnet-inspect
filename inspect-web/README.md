@@ -1033,9 +1033,17 @@ breadth and candidate discovery.
 
 The legacy Member actions **Compare method bodies** and
 **Compare authored source**, including their session-local dialogs, are
-retired. Diff and Clone belong to the unified Compare inspector described by
-[Inspect Web Compare Experience](../docs/design/inspect-web-compare-experience.md);
-Member **Explore** will open the appropriate immersive Omni experience.
+retired. Diff and Clone are the two modes of the one Compare inspector at
+Library, Type, and Member described by
+[Inspect Web Compare Experience](../docs/design/inspect-web-compare-experience.md).
+Library and Type are drill-down inventories: `src/library-api-diff.ts`
+projects the complete Library-root Diff document at each level, and
+`src/compare-clone.ts` runs each subject's own scoped Clone query. Member is
+the first detailed-result boundary. The shared frame, its Diff/Clone tabs, and
+the Package-scoped mode retention live in `src/compare-surface.ts` and
+`src/package-comparison-targets.ts`. **Explore** appears only for an
+owner-issued immersive destination; none is issued yet, so no Explore or
+whole-Type action is advertised.
 
 The generated Source facade continues to expose structured method-body and
 paired authored-Source comparison operations. They preserve exact endpoint
