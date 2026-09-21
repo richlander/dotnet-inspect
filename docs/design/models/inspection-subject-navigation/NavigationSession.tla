@@ -8,7 +8,7 @@
 (* identity ranking, lens contents, rendering, or any implementation.       *)
 (*                                                                         *)
 (* Product concept                    Model variable                       *)
-(*   semantic value + action generation installedSnapshot                  *)
+(*   subject + route + action generation installedSnapshot                 *)
 (*   installed snapshot revision        installedRev                       *)
 (*   consumer-installed snapshot         consumerSnapshot                   *)
 (*   consumer-installed revision         consumerRev                        *)
@@ -41,14 +41,19 @@ CONSTANTS
   MaxMaintenance,   \* how many standalone maintenance requests it may issue
   MaxSynchronization, \* how many external synchronization requests may issue
   IntentKinds,      \* subject, lens, coordinate, and canonical restoration
-  SnapshotValues,   \* finite complete semantic snapshot contents
-  InitialSnapshot,  \* content retained before the first modelled result
+  Subjects,         \* finite exact structural subject identities
+  Routes,           \* finite exact structural route identities
+  DirectRoute,      \* Workspace-direct route requiring no child relation
+  RelatedRoute,     \* route requiring the one modeled owner relation
+  InitialSubject,   \* subject retained before the first modelled result
   SessionId,        \* the identity of this retained navigation session
   ForeignSessionId  \* some other session, used only for foreign authority
 
 ASSUME MaxIntent \in Nat /\ MaxMaintenance \in Nat
 ASSUME MaxSynchronization \in Nat /\ MaxSynchronization > 1
-ASSUME InitialSnapshot \in SnapshotValues /\ Cardinality(SnapshotValues) > 1
+ASSUME InitialSubject \in Subjects
+ASSUME DirectRoute \in Routes /\ RelatedRoute \in Routes
+ASSUME DirectRoute # RelatedRoute
 ASSUME SessionId # ForeignSessionId
 
 VARIABLES
@@ -70,6 +75,7 @@ VARIABLES
   effectEpoch,
   effect,
   hostAuthority,
+  relationAvailable,
   nextSynchronization,
   synchronizationRequest,
   settledSynchronizations,
@@ -90,6 +96,7 @@ vars == << installedSnapshot, installedRev, consumerSnapshot, consumerRev,
            currentIntent, explicit,
            superseded, nextMaintenance, maintenanceQueue, lastAdmitted,
            admittedRequests, lastResult, effectEpoch, effect, hostAuthority,
+           relationAvailable,
            nextSynchronization, synchronizationRequest,
            settledSynchronizations,
            admissionWitness, regatherWitness, revisionWitness, orderWitness,
@@ -110,6 +117,12 @@ SemanticOutcomes ==
    "synchronize"}
 ResultSources == {"none", "evaluation", "navigationPreparation"}
 Dispositions == {"current", "synchronizationRequired"}
+SemanticSnapshots == [subject : Subjects, route : Routes]
+InitialSemantic == [subject |-> InitialSubject, route |-> DirectRoute]
+
+ValidSemantic(semantic) ==
+  /\ semantic \in SemanticSnapshots
+  /\ (semantic.route = DirectRoute \/ relationAvailable)
 
 \* A complete consumer publication carries semantic data and action generation.
 \* Revision versions only semantic data; the receipt joins revision and generation.
@@ -117,7 +130,7 @@ Publication(semantic, generation) ==
   [semantic |-> semantic, generation |-> generation]
 
 IsPublication(snapshot) ==
-  /\ snapshot.semantic \in SnapshotValues
+  /\ snapshot.semantic \in SemanticSnapshots
   /\ snapshot.generation \in Nat
 
 NoResult ==
@@ -125,12 +138,16 @@ NoResult ==
     source          |-> "none",
     preparationFailureOccurred |-> FALSE,
     retryPublicationOccurred |-> FALSE,
+    staleRelationActionOccurred |-> FALSE,
+    postRemovalRegatheredMaintenanceOccurred |-> FALSE,
+    routeOnlyAppliedGeneration |-> 0,
+    appliedRelationRemovalOccurred |-> FALSE,
     disposition     |-> "none",
-    receiptSnapshot |-> Publication(InitialSnapshot, 0),
+    receiptSnapshot |-> Publication(InitialSemantic, 0),
     receiptRev      |-> 0,
     snapshotChanged |-> FALSE,
-    priorSnapshot   |-> Publication(InitialSnapshot, 0),
-    resultSnapshot  |-> Publication(InitialSnapshot, 0),
+    priorSnapshot   |-> Publication(InitialSemantic, 0),
+    resultSnapshot  |-> Publication(InitialSemantic, 0),
     priorRev        |-> 0,
     resultRev       |-> 0 ]
 
@@ -140,12 +157,20 @@ ConsumerDisposition(resultSnapshot, resultRev) ==
     ELSE "synchronizationRequired"
 
 Result(outcome, source, preparationFailureOccurred,
+       staleRelationActionOccurred,
+       postRemovalRegatheredMaintenanceOccurred,
        disposition, receiptSnapshot, receiptRev,
        priorSnapshot, resultSnapshot, priorRev, resultRev) ==
   [ outcome         |-> outcome,
     source          |-> source,
     preparationFailureOccurred |-> preparationFailureOccurred,
     retryPublicationOccurred |-> FALSE,
+    staleRelationActionOccurred |-> staleRelationActionOccurred,
+    postRemovalRegatheredMaintenanceOccurred |->
+      postRemovalRegatheredMaintenanceOccurred,
+    routeOnlyAppliedGeneration |-> lastResult.routeOnlyAppliedGeneration,
+    appliedRelationRemovalOccurred |->
+      lastResult.appliedRelationRemovalOccurred,
     disposition     |-> disposition,
     receiptSnapshot |-> receiptSnapshot,
     receiptRev      |-> receiptRev,
@@ -191,7 +216,17 @@ ForeignAuthority ==
     intent  |-> 1,
     epoch   |-> 1 ]
 
-NoExplicitWork == [token |-> 0, kind |-> "none"]
+NoExplicitWork ==
+  [ token |-> 0,
+    kind |-> "none",
+    route |-> DirectRoute,
+    basisGeneration |-> 0 ]
+
+StaleRelationActionPending ==
+  /\ explicit # NoExplicitWork
+  /\ explicit.route = RelatedRoute
+  /\ explicit.basisGeneration < installedSnapshot.generation
+  /\ ~relationAvailable
 
 Range(s) == { s[i] : i \in DOMAIN s }
 
@@ -213,6 +248,9 @@ TypeOK ==
   /\ currentIntent \in 0 .. MaxIntent
   /\ explicit.token \in 0 .. MaxIntent
   /\ explicit.kind \in IntentKinds \cup {"none"}
+  /\ explicit.route \in Routes
+  /\ explicit.basisGeneration \in Nat
+  /\ explicit.basisGeneration <= installedSnapshot.generation
   /\ superseded \subseteq 1 .. MaxIntent
   /\ nextMaintenance \in 1 .. (MaxMaintenance + 1)
   /\ lastAdmitted \in 0 .. MaxMaintenance
@@ -221,6 +259,10 @@ TypeOK ==
   /\ lastResult.source \in ResultSources
   /\ lastResult.preparationFailureOccurred \in BOOLEAN
   /\ lastResult.retryPublicationOccurred \in BOOLEAN
+  /\ lastResult.staleRelationActionOccurred \in BOOLEAN
+  /\ lastResult.postRemovalRegatheredMaintenanceOccurred \in BOOLEAN
+  /\ lastResult.routeOnlyAppliedGeneration \in Nat
+  /\ lastResult.appliedRelationRemovalOccurred \in BOOLEAN
   /\ lastResult.disposition \in Dispositions \cup {"none"}
   /\ IsPublication(lastResult.receiptSnapshot)
   /\ lastResult.receiptRev \in Nat
@@ -232,6 +274,7 @@ TypeOK ==
   /\ effectEpoch \in Nat
   /\ effect.outcome \in Outcomes \cup {"none"}
   /\ hostAuthority.outcome \in Outcomes \cup {"none"}
+  /\ relationAvailable \in BOOLEAN
   /\ nextSynchronization \in 1 .. (MaxSynchronization + 1)
   /\ synchronizationRequest \in 0 .. MaxSynchronization
   /\ settledSynchronizations \subseteq 1 .. MaxSynchronization
@@ -244,6 +287,8 @@ TypeOK ==
        /\ maintenanceQueue[i].ready \in BOOLEAN
        /\ maintenanceQueue[i].basis \in Nat
        /\ maintenanceQueue[i].needsRegather \in BOOLEAN
+       /\ maintenanceQueue[i].regathered \in BOOLEAN
+       /\ maintenanceQueue[i].invalidatedByRelationRemoval \in BOOLEAN
   /\ regatherWitness \in BOOLEAN
   /\ revisionWitness \in BOOLEAN
   /\ consumerSyncWitness \in BOOLEAN
@@ -251,14 +296,15 @@ TypeOK ==
   /\ dispositionWitness \in BOOLEAN
   /\ synchronizationWitness \in BOOLEAN
   /\ abandonmentWitness \in BOOLEAN
+  /\ ValidSemantic(installedSnapshot.semantic)
 
 Init ==
-  /\ installedSnapshot = Publication(InitialSnapshot, 0)
+  /\ installedSnapshot = Publication(InitialSemantic, 0)
   /\ installedRev = 0
-  /\ consumerSnapshot = Publication(InitialSnapshot, 0)
+  /\ consumerSnapshot = Publication(InitialSemantic, 0)
   /\ consumerRev = 0
   /\ consumerInstalledEpoch = 0
-  /\ acknowledgedSnapshot = Publication(InitialSnapshot, 0)
+  /\ acknowledgedSnapshot = Publication(InitialSemantic, 0)
   /\ acknowledgedRev = 0
   /\ currentIntent = 0
   /\ explicit = NoExplicitWork
@@ -271,6 +317,7 @@ Init ==
   /\ effectEpoch = 0
   /\ effect = NoAuthority
   /\ hostAuthority = NoAuthority
+  /\ relationAvailable = TRUE
   /\ nextSynchronization = 1
   /\ synchronizationRequest = 0
   /\ settledSynchronizations = {}
@@ -294,10 +341,16 @@ Init ==
 (* already gathered maintenance facts, and makes any later snapshot        *)
 (* replacement force queued maintenance to rebuild.                        *)
 (***************************************************************************)
-BeginExplicitIntent(kind) ==
+BeginExplicitIntent(kind, route, basisGeneration) ==
   /\ currentIntent < MaxIntent
+  /\ route \in Routes
+  /\ basisGeneration \in 0 .. installedSnapshot.generation
   /\ currentIntent' = currentIntent + 1
-  /\ explicit' = [token |-> currentIntent + 1, kind |-> kind]
+  /\ explicit' =
+       [ token |-> currentIntent + 1,
+         kind |-> kind,
+         route |-> route,
+         basisGeneration |-> basisGeneration ]
   /\ superseded' = IF explicit = NoExplicitWork
                      THEN superseded
                      ELSE superseded \cup {explicit.token}
@@ -315,13 +368,30 @@ BeginExplicitIntent(kind) ==
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
                   dispositionWitness, synchronizationWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
+
+BeginCurrentExplicitIntent(kind, route) ==
+  BeginExplicitIntent(
+    kind,
+    route,
+    installedSnapshot.generation)
+
+BeginStaleRelationAction ==
+  /\ ~relationAvailable
+  /\ installedSnapshot.generation > 0
+  /\ BeginExplicitIntent(
+       "subject",
+       RelatedRoute,
+       installedSnapshot.generation - 1)
 
 \* An `Applied` outcome installs a semantically changed replacement snapshot
 \* and returns fresh authority under its own intent token.
 ExplicitResultInstalls(returnedSnapshot) ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ explicit.basisGeneration = installedSnapshot.generation
+  /\ returnedSnapshot.semantic.route = explicit.route
+  /\ ValidSemantic(returnedSnapshot.semantic)
   /\ returnedSnapshot.semantic # installedSnapshot.semantic
   /\ installedSnapshot' = returnedSnapshot
   /\ installedRev' = installedRev + 1
@@ -329,11 +399,20 @@ ExplicitResultInstalls(returnedSnapshot) ==
   /\ effect' = Authority("applied", installedRev + 1, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("applied", "none", FALSE,
-              ConsumerDisposition(returnedSnapshot, installedRev + 1),
-              acknowledgedSnapshot, acknowledgedRev,
-              installedSnapshot, returnedSnapshot,
-              installedRev, installedRev + 1)
+       [Result("applied", "none", FALSE,
+               StaleRelationActionPending, FALSE,
+               ConsumerDisposition(returnedSnapshot, installedRev + 1),
+               acknowledgedSnapshot, acknowledgedRev,
+               installedSnapshot, returnedSnapshot,
+               installedRev, installedRev + 1)
+         EXCEPT !.routeOnlyAppliedGeneration =
+           IF returnedSnapshot.semantic.subject =
+                installedSnapshot.semantic.subject /\
+              returnedSnapshot.semantic.route = RelatedRoute /\
+              returnedSnapshot.semantic.route #
+                installedSnapshot.semantic.route
+             THEN returnedSnapshot.generation
+             ELSE @]
   /\ dispositionWitness' =
        /\ dispositionWitness
        /\ CorrectDispositionAtIssue(lastResult')
@@ -347,7 +426,8 @@ ExplicitResultInstalls(returnedSnapshot) ==
                   admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* A completed unavailable or failed result returns a complete snapshot value.
 \* Change is derived by comparing that value with the installed snapshot, not
@@ -356,6 +436,8 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
   /\ outcome \in {"unavailable", "failed"}
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ explicit.basisGeneration = installedSnapshot.generation
+  /\ ValidSemantic(returnedSnapshot.semantic)
   /\ LET changed == returnedSnapshot.semantic # installedSnapshot.semantic IN
        /\ installedSnapshot' = returnedSnapshot
        /\ installedRev' = IF changed THEN installedRev + 1 ELSE installedRev
@@ -367,7 +449,7 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
        /\ lastResult' =
             Result(outcome,
                    IF outcome = "failed" THEN "evaluation" ELSE "none",
-                   FALSE,
+                   FALSE, StaleRelationActionPending, FALSE,
                    ConsumerDisposition(returnedSnapshot, installedRev'),
                    acknowledgedSnapshot, acknowledgedRev,
                    installedSnapshot, returnedSnapshot,
@@ -391,7 +473,8 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
                   admissionWitness,
                   regatherWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* A consumed advertised action can be republished for retry after a retaining
 \* non-success result. This is bounded by explicit intents, not a retry ceiling.
@@ -399,6 +482,7 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
 ExplicitRetryActionPublication ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ explicit.basisGeneration = installedSnapshot.generation
   /\ installedSnapshot' =
        Publication(installedSnapshot.semantic, installedSnapshot.generation + 1)
   /\ installedRev' = installedRev
@@ -407,6 +491,7 @@ ExplicitRetryActionPublication ==
   /\ hostAuthority' = effect'
   /\ lastResult' =
        [Result("unavailable", "none", FALSE,
+               StaleRelationActionPending, FALSE,
                ConsumerDisposition(installedSnapshot', installedRev),
                acknowledgedSnapshot, acknowledgedRev,
                installedSnapshot, installedSnapshot', installedRev, installedRev)
@@ -435,7 +520,8 @@ ExplicitRetryActionPublication ==
                   settledSynchronizations, admissionWitness,
                   regatherWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* Navigation preparation can fail after Registry evaluation succeeds.  It
 \* returns a distinguishable failed result and retains the complete snapshot
@@ -443,6 +529,7 @@ ExplicitRetryActionPublication ==
 NavigationPreparationFailure ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ explicit.basisGeneration = installedSnapshot.generation
   /\ installedSnapshot' = installedSnapshot
   /\ installedRev' = installedRev
   /\ effectEpoch' = effectEpoch + 1
@@ -451,6 +538,7 @@ NavigationPreparationFailure ==
   /\ hostAuthority' = effect'
   /\ lastResult' =
        Result("failed", "navigationPreparation", TRUE,
+              StaleRelationActionPending, FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -480,19 +568,22 @@ NavigationPreparationFailure ==
                   settledSynchronizations,
                   admissionWitness, regatherWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* A rejected navigation result retains the installed snapshot but receives a
 \* fresh effect epoch so delayed outcome work cannot surface later.
 ExplicitRejected ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ explicit.basisGeneration = installedSnapshot.generation
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' =
        Authority("retained", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
        Result("rejected", "none", FALSE,
+              StaleRelationActionPending, FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -512,7 +603,43 @@ ExplicitRejected ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
+
+\* An action advertised before its exact route relation was removed cannot
+\* apply against the replacement publication. It returns a typed retained
+\* rejection under fresh authority.
+ExplicitStaleRelationRejected ==
+  /\ explicit # NoExplicitWork
+  /\ explicit.token = currentIntent
+  /\ explicit.route = RelatedRoute
+  /\ explicit.basisGeneration < installedSnapshot.generation
+  /\ ~relationAvailable
+  /\ effectEpoch' = effectEpoch + 1
+  /\ effect' =
+       Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+  /\ hostAuthority' = effect'
+  /\ lastResult' =
+       Result("rejected", "none", FALSE,
+              StaleRelationActionPending, FALSE,
+              ConsumerDisposition(installedSnapshot, installedRev),
+              acknowledgedSnapshot, acknowledgedRev,
+              installedSnapshot, installedSnapshot,
+              installedRev, installedRev)
+  /\ explicit' = NoExplicitWork
+  /\ UNCHANGED << installedSnapshot, installedRev,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, superseded,
+                  nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
+                  admissionWitness, regatherWitness, revisionWitness,
+                  orderWitness, visibleWitness,
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness, relationAvailable >>
 
 \* Packet decoding, coordinate realization, or another prerequisite owner
 \* failed before navigation could run.  The intent terminates with a typed
@@ -521,11 +648,13 @@ ExplicitRejected ==
 ExternalPrerequisiteAbort ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ explicit.basisGeneration = installedSnapshot.generation
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("aborted", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
        Result("aborted", "none", FALSE,
+              StaleRelationActionPending, FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -545,7 +674,56 @@ ExternalPrerequisiteAbort ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
+
+\* Removing the exact relation used by the installed route atomically posts a
+\* direct replacement route for the same subject. There is no state in which
+\* the installed snapshot retains the removed relation.
+RemoveActiveRelation ==
+  /\ relationAvailable
+  /\ installedSnapshot.semantic.route = RelatedRoute
+  /\ explicit = NoExplicitWork
+  /\ effect = NoAuthority
+  /\ LET replacement ==
+       Publication(
+         [installedSnapshot.semantic EXCEPT !.route = DirectRoute],
+         installedSnapshot.generation + 1)
+     IN
+       /\ installedSnapshot' = replacement
+       /\ lastResult' =
+            [Result("maintenance", "none", FALSE, FALSE, FALSE,
+                    ConsumerDisposition(replacement, installedRev + 1),
+                    acknowledgedSnapshot, acknowledgedRev,
+                    installedSnapshot, replacement,
+                    installedRev, installedRev + 1)
+              EXCEPT !.appliedRelationRemovalOccurred =
+                (@ \/
+                   (lastResult.routeOnlyAppliedGeneration =
+                      installedSnapshot.generation))]
+  /\ installedRev' = installedRev + 1
+  /\ effectEpoch' = effectEpoch + 1
+  /\ effect' = Authority("maintenance", installedRev + 1, currentIntent,
+                         effectEpoch + 1)
+  /\ hostAuthority' = effect'
+  /\ relationAvailable' = FALSE
+  /\ maintenanceQueue' =
+       [i \in DOMAIN maintenanceQueue |->
+          [maintenanceQueue[i] EXCEPT
+             !.invalidatedByRelationRemoval =
+               (@ \/ (maintenanceQueue[i].basis =
+                        installedSnapshot.generation))]]
+  /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit, superseded, nextMaintenance,
+                  lastAdmitted, admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
+                  admissionWitness, regatherWitness, revisionWitness,
+                  orderWitness, visibleWitness,
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 \* A superseded explicit operation returns late.  It produces no visible
 \* effect and cannot install.
@@ -565,7 +743,7 @@ SupersededResultDiscarded(token) ==
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
                   dispositionWitness, synchronizationWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 (***************************************************************************)
 (* Standalone maintenance.                                                 *)
@@ -582,7 +760,9 @@ RequestMaintenance ==
               [ seq           |-> nextMaintenance,
                 ready         |-> FALSE,
                 basis         |-> installedSnapshot.generation,
-                needsRegather |-> FALSE ])
+                needsRegather |-> FALSE,
+                regathered    |-> FALSE,
+                invalidatedByRelationRemoval |-> FALSE ])
   /\ nextMaintenance' = nextMaintenance + 1
   /\ UNCHANGED << installedSnapshot, installedRev,
                   consumerSnapshot, consumerRev, consumerInstalledEpoch,
@@ -596,7 +776,7 @@ RequestMaintenance ==
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
                   dispositionWitness, synchronizationWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 \* Facts for one queued request finish gathering.  Any request may finish
 \* first; completion timing must not select the final snapshot.
@@ -620,7 +800,7 @@ GatherMaintenanceFacts(n) ==
                   revisionWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
                   dispositionWitness, synchronizationWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 \* A queued request whose basis is no longer the installed snapshot rebuilds
 \* from the then-current snapshot instead of installing an older result.
@@ -630,7 +810,8 @@ RebuildMaintenance(n) ==
        /\ maintenanceQueue[i].basis # installedSnapshot.generation
        /\ maintenanceQueue' = [maintenanceQueue EXCEPT ![i].basis = installedSnapshot.generation,
                                                        ![i].ready = FALSE,
-                                                       ![i].needsRegather = TRUE]
+                                                       ![i].needsRegather = TRUE,
+                                                       ![i].regathered = TRUE]
        /\ regatherWitness' =
             /\ regatherWitness
             /\ maintenanceQueue'[i].needsRegather
@@ -648,7 +829,7 @@ RebuildMaintenance(n) ==
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
                   dispositionWitness, synchronizationWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 \* The design's admission predicate, stated once: only the oldest outstanding
 \* request, only when it was rebuilt against the installed snapshot, only
@@ -664,22 +845,32 @@ MaintenanceAdmissible ==
 AdmitMaintenance ==
   /\ MaintenanceAdmissible
   /\ LET replacement ==
-       Publication(CHOOSE snapshot \in SnapshotValues \ {installedSnapshot.semantic} : TRUE,
-                   installedSnapshot.generation + 1)
+       Publication(
+         CHOOSE snapshot \in SemanticSnapshots : ValidSemantic(snapshot),
+         installedSnapshot.generation + 1)
+     IN LET changed ==
+       replacement.semantic # installedSnapshot.semantic
      IN
        /\ installedSnapshot' = replacement
        /\ lastResult' =
-            Result("maintenance", "none", FALSE,
-                   ConsumerDisposition(replacement, installedRev + 1),
+            Result("maintenance", "none", FALSE, FALSE,
+                   ~relationAvailable /\
+                     Head(maintenanceQueue).regathered /\
+                     Head(maintenanceQueue).invalidatedByRelationRemoval,
+                   ConsumerDisposition(
+                     replacement,
+                     IF changed THEN installedRev + 1 ELSE installedRev),
                    acknowledgedSnapshot, acknowledgedRev,
                    installedSnapshot, replacement,
-                   installedRev, installedRev + 1)
+                   installedRev,
+                   IF changed THEN installedRev + 1 ELSE installedRev)
        /\ dispositionWitness' =
             /\ dispositionWitness
             /\ CorrectDispositionAtIssue(lastResult')
-  /\ installedRev' = installedRev + 1
+       /\ installedRev' =
+            IF changed THEN installedRev + 1 ELSE installedRev
   /\ effectEpoch' = effectEpoch + 1
-  /\ effect' = Authority("maintenance", installedRev + 1, currentIntent,
+  /\ effect' = Authority("maintenance", installedRev', currentIntent,
                          effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastAdmitted' = Head(maintenanceQueue).seq
@@ -704,7 +895,8 @@ AdmitMaintenance ==
                   settledSynchronizations,
                   revisionWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* Synchronization demand comes from the retained consumer.  Request identities
 \* are bounded for model exploration; the product response path has no retry
@@ -727,7 +919,8 @@ RequestConsumerSynchronization ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness, consumerSyncWitness,
                   consumerAckWitness, dispositionWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* A retained consumer that abandoned or lost authority while behind the
 \* session can receive the complete current snapshot under fresh authority.
@@ -743,7 +936,7 @@ SynchronizeConsumer ==
        Authority("synchronize", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("synchronize", "none", FALSE,
+       Result("synchronize", "none", FALSE, FALSE, FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -776,7 +969,7 @@ SynchronizeConsumer ==
                   admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 (***************************************************************************)
 (* Consumer side.                                                          *)
@@ -813,7 +1006,8 @@ VisibleEffect ==
                   settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, consumerAckWitness, dispositionWitness,
-                  synchronizationWitness, abandonmentWitness >>
+                  synchronizationWitness, abandonmentWitness,
+                  relationAvailable >>
 
 \* The consumer completed the authority-guarded effect.  Acknowledgement
 \* releases queued maintenance.
@@ -853,7 +1047,7 @@ AcknowledgeEffect ==
                   admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, dispositionWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 \* A consumer that cannot complete the effect abandons its authority.
 \* Abandonment also releases queued maintenance.
@@ -878,7 +1072,8 @@ AbandonEffect ==
                   admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  relationAvailable >>
 
 \* A consumer is handed authority minted by a different navigation session.
 ForeignAuthorityOffered ==
@@ -897,13 +1092,13 @@ ForeignAuthorityOffered ==
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
                   dispositionWitness, synchronizationWitness,
-                  abandonmentWitness >>
+                  abandonmentWitness, relationAvailable >>
 
 ResolveExplicit ==
-  \/ \E semantic \in SnapshotValues :
+  \/ \E semantic \in SemanticSnapshots :
        ExplicitResultInstalls(Publication(semantic, installedSnapshot.generation + 1))
   \/ \E outcome \in {"unavailable", "failed"},
-          semantic \in SnapshotValues :
+          semantic \in SemanticSnapshots :
        ExplicitNonSuccess(outcome,
          Publication(semantic, IF semantic = installedSnapshot.semantic
                                  THEN installedSnapshot.generation
@@ -911,16 +1106,20 @@ ResolveExplicit ==
   \/ ExplicitRetryActionPublication
   \/ NavigationPreparationFailure
   \/ ExplicitRejected
+  \/ ExplicitStaleRelationRejected
   \/ ExternalPrerequisiteAbort
 
 Next ==
-  \/ \E kind \in IntentKinds : BeginExplicitIntent(kind)
+  \/ \E kind \in IntentKinds, route \in Routes :
+       BeginCurrentExplicitIntent(kind, route)
+  \/ BeginStaleRelationAction
   \/ ResolveExplicit
   \/ \E token \in 1 .. MaxIntent : SupersededResultDiscarded(token)
   \/ RequestMaintenance
   \/ \E n \in 1 .. MaxMaintenance : GatherMaintenanceFacts(n)
   \/ \E n \in 1 .. MaxMaintenance : RebuildMaintenance(n)
   \/ AdmitMaintenance
+  \/ RemoveActiveRelation
   \/ RequestConsumerSynchronization
   \/ SynchronizeConsumer
   \/ VisibleEffect
@@ -963,6 +1162,60 @@ ExactCurrentAuthority ==
     /\ effect.epoch = effectEpoch
     /\ lastResult.resultSnapshot = installedSnapshot
     /\ lastResult.resultRev = installedRev
+
+\* A posted route never retains a relation after that exact relation is
+\* removed from the owner-issued current evidence.
+InstalledRouteUsesCurrentRelation ==
+  installedSnapshot.semantic.route = DirectRoute \/ relationAvailable
+
+\* Subject identity and route identity are independent semantic components.
+\* Changing only the route still advances the semantic revision.
+RouteOnlyChangeAdvancesRevision ==
+  (lastResult.resultSnapshot.semantic.subject =
+      lastResult.priorSnapshot.semantic.subject
+   /\ lastResult.resultSnapshot.semantic.route #
+      lastResult.priorSnapshot.semantic.route)
+    =>
+      /\ lastResult.snapshotChanged
+      /\ lastResult.resultRev = lastResult.priorRev + 1
+
+\* A relation action issued from an older publication after relation removal
+\* is retained as a rejection and cannot install a snapshot.
+StaleRelationActionIsRejected ==
+  lastResult.staleRelationActionOccurred
+    =>
+      /\ lastResult.outcome = "rejected"
+      /\ ~relationAvailable
+      /\ ~lastResult.snapshotChanged
+      /\ lastResult.resultSnapshot = lastResult.priorSnapshot
+      /\ lastResult.resultRev = lastResult.priorRev
+
+\* Reachability witness: the dedicated configuration must violate this after
+\* a route-only apply, atomic relation removal, and stale action rejection.
+RequiredRouteCasesNotObserved ==
+  ~(lastResult.appliedRelationRemovalOccurred /\
+      lastResult.staleRelationActionOccurred)
+
+\* Every maintenance publication advances action generation. Semantic revision
+\* advances exactly when subject or route changed.
+MaintenancePublicationMatchesSemanticChange ==
+  lastResult.outcome = "maintenance"
+    =>
+      /\ lastResult.resultSnapshot.generation =
+           lastResult.priorSnapshot.generation + 1
+      /\ lastResult.snapshotChanged =
+           (lastResult.resultSnapshot.semantic #
+              lastResult.priorSnapshot.semantic)
+      /\ IF lastResult.snapshotChanged
+           THEN lastResult.resultRev = lastResult.priorRev + 1
+           ELSE lastResult.resultRev = lastResult.priorRev
+
+\* Reachability witness: a request queued against the relation-backed
+\* publication must rebuild, regather, and drain after relation removal.
+RequiredPostRemovalMaintenanceNotObserved ==
+  ~(lastResult.postRemovalRegatheredMaintenanceOccurred /\
+      maintenanceQueue = << >> /\
+      lastAdmitted > 0)
 
 \* No maintenance admission during unresolved explicit work or unconsumed
 \* effects.

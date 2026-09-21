@@ -6,7 +6,7 @@ They replace prose state-machine description with specifications a model
 checker can exhaust.
 
 There are three independent, finite models. None imports another.
-The current retained-state run
+The previous full retained-state run
 took about 33 minutes on the recorded host; the other two took seconds.
 
 | Model | Mechanism |
@@ -31,12 +31,13 @@ read that way:
   Library declaration order, and lens preference are not modelled. Subjects
   and lenses appear only as opaque values.
 - **Workspace isolation and structural ancestry.** Workspace identity,
-  retained-coordinate occurrence identity, the
-  `Workspace -> Package -> Library -> Type -> Member` grammar, and
-  complete descendant binding are not modelled. Each retained-session instance
-  assumes one exact Workspace boundary; implementation gates must reject
-  foreign-Workspace subject actions and restoration payloads and prevent
-  foreign evidence from entering a snapshot.
+  retained-coordinate occurrence identity, the closed Workspace-rooted grammar,
+  and complete descendant binding are not modelled. `NavigationSession.tla`
+  distinguishes one direct route from one abstract relation-backed route only
+  to check publication behavior when that relation disappears. Each
+  retained-session instance assumes one exact Workspace boundary;
+  implementation gates must reject foreign-Workspace subject actions and
+  restoration payloads and prevent foreign evidence from entering a snapshot.
 - **Availability classification.** Descriptor classification and the
   reconciliation tables are not modelled. `NavigationSession.tla` does model
   the narrower rule that a completed `Unavailable` or `Failed` result advances
@@ -103,7 +104,7 @@ back. The three models therefore carry three correlation currencies:
 
 | Model | Currency | Used by |
 | --- | --- | --- |
-| `NavigationSession.tla` | maintenance and synchronization request numbers, exact settled-request sets, intent token, semantic revision, action generation, and consumer installation epoch | per-request admission, per-token settlement, per-authority installation, and composite publication receipts |
+| `NavigationSession.tla` | maintenance and synchronization request numbers, exact settled-request sets, intent token, semantic revision, action generation, exact applied-route generation, relation-removal invalidation, and consumer installation epoch | per-request admission, per-token settlement, per-authority installation, route/removal correlation, and composite publication receipts |
 | `AtomicRestoration.tla` | restoration token plus an independently retained request payload | per-attempt settlement and exact prepared result |
 | `SnapshotAuthority.tla` | operation ID plus independently retained requested lens | per-operation resolution, rejection, and exact applied result |
 
@@ -123,11 +124,17 @@ installs the complete result snapshot under the exact epoch, then acknowledges
 or abandons it. Installation does not itself advance the acknowledgement
 receipt.
 
-Snapshots are records with opaque `semantic` contents and an independently
-versioned action `generation`. Semantic replacement advances revision and
-generation; `ExplicitRetryActionPublication` advances generation alone for a
-retaining non-success result. The model uses `Unavailable` as its representative
-retryable outcome, not as a restriction on product retry eligibility.
+Snapshots contain an opaque exact subject, an abstract direct or
+relation-backed route, and an independently versioned action `generation`.
+Subject and route together are the semantic value: changing only the route
+advances revision and generation. `ExplicitRetryActionPublication` advances
+generation alone for a retaining non-success result. The model uses
+`Unavailable` as its representative retryable outcome, not as a restriction on
+product retry eligibility.
+Maintenance likewise always issues a new action generation, but advances
+semantic revision only when the selected semantic value changes. This permits
+maintenance to refresh a direct route after the modeled relation has been
+removed without manufacturing a semantic change.
 Acknowledgement joins revision and generation. The four-part authority's fresh
 epoch binds the exact complete publication; generation is not a fifth authority
 component.
@@ -160,6 +167,10 @@ has no modeled retry ceiling.
 | `TypeOK` | State stays within its declared shape |
 | `LatestIntentSafety` | Unresolved explicit work carries the current token, every superseded operation carries a strictly older one, and unconsumed authority is the current intent's |
 | `ExactCurrentAuthority` | Unconsumed authority matches the session identity, installed revision, current intent, and current epoch exactly |
+| `InstalledRouteUsesCurrentRelation` | The product-installed route is direct or its one abstract owner relation is still current |
+| `RouteOnlyChangeAdvancesRevision` | Changing the exact route while retaining the exact subject advances semantic revision |
+| `StaleRelationActionIsRejected` | An action from the removed relation's older publication returns a retained rejection and installs nothing |
+| `MaintenancePublicationMatchesSemanticChange` | Maintenance always advances action generation and advances semantic revision exactly when subject or route changed |
 | `MaintenanceAdmissionDiscipline` | No maintenance was admitted while explicit work was unresolved or an effect was unconsumed |
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every consumer-visible effect executed under exactly the session's current unconsumed authority |
@@ -349,10 +360,12 @@ remaining differences are deliberate abstractions rather than disagreements:
   correlation remains a named implementation gate; canonical preparation
   checks the complete subject+lens pair.
 - **Unmodelled currencies.** Individual action IDs, descriptor states,
-  diagnostics, and correspondence are not modelled. Subjects, lenses, and
-  semantic snapshots are opaque values; action generation is explicit.
-  Operation IDs, synchronization request numbers,
-  retained request maps, and the preparation-failure occurrence field are model
+  diagnostics, exact relation kinds, and correspondence are not modelled.
+  Subjects and lenses remain opaque; the retained-session model exposes only
+  direct versus abstract relation-backed route identity and whether that one
+  relation remains current. Action generation is explicit. Operation IDs,
+  synchronization request numbers, retained request maps, and the
+  preparation-failure and stale-relation occurrence fields are model
   correlation currencies, not proposed product fields.
 
 ## Guard witnesses
@@ -411,6 +424,20 @@ From this directory, with `tla2tools.jar` in `$TLA_TOOLS`:
 java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
   -workers auto -cleanup NavigationSession.tla
 java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup -config NavigationSessionRouteSafety.cfg \
+  NavigationSession.tla
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup -config NavigationSessionRouteReachability.cfg \
+  NavigationSession.tla
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup \
+  -config NavigationSessionPostRemovalMaintenanceReachability.cfg \
+  NavigationSession.tla
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup \
+  -config NavigationSessionPostRemovalMaintenanceLiveness.cfg \
+  NavigationSession.tla
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
   -workers auto -cleanup AtomicRestoration.tla
 java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
   -workers auto -cleanup SnapshotAuthority.tla
@@ -449,7 +476,35 @@ rule.
 ### Exhaustive model checking
 
 Each run is an exhaustive breadth-first exploration of the shipped `.cfg`.
-The 2026-09-13 recheck passed every configured invariant and temporal property:
+The focused route checks ran on 2026-09-21 with the repository-pinned TLC and
+OpenJDK `21.0.12` on Linux `amd64`:
+
+| Configuration | States generated | Distinct states | Search depth | TLC exit |
+| --- | --- | --- | --- | --- |
+| `NavigationSessionRouteSafety.cfg` | 890,025 | 178,653 | 23 | `0` |
+| `NavigationSessionRouteReachability.cfg` | 7,355 | 1,391 | 7 | `12` |
+| `NavigationSessionPostRemovalMaintenanceReachability.cfg` | 4,461 | 1,503 | 10 | `12` |
+| `NavigationSessionPostRemovalMaintenanceLiveness.cfg` | 15,913 | 6,579 | 20 | `0` |
+
+The safety configuration exhaustively checks the route/current-relation
+invariants with one maintenance request. The first reachability configuration
+is a negative invariant: exit `12` is the required witness that one behavior
+successfully applies a route-only relation-backed publication, removes that
+exact publication with an atomic direct replacement, and rejects an action
+from the stale relation publication. The second negative invariant requires
+one exact request whose current relation-backed publication basis was
+invalidated by removal to rebuild, regather, and drain; its unchanged semantic
+value preserves revision while its publication generation advances. The
+maintenance liveness configuration checks that every bounded queued request
+still drains across blocking, abort, stale-basis rebuild, and regather paths.
+The safety and route-reachability configurations use `MaxIntent = 2`; both
+maintenance configurations use `MaxIntent = 1`. All use
+`MaxSynchronization = 2`; the safety and maintenance configurations use
+`MaxMaintenance = 1`, while route reachability uses `MaxMaintenance = 0`.
+Their exact outcomes are enforced by `eng/tla-expected-exit-codes.txt`.
+
+The 2026-09-13 recheck passed every invariant and temporal property configured
+at that revision:
 
 | Model | States generated | Distinct states | Search depth | TLC exit |
 | --- | --- | --- | --- | --- |
@@ -514,14 +569,14 @@ snapshots. `MaxSynchronization = 2` bounds external request generation while
 preserving two request/abandon cycles; it does not bound product responses.
 The revision/generation split does not raise any configuration bound.
 
-Deadlock checking is disabled in all three configs. A behaviour that has issued
+Deadlock checking is disabled in all configurations. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
 to do; termination is the intended end state, not a defect.
 
 ### Action coverage
 
-The 2026-09-13 single-worker runs exercised every action. Current main-model
-coverage includes:
+The 2026-09-13 single-worker runs exercised every action. That main-model
+coverage included:
 
 | Action | Distinct transitions | Invocations |
 | --- | --- | --- |
@@ -679,6 +734,8 @@ violation exits `13`. None is reported as a successful production model.
 | NS42 | Install the prior publication only for the retry-generation result | `ConsumerVisibleEffectSynchronizes` | Violated, `12` |
 | NS43 | Reuse the prior effect epoch coherently in retry state and authority | `RetryActionPublicationPreservesSemanticRevision` | Violated, `12` |
 | NS44 | Reintroduce `ConsumerAcknowledgementLags` as a dedicated-response guard while retaining the request through acknowledgement | `EverySynchronizationRequestSettles` | Violated, `13` |
+| NS45 | Remove the exact-publication guard from retry resolution so a stale relation action can resolve as unavailable | `StaleRelationActionIsRejected` | Violated, `12` |
+| NS46 | Advance semantic revision for an unchanged post-removal maintenance publication | `MaintenancePublicationMatchesSemanticChange` | Violated, `12` |
 | NS14 recheck | Retain revision for a changed semantic non-success snapshot | `NonSuccessRevisionMatchesSnapshotChange` | Violated, `12` |
 | NS21 recheck | Return dedicated synchronization authority at the wrong revision | `SynchronizationAuthorityIsCurrent` | Violated, `12` |
 | NS28 recheck | Copy consumer installation into the receipt during abandonment | `AbandonmentPreservesAcknowledgement` | Violated, `12` |
@@ -686,7 +743,11 @@ violation exits `13`. None is reported as a successful production model.
 | SA2 recheck | The same consumer-snapshot adoption | `RetainedPriorStateIsInstalledSnapshot` | Violated, `12` |
 | SA18 recheck | Install a different admissible session lens from the exact request | `AppliedResultEqualsExactRequest` | Violated, `12` |
 
-The new safety probes retain the shipped bounds. NS44 uses
+The 2026-09-21 NS45 and NS46 scratch probes use
+`NavigationSessionRouteSafety.cfg`. NS45 explores 10,783 generated and 2,338
+distinct states at depth 7; NS46 explores 739 generated and 199 distinct states
+at depth 4. Both stop on their named invariant. The earlier safety probes
+retain the shipped bounds. NS44 uses
 `MaxIntent = 1`, `MaxMaintenance = 1`, `MaxSynchronization = 2`, and only the
 `lens` intent kind; all other constants are unchanged. It explores 4,581
 generated and 1,942 distinct states at depth 17. Its counterexample queues
