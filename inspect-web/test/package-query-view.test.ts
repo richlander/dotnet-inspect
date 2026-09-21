@@ -337,7 +337,10 @@ test("library-literal completion distinguishes exhausted and bounded populations
     "shared-literal-use-marker",
   );
   const render = (
-    population: "PrefixExhausted" | "SourcePageLimitReached",
+    population:
+      | "PrefixExhausted"
+      | "MatchLimitReached"
+      | "SourcePageLimitReached",
     complete: boolean,
   ) => renderPackageQueryView({
     state: {
@@ -362,11 +365,14 @@ test("library-literal completion distinguishes exhausted and bounded populations
   });
 
   const exhausted = render("PrefixExhausted", true);
+  const head = render("MatchLimitReached", true);
   const bounded = render("SourcePageLimitReached", false);
 
   assert.match(exhausted, /No matching package libraries/);
   assert.match(exhausted, /prefix population exhausted/);
   assert.doesNotMatch(exhausted, /not a confirmed empty result/);
+  assert.match(head, /match limit reached/);
+  assert.doesNotMatch(head, /operation incomplete/);
   assert.match(
     bounded,
     /No matching package libraries in the completed work/);

@@ -1139,7 +1139,8 @@ function toTerminalCompletion(
       notApplicableCount: completion.notApplicable,
       failureCount: completion.failures,
       complete: (completion.kind === "ExactPackageComplete"
-          || completion.kind === "Exhausted")
+          || completion.kind === "Exhausted"
+          || completion.kind === "MatchLimitReached")
         && completion.failures === 0
         && completion.notEvaluated === 0,
     };
@@ -1198,6 +1199,8 @@ function semanticPopulationCompletion(
       return "ExactPackageComplete";
     case "Exhausted":
       return "PrefixExhausted";
+    case "MatchLimitReached":
+      return "MatchLimitReached";
     case "CandidateLimitReached":
       return "CandidateLimitReached";
     case "SourcePageLimitReached":

@@ -140,6 +140,13 @@ Results after ordinary prequalification and semantic evaluation. They never
 select occurrence evidence or turn a prequalification survivor into a
 published match.
 
+When CLI pushes one semantic Head into execution, the selected-library
+evaluator stops after establishing the Nth final package match. Later
+prequalified candidates do not enter evaluation and therefore contribute no
+assessment, failure, occurrence, or semantic-accounting evidence.
+`MatchLimitReached` is successful completion of that requested Head, not
+population incompleteness.
+
 Browser delivery consumes one unit of match credit only when a final semantic
 Package Query Result is published. Source progress, ordinary nonmatches,
 prequalification survivors, semantic assessments, failures, and completion do

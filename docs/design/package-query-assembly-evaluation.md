@@ -940,7 +940,11 @@ text.
 A later corpus completion counts `NotApplicable`, work-limit, and other
 candidate failures separately from semantic non-matches. Evaluating every
 declared candidate can prove completion over the selected-primary-asset scope;
-it cannot claim that every assembly in those packages was evaluated.
+it cannot claim that every assembly in those packages was evaluated. A
+composing Package Query may instead supply a positive final-match ceiling. The
+serial evaluator then stops after publishing that matched candidate; later
+population candidates have no outcome because they are outside the requested
+Head evaluation.
 
 ## Failure visibility
 

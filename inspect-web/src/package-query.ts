@@ -346,6 +346,7 @@ export type TerminalQueryCompletion =
       population:
         | "ExactPackageComplete"
         | "PrefixExhausted"
+        | "MatchLimitReached"
         | "CandidateLimitReached"
         | "SourcePageLimitReached"
         | "ClientPageLimitReached"

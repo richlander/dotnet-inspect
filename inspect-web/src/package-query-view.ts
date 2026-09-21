@@ -872,6 +872,9 @@ function renderLibraryLiteralCompletionScope(
     case "PrefixExhausted":
       population = "prefix population exhausted";
       break;
+    case "MatchLimitReached":
+      population = "match limit reached";
+      break;
     case "CandidateLimitReached":
       population = "candidate limit reached";
       break;

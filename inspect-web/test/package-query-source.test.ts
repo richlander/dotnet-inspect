@@ -527,6 +527,61 @@ test("Browser source composes library-literal terms and uses terminal Document t
   });
 });
 
+test("Browser source accepts semantic match-limit completion", async () => {
+  const result = semanticSucceeded();
+  if (result.inspection === null)
+    throw new Error("Expected the semantic test inspection.");
+  const limited = {
+    ...result,
+    inspection: {
+      ...result.inspection,
+      content: {
+        ...result.inspection.content,
+        completion: {
+          ...result.inspection.content.completion,
+          prefix: "Contoso.",
+          candidateLimit: 5,
+          matchLimit: 1,
+          candidates: 2,
+          kind: "MatchLimitReached" as const,
+        },
+      },
+    },
+  };
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run() {
+      return limited;
+    },
+  };
+
+  const completion = await createBrowserPackageQueryDataSource(engine).run(
+    withTerm(
+      createQueryRequest("Contoso.*"),
+      LIBRARY_LITERAL_TERM,
+      "eq",
+      "shared-literal-use-marker",
+    ),
+    () => {},
+    () => {},
+    () => {},
+    new AbortController().signal);
+
+  assert.deepEqual(completion, {
+    kind: "library-literal",
+    population: "MatchLimitReached",
+    candidateCount: 2,
+    evaluatedCandidateCount: 1,
+    notEvaluatedCount: 0,
+    matchedPackageCount: 1,
+    occurrenceCount: 2,
+    semanticMissCount: 0,
+    notApplicableCount: 0,
+    failureCount: 0,
+    complete: true,
+  });
+});
+
 test("Browser source preserves typed semantic non-match, applicability, failure, and deadline outcomes", async () => {
   for (const kind of [
     "NoMatch",

@@ -243,7 +243,8 @@ public static class PackageQueryInspection
                     semanticMatches: 0,
                     occurrences: 0,
                     semanticMisses: 0,
-                    notApplicable: 0));
+                    notApplicable: 0,
+                    matchLimitReached: false));
         }
 
         PackageSourceOperationLease? sourceOperation =
@@ -266,7 +267,8 @@ public static class PackageQueryInspection
                 PackageAssemblyPatterns.CreateRequest(
                     PackageAssemblyPatterns.StringLiteralContains,
                     literal),
-                execution.Budget);
+                execution.Budget,
+                maximumMatches: plan.MaximumMatches);
             var sink = new SemanticSink(
                 plan,
                 prequalified,
@@ -317,11 +319,9 @@ public static class PackageQueryInspection
             failures.Add(ProjectNotEvaluated(source.Source, notEvaluated));
         }
 
-        int resultLimit = plan.MaximumMatches ?? int.MaxValue;
         ImmutableArray<PackageQueryMatch> matches =
         [
             .. semantic.Results
-                .Take(resultLimit)
                 .Select(result => ProjectMatch(plan, prequalified, result)),
         ];
         var content = new PackageQueryDocument(
@@ -337,7 +337,8 @@ public static class PackageQueryInspection
                 semantic.MatchedPackageCount,
                 semantic.OccurrenceCount,
                 semantic.SemanticMissCount,
-                semantic.NotApplicableCount))
+                semantic.NotApplicableCount,
+                semantic.Completion.IsMatchLimitReached))
         {
             LibraryLiteralAssessments =
             [
@@ -368,7 +369,8 @@ public static class PackageQueryInspection
         int semanticMatches,
         int occurrences,
         int semanticMisses,
-        int notApplicable) =>
+        int notApplicable,
+        bool matchLimitReached) =>
         preliminary with
         {
             MatchLimit = plan.MaximumMatches,
@@ -377,8 +379,8 @@ public static class PackageQueryInspection
             Completion =
                 plan.PackageInput is SourceSelector.Package
                     ? PackageQueryCompletionKind.ExactPackageComplete
-                    : plan.MaximumMatches is int maximumMatches
-                        && semanticMatches > maximumMatches
+                    : plan.MaximumMatches is not null
+                        && matchLimitReached
                         ? PackageQueryCompletionKind.MatchLimitReached
                         : preliminary.Completion,
             EvaluatedCandidates = evaluated,

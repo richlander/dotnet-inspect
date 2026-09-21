@@ -77,6 +77,76 @@ public sealed partial class PackageQueryTests
         Assert.NotNull(published.Value.LibraryLiteral);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryLiteralMatchLimitStopsBeforeLaterCandidate(
+        bool laterCandidateWouldMatch)
+    {
+        const string firstPackage = "Contoso.Match.First";
+        const string laterPackage = "Contoso.Match.Later";
+        const string literal = "shared-literal-use-marker";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisStringLiterals.AssemblyPath());
+        await using var fixture = new SemanticQueryFixture();
+        await fixture.CacheAssemblyAsync(firstPackage, image);
+        if (laterCandidateWouldMatch)
+            await fixture.CacheAssemblyAsync(laterPackage, image);
+        var source = new FakePackageSource(
+            [Match(firstPackage), Match(laterPackage)],
+            new Dictionary<string, byte[]>());
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            [Term(PackageQuery.LibraryLiteralTermKey, literal)],
+            maximumCandidates: 2,
+            maximumMatches: 1,
+            targetFramework: "net11.0"));
+        var sink = new RecordingPackageQueryNonterminalSink();
+        var assessmentSink =
+            new RecordingLibraryLiteralAssessmentSink();
+        var semanticExecution = new PackageQueryAssemblySemanticExecution(
+            new FixedAuthorization(fixture.Authorization),
+            fixture.IssueOperation,
+            fixture.PayloadAcquisition,
+            PackageAssemblySemanticFindBudget.Default,
+            assessmentSink);
+
+        PackageQueryDocument document =
+            (await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                dependencyTraversalServices: null,
+                semanticExecution,
+                sink,
+                TestContext.Current.CancellationToken)).Content;
+
+        PackageQueryMatch match = Assert.Single(document.Results);
+        Assert.Equal(
+            firstPackage.ToLowerInvariant(),
+            match.Package.PackageId.ToLowerInvariant());
+        PackageQueryLibraryLiteralAssessment assessment =
+            Assert.Single(document.LibraryLiteralAssessments);
+        Assert.Equal(
+            firstPackage.ToLowerInvariant(),
+            assessment.PackageId.ToLowerInvariant());
+        Assert.Single(assessmentSink.Assessments);
+        Assert.Empty(document.Failures);
+        Assert.Equal(2, document.Summary.Candidates);
+        Assert.Equal(1, document.Summary.EvaluatedCandidates);
+        Assert.Equal(0, document.Summary.NotEvaluatedCandidates);
+        Assert.Equal(1, document.Summary.SemanticMatches);
+        Assert.Equal(
+            PackageQueryCompletionKind.MatchLimitReached,
+            document.Summary.Completion);
+        Assert.Single(sink.Events.OfType<PackageQueryEvent.Match>());
+        Assert.DoesNotContain(
+            document.LibraryLiteralAssessments,
+            item => item.PackageId.Equals(
+                laterPackage,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     private sealed class RecordingLibraryLiteralAssessmentSink
         : IPackageQueryLibraryLiteralAssessmentSink
     {
