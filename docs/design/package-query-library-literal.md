@@ -45,7 +45,9 @@ carriage returns, and other Unicode text. The value is not trimmed,
 case-folded, normalized, reparsed, or treated as a regular expression, glob,
 query fragment, or byte sequence. It must contain at least one and at most
 1,024 UTF-16 code units. A whitespace-only value is nonempty and therefore
-remains a valid exact literal.
+remains a valid exact literal. The term is single-valued: equivalent duplicate
+bindings collapse, while distinct literal values are incompatible planning
+input.
 
 Selecting `library-literal` requires one exact target framework. The host
 collects that target through its existing dedicated gesture:
@@ -73,8 +75,8 @@ The operation composes existing owners in this order:
    listed version, or resolves the bounded terminal-star prefix population.
 2. Package Query evaluates every selected ordinary term using its existing
    source-metadata, nuspec, package-content, or expensive-term contract.
-   Independent terms AND-compose, including `library-literal`; vocabulary-owned
-   OR families retain their existing behavior.
+   Independent terms AND-compose with the one `library-literal` predicate;
+   vocabulary-owned OR families retain their existing behavior.
 3. Candidates that fail an ordinary predicate do not enter assembly-semantic
    evaluation. Their exclusion is ordinary Package Query prequalification, not
    evidence that the selected library lacks the literal.
