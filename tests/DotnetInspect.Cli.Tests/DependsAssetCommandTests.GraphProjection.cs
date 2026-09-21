@@ -44,7 +44,7 @@ public partial class DependsAssetCommandTests
         (int markdownExit, string markdown, string markdownError) =
             await RunCapturedAsync(arguments);
         (int projectedExit, string projected, string projectedError) =
-            await RunCapturedAsync([.. arguments, "--columns", "Target"]);
+            await RunCapturedAsync([.. arguments, "--columns", "Root"]);
         (int jsonExit, string json, string jsonError) =
             await RunCapturedAsync([.. arguments, "--json", "--compact"]);
 
@@ -85,6 +85,17 @@ public partial class DependsAssetCommandTests
             "## Dependency Hierarchy",
             projected.TrimStart(),
             StringComparison.Ordinal);
+        Assert.Contains(
+            "## Dependencies",
+            projected,
+            StringComparison.Ordinal);
+        Assert.True(
+            projected.IndexOf(
+                "## Dependency Hierarchy",
+                StringComparison.Ordinal)
+            < projected.IndexOf(
+                "## Dependencies",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             "| Root Set |",
             projected,

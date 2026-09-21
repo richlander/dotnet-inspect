@@ -2280,6 +2280,7 @@ public partial class DependsCommand
             options.Columns,
             options.Fields);
         writerOptions.IncludeSections = includeSections;
+        writerOptions.SectionOrder = DependsAssetSections.SectionOrder;
         MarkoutSerializer.Serialize(
             tableView,
             output,
