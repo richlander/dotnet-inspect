@@ -201,6 +201,7 @@ No external implementation or source code is transferred.
 | --- | --- |
 | A real Polly.Core `netstandard2.0` root prepares a destination under `ProductDefault(net12.0)` without changing source selection. | `EdgeRealization_UsesTraversalTargetWithoutReselectingPollyRoot` |
 | Exact Platform inventory is evaluated against the traversal target and may produce a retained delegating receipt. | `EdgeRealization_ComposesPlatformPruningAgainstTraversalTarget` |
+| Same-coordinate target projections with distinct candidate correspondences prepare distinct candidate-bound House requests. | `EdgeRealization_PreservesSameCoordinateCandidateCorrespondence` |
 | Direct, failed, budget, or otherwise non-candidate edges cannot prepare PackageHouse realization; a mismatched destination target is rejected. | `EdgeRealization_RejectsNonCandidateAndMismatchedTargetRequests` |
 | Package execution selects a compatible destination folder while retaining the distinct traversal request and source selection. | `DependencyEdgeRealizationSelectsCompatibleDestinationWithoutChangingSource` |
 | A subsumed destination delegates before package payload acquisition and retains no Package Root contribution. | `DependencyEdgeRealizationDelegatesSubsumedDestinationBeforeAcquisition` |

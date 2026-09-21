@@ -173,6 +173,85 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
     [Fact]
     public async Task
+        EdgeRealization_PreservesSameCoordinateCandidateCorrespondence()
+    {
+        PackageSourceAuthorization authorization = Authorize("authority-a");
+        PackageAcquisitionCandidate first = Pinned(
+            new PackageAcquisitionCandidateIssuer(),
+            authorization,
+            "shared",
+            "1.0.0");
+        PackageAcquisitionCandidate second = Pinned(
+            new PackageAcquisitionCandidateIssuer(),
+            authorization,
+            "shared",
+            "1.0.0");
+        PackageDependencyTraversalRootOccurrence rootA = Root(
+            "roota",
+            "1.0.0",
+            Dependency("shared", "[1.0.0]"),
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        PackageDependencyTraversalRootOccurrence rootB = Root(
+            "rootb",
+            "1.0.0",
+            Dependency("shared", "[1.0.0]"),
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        var resolver = new StubCandidateResolver();
+        resolver.SetResponse("roota", "shared", () => Resolved(first));
+        resolver.SetResponse("rootb", "shared", () => Resolved(second));
+        var acquirer = new StubManifestAcquirer();
+        acquirer.SetManifest(
+            first,
+            ManifestBytes("shared", "1.0.0", ""));
+        acquirer.SetManifest(
+            second,
+            ManifestBytes("shared", "1.0.0", ""));
+        PackageDependencyTraversalOutcome traversal = await ExecuteAsync(
+            [rootA, rootB],
+            resolver,
+            acquirer);
+        int firstEdgeIndex = traversal.Edges.ToList().FindIndex(edge =>
+            edge.SourceCoordinate.PackageId == "roota");
+        int secondEdgeIndex = traversal.Edges.ToList().FindIndex(edge =>
+            edge.SourceCoordinate.PackageId == "rootb");
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        PackageDependencyEdgeRealizationExecution firstExecution =
+            PackageDependencyEdgeRealizationQuery.Execute(
+                new PackageDependencyEdgeRealizationRequest(
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    firstEdgeIndex,
+                    operation,
+                    PackageHouseTargetContext.Exact("net12.0")));
+        PackageDependencyEdgeRealizationExecution secondExecution =
+            PackageDependencyEdgeRealizationQuery.Execute(
+                new PackageDependencyEdgeRealizationRequest(
+                    traversal,
+                    rootOccurrenceIndex: 1,
+                    secondEdgeIndex,
+                    operation,
+                    PackageHouseTargetContext.Exact("net12.0")));
+
+        Assert.Same(first, firstExecution.Subject.Candidate);
+        Assert.Same(
+            first,
+            Assert.IsType<PackageHouseDemand.Candidate>(
+                firstExecution.Request.Demand).Value);
+        Assert.Same(second, secondExecution.Subject.Candidate);
+        Assert.Same(
+            second,
+            Assert.IsType<PackageHouseDemand.Candidate>(
+                secondExecution.Request.Demand).Value);
+        Assert.NotSame(
+            firstExecution.Subject.Candidate,
+            secondExecution.Subject.Candidate);
+    }
+
+    [Fact]
+    public async Task
         EdgeRealization_RejectsNonCandidateAndMismatchedTargetRequests()
     {
         RealizedPackageDependencyContext context =
