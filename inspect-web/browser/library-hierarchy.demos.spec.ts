@@ -223,6 +223,13 @@ test("Demos is a dedicated page reached from Home and the data bar", async ({
     .toHaveCount(0);
   await expect(page.locator("[data-workspace-add-package], [data-workspace-save]"))
     .toHaveCount(0);
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator(
+    "[data-product-destination][aria-current='page']",
+  )).toHaveCount(0);
+  await expect(page.locator("[data-product-destination='workspace']"))
+    .toBeDisabled();
+  await page.keyboard.press("Escape");
   await expect(page.locator("html")).not.toHaveAttribute("data-home-demo-run");
   await page.screenshot({ path: testInfo.outputPath("demos-wide.png") });
 

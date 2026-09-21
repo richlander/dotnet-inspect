@@ -29,6 +29,24 @@ test("Activity Back restores focus on the Platform route", async ({ page }) => {
   await expect(page.locator("[data-product-navigation-button]")).toBeFocused();
 });
 
+test("platform-only Workspace preserves Query as its Back predecessor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(/\/query$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+});
+
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
   await openPlatform(page, { warmup: "pending" });
   await expect(page.locator(".platform-library-row")).toHaveCount(3);

@@ -4,9 +4,10 @@ function documentFocusableElements(
 ): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>(
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
-      + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      + 'textarea:not([disabled]), [tabindex]',
   )].filter(element =>
     !element.hidden
+    && element.tabIndex >= 0
     && element.getClientRects().length > 0
     && !menu.contains(element));
 }

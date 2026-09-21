@@ -12381,6 +12381,9 @@ function goHome() {
 }
 
 function currentProductDestination(): ProductDestination | null {
+  if (isDiagnosticsPath(location.pathname)
+    || isProductHomeDemosPath(location.pathname)
+    || state.credits) return null;
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
   if (state.workspaceSubjectOpen && !state.home) return "workspace";
@@ -12390,8 +12393,7 @@ function currentProductDestination(): ProductDestination | null {
 
 function productWorkspaceAvailable(): boolean {
   return state.package !== null
-    || state.platformSelection !== null
-    || state.workspaceSubjectOpen;
+    || state.platformSelection !== null;
 }
 
 function focusProductNavigationButton(): void {
@@ -12905,7 +12907,7 @@ function openPackageActivityRoute(
 
 async function openWorkspaceProductDestination() {
   const pkg = state.package;
-  if (!pkg && !state.platformSelection && !state.workspaceSubjectOpen) return;
+  if (!pkg && !state.platformSelection) return;
 
   dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
@@ -12919,13 +12921,16 @@ async function openWorkspaceProductDestination() {
   state.home = false;
   spotlight.reset();
 
-  if (!pkg) {
-    openDefaultWorkspace();
-    return;
-  }
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
+  if (!pkg) {
+    const successor = await buildStateUrl();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    workspaceLocation.push(successor.toString());
+    render();
+    return;
+  }
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;

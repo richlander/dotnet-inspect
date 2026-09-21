@@ -117,13 +117,21 @@ test("the top shell row separates product navigation from inspection subjects", 
     "/assets/dotnet-inspect-bot.png");
 });
 
-test("product navigation Tab closes and continues after the brand", async ({
+test("product navigation Tab closes and continues to the actual next tab stop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/browser/workspace-titlebar.html?package=1");
+  await page.goto("/browser/workspace-titlebar.html?type=1");
 
   const brand = page.locator("[data-product-navigation-button]");
+  await brand.focus();
+  await page.keyboard.press("Tab");
+  await page.locator(":focus").evaluate(element => {
+    if (!(element instanceof HTMLElement))
+      throw new Error("The native next focus target is unavailable.");
+    element.dataset.nativeNextFocus = "true";
+  });
+
   await brand.focus();
   await brand.press("ArrowDown");
   await expect(page.locator("[data-product-destination='home']"))
@@ -132,8 +140,7 @@ test("product navigation Tab closes and continues after the brand", async ({
   await page.keyboard.press("Tab");
 
   await expect(page.locator(".product-navigation-menu")).toBeHidden();
-  await expect(page.locator(".scope-switch [data-subject-tab]").first())
-    .toBeFocused();
+  await expect(page.locator("[data-native-next-focus='true']")).toBeFocused();
 });
 
 test("the data bar occupies its fixed row when the notice stack is empty", async ({

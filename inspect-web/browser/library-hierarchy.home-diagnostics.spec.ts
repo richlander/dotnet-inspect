@@ -4,6 +4,7 @@ import {
   installFacades,
   releaseFacade,
   root,
+  openProductDestination,
   type DiagnosticsFixture,
 } from "./library-hierarchy.support.ts";
 
@@ -395,6 +396,30 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await page.keyboard.press("Escape");
   await expect(page.locator("#spotlight-input")).toHaveCount(0);
   await expect(page).toHaveURL(/package=Example\.Package/);
+});
+
+test("Diagnostics leaves retained Workspace available without marking it current", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+
+  await page.locator("#application-menu-button").click();
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+
+  await page.locator("#diagnostics-product").click();
+  const workspace =
+    page.locator('[data-product-destination="workspace"]');
+  await expect(workspace).not.toHaveAttribute("aria-current", "page");
+  await workspace.click();
+
+  await expect(page).not.toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
 });
 
 test("Diagnostics retains its route geometry while Build evidence loads on a narrow viewport", async ({
