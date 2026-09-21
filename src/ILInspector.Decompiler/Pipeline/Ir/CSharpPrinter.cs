@@ -647,6 +647,9 @@ public sealed partial class CSharpPrinter
     /// <summary>Local slots declared by a tuple deconstruction header.</summary>
     readonly HashSet<int> _deconstructionLocals = [];
 
+    /// <summary>Exception local slots declared by a catch clause header.</summary>
+    readonly HashSet<int> _catchLocals = [];
+
     /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
     readonly HashSet<int> _scopedLocals = [];
 
@@ -734,6 +737,7 @@ public sealed partial class CSharpPrinter
         _deconstructionLocals.UnionWith(
             _localDeclarationPlan.DeconstructionLocals);
         _fixedLocals.UnionWith(_localDeclarationPlan.FixedLocals);
+        _catchLocals.UnionWith(_localDeclarationPlan.CatchLocals);
         _outArgumentLocals.UnionWith(
             _localDeclarationPlan.OutArgumentLocals);
         _outVariableDeclarations.UnionWith(
@@ -961,11 +965,6 @@ public sealed partial class CSharpPrinter
     IEnumerable<string> CollectDeclarations(IrFunction function)
     {
         var locals = new SortedSet<int>();
-        // Catch variables declare in their clause header, not up front.
-        var clauseDeclared = function.Descendants.OfType<CatchClause>()
-            .Where(clause => clause.VariableIndex is not null)
-            .Select(clause => clause.VariableIndex!.Value)
-            .ToHashSet();
         foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
@@ -991,16 +990,16 @@ public sealed partial class CSharpPrinter
         }
         foreach (int index in locals)
         {
-            // Fixed/using headers and `is T t` patterns declare their owned
-            // locals, not the up-front declaration block.
+            // Syntax-owned locals declare at their owner, not up front.
             if (_fixedLocals.Contains(index) || _usingLocals.Contains(index) || _foreachLocals.Contains(index)
                 || _isPatternLocals.Contains(index) || _deconstructionLocals.Contains(index)
-                || _inlineReceiverTempLocals.Contains(index) || _outArgumentLocals.Contains(index))
+                || _catchLocals.Contains(index) || _inlineReceiverTempLocals.Contains(index)
+                || _outArgumentLocals.Contains(index))
                 continue;
             bool declaredAtStore = _declaringStores.Any(s =>
                 s is StoreLocal store && store.Index == index
                 || s is InitObject { Address: LoadLocalAddress init } && init.Index == index);
-            if (!declaredAtStore && !clauseDeclared.Contains(index))
+            if (!declaredAtStore)
             {
                 // An up-front local is referenced before a defining store, so
                 // it relies on IL's zero-initialization of locals (localsinit).

@@ -16,6 +16,7 @@ internal sealed class LocalDeclarationPlan
     readonly HashSet<int> _patternLocals = [];
     readonly HashSet<int> _deconstructionLocals = [];
     readonly HashSet<int> _fixedLocals = [];
+    readonly HashSet<int> _catchLocals = [];
     readonly HashSet<int> _outArgumentLocals = [];
     readonly HashSet<LoadLocalAddress> _outVariableDeclarations = [];
     readonly HashSet<int> _scopedLocals = [];
@@ -43,6 +44,7 @@ internal sealed class LocalDeclarationPlan
     public IReadOnlySet<int> PatternLocals => _patternLocals;
     public IReadOnlySet<int> DeconstructionLocals => _deconstructionLocals;
     public IReadOnlySet<int> FixedLocals => _fixedLocals;
+    public IReadOnlySet<int> CatchLocals => _catchLocals;
     public IReadOnlySet<int> OutArgumentLocals => _outArgumentLocals;
     public IReadOnlySet<LoadLocalAddress> OutVariableDeclarations
         => _outVariableDeclarations;
@@ -182,6 +184,9 @@ internal sealed class LocalDeclarationPlan
                     break;
                 case Fixed { LocalIsStackSlot: false } pin:
                     _fixedLocals.Add(pin.LocalIndex);
+                    break;
+                case CatchClause { VariableIndex: { } local }:
+                    _catchLocals.Add(local);
                     break;
             }
         }
