@@ -4497,6 +4497,7 @@ function libraryLensRequiresExactLibrary(lens: LibraryLens) {
 }
 
 function selectLibraryLens(lens: LibraryLens) {
+  if (state.libraryLens === lens) return;
   if (libraryLensRequiresExactLibrary(lens)
     && aggregateLibrarySubjectIsActive()) {
     const preferredLibraryId = preferredLibrarySubjectId(

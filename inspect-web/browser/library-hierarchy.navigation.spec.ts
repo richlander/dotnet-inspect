@@ -128,6 +128,10 @@ test("exact Library inspectors auto-select the alphabetical fallback only on nav
   await expect(allLibraries).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel"))
     .toContainText("Metadata requires one Library");
+  await page.keyboard.press("6");
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
   const shared = page.url();
   await page.reload();
   await expect(page.locator(
