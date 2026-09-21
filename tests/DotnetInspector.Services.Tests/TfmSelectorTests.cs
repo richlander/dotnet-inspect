@@ -299,6 +299,22 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_RequestedLibrarySearchesAllTfms()
+    {
+        WriteDll("lib/net10.0/Unrelated.dll");
+        var requested = WriteDll("lib/net45/Requested.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "Requested.dll");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net45", result.Tfm);
+        Assert.Equal([requested], result.Paths);
+    }
+
+    [Fact]
     public void SelectPackageLibraries_NoTfm_SelectsHighestTfmInStableOrder()
     {
         WriteDll("lib/net8.0/Zeta.dll");

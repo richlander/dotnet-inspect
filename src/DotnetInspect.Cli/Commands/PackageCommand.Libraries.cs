@@ -796,6 +796,7 @@ public partial class PackageCommand
             Verbosity = options.Verbosity,
             IncludeSections = options.IncludeSections,
             Discover = options.Discover,
+            DiscoverDetails = options.DiscoverDetails,
             Effective = options.Effective,
             Tree = options.Tree,
             Select = options.Select,

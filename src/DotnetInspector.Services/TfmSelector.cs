@@ -416,20 +416,29 @@ public static class TfmSelector
         string? requestedLibrary,
         string? tfm = null)
     {
+        if (!string.IsNullOrWhiteSpace(requestedLibrary))
+        {
+            var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(
+                extractPath,
+                requestedLibrary,
+                tfm);
+            return matchedAssembly != null
+                ? new PackageLibraryResolution(
+                    [matchedAssembly],
+                    matchedTfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    [matchedAssembly])
+                : new PackageLibraryResolution(
+                    [],
+                    tfm,
+                    PackageLibraryResolutionStatus.RequestedLibraryNotFound,
+                    GetCandidateLibraries(extractPath, tfm));
+        }
+
         PackageLibraryResolution resolution =
             SelectPackageLibraries(extractPath, tfm);
         if (!resolution.IsSelected)
             return resolution;
-
-        if (!string.IsNullOrWhiteSpace(requestedLibrary))
-        {
-            return SelectPackageLibrary(
-                resolution.Paths,
-                extractPath,
-                packageId,
-                requestedLibrary,
-                resolution.Tfm);
-        }
 
         if (resolution.Paths.Count == 1)
         {

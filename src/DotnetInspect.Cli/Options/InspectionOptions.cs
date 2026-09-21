@@ -365,6 +365,11 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string[]? Discover { get; init; }
 
+    /// <summary>
+    /// Include additional structural discovery metadata.
+    /// </summary>
+    public bool DiscoverDetails { get; init; }
+
     public bool Tree { get; init; }
 
     /// <summary>

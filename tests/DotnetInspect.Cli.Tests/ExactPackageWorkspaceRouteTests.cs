@@ -181,6 +181,40 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task LibraryWorkspaceExactDiscoveryPreservesDetails()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            AssemblyName = "support.library.dll",
+            Discover = ["Library Info"],
+            DiscoverDetails = true,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "| Name | Kind | Formats |",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryWorkspaceRouteNarrowsToNamesakeLibrary()
     {
         const string namesakePackage =
