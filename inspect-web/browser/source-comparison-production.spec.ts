@@ -36,6 +36,106 @@ test.describe("published authored Source comparison transport", () => {
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(180_000);
 
+  test("System.Text.Json Type Source bounds a stalled PDB response",
+    async ({ page }, testInfo) => {
+      test.skip(fixtureOnly, "The CI gate uses deterministic acquired artifacts.");
+      const upstreamStallMilliseconds = 60_000;
+      let releasePdbResponse!: () => void;
+      const pdbResponseGate = new Promise<void>(resolve => {
+        releasePdbResponse = resolve;
+      });
+      let pdbResponseReleased = false;
+      let msdlRequests = 0;
+      const releaseTimer = setTimeout(() => {
+        pdbResponseReleased = true;
+        releasePdbResponse();
+      }, upstreamStallMilliseconds);
+      await page.route("**/api/msdl/**", async route => {
+        msdlRequests++;
+        await pdbResponseGate;
+        await route.fulfill({
+          status: 504,
+          body: "Deliberately stalled PDB response.",
+          headers: { "access-control-allow-origin": "*" },
+        }).catch(() => undefined);
+      });
+
+      try {
+        await openPublishedSite(page);
+        const evidence = await page.evaluate(async () => {
+          const packages = await import("/inspect-web-package.js");
+          const source = await import("/inspect-web-source.js");
+          const loadResult = await packages.queryPackage(
+            "System.Text.Json", "11.0.0-preview.7.26381.103", "netstandard2.0",
+          );
+          const surface = loadResult.surface;
+          if (surface === null) {
+            throw new Error(
+              loadResult.versionSettlement.content.failure?.reason
+                ?? "System.Text.Json settlement did not produce a surface.",
+            );
+          }
+          const type = surface.types.find(candidate =>
+            candidate.definitionId === "System.HexConverter+Casing");
+          if (!type) {
+            throw new Error(
+              "System.Text.Json does not expose System.HexConverter+Casing.",
+            );
+          }
+          const started = performance.now();
+          const result = await source.queryTypeSource(
+            "type-source-system-text-json-hedge",
+            surface.package,
+            surface.version,
+            surface.activeFramework,
+            type.assemblyId,
+            type.definitionId,
+            "[]",
+            "source",
+          );
+          return {
+            assembly: type.assemblyId,
+            elapsedMilliseconds: performance.now() - started,
+            framework: surface.activeFramework,
+            result,
+          };
+        });
+        const timingPath = testInfo.outputPath(
+          "system-text-json-type-source-hedge.json",
+        );
+        await writeFile(timingPath, JSON.stringify({
+          ...evidence,
+          msdlRequests,
+          pdbResponseReleased,
+          upstreamStallMilliseconds,
+        }, null, 2));
+        await testInfo.attach("system-text-json-type-source-hedge.json", {
+          path: timingPath,
+          contentType: "application/json",
+        });
+
+        expect(msdlRequests).toBe(1);
+        expect(pdbResponseReleased).toBe(false);
+        expect(evidence.elapsedMilliseconds).toBeLessThan(
+          upstreamStallMilliseconds,
+        );
+        expect(evidence.result.kind).toBe("Succeeded");
+        expect(evidence.result.value?.kind).toBe("source");
+        if (evidence.result.value?.kind !== "source")
+          throw new Error("Expected a decompiled type source code view.");
+        expect(evidence.result.value.value.provider).toBe("decompiled");
+        expect(evidence.result.value.value.text)
+          .toContain("enum HexConverter.Casing");
+        expect(evidence.result.value.value.pdbSourceLimitation)
+          .toContain("Portable PDB");
+        expect(evidence.result.value.value.url).toBeNull();
+      } finally {
+        clearTimeout(releaseTimer);
+        pdbResponseReleased = true;
+        releasePdbResponse();
+      }
+    });
+
   test("public package versions retain independent Source outcomes",
     async ({ page }, testInfo) => {
       test.skip(fixtureOnly, "The CI gate uses deterministic acquired artifacts.");

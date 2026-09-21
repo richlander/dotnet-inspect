@@ -1851,8 +1851,11 @@ public sealed partial class CSharpPrinter
         }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
-            : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
+            : $"{ComparisonOperand(left)} {ComparisonOperator(kind)} {ComparisonOperand(right)}";
     }
+
+    string ComparisonOperand(IrExpression operand)
+        => TryLongLiteralText(operand) ?? Operand(operand);
 
     bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
         => IsKnownReferenceValue(left) && IsKnownReferenceValue(right);
