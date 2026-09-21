@@ -375,8 +375,4 @@ public partial class MatchDiscoveryTests
         }
     }
 
-    /// <summary>
-    /// Retrieval selects candidates; it does not decide a relation. The rendered output has to say
-    /// so, because a ranked table otherwise reads as a verdict.
-    /// </summary>
 }
