@@ -360,6 +360,10 @@ The request declares these independent positive limits:
 - maximum projected graph nodes; and
 - maximum projected graph edges.
 
+Connector depth is the number of canonical method edges in the completed
+witness. For a boundary witness, that count includes the final physical call
+edge that crosses the named Library or Package boundary.
+
 Before connector work, selected components project atomically in selection
 order. Members order by exact member identity and internal edges by physical
 method-edge key. Projected-node capacity is checked first, then projected-edge
@@ -391,8 +395,11 @@ A direct-selected-edge task skips to `Retention`.
 with every member of its selected component at depth zero and seeks every member
 of an algorithmic graph-source component at the first reachable source depth.
 A boundary task starts with every terminal caller method and physical edge for
-the named boundary at depth zero and seeks any member of its selected component.
-Initial entries order by member key and boundary-edge key.
+the named boundary at depth one, because the retained boundary crossing is
+already one method edge, and seeks any member of its selected component.
+Initial entries order by member key and boundary-edge key. When the depth limit
+is zero, no boundary entry is admitted; the task records a depth frontier and
+completes as `DepthLimited`.
 
 Each search retains:
 
@@ -618,6 +625,9 @@ Implementation must preserve these boundary cases:
 7. A search or projection bound stops connector retention after positive
    evidence was found. The partial graph, current task, BFS frontier, and exact
    exhausted limit remain visible.
+8. In `A -> B -> C`, where `B -> C` crosses the named boundary, connector
+   depth one admits the source witness `A -> B` but reports the boundary witness
+   from `A` as `DepthLimited`; it never retains `A -> B -> C`.
 
 The initial implementation fixtures should cover these shapes with small
 independently compiled assemblies. `Microsoft.Azure.SignalR` remains the
@@ -704,6 +714,8 @@ production path must eventually establish:
   qualifications;
 - equal shortest connector alternatives use the documented deterministic
   tie-break;
+- source and boundary witnesses count every retained method edge against the
+  same connector-depth limit, including the boundary-crossing edge;
 - connector member, boundary, depth, search-node, search-edge, witness,
   projected-node, and projected-edge limits have the documented ordering and
   frontier outcomes;
