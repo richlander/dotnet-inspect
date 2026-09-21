@@ -534,6 +534,19 @@ public sealed class QueryOperationInfrastructureGateTests
             descriptor.Operation.Terms
                 .Select(static term => term.Key));
         Assert.Equal(
+            route.Capabilities.Dimensions,
+            descriptor.Operation.Dimensions);
+        Assert.Equal(
+            ["row.sequence"],
+            Assert.Single(descriptor.RowScopes).Orders
+                .Select(static order => order.Identity));
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Window,
+            ],
+            Assert.Single(descriptor.RowScopes).Stages);
+        Assert.Equal(
             ResultsRowSet,
             Assert.Single(
                 Assert.Single(descriptor.RowScopes).RowSets));

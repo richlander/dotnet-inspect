@@ -55,45 +55,6 @@ public sealed class QuerySpaceOperationTermDescriptor
     public IReadOnlyList<QueryOperationEffect> Effects { get; }
 }
 
-public sealed class QuerySpaceOperationOrderDescriptor
-{
-    internal QuerySpaceOperationOrderDescriptor(
-        QueryOperationOrderCapability capability)
-    {
-        QueryOperationOrderBinding binding = capability.Binding;
-        Identity = binding.Identity;
-        Kind = binding.Kind;
-        Reference = binding.Reference;
-        Roles = QuerySpaceCompositionContract.CopyEnums(
-            capability.Roles,
-            nameof(capability));
-        Directions = QuerySpaceCompositionContract.CopyEnums(
-            capability.Directions,
-            nameof(capability));
-        Label = binding.Description.Label;
-        Summary = binding.Description.Summary;
-        Effects = QuerySpaceCompositionContract.Copy(
-            binding.Effects,
-            nameof(capability));
-    }
-
-    public string Identity { get; }
-
-    public QueryOperationOrderKind Kind { get; }
-
-    public string Reference { get; }
-
-    public IReadOnlyList<QueryOperationOrderRole> Roles { get; }
-
-    public IReadOnlyList<PortableQueryDirection> Directions { get; }
-
-    public string Label { get; }
-
-    public string Summary { get; }
-
-    public IReadOnlyList<QueryOperationEffect> Effects { get; }
-}
-
 public sealed class QuerySpaceOperationScopeDescriptor
 {
     private QuerySpaceOperationScopeDescriptor(
@@ -105,9 +66,7 @@ public sealed class QuerySpaceOperationScopeDescriptor
         IReadOnlyList<string> rowSets,
         string profile,
         IReadOnlyList<QuerySpaceOperationTermDescriptor> terms,
-        IReadOnlyList<QuerySpaceOperationOrderDescriptor> orders,
-        IReadOnlyList<string> dimensions,
-        IReadOnlyList<RowSelectionStageKind> stages)
+        IReadOnlyList<string> dimensions)
     {
         Identity = identity;
         Operation = operation;
@@ -117,9 +76,7 @@ public sealed class QuerySpaceOperationScopeDescriptor
         RowSets = rowSets;
         Profile = profile;
         Terms = terms;
-        Orders = orders;
         Dimensions = dimensions;
-        Stages = stages;
     }
 
     public string Identity { get; }
@@ -138,11 +95,7 @@ public sealed class QuerySpaceOperationScopeDescriptor
 
     public IReadOnlyList<QuerySpaceOperationTermDescriptor> Terms { get; }
 
-    public IReadOnlyList<QuerySpaceOperationOrderDescriptor> Orders { get; }
-
     public IReadOnlyList<string> Dimensions { get; }
-
-    public IReadOnlyList<RowSelectionStageKind> Stages { get; }
 
     public static QuerySpaceOperationScopeDescriptor Create(
         IQueryOperationRoute route)
@@ -155,13 +108,6 @@ public sealed class QuerySpaceOperationScopeDescriptor
                 static capability =>
                     new QuerySpaceOperationTermDescriptor(capability)),
         ];
-        QuerySpaceOperationOrderDescriptor[] orders =
-        [
-            .. route.Capabilities.Orders.Select(
-                static capability =>
-                    new QuerySpaceOperationOrderDescriptor(capability)),
-        ];
-
         return new(
             route.Identity,
             route.OperationIdentity,
@@ -173,12 +119,8 @@ public sealed class QuerySpaceOperationScopeDescriptor
                 nameof(route)),
             route.ProfileIdentity,
             Array.AsReadOnly(terms),
-            Array.AsReadOnly(orders),
             QuerySpaceCompositionContract.CopyIdentities(
                 route.Capabilities.Dimensions,
-                nameof(route)),
-            QuerySpaceCompositionContract.CopyEnums(
-                route.Capabilities.Stages,
                 nameof(route)));
     }
 }

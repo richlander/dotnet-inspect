@@ -29,9 +29,12 @@ Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
 
 The Query Operation and direct-consumer Release gates verify that descriptors
-project executable operation routes, reject duplicate canonical keys, and that
-requests preserve explicit compatible row-set associations while separating
-operation bounds from row order and semantic selection. Section projection,
+project operation terms and work-bound dimensions from executable routes,
+project order and semantic-stage capabilities only through explicit row
+scopes, reject duplicate canonical keys, and that requests preserve explicit
+compatible row-set associations while separating operation bounds from row
+order and semantic selection. Transitional Query Operation route order and
+stage capabilities are not operation-scope capabilities. Section projection,
 typed row-plan resolution, terminal execution, continuation binding, and the
 complete gates in [Required gates](#required-gates) remain **unverified** until
 their named implementation slices land and run in Release.
