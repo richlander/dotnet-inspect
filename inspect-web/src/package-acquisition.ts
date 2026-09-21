@@ -123,6 +123,7 @@ export interface AppPackage {
   version: string;
   frameworks: string[];
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;

@@ -47,6 +47,7 @@ type PackageOperationName =
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
+  | "queryLibraries"
   | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
@@ -876,6 +877,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryLibraryApi"]>
       ) => facades.package.queryLibraryApi(...args),
     ),
+    queryLibraries: valueOperation(
+      "ordinary-package-query-libraries",
+      5,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryLibraries"]>
+      ) => facades.package.queryLibraries(...args),
+    ),
     queryPackageDependencies: valueOperation(
       "ordinary-package-query-dependencies",
       4,
@@ -1521,6 +1530,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryLibraryApi: bind(
         engineWorkerOrdinaryOperations.package.queryLibraryApi,
+      ),
+      queryLibraries: bind(
+        engineWorkerOrdinaryOperations.package.queryLibraries,
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
