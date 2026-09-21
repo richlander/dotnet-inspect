@@ -391,16 +391,13 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("Microsoft.CSharp@4.7.0")]
-    [InlineData("Microsoft.TestPlatform.TestHost@17.14.1")]
-    [InlineData("System.Private.ServiceModel@4.10.3")]
-    public async Task PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput(
-        string package)
+    [Fact]
+    public async Task
+        PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput()
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
-            package,
+            "Microsoft.TestPlatform.TestHost@17.14.1",
             "--library",
             "-S",
             "@Integrations",
@@ -412,6 +409,31 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             "matched sections have no data across all libraries",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.CSharp@4.7.0", "netcoreapp2.0")]
+    [InlineData("System.Private.ServiceModel@4.10.3", "netstandard2.0")]
+    public async Task
+        PackageCommand_LibraryFlag_SelectedEmptyCompileGroupDoesNotFallback(
+            string package,
+            string selectedTfm)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"selected compile group for TFM '{selectedTfm}'",
             error,
             StringComparison.Ordinal);
     }
@@ -626,6 +648,92 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        PackageCommand_LibraryFlag_UsesCompatibleCompileProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--library",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.True(
+                result.Exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {result.Error}{Environment.NewLine}"
+                    + $"Output: {result.Output}");
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.One.dll)",
+                result.Output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.Two.dll)",
+                result.Output);
+            Assert.DoesNotContain("lib/net8.0/Older.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_LibraryFlag_HonorsExplicitEmptyCompileGroup()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                archive.CreateEntry("ref/net11.0/_._");
+            }
+
+            var package = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--library",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var library = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, package.Exit);
+            Assert.Empty(package.Output);
+            Assert.Contains(
+                "selected compile group for TFM 'net11.0'",
+                package.Error);
+            Assert.Equal(package, library);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_RejectsRemovedComputedPole()
     {
         // The embedded-library render path resolves -S against the same curated LibrarySections
@@ -724,6 +832,8 @@ public partial class CommandExecutionTests
             var result = await RunAppAsync(
                 "package",
                 packagePath,
+                "--tfm",
+                "net11.0",
                 "--namesake-library",
                 "-S",
                 "Library Info",
@@ -733,13 +843,19 @@ public partial class CommandExecutionTests
                 "library",
                 "--package",
                 packagePath,
+                "--tfm",
+                "net11.0",
                 "--namesake-library",
                 "-S",
                 "Library Info",
                 "--tips",
                 "q");
 
-            Assert.Equal(0, result.Exit);
+            Assert.True(
+                result.Exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {result.Error}{Environment.NewLine}"
+                    + $"Output: {result.Output}");
             Assert.Empty(result.Error);
             Assert.Contains("# Unexpected.FileName.dll", result.Output);
             Assert.DoesNotContain("Neighbor.dll", result.Output);

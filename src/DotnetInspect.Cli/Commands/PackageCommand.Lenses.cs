@@ -92,17 +92,23 @@ public partial class PackageCommand
             || options.ListLayout
             || options.ListTfms
             || options.ShowContent
-            || options.PackageLibrary is not null
-            || options.AllLibraries
-            || !RequestsPackageHouseCompileRealization(
-                producerOptions,
-                pipeline))
+            || (!options.AllLibraries
+                && options.PackageLibrary is null
+                && !RequestsPackageHouseCompileRealization(
+                    producerOptions,
+                    pipeline)))
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Tfm)
-            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase))
+        if (options.Tfm?.Equals(
+                "all",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
             targetContext = PackageHouseTargetContext.OwnerDefault();
             return true;
