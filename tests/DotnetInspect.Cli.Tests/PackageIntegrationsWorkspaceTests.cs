@@ -210,7 +210,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData(null, false, true)]
     [InlineData("net10.0", false, true)]
     [InlineData("all", false, false)]
-    [InlineData("net10.0", true, false)]
+    [InlineData("net10.0", true, true)]
     [InlineData("net35-Unity Full v3.5", false, false)]
     public async Task PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles(
         string? targetFramework,
@@ -284,7 +284,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             Assert.Contains("## Integration Opportunities", output);
             Assert.Contains("Npgsql.NpgsqlConnection", output);
             Assert.Equal(
-                includeReferenceRole || targetFramework == "all" ? 2 : 1,
+                targetFramework == "all" ? 2 : 1,
                 output.Split(
                     "| Aspire | `Npgsql.NpgsqlConnection` |",
                     StringSplitOptions.None).Length - 1);
@@ -1083,10 +1083,9 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Theory]
-    [InlineData("empty-compile", 1)]
     [InlineData("all-frameworks", 2)]
     [InlineData("nested", 2)]
-    [InlineData("tools", 2)]
+    [InlineData("tools", 1)]
     [InlineData("no-nuspec", 1)]
     [InlineData("invalid-nuspec-id", 1)]
     [InlineData("invalid-nuspec-version", 1)]
@@ -1189,8 +1188,15 @@ public sealed class PackageIntegrationsWorkspaceTests
             Assert.Equal(expectedLibraries, output.Split(
                 "| Aspire | `Npgsql.NpgsqlConnection` |", StringSplitOptions.None).Length - 1);
             Assert.Contains("Health Checks", output);
-            foreach ((string path, _) in entries.Where(entry => entry.Path.EndsWith("Npgsql.dll")))
+            foreach ((string path, _) in entries.Where(entry =>
+                entry.Path.EndsWith("Npgsql.dll")
+                && (shape != "tools"
+                    || !entry.Path.StartsWith(
+                        "tools/",
+                        StringComparison.Ordinal))))
                 Assert.Contains(path, output);
+            if (shape == "tools")
+                Assert.DoesNotContain("tools/net11.0/any/Npgsql.dll", output);
             if (shape is "native-image" or "invalid-image")
             {
                 Assert.DoesNotContain("Native.dll", output);

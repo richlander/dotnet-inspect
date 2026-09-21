@@ -925,12 +925,16 @@ public partial class PackageCommand
         }
         else
         {
-            resolution = TfmSelector.SelectPackageLibrary(
-                candidates.Paths,
-                extractPath,
-                packageId,
-                requestedLibrary,
-                candidates.Tfm);
+            resolution = string.IsNullOrWhiteSpace(requestedLibrary)
+                ? SelectDefaultPackageLibrary(
+                    candidates,
+                    packageId)
+                : TfmSelector.SelectPackageLibrary(
+                    candidates.Paths,
+                    extractPath,
+                    packageId,
+                    requestedLibrary,
+                    candidates.Tfm);
         }
         if (resolution.IsSelected)
             return new PackageLibrarySelection(
@@ -945,6 +949,40 @@ public partial class PackageCommand
             requestedLibrary,
             resolution);
         return null;
+    }
+
+    private static TfmSelector.PackageLibraryResolution
+        SelectDefaultPackageLibrary(
+            TfmSelector.PackageLibraryResolution candidates,
+            string packageId)
+    {
+        if (candidates.Paths.Count == 1)
+        {
+            return new TfmSelector.PackageLibraryResolution(
+                [candidates.Paths[0]],
+                candidates.Tfm,
+                TfmSelector.PackageLibraryResolutionStatus.Selected,
+                candidates.CandidatePaths);
+        }
+
+        string[] packageNameMatches =
+        [
+            .. candidates.Paths.Where(path =>
+                Path.GetFileNameWithoutExtension(path).Equals(
+                    packageId,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        return packageNameMatches.Length == 1
+            ? new TfmSelector.PackageLibraryResolution(
+                packageNameMatches,
+                candidates.Tfm,
+                TfmSelector.PackageLibraryResolutionStatus.Selected,
+                candidates.CandidatePaths)
+            : new TfmSelector.PackageLibraryResolution(
+                [],
+                candidates.Tfm,
+                TfmSelector.PackageLibraryResolutionStatus.Ambiguous,
+                candidates.Paths);
     }
 
     private static void ReportPackageLibraryResolutionFailure(
