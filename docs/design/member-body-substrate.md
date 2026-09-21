@@ -497,7 +497,7 @@ its existing body and replacement-target identity.
 
 For docopt's `ReadOnlyList<T>`, the native scaffold becomes
 `readonly struct ReadOnlyList<T>(IList<T> list)` with the property
-`List { get { return field ?? Array.Empty<T>(); } } = list;`.
+`List { get => field ?? Array.Empty<T>(); } = list;`.
 This is an equivalent source-form choice, not evidence of uniquely authored
 syntax. In particular, the null fallback remains in the getter: a default
 struct bypasses the initializer.
@@ -523,18 +523,108 @@ retain the primary form.
 `PropertyInitializerUsesProvenParameterWithoutWideningItsScope` and
 `PropertyInitializerPreservesPrimaryParameterAndTargetBody` are PR-fast gates
 for parameter binding, default values, keyword spelling, declaration-scope
-declines and preservation of the sole replaceable getter block.
+declines and preservation of the sole replaceable getter body.
 The existing native constructor/getter gates now also assert the initializer
 source form, and `NativeGetterRetainsExplicitConstructorWhenInitializerFormDeclines`
 checks actual donor PE storage and the unchanged explicit-companion choice.
 These native rows remain Slow; no inspected or donor code is executed.
 
-This is step one of the approved two-step source-form plan. Issue #7971 owns
-shared selected-member containing-context adoption through both CLI source
-views and Browser/Wasm Source. Those consumers remain unchanged here; an
-isolated property must not acquire `= list` without a declaration binding
-`list`. Full reconstruction, exact original type declarations and whole-object
-equivalence remain outside this claim.
+This is step one of the approved two-step source-form plan. The shared
+selected-member adoption below is step two: an isolated property must not
+acquire `= list` without a declaration binding `list`. Full reconstruction,
+exact original type declarations and whole-object equivalence remain outside
+this claim.
+
+Issue #8022 refines this native artifact with an expression-bodied accessor,
+following the shared
+[property expression-body and accessor-layout preference](../decompiler-taste.md#property-expression-bodies-and-accessor-layout).
+Typed body production supplies an optional single-line expression through the
+existing `CSharpExpressionBody` grammar over its own rendered statements; the
+original block-body projection remains unchanged. CSharp consumes an explicit
+expression-accessor shape, without recovering it from declarations or
+initializer text. Native Selected forwards that shape only after the existing
+initializer admission succeeds. Automatic getters stay automatic; multi-statement
+getters retain their blocks; attributed accessors retain their attributes.
+
+The product-rendered replacement range covers the complete accessor body
+clause: braces for a block, or arrow through semicolon for an expression.
+`ReplaceBody` always materializes a block within that range and preserves every
+non-target byte, including the initializer and primary-constructor header.
+`PropertyInitializerPreservesPrimaryParameterAndTargetBody` gates the compact
+spelling and exact range boundary.
+`ProduceBody_CarriesSingleLineGetterExpressionWithoutChangingBlock` gates the
+single-expression, attributed and multi-statement producer cases. The existing
+native constructor/getter gates compile the compact published docopt witness and
+these neighboring forms, then inspect their actual donor PE; this is not a
+whole-type fidelity claim.
+`PublishedDocoptCompactGetterReplacementPreservesInitialization` compiles a
+replacement through the frozen product artifact, checks that its getter changed
+and that the constructor still stores into the getter's field.
+
+#### Shared selected-member initializer context
+
+Issue #7971 adopts the same proof for standalone selected-source views in the
+CLI and Browser/Wasm Source. An admitted initializer travels with its containing
+primary-constructor declaration, namespace and required imports. The containing
+declaration preserves the selected type's name, generic parameters and constraints,
+accessibility, readonly and ref-like modifiers. It supplies lexical and
+construction context for the selected property, not a complete type: unrelated
+members, implemented interfaces and type attributes are not reconstructed.
+This slice admits top-level types only; nested types retain their existing
+selected-property output rather than invent an outer declaration.
+
+Admission uses the ordinary getter projection before annotations or overlays
+add presentation text. For example, an IL comment containing `ldarg.0` must not
+veto a constructor parameter named `arg`. A failed required getter projection
+remains a visible formatting failure, not a successful context-free fallback.
+Unsupported constructor shapes and name-capture declines retain the previous
+selected property without an initializer. The shared service accounts for the
+constructor proof within its body-projection budget as a noncontributing probe;
+the selected getter remains the sole contributing body and selection identity.
+
+Standalone `CSharpDecompilerService.ProduceMember` supplies this context to the
+shared Source operation. The CLI uses the same composition for Decompiled
+Source, Annotated Source, Cost Overlay and Semantics Overlay, including
+single-view requests. No host adds a second initializer recognizer or type
+formatter. `MemberBodyProducer.ProduceMember` remains a member-fragment API,
+and whole-type composition retains its explicit constructor: neither acquires
+a second containing declaration or duplicate initializer. Independent
+body-only documents retain their existing text and evidence scope.
+The standalone result also carries its separately composed
+`MemberDeclarationText`, including an admitted initializer but not its outer
+context. Source Diff consumes that declaration fragment so both comparison
+endpoints remain complete members; it must not parse a containing type as the
+selected member. Property attributes remain inside the containing declaration,
+attached to the property.
+
+`SelectedPropertySourceTests.SelectedInitializerCarriesCompilableContainingContext`
+and `PublishedDocoptSelectedInitializerPreservesConstructorAndGetter` compile
+unchanged product-owned standalone source and inspect its emitted constructor,
+getter and storage flags. Getter method-reference comparisons normalize the
+`netstandard` and `System.Runtime` framework facades to the compiler's
+`System.Private.CoreLib` reference; they do not claim byte-identical metadata
+or whole-type fidelity. Neighboring tests gate unsupported construction,
+nested-context decline, budget exhaustion, visible projection failure and
+unchanged fragment/whole-type composition.
+
+`MemberCallGraphSectionTests.SelectedProperty_InitializerContextAgreesAcrossCSharpViews`
+gates joint and separate CLI views, with an independent body-document control.
+`MemberSourceInspection_SelectedInitializerCarriesItsScope` gates the completed
+shared Source query and its body accounting.
+`MemberSourceDiffPresentationTests.ContainingContextUsesSeparateMemberDeclarationEndpoint`
+gates the comparison consumer's choice of that product-issued fragment.
+`BrowserSourceComparisonOperationTests.MemberSourceExport_PreservesProvenInitializerContext`
+gates the actual managed export for admitted and calculated-initializer
+neighbors. The published-Wasm `cataloged Source-only` scenario in
+`source-comparison-production.spec.ts`, run by
+`eng/test-inspect-web-source-comparison-gate.sh`, obtains both through the real
+generated TypeScript Source facade. These bounded cases are PR-fast.
+
+An unbound initializer parameter, changed getter operation or constructor
+store, altered storage flags, or duplicate constructor/initializer falsifies
+this adoption claim. Body-only structural correspondence and native Selected
+compile-back remain separate evidence lenses; neither establishes the new
+standalone declaration context by itself.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32

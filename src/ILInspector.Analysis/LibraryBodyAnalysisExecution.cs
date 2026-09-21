@@ -13,6 +13,75 @@ public sealed record LibraryBodyAnalysisReceipt(
     bool HasFullMethodEvidenceScope,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
+/// <summary>
+/// Why a physical managed body did not issue an implementation profile in one
+/// Analysis execution.
+/// </summary>
+public enum ImplementationProfileUnavailableReason
+{
+    /// <summary>Implementation-profile production did not participate.</summary>
+    NotRequested,
+    /// <summary>The body was outside the caller-selected evidence scope.</summary>
+    ScopeExcluded,
+    /// <summary>Recoverable body Analysis failed before a profile was issued.</summary>
+    AnalysisFailed,
+    /// <summary>Analysis produced no profile and no narrower reason was available.</summary>
+    ProfileUnavailable,
+}
+
+/// <summary>
+/// Physical managed body that did not issue an implementation profile.
+/// </summary>
+public sealed record ImplementationProfileUnavailableBody(
+    MethodIdentity? EvidenceMethod,
+    int MethodToken,
+    ImplementationProfileUnavailableReason Reason,
+    AnalysisDiagnostic? Diagnostic)
+{
+    public ImplementationProfileUnavailableBody(
+        MethodIdentity evidenceMethod,
+        ImplementationProfileUnavailableReason reason,
+        AnalysisDiagnostic? diagnostic)
+        : this(
+            evidenceMethod,
+            evidenceMethod.MetadataToken,
+            reason,
+            diagnostic)
+    {
+    }
+}
+
+/// <summary>
+/// Analysis-issued population receipt for implementation-profile evidence.
+/// </summary>
+public sealed record ImplementationProfilePopulationCoverageReceipt(
+    bool WasRequested,
+    bool HasFullMethodEvidenceScope,
+    ImmutableArray<MethodIdentity> DeclaredMethods,
+    ImmutableArray<MethodIdentity> ManagedMethodBodies,
+    ImmutableArray<MethodIdentity> ProfiledEvidenceBodies,
+    ImmutableArray<ImplementationProfileUnavailableBody> UnavailableBodies,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    /// <summary>Number of declared method identities in the execution.</summary>
+    public int DeclaredMethodCount => DeclaredMethods.Length;
+
+    /// <summary>
+    /// Number of physical managed method bodies in the execution, including
+    /// token-only failed bodies whose identity could not be decoded.
+    /// </summary>
+    public int ManagedMethodBodyCount =>
+        ManagedMethodBodies.Length
+        + UnavailableBodies.Count(static body =>
+            body.EvidenceMethod is null);
+
+    /// <summary>Number of physical bodies that issued implementation profiles.</summary>
+    public int ProfiledEvidenceBodyCount => ProfiledEvidenceBodies.Length;
+
+    /// <summary>Number of physical bodies that did not issue profiles.</summary>
+    public int UnavailableBodyCount => UnavailableBodies.Length;
+}
+
 /// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
 public sealed record LibrarySafetyAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
@@ -33,6 +102,7 @@ public sealed record LibrarySafetyAnalysisResult(
 /// </summary>
 public sealed record LibraryImplementationProfileAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
+    ImplementationProfilePopulationCoverageReceipt Coverage,
     ImmutableArray<MethodImplementationProfile> Profiles,
     ImmutableArray<OverloadCallRelationship> OverloadRelationships,
     ImmutableHashSet<TypeRef> GeneratedFrameworkTypes)
@@ -200,6 +270,10 @@ public sealed class LibraryBodyAnalysisExecution
         {
             return new(
                 receipt,
+                CreateImplementationProfileCoverage(
+                    receipt,
+                    analysis,
+                    wasRequested: false),
                 [],
                 [],
                 []);
@@ -214,6 +288,10 @@ public sealed class LibraryBodyAnalysisExecution
 
         return new(
             receipt,
+            CreateImplementationProfileCoverage(
+                receipt,
+                analysis,
+                wasRequested: true),
             MethodImplementationProfileAnalysis.Collect(
                 analysis.Methods.ImplementationProfiles,
                 callGraph.DirectCalls,
@@ -222,5 +300,91 @@ public sealed class LibraryBodyAnalysisExecution
                 callGraph.DeclaredMethodMap),
             relationships,
             generatedFrameworkTypes.Types);
+    }
+
+    private static ImplementationProfilePopulationCoverageReceipt
+        CreateImplementationProfileCoverage(
+            LibraryBodyAnalysisReceipt receipt,
+            LibraryBodyAnalysisResult analysis,
+            bool wasRequested)
+    {
+        if (!wasRequested)
+        {
+            return new(
+                WasRequested: false,
+                receipt.HasFullMethodEvidenceScope,
+                analysis.Methods.DeclaredMethods,
+                analysis.Methods.Methods,
+                [],
+                [],
+                analysis.Diagnostics);
+        }
+
+        ImmutableArray<MethodIdentity> profiledBodies =
+        [
+            .. analysis.Methods.ImplementationProfiles
+                .Select(static profile => profile.EvidenceMethod),
+        ];
+        HashSet<int> profiledTokens =
+        [
+            .. profiledBodies.Select(static method => method.MetadataToken),
+        ];
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            analysis.Diagnostics
+                .GroupBy(static diagnostic => diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+
+        ImmutableArray<ImplementationProfileUnavailableBody>
+            unavailableBodies =
+        [
+            .. analysis.Methods.Methods
+                .Where(method => !profiledTokens.Contains(
+                    method.MetadataToken))
+                .Select(method =>
+                {
+                    diagnosticsByToken.TryGetValue(
+                        method.MetadataToken,
+                        out AnalysisDiagnostic? diagnostic);
+                    return new ImplementationProfileUnavailableBody(
+                        method,
+                        UnavailableReason(
+                            wasRequested,
+                            receipt.HasFullMethodEvidenceScope,
+                            diagnostic),
+                        diagnostic);
+                }),
+            .. analysis.Methods.FailedMethodBodies
+                .Select(body => new ImplementationProfileUnavailableBody(
+                    null,
+                    body.MethodToken,
+                    ImplementationProfileUnavailableReason.AnalysisFailed,
+                    body.Diagnostic)),
+        ];
+
+        return new(
+            wasRequested,
+            receipt.HasFullMethodEvidenceScope,
+            analysis.Methods.DeclaredMethods,
+            analysis.Methods.Methods,
+            profiledBodies,
+            unavailableBodies,
+            analysis.Diagnostics);
+    }
+
+    private static ImplementationProfileUnavailableReason
+        UnavailableReason(
+            bool wasRequested,
+            bool hasFullMethodEvidenceScope,
+            AnalysisDiagnostic? diagnostic)
+    {
+        if (!wasRequested)
+            return ImplementationProfileUnavailableReason.NotRequested;
+        if (diagnostic is not null)
+            return ImplementationProfileUnavailableReason.AnalysisFailed;
+        if (!hasFullMethodEvidenceScope)
+            return ImplementationProfileUnavailableReason.ScopeExcluded;
+        return ImplementationProfileUnavailableReason.ProfileUnavailable;
     }
 }

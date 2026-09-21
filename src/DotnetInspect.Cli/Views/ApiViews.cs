@@ -127,21 +127,21 @@ public class TypeView
     public List<EnumValueRow>? EnumValuesWithDocs { get; set; }
 
     /// <summary>
-    /// Type parameters table (Normal+ verbosity). Null → section skipped.
+    /// Type parameters table. The section pipeline controls visibility.
     /// </summary>
     [MarkoutSection(Name = "Type Parameters")]
     [JsonIgnore]
     public List<TypeParameterRow>? TypeParameterRows { get; set; }
 
     /// <summary>
-    /// Implemented interfaces (Detailed+ verbosity). Null → section skipped.
+    /// Implemented interfaces. The section pipeline controls visibility.
     /// </summary>
     [MarkoutSection(Name = "Interfaces")]
     [JsonIgnore]
     public List<InterfaceRow>? InterfaceRows { get; set; }
 
     /// <summary>
-    /// Base class hierarchy (Detailed+ verbosity). Null → section skipped.
+    /// Base class hierarchy. The section pipeline controls visibility.
     /// </summary>
     [MarkoutSection(Name = "Baseclass")]
     [JsonIgnore]
@@ -283,8 +283,8 @@ public class TypeView
     public List<TopLeverageRow>? TopLeverageRows { get; set; }
 
     [MarkoutSection(
-        Name = SectionNames.ImplementationProfiles,
-        EmptyText = "No implementation profiles found for this type.")]
+        Name = SectionNames.TypeMetrics,
+        EmptyText = "No metrics found for this type.")]
     [MarkoutIgnoreColumnWhen(
         nameof(ImplementationProfileUnsafeEmpty),
         nameof(ImplementationProfileRow.Unsafe))]
@@ -305,7 +305,32 @@ public class TypeView
         nameof(ImplementationProfileRow.Incomplete))]
     [JsonIgnore]
     public List<ImplementationProfileRow>?
-        ImplementationProfileRows { get; set; }
+        TypeMetricRows { get; set; }
+
+    [MarkoutSection(
+        Name = SectionNames.MemberMetrics,
+        EmptyText = "No metrics found for this member.")]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileUnsafeEmpty),
+        nameof(ImplementationProfileRow.Unsafe))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileAsyncEmpty),
+        nameof(ImplementationProfileRow.Async))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileTargetsEmpty),
+        nameof(ImplementationProfileRow.OverloadTargets))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileEvidenceEmpty),
+        nameof(ImplementationProfileRow.EvidenceMethod))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileEvidenceEmpty),
+        nameof(ImplementationProfileRow.EvidenceToken))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(ImplementationProfileIncompleteEmpty),
+        nameof(ImplementationProfileRow.Incomplete))]
+    [JsonIgnore]
+    public List<ImplementationProfileRow>?
+        MemberMetricRows { get; set; }
 
     [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = "No optimization opportunities were found for this type.")]
     [JsonIgnore]
@@ -1211,6 +1236,9 @@ public sealed record AppliedTasteRow(
 [MarkoutSerializable(AutoFields = false)]
 public class MemberCodeView
 {
+    [MarkoutSection(Name = SectionNames.ApiDeclarations)]
+    public CodeSection ApiDeclarationsCode { get; set; }
+
     [MarkoutSection(Name = "Decompiled Source")]
     public CodeSection DecompiledSourceCode { get; set; }
 

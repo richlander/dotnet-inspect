@@ -150,8 +150,10 @@ import {
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
+  alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
+  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
 import {
@@ -200,6 +202,7 @@ import {
   type GraphSourceRequest,
   type GraphSourceState,
   type SourceResultState,
+  type TypeSourceView,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
 import {
@@ -390,6 +393,7 @@ import {
   type MemberNavEntry,
   typeMetadataSignature,
   typeSourceSignature,
+  typeCodeViewText,
 } from "./type-panel.ts";
 import {
   createPackageControls,
@@ -598,6 +602,7 @@ import type {
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
   BrowserMemberSource,
+  BrowserTypeCodeView,
 } from "./facades/inspect-web-source.d.ts";
 import type {
   BrowserHomeDemoRunActivation,
@@ -1039,6 +1044,7 @@ const initialState = {
   memberFindingInteraction: null,
   memberFindingSelectionError: "",
   typeSource: { status: "idle" as const },
+  typeSourceView: "source" as const,
   typeMetadata: null,
   typeMetadataLoading: false,
   typeMetadataError: "",
@@ -1193,7 +1199,8 @@ interface StateOverrides {
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
   memberFindingInteraction: MemberFindingInteraction | null;
-  typeSource: SourceResultState;
+  typeSource: SourceResultState<BrowserTypeCodeView>;
+  typeSourceView: TypeSourceView;
   typeMetadata: BrowserTypeMetadata | null;
   libraryApiInspections:
     Map<string, BrowserExactLibraryApiInspection>;
@@ -1998,7 +2005,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.framework,
     request.assembly,
     request.type,
-    request.taste),
+    request.taste,
+    request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
     request.version,
@@ -3396,9 +3404,9 @@ function libraryKey(item: InspectedTypeSurface | null | undefined) {
   return item?.assemblyId ?? "";
 }
 
-// Libraries admitted by the selected package coordinate, sorted by public
-// surface size then name. Assembly descriptors keep libraries with no public
-// types visible instead of deriving the package inventory from type rows.
+// Libraries admitted by the selected package coordinate, sorted alphabetically
+// by name. Assembly descriptors keep libraries with no public types visible
+// instead of deriving the package inventory from type rows.
 function packageLibraryInventory() {
   if (!state.package) return [];
   const libraries = state.package.assemblies.map(assembly => ({
@@ -3412,10 +3420,7 @@ function packageLibraryInventory() {
     members: assembly.publicMembers,
     platformPack: assembly.platformPack,
   }));
-  return libraries.sort((left, right) =>
-    right.types - left.types
-    || right.members - left.members
-    || left.name.localeCompare(right.name));
+  return alphabetizeLibrarySubjects(libraries);
 }
 
 function libraryQuerySignature(pkg: AppPackage, reference: string) {
@@ -4455,10 +4460,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     }
   } else if (workspaceScope === "library") {
     const selected = libraryLensesFor(state.package)[index];
-    if (selected) {
-      state.libraryLens = selected[0];
-      render();
-    }
+    if (selected) selectLibraryLens(selected[0]);
   } else if (workspaceScope === "type") {
     const selected = typeLensesFor(state.package)[index];
     if (selected) {
@@ -4486,6 +4488,35 @@ function libraryLensesFor(pkg: AppPackage | null) {
       return pkg?.source.kind === "nuget.org" && !pkg.isRuntimePack;
     return !pkg?.isRuntimePack || id !== "references";
   });
+}
+
+function libraryLensRequiresExactLibrary(lens: LibraryLens) {
+  switch (lens) {
+    case "overview": return false;
+    case "compare":
+    case "references":
+    case "integrations":
+    case "analysis":
+    case "metadata": return true;
+    default: return assertNever(lens, "library lens");
+  }
+}
+
+function selectLibraryLens(lens: LibraryLens) {
+  if (state.libraryLens === lens) return;
+  if (libraryLensRequiresExactLibrary(lens)
+    && aggregateLibrarySubjectIsActive()) {
+    const preferredLibraryId = preferredLibrarySubjectId(
+      packageLibraries(),
+      state.package?.id ?? "");
+    if (preferredLibraryId) {
+      selectLibrarySubject(
+        preferredLibraryId,
+        { preserveLens: true });
+    }
+  }
+  state.libraryLens = lens;
+  render();
 }
 
 function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
@@ -4826,8 +4857,7 @@ function stepHorizontal(delta: number) {
     const index = strip.findIndex(([id]) => id === state.libraryLens);
     const next = strip[(index + delta + strip.length) % strip.length];
     if (!next) return;
-    state.libraryLens = next[0];
-    render();
+    selectLibraryLens(next[0]);
     return;
   }
   const type = selectedType();
@@ -5283,7 +5313,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         current,
         currentPackage(),
         state.taste,
-        memberRequestKey)
+        memberRequestKey,
+        state.typeSourceView)
     : "";
   const sourcePageMemberSource =
     sourcePageKind === "member"
@@ -5294,16 +5325,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const selectedSourcePart = memberSourcePartSelector.current(
     currentMemberSourceSignature,
     sourcePageMemberSource);
+  const typeCodeView = sourcePageKind === "type"
+    ? sourceResultForSignature(state.typeSource, currentTypeSourceSignature)
+    : null;
   const sourcePageSource =
     sourcePageKind === "member"
       ? sourcePageMemberSource?.source ?? null
-      : sourcePageKind === "type"
-        ? sourceResultForSignature(
-            state.typeSource,
-            currentTypeSourceSignature)
+      : typeCodeView?.kind === "source"
+        ? typeCodeView.value
         : null;
   const sourceWorkingSurface =
-    sourcePageKind !== null && sourcePageSource !== null;
+    sourcePageKind !== null
+    && (sourcePageSource !== null || typeCodeViewText(typeCodeView) !== null);
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
@@ -5399,6 +5432,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
+                    typeCodeView,
+                    typeView: state.typeSourceView,
                     memberSource: sourcePageMemberSource,
                     selectedMemberPart: selectedSourcePart,
                     copyButtonId: sourcePageKind === "member"
@@ -5637,7 +5672,7 @@ function maybeAutoLoadVisibleSource() {
   if (!type) return;
   const pkg = currentPackage();
   if (kind === "type") {
-    const signature = typeSourceSignature(type, pkg, state.taste, memberRequestKey);
+    const signature = typeSourceSignature(type, pkg, state.taste, memberRequestKey, state.typeSourceView);
     if (sourceResultNeedsLoad(state.typeSource, signature)) {
       observeAsync(loadSelectedTypeSource(), "Loading type source");
     }
@@ -6088,7 +6123,7 @@ function packageLensBody() {
 
 function libraryLensBody() {
   if (aggregateLibrarySubjectIsActive()
-    && state.libraryLens !== "overview") {
+    && libraryLensRequiresExactLibrary(state.libraryLens)) {
     const label = libraryLenses.find(([id]) => id === state.libraryLens)?.[1]
       ?? "This inspector";
     return `<section class="document-section empty-document">
@@ -7593,11 +7628,13 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
     item,
     currentPackage(),
     state.taste,
-    memberRequestKey);
+    memberRequestKey,
+    state.typeSourceView);
   return renderTypeSource({
     item,
     currentSignature,
     sourceState: state.typeSource,
+    view: state.typeSourceView,
     escapeHtml,
     highlightCSharp,
   });
@@ -8422,8 +8459,14 @@ function bindTypePanelEvents() {
       }
     },
     onCopyTypeSource: () => {
-      if (state.typeSource.status === "ready")
-        void copyText(state.typeSource.source.text, "source copied");
+      if (state.typeSource.status !== "ready") return;
+      const text = typeCodeViewText(state.typeSource.source);
+      if (text !== null) void copyText(text, "source copied");
+    },
+    onTypeSourceViewSelect: view => {
+      if (state.typeSourceView === view) return;
+      state.typeSourceView = view;
+      observeAsync(loadSelectedTypeSource(), "Loading type code view");
     },
     onExploreSource: () => openSettings("source"),
     onKindSelect: kind => {
@@ -8622,8 +8665,7 @@ function bindScopeBarEvents() {
     },
     onLibraryLensSelect: lens => {
       contentFramePane = "detail";
-      state.libraryLens = lens;
-      render();
+      selectLibraryLens(lens);
     },
     onPackageLensSelect: lens => {
       contentFramePane = "detail";
@@ -13677,7 +13719,7 @@ async function loadSelectedTypeSource() {
   }
   const pkg = currentPackage();
   const signature =
-    typeSourceSignature(type, pkg, state.taste, memberRequestKey);
+    typeSourceSignature(type, pkg, state.taste, memberRequestKey, state.typeSourceView);
   return sourceInspection.loadTypeSource({
     signature,
     packageId: pkg.id,
@@ -13686,6 +13728,7 @@ async function loadSelectedTypeSource() {
     assembly: type.assembly,
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
+    view: state.typeSourceView,
     isVisible: () =>
       currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
