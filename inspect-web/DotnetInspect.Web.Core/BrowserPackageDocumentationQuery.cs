@@ -60,6 +60,14 @@ internal static class BrowserPackageDocumentationQuery
                 queryLimits.ApiSurfaceScope,
                 queryLimits.ApiSurface,
                 cancellationToken)[documentationId];
+        DocumentationImplementationSubject? implementationSubject =
+            DocumentationImplementationSubjectResolver.Resolve(
+                completed.Receipt.Library,
+                completed.Owner,
+                subject,
+                queryLimits.ApiSurfaceScope,
+                queryLimits.ApiSurface,
+                cancellationToken);
         CompiledXmlContribution compiled =
             PackageDocumentationHouseAdapter
                 .CreateCompiledXmlContribution(
@@ -85,6 +93,7 @@ internal static class BrowserPackageDocumentationQuery
                 planIdentity,
                 policyGeneration,
                 subject,
+                implementationSubject,
                 completed.Receipt.Library,
                 sourceCapabilities,
                 deadline);
@@ -116,12 +125,12 @@ internal static class BrowserPackageDocumentationQuery
             DocumentationHouseOperationPlanIdentity planIdentity,
             DocumentationHousePolicyGeneration policyGeneration,
             DocumentationSubjectReference subject,
+            DocumentationImplementationSubject? implementationSubject,
             LibraryReference library,
             IReadOnlyList<ISourceHouseSourceCapability> sourceCapabilities,
             DateTimeOffset deadline)
     {
-        if (subject.MemberIdentity is not { } member
-            || subject.MetadataToken is not { } metadataToken
+        if (implementationSubject is not { } implementationMember
             || library.ImplementationAssembly
                 is not { } implementation)
         {
@@ -141,9 +150,9 @@ internal static class BrowserPackageDocumentationQuery
             library,
             implementation,
             new SourceHouseTarget.MemberTarget(
-                subject.TypeIdentity,
-                member,
-                metadataToken,
+                implementationMember.TypeIdentity,
+                implementationMember.MemberIdentity,
+                implementationMember.MetadataToken,
                 SourceHouseMemberSourceForm.DocumentParts),
             new SourceHouseOperationPlan(
                 SourceHouseOperationPlanIdentity.Create(

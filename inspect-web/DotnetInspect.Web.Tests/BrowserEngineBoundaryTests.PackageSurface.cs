@@ -607,6 +607,120 @@ public sealed partial class BrowserEngineBoundaryTests
             });
     }
 
+    [Fact]
+    public async Task
+        QueryMemberDocumentation_SplitAssembliesUseImplementationToken()
+    {
+        const string assemblyName =
+            "InspectWebSplitDocumentationFixture";
+        const string documentationId =
+            "M:InspectWeb.SplitDocumentation.Subject.Target";
+        SourceHouseBuildAttestation api =
+            EmitBrowserDocumentationAttestation(
+                assemblyName,
+                [
+                    new(
+                        "Api.cs",
+                        """
+                        namespace InspectWeb.SplitDocumentation;
+
+                        public static class Subject
+                        {
+                            public static void Neighbor() { }
+                            public static void Target() { }
+                        }
+                        """u8.ToArray()),
+                ],
+                "inspect-web-split-documentation-api");
+        SourceHouseBuildAttestation implementation =
+            EmitBrowserDocumentationAttestation(
+                assemblyName,
+                [
+                    new(
+                        "Implementation.cs",
+                        """
+                        namespace InspectWeb.SplitDocumentation;
+
+                        public static class Subject
+                        {
+                            /// <summary>authored-split-summary</summary>
+                            public static void Target() { }
+                            public static void Neighbor() { }
+                        }
+                        """u8.ToArray()),
+                ],
+                "inspect-web-split-documentation-implementation");
+        Assert.NotEqual(
+            MethodToken(api.PeImage, "Target"),
+            MethodToken(implementation.PeImage, "Target"));
+
+        string packageId =
+            $"Browser.Documentation.Split.{Guid.NewGuid():N}";
+        byte[] packageBytes = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>1.0.0</version>
+                     <authors>Tests</authors>
+                     <description>Split browser documentation.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ($"ref/net11.0/{assemblyName}.dll",
+                api.PeImage.ToArray()),
+            ($"ref/net11.0/{assemblyName}.xml",
+                Encoding.UTF8.GetBytes(
+                    $"""
+                     <?xml version="1.0"?>
+                     <doc>
+                       <members>
+                         <member name="{documentationId}">
+                           <summary>compiled-split-summary</summary>
+                         </member>
+                       </members>
+                     </doc>
+                     """)),
+            ($"lib/net11.0/{assemblyName}.dll",
+                implementation.PeImage.ToArray()),
+            ($"lib/net11.0/{assemblyName}.pdb",
+                implementation.PortablePdbImage.ToArray()));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                packageBytes,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        string json =
+            await PackageExports
+                .QueryMemberDocumentationWithCapabilitiesForTest(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{assemblyName}.dll",
+                    documentationId,
+                    [implementation]);
+        DocumentationQueryOutcome.Completed completed =
+            Assert.IsType<DocumentationQueryOutcome.Completed>(
+                JsonSerializer.Deserialize(
+                    json,
+                    DocumentationQueryJsonContext.Default
+                        .DocumentationQueryOutcome));
+        var authored =
+            Assert.IsType<AuthoredDocumentationOutcome.Available>(
+                completed.AuthoredSource);
+        Assert.Equal(
+            "authored-split-summary",
+            authored.Documentation.Summary);
+        Assert.Equal(
+            DocumentationQueryFieldEvidenceKind.Conflict,
+            completed.Fields.Summary.Kind);
+    }
+
     private static SourceHouseBuildAttestation
         BuildBrowserDocumentationAttestation()
     {
@@ -614,22 +728,34 @@ public sealed partial class BrowserEngineBoundaryTests
             RepositoryRoot(),
             "src",
             "CSharpText.MemberSlicing");
+        return EmitBrowserDocumentationAttestation(
+            "InspectWebAuthoredDocumentationFixture",
+            [
+                .. Directory.EnumerateFiles(
+                        sourceDirectory,
+                        "*.cs",
+                        SearchOption.TopDirectoryOnly)
+                    .Order(StringComparer.Ordinal)
+                    .Select(
+                        static path =>
+                            new CSharpBuildSource(
+                                path,
+                                File.ReadAllBytes(path))),
+            ],
+            "inspect-web-authored-documentation");
+    }
+
+    private static SourceHouseBuildAttestation
+        EmitBrowserDocumentationAttestation(
+            string assemblyName,
+            IReadOnlyList<CSharpBuildSource> sources,
+            string generation)
+    {
         CSharpBuildAttestationOutcome outcome =
             CSharpBuildAttestor.EmitAndAttest(
                 new(
-                    "InspectWebAuthoredDocumentationFixture",
-                    [
-                        .. Directory.EnumerateFiles(
-                                sourceDirectory,
-                                "*.cs",
-                                SearchOption.TopDirectoryOnly)
-                            .Order(StringComparer.Ordinal)
-                            .Select(
-                                static path =>
-                                    new CSharpBuildSource(
-                                        path,
-                                        File.ReadAllBytes(path))),
-                    ],
+                    assemblyName,
+                    sources,
                     TrustedPlatformAssemblies(),
                     SourceHouseCapabilityIdentity.Create(
                         "inspect-web-build-attestor"),
@@ -638,7 +764,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     SourceHouseAttestationProfileIdentity.Create(
                         "direct-csharp-emit-v1"),
                     SourceHouseAttestationGeneration.Create(
-                        "inspect-web-authored-documentation")));
+                        generation)));
         if (outcome is CSharpBuildAttestationOutcome.Failed failed)
         {
             Assert.Fail(
@@ -650,6 +776,24 @@ public sealed partial class BrowserEngineBoundaryTests
         return Assert.IsType<
                 CSharpBuildAttestationOutcome.Available>(outcome)
             .Attestation;
+    }
+
+    private static int MethodToken(
+        ImmutableArray<byte> peImage,
+        string methodName)
+    {
+        using var stream =
+            new MemoryStream(peImage.AsSpan().ToArray());
+        using var reader = new PEReader(stream);
+        MetadataReader metadata = reader.GetMetadataReader();
+        MethodDefinitionHandle method =
+            Assert.Single(
+                metadata.MethodDefinitions,
+                handle =>
+                    metadata.GetString(
+                        metadata.GetMethodDefinition(handle).Name)
+                        == methodName);
+        return MetadataTokens.GetToken(method);
     }
 
     private static string[] TrustedPlatformAssemblies()

@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -280,6 +283,77 @@ public sealed class DocumentationQueryTests
         Assert.Equal(
             DocumentationQueryRequestRejectionKind.QuerySpaceMismatch,
             rejected.Kind);
+    }
+
+    [Fact]
+    public async Task
+        ImplementationSubjectResolver_UsesImplementationIssuedToken()
+    {
+        const string identity =
+            "M:DocumentationQuery.Split.Subject.Target";
+        SourceHouseBuildAttestation api =
+            EmitDocumentationQueryAttestation(
+                "DocumentationQuerySplitFixture",
+                [
+                    new(
+                        "Api.cs",
+                        """
+                        namespace DocumentationQuery.Split;
+
+                        public static class Subject
+                        {
+                            public static void Neighbor() { }
+                            public static void Target() { }
+                        }
+                        """u8.ToArray()),
+                ],
+                "documentation-query-split-api");
+        SourceHouseBuildAttestation implementation =
+            EmitDocumentationQueryAttestation(
+                "DocumentationQuerySplitFixture",
+                [
+                    new(
+                        "Implementation.cs",
+                        """
+                        namespace DocumentationQuery.Split;
+
+                        public static class Subject
+                        {
+                            public static void Target() { }
+                            public static void Neighbor() { }
+                        }
+                        """u8.ToArray()),
+                ],
+                "documentation-query-split-implementation");
+        await using LibraryFixture library =
+            await LibraryFixture.CreateSplitSourceAsync(
+                api.PeImage.ToArray(),
+                implementation.PeImage.ToArray(),
+                implementation.PortablePdbImage.ToArray());
+        DocumentationSubjectReference subject =
+            CompiledDocumentationSubjectResolver.Resolve(
+                library.Reference,
+                library.Owner,
+                [identity],
+                ApiSurfaceExtractionScope.Public,
+                s_documentationQueryApiSurfaceBounds,
+                TestContext.Current.CancellationToken)[identity];
+
+        DocumentationImplementationSubject? resolved =
+            DocumentationImplementationSubjectResolver.Resolve(
+                library.Reference,
+                library.Owner,
+                subject,
+                ApiSurfaceExtractionScope.Public,
+                s_documentationQueryApiSurfaceBounds,
+                TestContext.Current.CancellationToken);
+
+        Assert.NotNull(resolved);
+        Assert.NotEqual(subject.MetadataToken, resolved.MetadataToken);
+        Assert.Equal(
+            MethodToken(implementation.PeImage, "Target"),
+            resolved.MetadataToken);
+        Assert.Equal(subject.TypeIdentity, resolved.TypeIdentity);
     }
 
     [Fact]
@@ -827,11 +901,23 @@ public sealed class DocumentationQueryTests
     private static SourceHouseBuildAttestation
         BuildDocumentationQueryAttestation()
     {
+        return EmitDocumentationQueryAttestation(
+            "DocumentationQueryAuthoredFixture",
+            DocumentationQueryBuildSources(),
+            "documentation-query-authored");
+    }
+
+    private static SourceHouseBuildAttestation
+        EmitDocumentationQueryAttestation(
+            string assemblyName,
+            IReadOnlyList<CSharpBuildSource> sources,
+            string generation)
+    {
         CSharpBuildAttestationOutcome outcome =
             CSharpBuildAttestor.EmitAndAttest(
                 new(
-                    "DocumentationQueryAuthoredFixture",
-                    DocumentationQueryBuildSources(),
+                    assemblyName,
+                    sources,
                     DocumentationQueryTrustedPlatformAssemblies(),
                     SourceHouseCapabilityIdentity.Create(
                         "documentation-query-build-attestor"),
@@ -840,7 +926,7 @@ public sealed class DocumentationQueryTests
                     SourceHouseAttestationProfileIdentity.Create(
                         "direct-csharp-emit-v1"),
                     SourceHouseAttestationGeneration.Create(
-                        "documentation-query-authored")));
+                        generation)));
         if (outcome is CSharpBuildAttestationOutcome.Failed failed)
         {
             Assert.Fail(
@@ -852,6 +938,24 @@ public sealed class DocumentationQueryTests
         return Assert.IsType<
                 CSharpBuildAttestationOutcome.Available>(outcome)
             .Attestation;
+    }
+
+    private static int MethodToken(
+        ImmutableArray<byte> peImage,
+        string methodName)
+    {
+        using var stream =
+            new MemoryStream(peImage.AsSpan().ToArray());
+        using var reader = new PEReader(stream);
+        MetadataReader metadata = reader.GetMetadataReader();
+        MethodDefinitionHandle method =
+            Assert.Single(
+                metadata.MethodDefinitions,
+                handle =>
+                    metadata.GetString(
+                        metadata.GetMethodDefinition(handle).Name)
+                        == methodName);
+        return MetadataTokens.GetToken(method);
     }
 
     private static CSharpBuildSource[] DocumentationQueryBuildSources()
@@ -1183,6 +1287,52 @@ public sealed partial class CompiledDocumentationQueryTests
                             artifacts[0],
                             identity),
                         companions);
+                var owner = new LibraryContentOwner(
+                    reference,
+                    artifacts.IssueContentLeases());
+                return new LibraryFixture(
+                    artifacts,
+                    reference,
+                    owner);
+            }
+            catch
+            {
+                await artifacts.DisposeAsync();
+                throw;
+            }
+        }
+
+        public static async Task<LibraryFixture> CreateSplitSourceAsync(
+            byte[] apiAssembly,
+            byte[] implementationAssembly,
+            byte[] portablePdb)
+        {
+            ArtifactFixture artifacts =
+                await ArtifactFixture.CreateAsync(
+                    [
+                        apiAssembly,
+                        implementationAssembly,
+                        portablePdb,
+                    ]);
+            try
+            {
+                ManagedMetadataIdentity.Assembly apiIdentity =
+                    AssemblyIdentity(apiAssembly);
+                ManagedMetadataIdentity.Assembly implementationIdentity =
+                    AssemblyIdentity(implementationAssembly);
+                LibraryReference reference =
+                    LibraryReference.CreateDirect(
+                        new LibraryAssemblyCorrespondence(
+                            artifacts[0],
+                            apiIdentity,
+                            artifacts[1],
+                            implementationIdentity),
+                        [
+                            new(
+                                artifacts[2],
+                                LibraryContentRole.PortablePdb,
+                                artifacts[1]),
+                        ]);
                 var owner = new LibraryContentOwner(
                     reference,
                     artifacts.IssueContentLeases());

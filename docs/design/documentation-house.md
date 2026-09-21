@@ -1078,6 +1078,15 @@ harness is not evidence that the shipped browser can provision the capability.
 Issue #8155 remains open for a separately designed production authorization
 path before the overall Inspect Web authored-documentation slice is complete.
 
+The Metadata-issued subject and token identify the selected API assembly.
+Before creating an authored-source operation, Queries locates that subject's
+exact compiler XML identity on the Library's implementation assembly and emits
+the implementation-issued type identity, member anchor, and MethodDef token.
+The browser never transfers an API token onto distinct implementation content.
+This correspondence is motivated by the split reference and implementation
+assets in `Microsoft.Build.Framework`, where the same public compiler XML
+identity has different MethodDef tokens.
+
 The package member-detail consumer selects display values from the deterministic
 field settlement, preferring the first contribution in requested-channel order
 while retaining the complete compiled attempt, authored attempt, contribution
@@ -1111,6 +1120,7 @@ Implementation and adoption slices own these Release gates:
 | Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred operation. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
 | Cheap-first ordering | Operation construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the operation receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
+| Split implementation targeting | A build-attested package with distinct `ref` and `lib` assemblies assigns different MethodDef tokens to the same compiler XML identity; the authored channel resolves and uses the implementation-issued target. |
 | Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
