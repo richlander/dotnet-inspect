@@ -430,6 +430,7 @@ public class ExtensionMethodCallTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait("Area", "Fidelity")]
     public void OutputInferredMethodGroups_CompileBackExactly()
     {
         string assembly = typeof(OutputInferenceMethodGroupSamples).Assembly.Location;
