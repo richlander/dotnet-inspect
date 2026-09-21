@@ -816,6 +816,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
       display: identifier,
     },
     members: [],
+    changes: [],
   });
   const share: InspectionShare = {
     kind: "nonProjectable",
@@ -2287,6 +2288,13 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await expect(panel.locator(".library-api-diff-member")).toHaveCount(3);
     await expect(panel.locator(".library-api-diff-member button")).toHaveCount(3);
     await expect(panel).not.toContainText("Whole type diff");
+    // The whole-Type addition is a Type-level change; its Members carry none.
+    await expect(panel.locator('[aria-label="Type-level changes"] .library-api-diff-change'))
+      .toHaveCount(1);
+    await expect(panel.locator('[aria-label="Type-level changes"]'))
+      .toContainText("type added");
+    await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
+      .toHaveCount(0);
     expect(registry.downloadCount(libraryDiffV1)).toBe(1);
     expect(registry.downloadCount(libraryDiffV2)).toBe(1);
 
@@ -2302,7 +2310,44 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toContainText("Member added", { timeout: 60_000 });
     await expect(panel.locator(".library-api-diff-endpoint")).toHaveCount(2);
     await expect(panel.locator(".library-api-diff-absent")).toHaveCount(1);
+    await expect(panel.locator("#library-api-diff-changes-title")).toHaveText("What changed");
+    await expect(panel).toContainText(
+      "No Member-level change is classified: the containing Type was added as a whole.",
+    );
     await expect(panel).not.toContainText("Explore");
+
+    // A Member with its own classified change shows the producer's change row.
+    await page.locator("#nav-back").click();
+    await page.locator("#nav-back").click();
+    await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
+    await panel.locator(
+      '[data-compare-type-id="LibraryApiDiffFixture.HardChangedType"]',
+    ).click();
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-member .library-api-diff-change-chip"))
+      .toHaveText(["Breaking · virtual removed"]);
+    await panel.locator(".library-api-diff-member button", { hasText: "First" })
+      .click();
+    await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await expect(panel.locator(".compare-status"))
+      .toContainText("Member changed", { timeout: 60_000 });
+    const changeRows = panel.locator('[aria-label="What changed"] .library-api-diff-change');
+    await expect(changeRows).toHaveCount(1);
+    await expect(changeRows.first()).toContainText("virtual removed");
+    await expect(changeRows.first().locator(".library-api-diff-change-chip"))
+      .toHaveText("Breaking");
+    await expect(changeRows.first().locator(".library-api-diff-change-category"))
+      .toHaveText("Signature");
+    await page.locator("#nav-back").click();
+    await page.locator("#nav-back").click();
+    await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
+    await panel.locator(
+      '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
+    ).click();
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await panel.locator(".library-api-diff-member button", { hasText: "First" })
+      .click();
+    await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
 
     // Back restores the Type inventory with Compare and Diff still active.
     await page.locator("#nav-back").click();

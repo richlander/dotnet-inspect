@@ -16,6 +16,12 @@ export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | numbe
 
 export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
 
+export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
+
+export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | number;
+
+export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | number;
+
 export type BrowserLibraryApiDiffMemberPairKind = "Changed" | "Added" | "Removed" | number;
 
 export type BrowserLibraryApiDiffMemberRelationRole = "Before" | "After" | "Both" | number;
@@ -176,12 +182,22 @@ export interface BrowserLibraryApiDiffInspectionFailure {
   readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
 }
 
+export interface BrowserLibraryApiDiffChange {
+  readonly kind: BrowserLibraryApiDiffChangeKind;
+  readonly classification: BrowserLibraryApiDiffChangeClassification;
+  readonly category: BrowserLibraryApiDiffChangeCategory;
+  readonly message: string;
+  readonly oldValue: string | null;
+  readonly newValue: string | null;
+}
+
 export interface BrowserLibraryApiDiffMember {
   readonly documentIdentifier: string;
   readonly pairKind: BrowserLibraryApiDiffMemberPairKind;
   readonly role: BrowserLibraryApiDiffMemberRelationRole;
   readonly before: BrowserLibraryApiDiffMemberIdentity | null;
   readonly after: BrowserLibraryApiDiffMemberIdentity | null;
+  readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
 }
 
 export interface BrowserLibraryApiDiffMemberIdentity {
@@ -259,6 +275,7 @@ export interface BrowserLibraryApiDiffType {
   readonly before: BrowserLibraryApiDiffTypeIdentity | null;
   readonly after: BrowserLibraryApiDiffTypeIdentity | null;
   readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
+  readonly changes: ReadonlyArray<BrowserLibraryApiDiffChange>;
 }
 
 export interface BrowserLibraryApiDiffTypeIdentity {

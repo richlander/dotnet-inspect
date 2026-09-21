@@ -107,6 +107,7 @@ function succeeded(
             display: "Example.Widget",
           },
           members: [],
+          changes: [],
         },
         {
           documentIdentifier: "Example.Options",
@@ -125,6 +126,7 @@ function succeeded(
             display: "Example.Options",
           },
           members: [],
+          changes: [],
         },
       ],
     },
@@ -679,6 +681,24 @@ function withMembers(): BrowserLibraryApiDiffResult {
               role: "Both",
               before: identity("digest-before", "void Run(int)", "Run(int)"),
               after: identity("digest-run", "void Run(long)", "Run(long)"),
+              changes: [
+                {
+                  kind: "MemberSignatureChanged",
+                  classification: "Breaking",
+                  category: "Signature",
+                  message: "Parameter type changed from int to long.",
+                  oldValue: "void Run(int)",
+                  newValue: "void Run(long)",
+                },
+                {
+                  kind: "MemberAttributeAdded",
+                  classification: "PotentiallyBreaking",
+                  category: "Attribute",
+                  message: "[Obsolete] was added.",
+                  oldValue: null,
+                  newValue: "Obsolete",
+                },
+              ],
             },
             {
               documentIdentifier: "relation-added",
@@ -686,6 +706,14 @@ function withMembers(): BrowserLibraryApiDiffResult {
               role: "After",
               before: null,
               after: identity("digest-new", "void New()", "New()"),
+              changes: [{
+                kind: "MemberAdded",
+                classification: "Additive",
+                category: "Signature",
+                message: "Member New() was added.",
+                oldValue: null,
+                newValue: null,
+              }],
             },
             {
               documentIdentifier: "relation-removed",
@@ -693,8 +721,17 @@ function withMembers(): BrowserLibraryApiDiffResult {
               role: "Before",
               before: identity("digest-gone", "void Gone()", "Gone()"),
               after: null,
+              changes: [],
             },
           ],
+          changes: [{
+            kind: "SealedAdded",
+            classification: "Breaking",
+            category: "Signature",
+            message: "Type became sealed.",
+            oldValue: null,
+            newValue: "sealed",
+          }],
         },
         // A removed Type keeps Before-side evidence and no current identity.
         {
@@ -707,11 +744,99 @@ function withMembers(): BrowserLibraryApiDiffResult {
             display: "Example.Options",
           },
           after: null,
+          changes: [{
+            kind: "TypeRemoved",
+            classification: "Breaking",
+            category: "Signature",
+            message: "Type Example.Options was removed.",
+            oldValue: null,
+            newValue: null,
+          }],
         },
       ],
     },
   };
 }
+
+test("Type Diff lists Type-level changes first and classifies each Member row from producer changes", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+    activatableMembers: new Set(["digest-run", "digest-new"]),
+  });
+  assert.match(html, /<ol class="library-api-diff-changes" aria-label="Type-level changes">[\s\S]*?<strong>sealed added<\/strong>\s*<span>Type became sealed\.<\/span>[\s\S]*?<code>—<\/code> → <code>sealed<\/code>/);
+  assert.ok(html.indexOf('aria-label="Type-level changes"') < html.indexOf('aria-label="Changed Members"'));
+  assert.match(html, /library-api-diff-change-chip library-api-diff-change-breaking">Breaking · member signature changed</);
+  assert.match(html, /library-api-diff-change-chip library-api-diff-change-potentiallybreaking">Potentially breaking · member attribute added</);
+  assert.match(html, /library-api-diff-change-chip library-api-diff-change-additive">Additive · member added</);
+  // The removed Member carries no classified change of its own and gets no chip.
+  const removedRow = html.match(/<li class="library-api-diff-member library-api-diff-member-inert"[\s\S]*?<\/li>/)?.[0] ?? "";
+  assert.doesNotMatch(removedRow, /library-api-diff-change-chip/);
+});
+
+test("Member Diff renders the producer's change rows with message, values, and category", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+  });
+  assert.match(html, /<h2 id="library-api-diff-changes-title">What changed<\/h2>/);
+  const rows = [...html.matchAll(/<li class="library-api-diff-change">/g)];
+  assert.equal(rows.length, 2);
+  assert.match(html, /<strong>member signature changed<\/strong>\s*<span>Parameter type changed from int to long\.<\/span>\s*<span class="library-api-diff-change-values"><code>void Run\(int\)<\/code> → <code>void Run\(long\)<\/code><\/span>\s*<span class="library-api-diff-change-category">Signature<\/span>/);
+  assert.match(html, /<strong>member attribute added<\/strong>[\s\S]*?<code>—<\/code> → <code>Obsolete<\/code>[\s\S]*?Attribute<\/span>/);
+  assert.match(html, /<span>Breaking · member signature changed<\/span>/);
+
+  // A Member inside a removed Type has no change of its own; say so instead of
+  // showing an empty table.
+  const carried = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-gone",
+    },
+  });
+  assert.match(carried, /No classified compatibility change is recorded for this Member\./);
+  assert.doesNotMatch(carried, /<li class="library-api-diff-change">/);
+});
+
+test("malformed change rows are rejected at the transport boundary", async () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  if (widget === undefined) throw new Error("Expected a Type.");
+  const malformed = {
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        changes: [{ ...widget.changes[0], classification: "Catastrophic" }],
+      }],
+    },
+  };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(malformed),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+  const settled = (): LibraryApiDiffState => state.libraryApiDiff;
+  const outcome = settled();
+  assert.equal(outcome.status, "failed");
+  if (outcome.status === "failed")
+    assert.match(outcome.error, /types\[0\]\.changes\[0\]\.classification is unsupported/);
+});
 
 test("Library rows activate only joined current-side Types; removed Types stay visible and inert", () => {
   const html = renderLibraryApiDiff(readyState(withMembers()), String, {

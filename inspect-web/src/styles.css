@@ -5132,3 +5132,57 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 @media (prefers-reduced-motion: reduce) {
   .compare-loading { animation: none; }
 }
+
+/* Compare: classified compatibility changes on Type and Member rows. */
+.library-api-diff-change-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.library-api-diff-change-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 9px/1.4 var(--mono);
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.library-api-diff-change-breaking { border-color: var(--red, #d97070); color: var(--red, #d97070); }
+.library-api-diff-change-additive { border-color: var(--green); color: var(--green); }
+.library-api-diff-change-potentiallybreaking { border-color: var(--amber, #d9a441); color: var(--amber, #d9a441); }
+.library-api-diff-changes {
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 0 18px;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.library-api-diff-change {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.library-api-diff-change-copy { min-width: 0; display: grid; gap: 4px; color: var(--muted); font: 10px/1.5 var(--mono); }
+.library-api-diff-change-copy strong { color: var(--text); font-size: 11px; text-transform: capitalize; }
+.library-api-diff-change-values { overflow-wrap: anywhere; }
+.library-api-diff-change-values code { color: var(--text); }
+.library-api-diff-change-category { color: var(--dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.library-api-diff-change-section { min-width: 0; padding: 0 0 4px; }
+.library-api-diff-change-section h2 {
+  margin: 4px 18px 8px;
+  color: var(--dim);
+  font: 9px var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.library-api-diff-change-section .library-api-diff-note { margin-top: 0; }
+@media (max-width: 640px) {
+  .library-api-diff-changes { padding-inline: 12px; }
+  .library-api-diff-change-section h2 { margin-inline: 12px; }
+  .library-api-diff-change { grid-template-columns: 1fr; gap: 6px; }
+}

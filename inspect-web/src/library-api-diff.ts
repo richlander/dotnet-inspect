@@ -1,4 +1,5 @@
 import type {
+  BrowserLibraryApiDiffChange,
   BrowserLibraryApiDiffEndpoint,
   BrowserLibraryApiDiffMember,
   BrowserLibraryApiDiffMemberIdentity,
@@ -362,6 +363,104 @@ function validateTypeIdentity(value: unknown, description: string): void {
   }
 }
 
+const changeKinds = [
+  "TypeAdded",
+  "TypeRemoved",
+  "TypeKindChanged",
+  "SealedAdded",
+  "SealedRemoved",
+  "AbstractAdded",
+  "AbstractRemoved",
+  "BaseTypeChanged",
+  "InterfaceAdded",
+  "InterfaceRemoved",
+  "TypeParameterCountChanged",
+  "TypeParameterVarianceChanged",
+  "TypeParameterConstraintTightened",
+  "TypeParameterConstraintLoosened",
+  "MemberAdded",
+  "MemberRemoved",
+  "MemberSignatureChanged",
+  "VirtualRemoved",
+  "AbstractMemberAdded",
+  "EnumValueChanged",
+  "TypeAttributeAdded",
+  "TypeAttributeRemoved",
+  "MemberAttributeAdded",
+  "MemberAttributeRemoved",
+] as const;
+
+function validateChanges(value: unknown, description: string): void {
+  if (!Array.isArray(value))
+    throw new Error(`${description} must be an array.`);
+  for (const [index, entry] of value.entries()) {
+    const change = requireRecord(entry, `${description}[${index}]`);
+    requireEnum(change.kind, `${description}[${index}].kind`, changeKinds);
+    requireEnum(
+      change.classification,
+      `${description}[${index}].classification`,
+      ["Additive", "Breaking", "PotentiallyBreaking"],
+    );
+    requireEnum(change.category, `${description}[${index}].category`, [
+      "Signature",
+      "Attribute",
+    ]);
+    requireString(change.message, `${description}[${index}].message`);
+    requireNullableString(
+      change.oldValue,
+      `${description}[${index}].oldValue`,
+    );
+    requireNullableString(
+      change.newValue,
+      `${description}[${index}].newValue`,
+    );
+  }
+}
+
+function validateMemberIdentity(value: unknown, description: string): void {
+  const identity = requireRecord(value, description);
+  for (const property of [
+    "declaringTypeIdentifier",
+    "stableSelector",
+    "canonicalSignature",
+    "fingerprint",
+    "typeFullName",
+    "memberName",
+    "display",
+  ]) {
+    requireString(identity[property], `${description}.${property}`);
+  }
+}
+
+function validateMembers(value: unknown, description: string): void {
+  if (!Array.isArray(value))
+    throw new Error(`${description} must be an array.`);
+  for (const [index, entry] of value.entries()) {
+    const member = requireRecord(entry, `${description}[${index}]`);
+    requireString(
+      member.documentIdentifier,
+      `${description}[${index}].documentIdentifier`,
+    );
+    requireEnum(member.pairKind, `${description}[${index}].pairKind`, [
+      "Changed",
+      "Added",
+      "Removed",
+    ]);
+    requireEnum(member.role, `${description}[${index}].role`, [
+      "Before",
+      "After",
+      "Both",
+    ]);
+    if (member.before !== null)
+      validateMemberIdentity(member.before, `${description}[${index}].before`);
+    if (member.after !== null)
+      validateMemberIdentity(member.after, `${description}[${index}].after`);
+    if (member.before === null && member.after === null)
+      throw new Error(`${description}[${index}] has no side.`);
+    validateChanges(member.changes, `${description}[${index}].changes`);
+  }
+}
+
 function validateSucceeded(value: unknown): void {
   const succeeded = requireRecord(value, "Library API Diff success");
   requireString(
@@ -424,6 +523,14 @@ function validateSucceeded(value: unknown): void {
       validateTypeIdentity(type.before, "Library API Diff before Type");
     if (type.after !== null)
       validateTypeIdentity(type.after, "Library API Diff after Type");
+    validateMembers(
+      type.members,
+      `Library API Diff success.types[${index}].members`,
+    );
+    validateChanges(
+      type.changes,
+      `Library API Diff success.types[${index}].changes`,
+    );
   }
 }
 
@@ -961,6 +1068,63 @@ function renderTypeRow(
   }</li>`;
 }
 
+function classificationLabel(
+  classification: BrowserLibraryApiDiffChange["classification"],
+): string {
+  switch (classification) {
+    case "Breaking": return "Breaking";
+    case "Additive": return "Additive";
+    case "PotentiallyBreaking": return "Potentially breaking";
+    default: return String(classification);
+  }
+}
+
+// Producer kinds are PascalCase identifiers; spell them as quiet words.
+function changeKindLabel(kind: BrowserLibraryApiDiffChange["kind"]): string {
+  return String(kind).replaceAll(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+function classificationClass(
+  classification: BrowserLibraryApiDiffChange["classification"],
+): string {
+  return `library-api-diff-change-${String(classification).toLowerCase()}`;
+}
+
+function changeChips(
+  changes: readonly BrowserLibraryApiDiffChange[],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (changes.length === 0) return "";
+  return `<span class="library-api-diff-change-chips">${changes.map(change =>
+    `<span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(
+      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`,
+    )}</span>`).join("")}</span>`;
+}
+
+// One row per Metadata-issued compatibility change. The classification and
+// message come from the producer; the Browser never re-derives either.
+function renderChangeRows(
+  changes: readonly BrowserLibraryApiDiffChange[],
+  escapeHtml: (value: unknown) => string,
+  label: string,
+): string {
+  if (changes.length === 0) return "";
+  return `<ol class="library-api-diff-changes" aria-label="${escapeHtml(label)}">${changes.map(change => {
+    const values = change.oldValue !== null || change.newValue !== null
+      ? `<span class="library-api-diff-change-values"><code>${escapeHtml(change.oldValue ?? "—")}</code> → <code>${escapeHtml(change.newValue ?? "—")}</code></span>`
+      : "";
+    return `<li class="library-api-diff-change">
+      <span class="library-api-diff-change-chip ${classificationClass(change.classification)}">${escapeHtml(classificationLabel(change.classification))}</span>
+      <span class="library-api-diff-change-copy">
+        <strong>${escapeHtml(changeKindLabel(change.kind))}</strong>
+        <span>${escapeHtml(change.message)}</span>
+        ${values}
+        <span class="library-api-diff-change-category">${escapeHtml(String(change.category))}</span>
+      </span>
+    </li>`;
+  }).join("")}</ol>`;
+}
+
 function memberStateLabel(member: BrowserLibraryApiDiffMember): string {
   switch (member.pairKind) {
     case "Changed": return "Changed";
@@ -990,6 +1154,7 @@ function renderMemberRow(
     : "";
   const copy = `<span class="library-api-diff-type-copy">
       <strong>${escapeHtml(display)}</strong>
+      ${changeChips(member.changes, escapeHtml)}
       ${signatures}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
@@ -1112,13 +1277,20 @@ function renderTypeSubject(
       ? "Added Type"
       : type.state === "Deletion" ? "Removed Type" : "",
   ].filter(Boolean);
+  // Type-level compatibility changes (kind, base type, interfaces, generic
+  // parameters, attributes) precede the Member inventory.
+  const typeChanges = renderChangeRows(
+    type.changes,
+    escapeHtml,
+    "Type-level changes",
+  );
   // A whole-Type immersive destination is owner-issued. None is issued today,
   // so the row is absent rather than advertised with a placeholder.
   if (type.members.length === 0) {
     return {
       status: `Comparison complete. ${metrics[0] ?? "No changed Members"}.`,
       content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
-        `<span>${escapeHtml(metric)}</span>`).join("")}</div>${
+        `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}${
         renderCompareEmpty(
           "No changed Members",
           type.typeDefinitionChanged === true
@@ -1131,7 +1303,7 @@ function renderTypeSubject(
   return {
     status: `Comparison complete. ${type.members.length.toLocaleString()} changed Members.`,
     content: `<div class="library-api-diff-metrics">${metrics.map(metric =>
-      `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+      `<span>${escapeHtml(metric)}</span>`).join("")}</div>${typeChanges}
       <ol class="library-api-diff-members" aria-label="Changed Members">${type.members.map(member =>
         renderMemberRow(member, escapeHtml, options.activatableMembers)).join("")}</ol>`,
   };
@@ -1160,14 +1332,29 @@ function renderMemberSubject(
   const classification = [
     `${memberStateLabel(member)} Member`,
     `Relation ${String(member.role)}`,
+    ...member.changes.map(change =>
+      `${classificationLabel(change.classification)} · ${changeKindLabel(change.kind)}`),
     type.typeDefinitionChanged === true ? "Type definition changed" : "",
   ].filter(Boolean);
+  // A Member inside an added or removed Type carries no change of its own:
+  // the classified change belongs to the Type entry.
+  const carriedByType = member.changes.length === 0
+    && (type.state === "Addition" || type.state === "Deletion");
+  const changes = member.changes.length > 0
+    ? renderChangeRows(member.changes, escapeHtml, "What changed")
+    : `<p class="library-api-diff-note">${escapeHtml(carriedByType
+      ? `No Member-level change is classified: the containing Type was ${type.state === "Addition" ? "added" : "removed"} as a whole.`
+      : "No classified compatibility change is recorded for this Member.")}</p>`;
   // Explore opens only an owner-issued immersive destination. None is issued
   // for Member Diff today, so no Explore action is rendered.
   return {
     status: `Comparison complete. Member ${memberStateLabel(member).toLowerCase()}.`,
     content: `<div class="library-api-diff-metrics">${classification.map(metric =>
       `<span>${escapeHtml(metric)}</span>`).join("")}</div>
+      <section class="library-api-diff-change-section" aria-labelledby="library-api-diff-changes-title">
+        <h2 id="library-api-diff-changes-title">What changed</h2>
+        ${changes}
+      </section>
       <div class="library-api-diff-member-detail">
         ${memberIdentityEvidence("Before", member.before, escapeHtml)}
         ${memberIdentityEvidence("After", member.after, escapeHtml)}
