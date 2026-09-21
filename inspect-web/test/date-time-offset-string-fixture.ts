@@ -8,5 +8,6 @@ const roundTripTimestamp =
 export function dateTimeOffsetString(value: string): DateTimeOffsetString {
   if (!roundTripTimestamp.test(value) || !Number.isFinite(Date.parse(value)))
     throw new TypeError(`Invalid DateTimeOffset fixture: ${value}`);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return value as DateTimeOffsetString;
 }
