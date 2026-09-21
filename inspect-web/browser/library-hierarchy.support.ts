@@ -13,6 +13,7 @@ import type {
   BrowserCallGraph,
   BrowserHomeDemoCatalogEntry,
   BrowserHomeDemoRunResult,
+  BrowserWorkspacePackageSourceRequirement,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
@@ -266,6 +267,7 @@ async function installFacades(
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
   packageLoading: PackageLoadingFixture = {},
+  workspaceSources: readonly BrowserWorkspacePackageSourceRequirement[] = [],
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -1143,6 +1145,7 @@ async function installFacades(
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
+      const workspaceSources = ${JSON.stringify(workspaceSources)};
       export function listVocabulary() { return { schema_version: 1, sections: [] }; }
       export async function listHomeDemos() {
         if (homeDemoCatalogPending) {
@@ -1180,6 +1183,9 @@ async function installFacades(
       }
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
+      }
+      export function describeWorkspacePackageSources() {
+        return { succeeded: true, sources: workspaceSources, failure: null };
       }`,
   };
   const assetDirectory = new URL("../dist/assets/", import.meta.url);
@@ -1289,6 +1295,25 @@ async function currentWorkspaceHistoryState(page: Page): Promise<{
   });
 }
 
+async function installWorkspaceSourceFacades(
+  page: Page,
+  workspaceSources: readonly BrowserWorkspacePackageSourceRequirement[],
+) {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    {},
+    workspaceSources);
+}
+
 function platformWorkspaceUrl(includePackage = false) {
   const platformTabId = includePackage ? "t1" : "t0";
   const platformContextId = includePackage ? "g1" : "g0";
@@ -1382,6 +1407,7 @@ export {
   platformTarget,
   historicalPlatformTarget,
   installFacades,
+  installWorkspaceSourceFacades,
   installLibraryQueryFacades,
   releaseFacade,
   root,
