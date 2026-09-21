@@ -12,9 +12,12 @@ internal sealed record DependsAssetRequestPlan(
     bool Declarations,
     bool RestoredRelationships,
     bool Traversal,
+    bool Licenses,
     bool Pruning,
     bool SupplementalEvidence)
 {
+    internal bool PackageTraversal => Traversal || Licenses;
+
     internal static DependsAssetRequestPlan FromSections(
         IReadOnlySet<string> sections)
     {
@@ -23,17 +26,22 @@ internal sealed record DependsAssetRequestPlan(
             sections.Contains(DependsAssetSections.Dependencies);
         bool pruning =
             sections.Contains(DependsAssetSections.Pruning);
+        bool licenses =
+            sections.Contains(DependsAssetSections.Licenses);
         return new DependsAssetRequestPlan(
             Declarations: dependencies
                 || sections.Contains(DependsAssetSections.DependencyGroups)
                 || failures
-                || pruning,
+                || pruning
+                || licenses,
             RestoredRelationships: dependencies
                 || sections.Contains(DependsAssetSections.RestoredEdges)
                 || sections.Contains(DependsAssetSections.RestoredPackages)
-                || failures,
+                || failures
+                || licenses,
             Traversal:
                 sections.Contains(DependsAssetSections.DependencyHierarchy),
+            Licenses: licenses,
             Pruning: pruning,
             SupplementalEvidence:
                 sections.Contains(DependsAssetSections.Roots)
@@ -137,6 +145,9 @@ internal sealed record DependsAssetProjection(
         DependencyInspectionEvidenceDocument>? Enriched)
 {
     internal DependencyInspectionContent Content => Inspection.Content;
+
+    internal ImmutableArray<DependencyInspectionLicense> Licenses =>
+        Content.Licenses;
 
     internal DependencyInspectionEvidenceDocument? Evidence =>
         Enriched?.Evidence;

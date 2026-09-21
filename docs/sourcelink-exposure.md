@@ -171,12 +171,14 @@ also have sections for documentation and safety evidence:
 and a safety row such as `safe`, `unsafe boundary`, or `unsafe`. Safety comments
 should come from the documentation block, not SourceLink URL inference.
 
-`--bare` is the right presentation modifier when a caller wants section content
-without a heading, table, or Markdown decoration. It supports type/member code
-sections such as `Decompiled Source`, `Annotated Source`, `PDB Source`, and
-`IL`, one-column SourceLink URL output such as `Source Locations`, and package
-README/content payloads. It does not change the selected shape; it simply strips
-framing from an already-selected payload. `--count` remains the reduction that
+One selected type/member source payload, such as `Decompiled Source`,
+`Annotated Source`, `PDB Source`, or `IL`, prints its content by default.
+Use `--markdown` for document presentation and `--urls` for one-column
+SourceLink URL output from sections such as `Source Locations`. These commands
+no longer accept `--bare`; package README/content owners retain their existing
+presentation gestures. The
+[rendering model](design/rendering-model.md#native-type-and-source-defaults)
+owns this default choice. `--count` remains the reduction that
 collapses a selected section to a single row count. Fetchable URLs are the
 default; `--prefer-rendered-urls` selects supported browser views without
 changing payload shape.
