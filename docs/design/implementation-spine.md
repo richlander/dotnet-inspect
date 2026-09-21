@@ -76,11 +76,19 @@ The target operation-first gestures are:
 dotnet-inspect graph spine --library ./Product.dll
 
 dotnet-inspect graph spine \
+  --library ./Product.dll \
+  --library ./Product.Common.dll
+
+dotnet-inspect graph spine \
   --package Microsoft.Azure.SignalR@1.33.1 \
   --tfm net8.0
 
 dotnet-inspect graph spine --project ./src/Product.csproj
 ```
+
+One `--library` selects an internal Library population. Repeated `--library`
+inputs select one explicit multi-Library population, preserving exact
+cross-Library calls and boundaries in the same spine operation.
 
 Subject-first Library, Package, and Project reports may expose an authored
 `Implementation Spine` Graph section over the already resolved subject. Both
@@ -147,7 +155,8 @@ admissible merely because its display text matches a graph subject.
 
 One request names exactly one sealed operation population:
 
-- one exact Library generation;
+- one explicit non-empty Library population whose entries each name one exact
+  Library generation;
 - one exact Package realization plus a target framework and bounded realized
   dependency population; or
 - one restored Project target plus its owner-issued resolved dependency
