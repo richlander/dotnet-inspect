@@ -141,9 +141,9 @@ public class CiWorkflowTests
         Assert.Contains(
             "grep -Eq '<assembly[^>]+skipped=\"0\"'",
             fixtureStep);
-        Assert.Contains("--report-xunit", fixtureStep);
+        Assert.Contains("--report-xunit-xml", fixtureStep);
         Assert.Contains(
-            "--report-xunit-filename \"$results_name\"",
+            "--report-xunit-xml-filename \"$results_name\"",
             fixtureStep);
         Assert.Contains(
             "--results-directory \"$results_dir\"",
@@ -172,9 +172,9 @@ public class CiWorkflowTests
             Assert.Contains($"method=\\\"$method\\\"", step);
         }
         Assert.Contains("total=\"[1-9][0-9]*\"", step);
-        Assert.Contains("--report-xunit", step);
+        Assert.Contains("--report-xunit-xml", step);
         Assert.Contains(
-            "--report-xunit-filename \"$results_name\"",
+            "--report-xunit-xml-filename \"$results_name\"",
             step);
         Assert.Contains(
             "--results-directory \"$results_dir\"",
