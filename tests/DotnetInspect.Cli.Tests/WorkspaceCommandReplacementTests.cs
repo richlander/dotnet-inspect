@@ -13,6 +13,9 @@ namespace DotnetInspect.Cli.Tests;
 
 public sealed partial class WorkspaceCommandTests
 {
+    const string AvaloniaComponent =
+        "packages/avalonia@11.3.14/net8.0/~";
+
     static readonly PackageSource ReplacementSource =
         new("nuget.org", "https://api.nuget.org/v3/index.json");
 
@@ -31,7 +34,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
             {
                 Packet = packet,
-                ReplacePackage = 1,
+                UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = "12.1.2",
                 Format = OutputFormat.Json,
                 EnvelopeOutput = true,
@@ -42,10 +45,15 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(0, handler.Requests);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement envelope = document.RootElement;
-        Assert.Equal("workspace-coordinate-replacement", envelope.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "workspace-package-update",
+            envelope.GetProperty("result_kind").GetString());
         Assert.Equal(1, envelope.GetProperty("schema_version").GetInt32());
         JsonElement content = envelope.GetProperty("content");
         Assert.True(content.GetProperty("succeeded").GetBoolean());
+        Assert.Equal(
+            AvaloniaComponent,
+            content.GetProperty("component").GetString());
         Assert.Equal("Committed", content.GetProperty("scope").GetProperty("kind").GetString());
         Assert.Equal("ExactPath", content.GetProperty("retention").GetProperty("disposition").GetString());
         Assert.Equal(facet, content.GetProperty("inspector").GetProperty("requestedFacet").GetString());
@@ -83,7 +91,7 @@ public sealed partial class WorkspaceCommandTests
         var result = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
             {
-                Packet = input, ReplacePackage = 1,
+                Packet = input, UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = version, ReplacementTfm = framework,
                 ShareFormat = format,
             }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
@@ -115,7 +123,7 @@ public sealed partial class WorkspaceCommandTests
                 new WorkspaceOptions
                 {
                     Packet = "https://dotnet-inspect.net/?w=packet",
-                    ReplacePackage = 1,
+                    UpdatePackage = Component(AvaloniaComponent),
                     ReplacementVersion = "12.1.2",
                     ShareFormat = WorkspaceShareFormat.Packet,
                 },
@@ -140,7 +148,8 @@ public sealed partial class WorkspaceCommandTests
         var result = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
             {
-                Packet = ReplacementPacket(), ReplacePackage = 1,
+                Packet = ReplacementPacket(),
+                UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = "12.1.2", ShareFormat = WorkspaceShareFormat.Packet,
             }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
 
@@ -165,7 +174,7 @@ public sealed partial class WorkspaceCommandTests
         var result = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
             {
-                Packet = input, ReplacePackage = 1,
+                Packet = input, UpdatePackage = Component(AvaloniaComponent),
                 ReplacementVersion = "12.1.2", ShareFormat = WorkspaceShareFormat.Packet,
             }, ReplacementLoad(client, store), TestContext.Current.CancellationToken));
 
@@ -189,49 +198,89 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Theory]
-    [InlineData("--replace-package 0 --to-version 12.1.2 --share packet", "positive")]
-    [InlineData("--replace-package 2 --to-version 12.1.2 --share packet", "range")]
-    [InlineData("--replace-package 1 --share packet", "--to-version")]
-    [InlineData("--to-version 12.1.2 --share packet", "--replace-package")]
-    [InlineData("--replace-package 1 --to-version 12.1.2", "--share")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --tfm net9.0 --share packet", "construction")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --active-package 1 --share packet", "selectors")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --count --share packet", "inventory")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --make-package-dependencies-explicit --share packet", "not both")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --preview --share packet", "exact")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --envelope", "--json")]
-    [InlineData("--replace-package 1 --to-version 12.1.2 --envelope --json --share packet", "Choose")]
-    [InlineData("--replace-package 1 --to-version not-a-version --share packet", "InvalidDestination")]
-    [InlineData("--envelope --json", "--replace-package")]
+    [InlineData("", "--version")]
+    [InlineData("--version 12.1.2 --envelope", "--json")]
+    [InlineData(
+        "--version 12.1.2 --envelope --json --share packet",
+        "Choose")]
+    [InlineData("--version not-a-version", "InvalidDestination")]
     public async Task Replacement_InvalidOptionsRefuseBeforeAcquisition(
         string arguments, string diagnostic)
     {
-        var result = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand().Parse(
-                ["workspace", "--packet", ReplacementPacket(), .. arguments.Split(' ')])
-                .InvokeAsync());
+        var result = await RunCliAsync([
+            "workspace", "package", "update", AvaloniaComponent,
+            "--packet", ReplacementPacket(),
+            .. arguments.Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries),
+        ]);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(diagnostic, result.Error);
     }
 
-    [Theory]
-    [InlineData("--rows 1", "--json --envelope", "inventory")]
-    [InlineData("--rows 1", "--share packet", "inventory")]
-    [InlineData("--rows ..1", "--json --envelope", "has no start row")]
-    [InlineData("-n 1", "--json --envelope", "Rendered-line selection")]
-    [InlineData("-n 1 --tail", "--json --envelope", "Rendered-line selection")]
-    public async Task Replacement_RowControlsDoNotUseInventorySelection(
-        string selection, string output, string diagnostic)
+    [Fact]
+    public async Task RemovedReplacementFlagsAreNotAccepted()
     {
         var result = await RunCliAsync([
             "workspace", "--packet", ReplacementPacket(),
             "--replace-package", "1", "--to-version", "12.1.2",
-            .. output.Split(' '), .. selection.Split(' ')]);
+            "--share", "packet"]);
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains(diagnostic, result.Error, StringComparison.Ordinal);
+        Assert.Contains(
+            "--replace-package",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageUpdate_HonorsExplicitNuGetSourceOptions()
+    {
+        const string component =
+            "packages/microsoft.codeanalysis.csharp@5.9.0/netstandard2.0/~";
+        string packet = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":4,"t":[["Microsoft.CodeAnalysis.CSharp","5.9.0","netstandard2.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+                """,
+                TestContext.Current.CancellationToken));
+        string missingConfig = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-nuget-{Guid.NewGuid():N}.config");
+
+        var baseline = await RunCliAsync([
+            "workspace",
+            "package",
+            "update",
+            component,
+            "--packet",
+            packet,
+            "--version",
+            "5.9.0",
+        ]);
+        var restricted = await RunCliAsync([
+            "workspace",
+            "--nugetconfig",
+            missingConfig,
+            "package",
+            "update",
+            component,
+            "--packet",
+            packet,
+            "--version",
+            "5.9.0",
+        ]);
+
+        Assert.Equal(0, baseline.ExitCode);
+        Assert.NotEmpty(baseline.Output);
+        Assert.Equal(1, restricted.ExitCode);
+        Assert.Empty(restricted.Output);
+        Assert.Contains(
+            "InputRestorationFailed",
+            restricted.Error,
+            StringComparison.Ordinal);
     }
 
     static string ReplacementPacket(string subject = "type", string facet = "type.metadata")
@@ -245,6 +294,17 @@ public sealed partial class WorkspaceCommandTests
             """;
         return WorkspaceSharePacketCodec.Encode(WorkspaceSharePacketCodec.ParseJson(
             json, TestContext.Current.CancellationToken));
+    }
+
+    static WorkspacePackageComponentPath Component(string value)
+    {
+        Assert.True(
+            WorkspacePackageComponentPath.TryCreate(
+                value,
+                out WorkspacePackageComponentPath? component,
+                out string? error),
+            error);
+        return component!;
     }
 
     static WorkspaceContextLoadOptions ReplacementLoad(HttpClient client, IPackageStore store) => new()
