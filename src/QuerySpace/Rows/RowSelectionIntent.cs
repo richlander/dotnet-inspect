@@ -1,6 +1,5 @@
-using DotnetInspector.RowSelection;
 
-namespace DotnetInspector.Sections;
+namespace QuerySpace.Rows;
 
 public sealed class RowSelectionIntentOperation<TOrderOperand>
     where TOrderOperand : notnull
@@ -173,7 +172,7 @@ public sealed class RowSelectionIntent<TOrderOperand>
 
     public static RowSelectionIntent<TOrderOperand> Empty { get; } =
         new(
-            QueryEngineSnapshot.Empty<
+            QuerySpaceSnapshot.Empty<
                 RowSelectionIntentOperation<TOrderOperand>>());
 
     public IReadOnlyList<RowSelectionIntentOperation<TOrderOperand>>
@@ -198,7 +197,7 @@ public sealed class RowSelectionIntent<TOrderOperand>
 
         return copy.Length == 0
             ? Empty
-            : new(QueryEngineSnapshot.Own(copy));
+            : new(QuerySpaceSnapshot.Own(copy));
     }
 
     public RowSelectionIntent<TOrderOperand> Append(
@@ -212,6 +211,6 @@ public sealed class RowSelectionIntent<TOrderOperand>
         for (int index = 0; index < Operations.Count; index++)
             copy[index] = Operations[index];
         copy[^1] = operation;
-        return new(QueryEngineSnapshot.Own(copy));
+        return new(QuerySpaceSnapshot.Own(copy));
     }
 }

@@ -1,6 +1,6 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
-namespace DotnetInspector.RowSelectionConsumer;
+namespace QuerySpace.Consumer;
 
 public sealed record ReferenceEvaluatorObservation(
     IReadOnlyList<int> Values,

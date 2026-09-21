@@ -11,7 +11,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
@@ -2247,39 +2247,26 @@ public partial class DependsCommand
         IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
-        var sections = new HashSet<string>(
-            includeSections,
-            StringComparer.OrdinalIgnoreCase);
-        bool includeHierarchy = sections.Remove(
-            DependsAssetSections.DependencyHierarchy);
-        string hierarchy = includeHierarchy
-            ? RenderHierarchySection(
-                projection,
-                hierarchyRows,
-                options.EmbeddedMermaid)
-            : "";
-        string evidence = "";
-        if (sections.Count > 0)
+        var writerOptions = new MarkoutWriterOptions
         {
-            var writerOptions = new MarkoutWriterOptions
-            {
-                IncludeSections = sections,
-            };
-            var writer = new MarkoutWriter(
-                new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
-                writerOptions);
-            DependsAssetViewContext.Default.Serialize(
-                BuildAssetTableView(
-                    projection,
-                    sections,
-                    options.Rows,
-                    hierarchyRows),
-                writer);
-            evidence = writer.ToString();
-        }
-
-        output.WriteLine(
-            JoinMarkdown(hierarchy, evidence));
+            IncludeSections = includeSections,
+            SectionOrder = DependsAssetSections.SectionOrder,
+        };
+        DependsAssetView view = BuildAssetView(
+            projection,
+            includeSections,
+            options.Rows,
+            hierarchyRows,
+            options.EmbeddedMermaid);
+        MarkoutSerializer.Serialize(
+            DependsAssetMarkdownView.From(view),
+            output,
+            new MarkdownFormatter(
+                options.EmbeddedMermaid
+                    ? MarkdownGraphMode.Mermaid
+                    : MarkdownGraphMode.FencedTree),
+            DependsAssetViewContext.Default,
+            writerOptions);
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -2293,11 +2280,13 @@ public partial class DependsCommand
             options.Columns,
             options.Fields);
         writerOptions.IncludeSections = includeSections;
-        var writer = new MarkoutWriter(
+        writerOptions.SectionOrder = DependsAssetSections.SectionOrder;
+        MarkoutSerializer.Serialize(
+            tableView,
+            output,
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
+            DependsAssetViewContext.Default,
             writerOptions);
-        DependsAssetViewContext.Default.Serialize(tableView, writer);
-        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(

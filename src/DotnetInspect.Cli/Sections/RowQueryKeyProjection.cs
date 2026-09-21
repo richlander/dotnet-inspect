@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Sections;
@@ -56,7 +57,10 @@ internal static class RowQueryKeyProjection
                             ? new[] { "--order-by", "--top" }
                             : [],
                     ],
-                    [.. key.Operators.Select(Comparison)],
+                    [
+                        .. key.Operators.Select(
+                            RowPredicateSyntaxParser.Comparison),
+                    ],
                     presentation?.ValueKind ?? "order",
                     presentation?.Values ?? [],
                     filterable
@@ -119,18 +123,6 @@ internal static class RowQueryKeyProjection
         RowQueryKey<TRow> key) =>
         key.Operators.Contains(RowQueryOperator.GreaterOrEqual)
             ? ">="
-            : Comparison(key.Operators[0]);
-
-    internal static string Comparison(RowQueryOperator @operator) =>
-        @operator switch
-        {
-            RowQueryOperator.Equals => "=",
-            RowQueryOperator.NotEquals => "!=",
-            RowQueryOperator.GreaterOrEqual => ">=",
-            RowQueryOperator.LessOrEqual => "<=",
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(@operator),
-                @operator,
-                "Unsupported row-query predicate operator."),
-        };
+            : RowPredicateSyntaxParser.Comparison(
+                key.Operators[0]);
 }

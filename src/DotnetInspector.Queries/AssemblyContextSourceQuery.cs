@@ -1215,7 +1215,8 @@ public static partial class AssemblyContextSourceQuery
                     SourceHouseDecompilationOutcome houseOutcome) =
                     await DecompileAsync(
                         participant,
-                        new SourceHouseTarget.TypeTarget(request.Type),
+                        new SourceHouseTarget.TypeTarget(
+                            request.Type),
                         request.PrinterOptions,
                         pdb.RetainedLibrary
                             ?? throw new InvalidOperationException(
