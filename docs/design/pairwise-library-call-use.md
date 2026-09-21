@@ -249,18 +249,21 @@ remains visible even when it equals the attributed source method so generated-
 body locations cannot appear to belong to the declared method. Structured
 formats retain the exact occurrence rows, including full assembly identities,
 source and target MVIDs and method tokens, and the evidence method MVID and
-token. Row windows apply once before human summaries and call-site table
-rendering. Counts operate on the same windowed occurrences, not unique methods.
+token. For the default or exact Call Sites view, row windows apply once before
+human summaries and call-site table rendering. Counts operate on the same
+windowed occurrences, not unique methods.
 
-The command exposes three sections:
+The command exposes five sections:
 
 | Section | Meaning |
 | --- | --- |
 | `Consumer Use Sites` | One row per attributed source method and directed target participant, with distinct provider-type and target-member counts |
 | `Provider API Types` | One row per structured target declaring type and directed source participant, with distinct source- and target-member counts |
+| `Direct Use Clusters` | One row per deterministic direct-use component with complete call-site receipts |
 | `Call Sites` | The exact physical occurrence rows |
+| `Public Root Paths` | Public-entrypoint paths into one selected direct-use cluster |
 
-The CLI represents this document and its three row sets as typed Markout views.
+The CLI represents this document and its five row sets as typed Markout views.
 `MarkoutSerializer` and one generated serializer context own section schemas,
 projection, and format lowering. The command may choose the appropriate
 document or table view for the selected shape, but it does not construct a
@@ -274,14 +277,26 @@ section discovery describes their schemas without acquiring the libraries.
 Tabular streams require one selected section, while Markdown and JSON may
 carry several.
 
-Row windows apply independently to the selected section rows after summary
-groups are formed. A selected summary row retains counts for its complete
+The default and exact `Call Sites`, exact `Consumer Use Sites`, exact `Provider
+API Types`, and exact `Direct Use Clusters` views apply semantic row windows to
+their typed vectors after optional cluster scoping. Summary windows run only
+after groups are formed. A selected summary row retains counts for its complete
 group; limiting summary rows does not change the group's underlying occurrence
-set. Summary `Call Site Rows` values are one-based references to the default
+set. Summary `Call Site Rows` values are one-based references to the effective
 call-site output, matching `--rows`; the typed projection continues to retain
 zero-based indexes into the result array. `--count` counts selected rows after
-that window, using the normal multi-section count map when several sections are
-selected.
+that window. Bare `-S`, `Public Root Paths`, wildcard, category, and
+multi-section selections retain rendered-line selection because they do not
+declare one row schema.
+
+`GraphLibrariesQuery` owns one QuerySpace descriptor covering all five stable
+row-set identities. The four semantic row sets expose executable Head, Tail,
+and Window scopes; `Public Root Paths` remains declared without semantic
+stages. Sections owns one typed binding per adopted row set. The CLI section
+catalog maps each exact semantic lens to that binding, so the same declaration
+controls activation, cluster-production demand, row schema, result rebinding,
+and Rows or Count execution. The command does not branch over independently
+maintained section-name and row-type inventories.
 
 If a later slice projects the result into `InspectionGraphDocument`, every
 rolled-up library edge must retain the member-level occurrence receipts behind

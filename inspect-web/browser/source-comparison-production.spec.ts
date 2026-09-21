@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
+import type { TypeSourceView } from "../src/source-inspection.ts";
 import {
   chooseSubject,
   selectFirstExactLibrary,
@@ -34,6 +35,106 @@ async function openPublishedSite(page: Page): Promise<void> {
 test.describe("published authored Source comparison transport", () => {
   test.skip(!site, "Set INSPECT_WEB_SOURCE_DIFF_URL to the published Wasm site.");
   test.setTimeout(180_000);
+
+  test("System.Text.Json Type Source bounds a stalled PDB response",
+    async ({ page }, testInfo) => {
+      test.skip(fixtureOnly, "The CI gate uses deterministic acquired artifacts.");
+      const upstreamStallMilliseconds = 60_000;
+      let releasePdbResponse!: () => void;
+      const pdbResponseGate = new Promise<void>(resolve => {
+        releasePdbResponse = resolve;
+      });
+      let pdbResponseReleased = false;
+      let msdlRequests = 0;
+      const releaseTimer = setTimeout(() => {
+        pdbResponseReleased = true;
+        releasePdbResponse();
+      }, upstreamStallMilliseconds);
+      await page.route("**/api/msdl/**", async route => {
+        msdlRequests++;
+        await pdbResponseGate;
+        await route.fulfill({
+          status: 504,
+          body: "Deliberately stalled PDB response.",
+          headers: { "access-control-allow-origin": "*" },
+        }).catch(() => undefined);
+      });
+
+      try {
+        await openPublishedSite(page);
+        const evidence = await page.evaluate(async () => {
+          const packages = await import("/inspect-web-package.js");
+          const source = await import("/inspect-web-source.js");
+          const loadResult = await packages.queryPackage(
+            "System.Text.Json", "11.0.0-preview.7.26381.103", "netstandard2.0",
+          );
+          const surface = loadResult.surface;
+          if (surface === null) {
+            throw new Error(
+              loadResult.versionSettlement.content.failure?.reason
+                ?? "System.Text.Json settlement did not produce a surface.",
+            );
+          }
+          const type = surface.types.find(candidate =>
+            candidate.definitionId === "System.HexConverter+Casing");
+          if (!type) {
+            throw new Error(
+              "System.Text.Json does not expose System.HexConverter+Casing.",
+            );
+          }
+          const started = performance.now();
+          const result = await source.queryTypeSource(
+            "type-source-system-text-json-hedge",
+            surface.package,
+            surface.version,
+            surface.activeFramework,
+            type.assemblyId,
+            type.definitionId,
+            "[]",
+            "source",
+          );
+          return {
+            assembly: type.assemblyId,
+            elapsedMilliseconds: performance.now() - started,
+            framework: surface.activeFramework,
+            result,
+          };
+        });
+        const timingPath = testInfo.outputPath(
+          "system-text-json-type-source-hedge.json",
+        );
+        await writeFile(timingPath, JSON.stringify({
+          ...evidence,
+          msdlRequests,
+          pdbResponseReleased,
+          upstreamStallMilliseconds,
+        }, null, 2));
+        await testInfo.attach("system-text-json-type-source-hedge.json", {
+          path: timingPath,
+          contentType: "application/json",
+        });
+
+        expect(msdlRequests).toBe(1);
+        expect(pdbResponseReleased).toBe(false);
+        expect(evidence.elapsedMilliseconds).toBeLessThan(
+          upstreamStallMilliseconds,
+        );
+        expect(evidence.result.kind).toBe("Succeeded");
+        expect(evidence.result.value?.kind).toBe("source");
+        if (evidence.result.value?.kind !== "source")
+          throw new Error("Expected a decompiled type source code view.");
+        expect(evidence.result.value.value.provider).toBe("decompiled");
+        expect(evidence.result.value.value.text)
+          .toContain("enum HexConverter.Casing");
+        expect(evidence.result.value.value.pdbSourceLimitation)
+          .toContain("Portable PDB");
+        expect(evidence.result.value.value.url).toBeNull();
+      } finally {
+        clearTimeout(releaseTimer);
+        pdbResponseReleased = true;
+        releasePdbResponse();
+      }
+    });
 
   test("public package versions retain independent Source outcomes",
     async ({ page }, testInfo) => {
@@ -221,19 +322,40 @@ test.describe("published authored Source comparison transport", () => {
         }, selected);
       }
 
-      async function typeSource(targetPage: Page, version: string) {
+      async function typeSource(
+        targetPage: Page,
+        version: string,
+        view: TypeSourceView = "source",
+      ) {
         const selected = await memberRequest(targetPage, "Value", version);
         return targetPage.evaluate(async request => {
           const source = await import("/inspect-web-source.js");
           return source.queryTypeSource(
-            `type-source-fixture-${request.beforeVersion}`,
+            `type-source-fixture-${request.beforeVersion}-${request.view}`,
             request.packageId, request.beforeVersion, request.framework,
-            request.assembly, request.typeIdentity, "[]");
-        }, selected);
+            request.assembly, request.typeIdentity, "[]", request.view);
+        }, { ...selected, view });
       }
 
       const authoredMember = await memberSource(page, "1.0.0");
       const authoredType = await typeSource(page, "1.0.0");
+      const apiType = await typeSource(page, "1.0.0", "api-declarations");
+      const allType = await typeSource(page, "1.0.0", "all-declarations");
+      if (apiType.value?.kind !== "apiDeclarations"
+        || allType.value?.kind !== "apiDeclarations") {
+        throw new Error("Expected completed declaration views from the source facade.");
+      }
+      const apiDeclarations = apiType.value.inspection;
+      const allDeclarations = allType.value.inspection;
+      expect(apiDeclarations.content.outcome).toBe("Available");
+      expect(apiDeclarations.content.scope).toBe("ApiVisible");
+      expect(apiDeclarations.content.text).toContain("public int Value();");
+      expect(apiDeclarations.content.text).not.toContain("Hidden");
+      expect(apiDeclarations.content.text).not.toContain("1 + 2");
+      expect(allDeclarations.content.outcome).toBe("Available");
+      expect(allDeclarations.content.scope).toBe("All");
+      expect(allDeclarations.content.text).toContain("private int Hidden();");
+      expect(allDeclarations.content.text).not.toContain("1 + 2");
       const initializedGetter = await memberSource(page, "1.0.0", "InitializedFieldGetter", "Count");
       const declinedGetter = await memberSource(page, "1.0.0", "CalculatedFieldGetter", "Count");
       expect(initializedGetter.source.provider).toBe("decompiled");
@@ -338,6 +460,22 @@ test.describe("published authored Source comparison transport", () => {
           __copiedMemberSource?: string;
         }).__copiedMemberSource)).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await chooseSubject(applicationPage, "type");
+      await applicationPage.locator('[data-lens="source"]:visible').click();
+      const typeView = applicationPage.getByLabel("Select type code view");
+      await expect(typeView).toHaveValue("source");
+      await typeView.selectOption("api-declarations");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(apiDeclarations.content.text);
+      await expect(applicationPage.locator("#explore-source")).toHaveCount(0);
+      await typeView.selectOption("all-declarations");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(allDeclarations.content.text);
+      await applicationPage.locator("#copy-type-source").click();
+      await expect.poll(() => applicationPage.evaluate(() =>
+        (window as typeof window & {
+          __copiedMemberSource?: string;
+        }).__copiedMemberSource)).toBe(allDeclarations.content.text);
       await applicationPage.close();
 
       const changed = await compareMember(page, "Value");
@@ -352,7 +490,7 @@ test.describe("published authored Source comparison transport", () => {
       const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
-        authoredMember, fallbackMember, authoredType, fallbackType,
+        authoredMember, fallbackMember, authoredType, fallbackType, apiType, allType,
         initializedGetter, declinedGetter,
         changed, exact, moved, movedAndEdited, unavailable,
       };
@@ -377,16 +515,22 @@ test.describe("published authored Source comparison transport", () => {
       expect(fallbackMember.parts).toEqual([]);
 
       expect(authoredType.kind).toBe("Succeeded");
-      expect(authoredType.value?.provider).toBe("pdb");
-      expect(authoredType.value?.text).toContain("class Counter");
-      expect(authoredType.value?.text).toContain("1 + 2");
-      expect(authoredType.value?.pdbSourceLimitation).toBeNull();
-      expect(authoredType.value?.url).toBeTruthy();
+      expect(authoredType.value?.kind).toBe("source");
+      if (authoredType.value?.kind !== "source")
+        throw new Error("Expected an authored type source code view.");
+      expect(authoredType.value.value.provider).toBe("pdb");
+      expect(authoredType.value.value.text).toContain("class Counter");
+      expect(authoredType.value.value.text).toContain("1 + 2");
+      expect(authoredType.value.value.pdbSourceLimitation).toBeNull();
+      expect(authoredType.value.value.url).toBeTruthy();
       expect(fallbackType.kind).toBe("Succeeded");
-      expect(fallbackType.value?.provider).toBe("decompiled");
-      expect(fallbackType.value?.text).toContain("class Counter");
-      expect(fallbackType.value?.pdbSourceLimitation).toBeTruthy();
-      expect(fallbackType.value?.url).toBeNull();
+      expect(fallbackType.value?.kind).toBe("source");
+      if (fallbackType.value?.kind !== "source")
+        throw new Error("Expected a decompiled type source code view.");
+      expect(fallbackType.value.value.provider).toBe("decompiled");
+      expect(fallbackType.value.value.text).toContain("class Counter");
+      expect(fallbackType.value.value.pdbSourceLimitation).toBeTruthy();
+      expect(fallbackType.value.value.url).toBeNull();
 
       expect(changed.kind).toBe("Succeeded");
       expect(changed.value?.status).toBe("Compared");

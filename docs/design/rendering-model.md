@@ -163,7 +163,7 @@ The first adoption is the shared `type`/`member` output path:
 | One source/code payload | Its content, without document headings, fences, separators, or tips. |
 | Ordinary report or multiple selected sections | The existing Markdown document. |
 
-The source/code payloads are Decompiled Source, Annotated Source, PDB Source,
+The source/code payloads are API Declarations, Decompiled Source, Annotated Source, PDB Source,
 Source Diff, IL, Cost Overlay, Semantics Overlay, and the existing indivisible
 Finding Census document payload. A selected payload must be produced by its
 existing owner; missing or failed content is not fabricated or replaced by
@@ -183,6 +183,23 @@ Printing a source payload also honors explicit Markdown. Multiple candidate
 documents still require the existing explicit row selection; this policy does
 not introduce concatenation or a multi-document framing contract.
 
+API Declarations, Decompiled Source, Annotated Source, PDB Source, Source Diff,
+IL, Cost Overlay, and Semantics Overlay support unary `--print` through the same
+payload projection. Printing preserves the selected content; explicit JSON
+formats wrap it in the existing printable-document shape rather than changing
+the direct inspection's JSON contract. Finding Census retains its separate
+[indivisible-envelope contract](member-source-presentation.md#format-behavior)
+and rejects payload projection.
+
+The motivating overlay case is `System.Text.Json@10.0.5`,
+`JsonElement.GetArrayLength:1`: both overlays already rendered natively, but
+`--print` rejected them. Release `SourcePayloadPrintTests` gates the production
+CLI with the installed System.Text.Json asset, including native/print content,
+explicit Markdown, structured projection, bodyless members, invalid rows, and
+rendered limits. Bounded single-member cases are PR-fast; the measured slow
+native/print comparisons and cost-annotation fixture run in daily Deep Inspect
+and the focused pre-merge gate.
+
 The `type` and `member` commands no longer expose `--bare`; the useful
 single-payload behavior is their default, not a compatibility alias or a new
 `--raw` mode. Other content commands retain their own current presentation
@@ -194,8 +211,8 @@ change.
 The shared inspection operations still return their typed completed envelopes.
 The CLI chooses the renderer; Browser continues using its existing code viewer.
 This approved CLI-only presentation slice introduces no host-specific
-inspection algorithm or new dependency. API Declarations remains a separate
-delivery and will use the same native-payload default when adopted.
+inspection algorithm or new dependency. [API Declarations](type-api-declarations.md)
+adopts the same native-payload default for its separate bodyless metadata view.
 
 ## Summary Table
 

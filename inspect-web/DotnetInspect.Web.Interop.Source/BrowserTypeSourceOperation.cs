@@ -1,6 +1,20 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Source;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(BrowserTypeCodeView.Source), "source")]
+[JsonDerivedType(typeof(BrowserTypeCodeView.ApiDeclarations), "apiDeclarations")]
+public abstract record BrowserTypeCodeView
+{
+    private BrowserTypeCodeView() { }
+
+    public sealed record Source(BrowserSource Value) : BrowserTypeCodeView;
+
+    public sealed record ApiDeclarations(
+        InspectionEnvelope<TypeApiDeclarationResult> Inspection) : BrowserTypeCodeView;
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeSourceResultKind>))]
 public enum BrowserTypeSourceResultKind
@@ -28,19 +42,19 @@ public enum BrowserTypeSourceCancellationKind
 public sealed record BrowserTypeSourceResult(
     int Version,
     BrowserTypeSourceResultKind Kind,
-    BrowserSource? Value,
+    BrowserTypeCodeView? Value,
     BrowserTypeSourceFailureKind? FailureKind,
     string? Error,
     string? Diagnostic,
     string? Reason)
 {
     internal static BrowserTypeSourceResult From(
-        BrowserManagedOperationResult<BrowserSource, string, string> result) =>
+        BrowserManagedOperationResult<BrowserTypeCodeView, string, string> result) =>
         result switch
         {
-            BrowserManagedOperationResult<BrowserSource, string, string>.Succeeded succeeded =>
+            BrowserManagedOperationResult<BrowserTypeCodeView, string, string>.Succeeded succeeded =>
                 new(1, BrowserTypeSourceResultKind.Succeeded, succeeded.Value, null, null, null, null),
-            BrowserManagedOperationResult<BrowserSource, string, string>.Failed failed =>
+            BrowserManagedOperationResult<BrowserTypeCodeView, string, string>.Failed failed =>
                 new(1, BrowserTypeSourceResultKind.Failed, null,
                     failed.FailureKind switch
                     {
@@ -49,7 +63,7 @@ public sealed record BrowserTypeSourceResult(
                         _ => throw new ArgumentOutOfRangeException(nameof(result)),
                     },
                     failed.Error, failed.Diagnostic, null),
-            BrowserManagedOperationResult<BrowserSource, string, string>.Canceled canceled =>
+            BrowserManagedOperationResult<BrowserTypeCodeView, string, string>.Canceled canceled =>
                 new(1, BrowserTypeSourceResultKind.Canceled, null, null, null, null,
                     BrowserTypeSourceCancellation.FormatReason(canceled.Reason)),
             _ => throw new ArgumentOutOfRangeException(nameof(result)),

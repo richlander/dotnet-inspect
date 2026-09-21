@@ -463,6 +463,7 @@ public sealed class LambdaRaisingPass : IIrPass
             SynthesizedLocalNames = body.SynthesizedLocalNames,
             LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
             LocalDeclarationBindings = body.LocalDeclarationBindings,
+            PdbLocalNameCandidates = body.PdbLocalNameCandidates,
             LocalNameImportCauses = body.LocalNameImportCauses,
             CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };

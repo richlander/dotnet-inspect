@@ -107,11 +107,11 @@ public sealed class PackagePlatformLibraryMaterializerTests
                     contribution.Source,
                     admission.Contributions);
                 var available = Assert.IsType<
-                    NavigationEcosystemContributionOutcome.Available>(
+                    EcosystemPopulationNavigationOutcome.Available>(
                         contribution.Outcome);
                 Assert.Same(
                     registration,
-                    available.Contribution.Ecosystem.Registration);
+                    available.Contribution.Ecosystem.Declaration);
                 Assert.Same(
                     contribution.Source.Correspondence.Occurrence,
                     available.Contribution.Library);
