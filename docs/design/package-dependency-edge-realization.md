@@ -25,9 +25,10 @@ Adjacent owners retain their authority:
 - [Realized Package Dependency Context](realized-package-dependency-context.md)
   owns the source participant's exact package-selection and declaration-evidence
   association.
-- Workspace and call-graph composition own which root-relative edges to realize,
-  which exact Platform target is active, destination lifetime, route admission,
-  and presentation.
+- [Package dependency Workspace routes](package-dependency-workspace-routes.md)
+  owns destination batch admission, supplied-root reuse, and typed Package,
+  Platform, or unavailable destination outcomes. Later call-graph composition
+  owns which edges to execute, active Platform selection, and presentation.
 
 ## Claim
 
@@ -213,10 +214,10 @@ The end-to-end dependency-aware call-graph adoption path has three slices:
 
 1. This owner prepares and completes one target-aware resolved-edge
    PackageHouse execution, including optional exact Platform pruning.
-2. Workspace composition batches admitted root-relative edges, retains
-   destination Package Root lifetimes, reuses already-realized root
-   occurrences, and lowers package or Platform decisions into typed call-graph
-   routes.
+2. [Package dependency Workspace routes](package-dependency-workspace-routes.md)
+   batches completed admitted-edge evidence, retains destination Package Root
+   lifetimes through Scope, reuses already-realized root occurrences, and
+   lowers package or Platform decisions into typed dependency destinations.
 3. CLI and Browser/Wasm consume that shared Workspace result. Inspect Web adds
    an independent traversal-TFM selector defaulted to `net12.0`; package TFM
    remains the root/member selection contract.
