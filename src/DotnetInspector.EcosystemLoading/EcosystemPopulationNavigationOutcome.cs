@@ -1,10 +1,12 @@
-namespace DotnetInspector.Queries;
+using DotnetInspector.Queries;
+
+namespace DotnetInspector.EcosystemLoading;
 
 /// <summary>
 /// Why historical Ecosystem admission evidence cannot produce a current
 /// Navigation contribution.
 /// </summary>
-public enum NavigationEcosystemContributionUnavailableReason
+public enum EcosystemPopulationNavigationUnavailableReason
 {
     RegistrationNotCurrent,
 }
@@ -13,29 +15,24 @@ public enum NavigationEcosystemContributionUnavailableReason
 /// Why a current revision cannot consume historical Ecosystem contribution
 /// evidence.
 /// </summary>
-public enum NavigationEcosystemContributionRejection
+public enum EcosystemPopulationNavigationRejection
 {
     ForeignWorkspace,
 }
 
 /// <summary>
-/// Current resource-free projection of one admitted Library under one exact
-/// Ecosystem registration occurrence.
+/// Current resource-free projection of one admitted Focus Library under one
+/// exact Ecosystem registration occurrence.
 /// </summary>
-public sealed class NavigationEcosystemLibraryContribution
+public sealed class EcosystemPopulationNavigationLibraryContribution
 {
-    public NavigationEcosystemLibraryContribution(
+    internal EcosystemPopulationNavigationLibraryContribution(
         WorkspaceRegistrationRevision historicalRevision,
         WorkspaceRegistrationRevision currentRevision,
         WorkspaceEcosystemContributionRelation ecosystemRelation,
         WorkspaceLibraryAdmissionReceipt admission,
         WorkspaceLibraryOccurrence library)
     {
-        ArgumentNullException.ThrowIfNull(historicalRevision);
-        ArgumentNullException.ThrowIfNull(currentRevision);
-        ArgumentNullException.ThrowIfNull(ecosystemRelation);
-        ArgumentNullException.ThrowIfNull(admission);
-        ArgumentNullException.ThrowIfNull(library);
         if (!ReferenceEquals(
                 historicalRevision.Workspace,
                 currentRevision.Workspace)
@@ -85,58 +82,54 @@ public sealed class NavigationEcosystemLibraryContribution
 }
 
 /// <summary>
-/// Closed classification of one historical Ecosystem contribution against one
-/// current Workspace registration revision.
+/// Closed classification of one historical Ecosystem Focus contribution
+/// against one current Workspace registration revision.
 /// </summary>
-public abstract class NavigationEcosystemContributionOutcome
+public abstract class EcosystemPopulationNavigationOutcome
 {
-    private protected NavigationEcosystemContributionOutcome()
+    private protected EcosystemPopulationNavigationOutcome()
     {
     }
 
-    public sealed class Available : NavigationEcosystemContributionOutcome
+    public sealed class Available : EcosystemPopulationNavigationOutcome
     {
-        public Available(NavigationEcosystemLibraryContribution contribution)
-        {
-            ArgumentNullException.ThrowIfNull(contribution);
+        internal Available(
+            EcosystemPopulationNavigationLibraryContribution contribution) =>
             Contribution = contribution;
-        }
 
-        public NavigationEcosystemLibraryContribution Contribution { get; }
-    }
-
-    public sealed class Unavailable : NavigationEcosystemContributionOutcome
-    {
-        public Unavailable(
-            WorkspaceRegistrationRevision currentRevision,
-            NavigationEcosystemContributionUnavailableReason reason)
-        {
-            ArgumentNullException.ThrowIfNull(currentRevision);
-            CurrentRevision = currentRevision;
-            Reason = reason;
-        }
-
-        public WorkspaceRegistrationRevision CurrentRevision { get; }
-
-        public NavigationEcosystemContributionUnavailableReason Reason
+        public EcosystemPopulationNavigationLibraryContribution Contribution
         {
             get;
         }
     }
 
-    public sealed class Rejected : NavigationEcosystemContributionOutcome
+    public sealed class Unavailable : EcosystemPopulationNavigationOutcome
     {
-        public Rejected(
+        internal Unavailable(
             WorkspaceRegistrationRevision currentRevision,
-            NavigationEcosystemContributionRejection reason)
+            EcosystemPopulationNavigationUnavailableReason reason)
         {
-            ArgumentNullException.ThrowIfNull(currentRevision);
             CurrentRevision = currentRevision;
             Reason = reason;
         }
 
         public WorkspaceRegistrationRevision CurrentRevision { get; }
 
-        public NavigationEcosystemContributionRejection Reason { get; }
+        public EcosystemPopulationNavigationUnavailableReason Reason { get; }
+    }
+
+    public sealed class Rejected : EcosystemPopulationNavigationOutcome
+    {
+        internal Rejected(
+            WorkspaceRegistrationRevision currentRevision,
+            EcosystemPopulationNavigationRejection reason)
+        {
+            CurrentRevision = currentRevision;
+            Reason = reason;
+        }
+
+        public WorkspaceRegistrationRevision CurrentRevision { get; }
+
+        public EcosystemPopulationNavigationRejection Reason { get; }
     }
 }

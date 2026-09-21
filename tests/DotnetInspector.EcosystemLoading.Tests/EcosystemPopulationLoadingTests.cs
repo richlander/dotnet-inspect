@@ -393,12 +393,6 @@ public sealed class EcosystemPopulationLoadingTests
                     ]));
         WorkspaceEcosystemContributionRelation currentRelation =
             Assert.Single(workspace.Revision.EcosystemContributions);
-        WorkspaceEcosystemContributionRelation neighboringRelation =
-            Assert.Single(
-                changed.Revision.EcosystemContributions,
-                relation => ReferenceEquals(
-                    relation.Ecosystem.Declaration,
-                    neighboring));
 
         EcosystemPopulationNavigationContribution projected =
             Assert.Single(
@@ -414,9 +408,9 @@ public sealed class EcosystemPopulationLoadingTests
             projected.Source.Correspondence.LoadedLibrary.Roles);
         var available =
             Assert.IsType<
-                NavigationEcosystemContributionOutcome.Available>(
+                EcosystemPopulationNavigationOutcome.Available>(
                     projected.Outcome);
-        NavigationEcosystemLibraryContribution contribution =
+        EcosystemPopulationNavigationLibraryContribution contribution =
             available.Contribution;
         Assert.Same(
             workspace.Workspace.Identity,
@@ -438,18 +432,17 @@ public sealed class EcosystemPopulationLoadingTests
             projected.Source.Correspondence.Occurrence,
             contribution.Library);
         Assert.DoesNotContain(
-            typeof(NavigationEcosystemLibraryContribution)
+            typeof(EcosystemPopulationNavigationLibraryContribution)
                 .GetProperties(),
             property => property.Name.Contains(
                 "Package",
                 StringComparison.Ordinal));
-        Assert.Throws<ArgumentException>(
-            () => new NavigationEcosystemLibraryContribution(
-                workspace.Revision,
-                changed.Revision,
-                neighboringRelation,
-                contribution.Admission,
-                contribution.Library));
+        Assert.Empty(
+            typeof(EcosystemPopulationNavigationLibraryContribution)
+                .GetConstructors());
+        Assert.Empty(
+            typeof(EcosystemPopulationNavigationOutcome.Available)
+                .GetConstructors());
     }
 
     [Fact]
@@ -481,10 +474,10 @@ public sealed class EcosystemPopulationLoadingTests
 
         var unavailable =
             Assert.IsType<
-                NavigationEcosystemContributionOutcome.Unavailable>(
+                EcosystemPopulationNavigationOutcome.Unavailable>(
                     projected.Outcome);
         Assert.Equal(
-            NavigationEcosystemContributionUnavailableReason
+            EcosystemPopulationNavigationUnavailableReason
                 .RegistrationNotCurrent,
             unavailable.Reason);
         Assert.Same(changed.Revision, unavailable.CurrentRevision);
@@ -492,6 +485,47 @@ public sealed class EcosystemPopulationLoadingTests
             workspace.Declaration,
             projected.Source.Correspondence.LoadReceipt.Request
                 .Registration);
+    }
+
+    [Fact]
+    public async Task
+        RemovedAndReaddedRegistrationDoesNotReauthorizeContribution()
+    {
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationAsync();
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        EcosystemPopulationAdmissionResult admission =
+            await AdmitPlatformAsync(workspace, platform);
+        var cleared =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    workspace.Revision,
+                    []));
+        var readded =
+            Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+                workspace.Workspace.ReplaceRegistrations(
+                    cleared.Revision,
+                    [
+                        new WorkspaceRegistration.Ecosystem(
+                            workspace.Declaration),
+                    ]));
+
+        EcosystemPopulationNavigationContribution projected =
+            Assert.Single(
+                EcosystemPopulationNavigationProjection.Project(
+                    readded.Revision,
+                    admission));
+
+        var unavailable =
+            Assert.IsType<
+                EcosystemPopulationNavigationOutcome.Unavailable>(
+                    projected.Outcome);
+        Assert.Equal(
+            EcosystemPopulationNavigationUnavailableReason
+                .RegistrationNotCurrent,
+            unavailable.Reason);
+        Assert.Same(readded.Revision, unavailable.CurrentRevision);
     }
 
     [Fact]
@@ -520,10 +554,10 @@ public sealed class EcosystemPopulationLoadingTests
 
         var rejected =
             Assert.IsType<
-                NavigationEcosystemContributionOutcome.Rejected>(
+                EcosystemPopulationNavigationOutcome.Rejected>(
                     projected.Outcome);
         Assert.Equal(
-            NavigationEcosystemContributionRejection.ForeignWorkspace,
+            EcosystemPopulationNavigationRejection.ForeignWorkspace,
             rejected.Reason);
     }
 

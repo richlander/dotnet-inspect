@@ -10,7 +10,7 @@ public sealed class EcosystemPopulationNavigationContribution
 {
     internal EcosystemPopulationNavigationContribution(
         EcosystemPopulationLibraryContributionWitness source,
-        NavigationEcosystemContributionOutcome outcome)
+        EcosystemPopulationNavigationOutcome outcome)
     {
         Source = source;
         Outcome = outcome;
@@ -18,7 +18,7 @@ public sealed class EcosystemPopulationNavigationContribution
 
     public EcosystemPopulationLibraryContributionWitness Source { get; }
 
-    public NavigationEcosystemContributionOutcome Outcome { get; }
+    public EcosystemPopulationNavigationOutcome Outcome { get; }
 }
 
 /// <summary>
@@ -59,7 +59,7 @@ public static class EcosystemPopulationNavigationProjection
                 .ToArray());
     }
 
-    static NavigationEcosystemContributionOutcome Evaluate(
+    static EcosystemPopulationNavigationOutcome Evaluate(
         WorkspaceRegistrationRevision currentRevision,
         WorkspaceRegistrationRevision historicalRevision,
         WorkspaceEcosystemRegistrationDeclaration registration,
@@ -69,28 +69,30 @@ public static class EcosystemPopulationNavigationProjection
                 currentRevision.Workspace,
                 historicalRevision.Workspace))
         {
-            return new NavigationEcosystemContributionOutcome.Rejected(
+            return new EcosystemPopulationNavigationOutcome.Rejected(
                 currentRevision,
-                NavigationEcosystemContributionRejection.ForeignWorkspace);
+                EcosystemPopulationNavigationRejection.ForeignWorkspace);
         }
 
-        WorkspaceEcosystemContributionRelation? ecosystemRelation =
+        WorkspaceEcosystemContributionRelation? historicalRelation =
             FindExactContribution(
-                currentRevision,
+                historicalRevision,
                 registration);
-        if (ecosystemRelation is null)
+        if (historicalRelation is null
+            || !currentRevision.EcosystemContributions.Contains(
+                historicalRelation))
         {
-            return new NavigationEcosystemContributionOutcome.Unavailable(
+            return new EcosystemPopulationNavigationOutcome.Unavailable(
                 currentRevision,
-                NavigationEcosystemContributionUnavailableReason
+                EcosystemPopulationNavigationUnavailableReason
                     .RegistrationNotCurrent);
         }
 
-        return new NavigationEcosystemContributionOutcome.Available(
-            new NavigationEcosystemLibraryContribution(
+        return new EcosystemPopulationNavigationOutcome.Available(
+            new EcosystemPopulationNavigationLibraryContribution(
                 historicalRevision,
                 currentRevision,
-                ecosystemRelation,
+                historicalRelation,
                 correspondence.Admission,
                 correspondence.Occurrence));
     }

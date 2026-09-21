@@ -107,7 +107,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                     contribution.Source,
                     admission.Contributions);
                 var available = Assert.IsType<
-                    NavigationEcosystemContributionOutcome.Available>(
+                    EcosystemPopulationNavigationOutcome.Available>(
                         contribution.Outcome);
                 Assert.Same(
                     registration,

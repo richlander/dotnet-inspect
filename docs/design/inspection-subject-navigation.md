@@ -121,16 +121,15 @@ CLI gates prove only the implemented Package-backed subset. They do not yet
 prove Ecosystem subjects, direct Workspace-to-Library routes, route-independent
 subject identity, or route reconciliation.
 
-The first preparatory Ecosystem-intake slice is implemented by the
-Navigation-owned result contract in `DotnetInspector.Queries` and
-`EcosystemPopulationNavigationProjection` in
+The first preparatory Ecosystem-intake slice is implemented by
+`EcosystemPopulationNavigationProjection` and its closed result shapes in
 `DotnetInspector.EcosystemLoading`. The adapter classifies each owner-issued
 historical accepted Focus witness against one caller-supplied current Workspace
 registration revision and returns exact current contribution evidence only
-while that revision retains the owner-issued occurrence and contribution
-relation for the same declaration object. Workspace registration now issues
-that occurrence and relation prerequisite. This slice does not implement the
-Ecosystem structural subject, route composition, activation, or reconciliation.
+while that revision retains the same owner-issued occurrence and contribution
+relation. Workspace registration now issues that occurrence and relation
+prerequisite. This slice does not implement the Ecosystem structural subject,
+route composition, activation, or reconciliation.
 
 PR #5433 demonstrates the intended browser distinction: Workspace manages
 retained coordinates, Package is inspectable, and package tabs are absent.
@@ -906,21 +905,23 @@ Workspace registration and Ecosystem Population Loading:
 Focus-witness association with one caller-supplied current Workspace
 registration revision. It returns:
 
-- `Available` with one `NavigationEcosystemLibraryContribution` when the
-  current revision belongs to the witness's exact Workspace and still retains
-  the occurrence and contribution relation for the same declaration object;
+- `Available` with one
+  `EcosystemPopulationNavigationLibraryContribution` when the current revision
+  belongs to the witness's exact Workspace and still retains the same
+  occurrence and contribution relation as the historical revision;
 - `Unavailable(RegistrationNotCurrent)` when the historical evidence is valid
   but that exact occurrence and relation are absent from the current revision;
   or
 - `Rejected(ForeignWorkspace)` when the current revision belongs to another
   Workspace.
 
-An equal ID or equal declaration value is not currentness. An unrelated
-registration revision may preserve the contribution only by retaining the same
-exact declaration object and therefore the same owner-issued occurrence and
-relation. The available value retains both historical and current revisions,
-the exact occurrence and contribution relation, admission receipt, and Library
-occurrence. It has no Package field or implied Package ancestry.
+An equal ID, equal declaration value, or re-added declaration object is not
+currentness. A later registration revision may preserve the contribution only
+by retaining the same owner-issued occurrence and relation continuously from
+the historical revision. The available value retains both historical and
+current revisions, that exact occurrence and contribution relation, admission
+receipt, and Library occurrence. It has no Package field or implied Package
+ancestry.
 
 `EcosystemPopulationNavigationProjection` is the one-way adapter because
 `DotnetInspector.EcosystemLoading` already references
@@ -928,8 +929,9 @@ occurrence. It has no Package field or implied Package ancestry.
 accepts only `EcosystemPopulationAdmissionResult.Contributions`, whose
 owner-issued witnesses already bind the exact historical registration,
 accepted admission, occurrence, and Focus role. The adapter does not expose a
-component-wise evaluator that could substitute support-only or unrelated
-evidence; binding-support-only Libraries never enter this intake.
+public component-wise constructor or evaluator that could substitute
+support-only or unrelated evidence; its result constructors are internal and
+binding-support-only Libraries never enter this intake.
 
 The Workspace-to-Ecosystem contribution relation is route-ready owner evidence,
 but it is not yet a Navigation `StructuralSubjectRelationIdentity` or route.
@@ -2323,6 +2325,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `LibrarySubject_RequiresExactWorkspaceAdmissionOccurrence`
 - `CurrentNavigationContributionPreservesExactFocusAdmission`
 - `EqualTextRegistrationReplacementDoesNotReauthorizeContribution`
+- `RemovedAndReaddedRegistrationDoesNotReauthorizeContribution`
 - `ForeignWorkspaceCannotConsumeContribution`
 - `Construction_RejectsAbsentOwnerIssuedComponents`
 - `Route_AllowsOnlyClosedTypedRelations`
