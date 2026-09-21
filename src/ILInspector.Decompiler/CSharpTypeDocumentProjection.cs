@@ -108,6 +108,11 @@ public sealed record CSharpTypeProjectedContribution(
 public sealed record CSharpTypeProjectedDeclaration(
     int DeclarationId,
     MemberAnchor Anchor,
+    int DeclarationToken,
+    CSharpTypeDeclarationKind Kind,
+    CSharpTypeAccessibility Accessibility,
+    CSharpTypeDeclarationPlacement Placement,
+    CSharpTypeOrigin Origin,
     CSharpSourceRange Range,
     ImmutableArray<CSharpTypeProjectedRegion> Regions,
     ImmutableArray<CSharpTypeProjectedBody> Bodies,
@@ -261,6 +266,11 @@ public static class CSharpTypeDocumentProjector
             projectedDeclarations.Add(new(
                 declaration.Id,
                 declaration.Anchor,
+                declaration.DeclarationToken,
+                declaration.Kind,
+                declaration.Accessibility,
+                declaration.Placement,
+                declaration.Origin,
                 new CSharpSourceRange(declarationStart, declarationLength),
                 regions.ToImmutable(),
                 bodies.ToImmutable(),

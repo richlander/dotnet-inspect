@@ -245,6 +245,28 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_RejectsRenderPartKindRegionMismatch()
+    {
+        var input = Input();
+        input = input with
+        {
+            Frame = input.Frame with
+            {
+                PrefixParts = input.Frame.PrefixParts.SetItem(
+                    0,
+                    input.Frame.PrefixParts[0] with
+                    {
+                        Region = CSharpTypeRegionRole.Documentation,
+                    }),
+            },
+        };
+
+        Assert.Contains(
+            "must use the Signature region",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+    }
+
+    [Fact]
     public void Create_RejectsAggregateNodeBudgetExhaustion()
     {
         var input = Input();
@@ -462,6 +484,14 @@ public class CSharpTypeDocumentTests
             () => CSharpTypeDocumentJson.Deserialize(
                 contradictory.ToJsonString()));
 
+        JsonObject mismatchedRegion =
+            Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        mismatchedRegion["frame"]!["prefix_parts"]!.AsArray()[0]!["region"] =
+            (int)CSharpTypeRegionRole.Documentation;
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(
+                mismatchedRegion.ToJsonString()));
+
         Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
             new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));
     }
@@ -525,6 +555,37 @@ public class CSharpTypeDocumentTests
             bodies.Declarations[3].Bodies
                 .Select(body => Slice(bodies.Text, body.Range)));
         Assert.Empty(skeleton.Declarations.SelectMany(static row => row.Bodies));
+    }
+
+    [Fact]
+    public void Projection_PreservesDeclarationIdentityAndClassifications()
+    {
+        CSharpTypeDocument document = Create(Input());
+        CSharpTypeProjectionRequest[] requests =
+        [
+            new(CSharpTypeBodyMode.Bodies),
+            new(CSharpTypeBodyMode.Skeleton),
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                document.Declarations[2].Anchor),
+            new(accessibilities: [CSharpTypeAccessibility.Public]),
+        ];
+
+        foreach (CSharpTypeProjectionRequest request in requests)
+        {
+            CSharpTypeDocumentProjection projection = Project(document, request);
+            foreach (CSharpTypeProjectedDeclaration row in projection.Declarations)
+            {
+                CSharpTypeDeclaration declaration =
+                    document.Declarations[row.DeclarationId];
+                Assert.Equal(declaration.Anchor, row.Anchor);
+                Assert.Equal(declaration.DeclarationToken, row.DeclarationToken);
+                Assert.Equal(declaration.Kind, row.Kind);
+                Assert.Equal(declaration.Accessibility, row.Accessibility);
+                Assert.Equal(declaration.Placement, row.Placement);
+                Assert.Equal(declaration.Origin, row.Origin);
+            }
+        }
     }
 
     [Fact]

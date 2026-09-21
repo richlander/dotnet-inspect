@@ -1030,6 +1030,23 @@ static class CSharpTypeDocumentValidator
                 throw new ArgumentOutOfRangeException(nameof(part.Region));
             ValidateText(part.FullText, $"{owner} part {part.Id} full text");
             ValidateText(part.SkeletonText, $"{owner} part {part.Id} skeleton text");
+            CSharpTypeRegionRole expectedRegion = part.Kind switch
+            {
+                CSharpTypeRenderPartKind.Fixed =>
+                    CSharpTypeRegionRole.Signature,
+                CSharpTypeRenderPartKind.Documentation =>
+                    CSharpTypeRegionRole.Documentation,
+                CSharpTypeRenderPartKind.Attributes =>
+                    CSharpTypeRegionRole.Attributes,
+                CSharpTypeRenderPartKind.Implementation =>
+                    CSharpTypeRegionRole.Implementation,
+                _ => throw new ArgumentOutOfRangeException(nameof(part.Kind)),
+            };
+            if (part.Region != expectedRegion)
+            {
+                throw new ArgumentException(
+                    $"{owner} {part.Kind} part {part.Id} must use the {expectedRegion} region.");
+            }
 
             if (part.Kind == CSharpTypeRenderPartKind.Implementation)
             {
@@ -1038,11 +1055,6 @@ static class CSharpTypeDocumentValidator
                 {
                     throw new ArgumentException(
                         $"{owner} implementation part {part.Id} requires a valid implementation kind.");
-                }
-                if (part.Region != CSharpTypeRegionRole.Implementation)
-                {
-                    throw new ArgumentException(
-                        $"{owner} implementation part {part.Id} requires the implementation region.");
                 }
                 if (part.OwnedBodies.Length > 1)
                 {
@@ -1070,18 +1082,6 @@ static class CSharpTypeDocumentValidator
                 }
             }
 
-            if (part.Kind == CSharpTypeRenderPartKind.Documentation
-                && part.Region != CSharpTypeRegionRole.Documentation)
-            {
-                throw new ArgumentException(
-                    $"{owner} documentation part {part.Id} has the wrong region role.");
-            }
-            if (part.Kind == CSharpTypeRenderPartKind.Attributes
-                && part.Region != CSharpTypeRegionRole.Attributes)
-            {
-                throw new ArgumentException(
-                    $"{owner} attribute part {part.Id} has the wrong region role.");
-            }
         }
     }
 
