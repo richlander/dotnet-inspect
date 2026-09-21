@@ -326,6 +326,11 @@ observed changed interval. Ties choose the earliest interval in
 caller-directed population order. Midpoints use population positions, not
 version-number or publication-time arithmetic.
 
+`N` remains the configured authorization recorded in the plan and result; the
+maximum realizable work and internal capacity are `min(N, M)`. A budget larger
+than the settled population neither fails the request nor allocates storage
+for Versions that cannot be evaluated.
+
 Adaptive History requires at least two semantically distinct population
 Versions. A range that resolves to one Version is rejected before payload
 evaluation rather than reporting equal endpoints after one probe.

@@ -75,10 +75,10 @@ public sealed class DiffHistoryApiMemberInspectionRequest
 
         ImmutableArray<PackageVersionAddress> selected =
             evaluationPlan.ResolveInitialSelection(population.Vector);
-        int authorizedEvaluations =
-            evaluationPlan.ResolveAuthorizedEvaluationCount(
+        int maximumEvaluations =
+            evaluationPlan.ResolveMaximumRealizableEvaluationCount(
                 population.Vector);
-        if (authorizedEvaluations > evaluationLimits.MaximumEvaluations)
+        if (maximumEvaluations > evaluationLimits.MaximumEvaluations)
         {
             throw new ArgumentException(
                 "The Diff History evaluation plan exceeds its work limit.",

@@ -70,6 +70,15 @@ public abstract record DiffHistoryEvaluationPlan
             ? adaptive.MaximumProbes
             : ResolveInitialSelection(population).Length;
 
+    public int ResolveMaximumRealizableEvaluationCount(
+        PackageVersionVector population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        return Math.Min(
+            ResolveAuthorizedEvaluationCount(population),
+            population.Addresses.Length);
+    }
+
     public sealed record FullPopulation : DiffHistoryEvaluationPlan
     {
         public override DiffHistoryEvaluationPolicy Policy =>

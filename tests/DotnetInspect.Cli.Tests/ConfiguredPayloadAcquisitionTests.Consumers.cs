@@ -104,7 +104,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         else if (selection == "adaptive")
             args.AddRange(["--max-probes", "2"]);
         else if (selection == "adaptive-large-budget")
-            args.AddRange(["--max-probes", "4097"]);
+            args.AddRange([
+                "--max-probes",
+                "2147483647",
+                "--json",
+            ]);
         else if (selection == "survey")
             args.AddRange(["--sample-percent", "50"]);
         else if (selection == "all")
@@ -124,8 +128,26 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         {
             Assert.DoesNotContain("Unevaluated", result.Output);
         }
-        if (selection is "adaptive" or "adaptive-large-budget")
+        if (selection == "adaptive")
             Assert.Contains("## Outcome", result.Output);
+        if (selection == "adaptive-large-budget")
+        {
+            using var content = JsonDocument.Parse(result.Output);
+            JsonElement history = content.RootElement
+                .GetProperty("document")
+                .GetProperty("content");
+            Assert.Equal(
+                int.MaxValue,
+                history.GetProperty("evaluation_plan")
+                    .GetProperty("maximum_probes")
+                    .GetInt32());
+            Assert.Equal(
+                int.MaxValue,
+                history.GetProperty("authorized_probe_count").GetInt32());
+            Assert.Equal(
+                2,
+                history.GetProperty("evaluations").GetArrayLength());
+        }
     }
 
     [Fact]

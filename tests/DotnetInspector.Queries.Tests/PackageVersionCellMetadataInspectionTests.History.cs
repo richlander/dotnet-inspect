@@ -738,6 +738,28 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
+    public void AdaptiveBudgetSeparatesAuthorizationFromRealizableWork()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        PackageVersionVector vector =
+            population[0].Cell.Population.Vector;
+        var plan =
+            new DiffHistoryEvaluationPlan.AdaptiveBisect(int.MaxValue);
+
+        Assert.Equal(
+            int.MaxValue,
+            plan.ResolveAuthorizedEvaluationCount(vector));
+        Assert.Equal(
+            3,
+            plan.ResolveMaximumRealizableEvaluationCount(vector));
+    }
+
+    [Fact]
     public async Task
         HistorySparseTransitionPreservesGapWithoutClaimingOnset()
     {

@@ -63,11 +63,15 @@ static class DiffHistoryMethodology
         ArgumentNullException.ThrowIfNull(pairwiseAction);
         cancellationToken.ThrowIfCancellationRequested();
 
+        int maximumEvaluations = Math.Min(
+            evaluationLimits.MaximumEvaluations,
+            evaluationPlan.ResolveMaximumRealizableEvaluationCount(
+                population));
         var chronological = ImmutableArray.CreateBuilder<TPoint>(
-            evaluationLimits.MaximumEvaluations);
+            maximumEvaluations);
         var probes = ImmutableArray.CreateBuilder<
             DiffHistoryMethodologyProbe<T, TPoint>>(
-                evaluationLimits.MaximumEvaluations);
+                maximumEvaluations);
         if (evaluationPlan
             is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive)
         {

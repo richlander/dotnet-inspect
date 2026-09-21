@@ -137,9 +137,9 @@ internal static class DiffHistoryCommand
                 CommandError.Write(error!);
                 return 1;
             }
-            int maximumEvaluations = Math.Min(
-                plan!.ResolveAuthorizedEvaluationCount(population.Vector),
-                population.Vector.Addresses.Length);
+            int maximumEvaluations =
+                plan!.ResolveMaximumRealizableEvaluationCount(
+                    population.Vector);
             if (maximumEvaluations > MaximumHistoryEvaluations)
             {
                 CommandError.Write(
@@ -468,10 +468,10 @@ internal static class DiffHistoryCommand
             string.IsNullOrWhiteSpace(options.Tfm)
                 ? PackageHouseTargetContext.OwnerDefault()
                 : PackageHouseTargetContext.Exact(options.Tfm);
-        int authorizedEvaluations =
-            plan.ResolveAuthorizedEvaluationCount(population.Vector);
+        int maximumEvaluations =
+            plan.ResolveMaximumRealizableEvaluationCount(population.Vector);
         var evaluationLimits =
-            new DiffHistoryEvaluationLimits(authorizedEvaluations);
+            new DiffHistoryEvaluationLimits(maximumEvaluations);
         var workspaceLimits = new PackageVersionCellWorkspaceLimits(
             MaximumAssembliesPerVersion,
             MaximumAssemblyEntryBytes,
