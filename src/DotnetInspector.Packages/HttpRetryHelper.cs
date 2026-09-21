@@ -528,6 +528,7 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.TooLarge,
+                        StatusCode: lastObservedStatusCode,
                         BodyBytesRead: bodyBytesRead,
                         RequestCount: requestCount);
                 }
@@ -544,6 +545,7 @@ public static class HttpRetryHelper
                         return new HttpBodyFetchResult(
                             null,
                             HttpBodyFetchStatus.Unavailable,
+                            StatusCode: lastObservedStatusCode,
                             BodyBytesRead: bodyBytesRead,
                             RequestCount: requestCount);
                     }
@@ -562,6 +564,7 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable,
+                        StatusCode: lastObservedStatusCode,
                         BodyBytesRead: bodyBytesRead,
                         RequestCount: requestCount);
                 }
@@ -571,6 +574,7 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable,
+                        StatusCode: lastObservedStatusCode,
                         BodyBytesRead: bodyBytesRead,
                         RequestCount: requestCount);
                 }
@@ -590,6 +594,7 @@ public static class HttpRetryHelper
                     return new HttpBodyFetchResult(
                         null,
                         HttpBodyFetchStatus.Unavailable,
+                        StatusCode: lastObservedStatusCode,
                         BodyBytesRead: bodyBytesRead,
                         RequestCount: requestCount);
                 }

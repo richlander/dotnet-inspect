@@ -604,7 +604,7 @@ public partial class SymbolPackageDownloader
                packageName.Equals("WindowsAzure.Storage", StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<HttpRetryHelper.HttpBodyFetchResult>
+    private Task<HttpRetryHelper.HttpBodyFetchResult>
         FetchPdbBytesWithEvidenceAsync(
             PortablePdbAcquisitionNetworkRoute route,
             string url,
@@ -613,14 +613,44 @@ public partial class SymbolPackageDownloader
             PortablePdbAcquisitionEvidenceCollector? evidence,
             CancellationToken cancellationToken)
     {
-        long started = evidence is null
-            ? 0
-            : Stopwatch.GetTimestamp();
+        if (evidence is null)
+        {
+            return HttpRetryHelper
+                .GetBytesAfterHeadersWithRetryAsync(
+                    _client,
+                    url,
+                    static _ => true,
+                    log: log,
+                    cancellationToken: cancellationToken,
+                    trafficKind:
+                        NetworkTrafficKind.SymbolDownload,
+                    maxDownloadSize:
+                        maxDownloadSize);
+        }
+
+        return FetchPdbBytesWithEvidenceCoreAsync(
+            route,
+            url,
+            log,
+            maxDownloadSize,
+            evidence,
+            cancellationToken);
+    }
+
+    private async Task<HttpRetryHelper.HttpBodyFetchResult>
+        FetchPdbBytesWithEvidenceCoreAsync(
+            PortablePdbAcquisitionNetworkRoute route,
+            string url,
+            Action<string>? log,
+            long maxDownloadSize,
+            PortablePdbAcquisitionEvidenceCollector evidence,
+            CancellationToken cancellationToken)
+    {
+        long started =
+            Stopwatch.GetTimestamp();
         HttpRetryHelper.HttpBodyFetchProgress progress = default;
-        Action<HttpRetryHelper.HttpBodyFetchProgress>? progressChanged =
-            evidence is null
-            ? null
-            : value => progress = value;
+        Action<HttpRetryHelper.HttpBodyFetchProgress> progressChanged =
+            value => progress = value;
         try
         {
             HttpRetryHelper.HttpBodyFetchResult result =
@@ -636,7 +666,7 @@ public partial class SymbolPackageDownloader
                         maxDownloadSize,
                     progress:
                         progressChanged).ConfigureAwait(false);
-            evidence?.RecordNetworkAttempt(
+            evidence.RecordNetworkAttempt(
                 route,
                 url,
                 result.RequestCount,
@@ -661,7 +691,7 @@ public partial class SymbolPackageDownloader
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
-            evidence?.RecordNetworkAttempt(
+            evidence.RecordNetworkAttempt(
                 route,
                 url,
                 progress.RequestCount,
@@ -674,7 +704,7 @@ public partial class SymbolPackageDownloader
         }
         catch
         {
-            evidence?.RecordNetworkAttempt(
+            evidence.RecordNetworkAttempt(
                 route,
                 url,
                 progress.RequestCount,
