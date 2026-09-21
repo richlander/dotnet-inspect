@@ -1,0 +1,615 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using ILInspector.CSharp;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
+
+namespace ILInspector.Decompiler.Tests;
+
+public class CSharpTypeDocumentTests
+{
+    [Fact]
+    public void Create_SnapshotsInputAndPreservesCompleteCollidingAnchors()
+    {
+        var input = Input();
+        CSharpTypeDocument document = Create(input);
+
+        Assert.Equal(4, document.Declarations.Length);
+        Assert.Equal(
+            document.Declarations[0].Anchor.Fingerprint,
+            document.Declarations[1].Anchor.Fingerprint);
+        Assert.NotEqual(
+            document.Declarations[0].Anchor,
+            document.Declarations[1].Anchor);
+
+        input.Artifacts[0] = input.Artifacts[0] with { Id = 99 };
+        input.Declarations[0] = input.Declarations[0] with { Id = 99 };
+
+        Assert.Equal(0, document.Artifacts[0].Id);
+        Assert.Equal(0, document.Declarations[0].Id);
+    }
+
+    [Fact]
+    public void Create_RejectsMalformedUtf16AndOutOfBoundsBodyRange()
+    {
+        var invalidText = Input() with
+        {
+            Frame = Input().Frame with { Suffix = "\uD800" },
+        };
+        Assert.Throws<ArgumentException>(() => Create(invalidText));
+
+        var invalidRange = Input();
+        CSharpTypeDeclaration constructor = invalidRange.Declarations[2];
+        CSharpTypeRenderPart implementation = constructor.Parts[1];
+        invalidRange.Declarations[2] = constructor with
+        {
+            Parts = constructor.Parts.SetItem(
+                1,
+                implementation with
+                {
+                    OwnedBodies =
+                    [
+                        implementation.OwnedBodies[0] with
+                        {
+                            FullRange = new CSharpSourceRange(
+                                implementation.FullText.Length,
+                                1),
+                        },
+                    ],
+                }),
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Create(invalidRange));
+    }
+
+    [Fact]
+    public void Create_RequiresOneBodyRowForEveryMethodArtifact()
+    {
+        var input = Input();
+        input.Bodies.RemoveAt(input.Bodies.Count - 1);
+        CSharpTypeDeclaration property = input.Declarations[3];
+        input.Declarations[3] = property with
+        {
+            Parts = property.Parts.SetItem(
+                1,
+                property.Parts[1] with { OwnedBodies = [] }),
+        };
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => Create(input));
+
+        Assert.Contains("exactly one physical body row", error.Message);
+    }
+
+    [Fact]
+    public void Revision_IsStableAndCoversRenderPlansAndBodyEvidence()
+    {
+        CSharpTypeDocument first = Create(Input());
+        CSharpTypeDocument replay = Create(Input());
+        Assert.Equal(first.Revision, replay.Revision);
+
+        var changedText = Input();
+        CSharpTypeDeclaration field = changedText.Declarations[0];
+        CSharpTypeRenderPart initializer = field.Parts[1];
+        changedText.Declarations[0] = field with
+        {
+            Parts = field.Parts.SetItem(
+                1,
+                initializer with { FullText = " = 3" }),
+        };
+        Assert.NotEqual(first.Revision, Create(changedText).Revision);
+
+        var changedEvidence = Input();
+        changedEvidence.Bodies[0] = changedEvidence.Bodies[0] with
+        {
+            Fingerprint = new string('B', 64),
+        };
+        Assert.NotEqual(first.Revision, Create(changedEvidence).Revision);
+    }
+
+    [Fact]
+    public void Json_RoundTripsAndRejectsDuplicateOrStalePayloads()
+    {
+        CSharpTypeDocument document = Create(Input());
+        string json = CSharpTypeDocumentJson.Serialize(document, indented: false);
+
+        CSharpTypeDocument replay = CSharpTypeDocumentJson.Deserialize(json);
+        Assert.Equal(document.Revision, replay.Revision);
+        Assert.Equal(
+            Project(document, new()).Text,
+            Project(replay, new()).Text);
+
+        string duplicate = json.Replace(
+            "{\"schema_version\":1,",
+            "{\"schema_version\":1,\"schema_version\":1,",
+            StringComparison.Ordinal);
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(duplicate));
+
+        JsonObject stale = Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        stale["source"]!["rendering_policy"] = "changed-policy";
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(stale.ToJsonString()));
+    }
+
+    [Fact]
+    public void BodiesAndSkeleton_UseOwnerIssuedAlternativesAndFreshRanges()
+    {
+        CSharpTypeDocument document = Create(Input());
+
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Equal(
+            """
+            public class Sample
+            {
+                private int _a = 1;
+                private int _b = 2;
+                public Sample() { _a = 1; _b = 2; }
+                public int X { get { return _a; } set { _a = value; } }
+            }
+            """,
+            bodies.Text);
+        Assert.Equal(
+            """
+            public class Sample
+            {
+                private int _a;
+                private int _b;
+                public Sample() { }
+                public int X { get; set; }
+            }
+            """,
+            skeleton.Text);
+
+        foreach (CSharpTypeProjectedDeclaration declaration in bodies.Declarations)
+        {
+            Assert.Equal(
+                declaration.Anchor.StableSelector switch
+                {
+                    "_a" => "private int _a = 1;",
+                    "_b" => "private int _b = 2;",
+                    ".ctor()" => "public Sample() { _a = 1; _b = 2; }",
+                    "X" => "public int X { get { return _a; } set { _a = value; } }",
+                    _ => throw new InvalidOperationException(),
+                },
+                Slice(bodies.Text, declaration.Range));
+        }
+
+        Assert.Equal(
+            "{ _a = 1; _b = 2; }",
+            Slice(
+                bodies.Text,
+                Assert.Single(bodies.Declarations[2].Bodies).Range));
+        Assert.Equal(
+            ["{ return _a; }", "{ _a = value; }"],
+            bodies.Declarations[3].Bodies
+                .Select(body => Slice(bodies.Text, body.Range)));
+        Assert.Empty(skeleton.Declarations.SelectMany(static row => row.Bodies));
+    }
+
+    [Fact]
+    public void SelectedConstructor_ExpandsContributionClosureOnly()
+    {
+        CSharpTypeDocument document = Create(Input());
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                document.Declarations[2].Anchor));
+
+        Assert.Equal(
+            """
+            public class Sample
+            {
+                private int _a = 1;
+                private int _b = 2;
+                public Sample() { _a = 1; _b = 2; }
+                public int X { get; set; }
+            }
+            """,
+            projection.Text);
+        Assert.Equal(
+            ["= 1", "= 2"],
+            projection.Declarations
+                .SelectMany(static declaration => declaration.Contributions)
+                .Select(contribution => Slice(projection.Text, contribution.Range)));
+        Assert.Single(projection.Declarations[2].Bodies);
+        Assert.Empty(projection.Declarations[3].Bodies);
+    }
+
+    [Fact]
+    public void SelectedField_ExpandsItsLocalInitializerWithoutConstructor()
+    {
+        CSharpTypeDocument document = Create(Input());
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                document.Declarations[0].Anchor));
+
+        Assert.Contains("private int _a = 1;", projection.Text);
+        Assert.Contains("private int _b;", projection.Text);
+        Assert.Contains("public Sample() { }", projection.Text);
+        Assert.DoesNotContain("_b = 2", projection.Text, StringComparison.Ordinal);
+        Assert.Empty(projection.Declarations.SelectMany(static row => row.Bodies));
+    }
+
+    [Fact]
+    public void SelectedBody_ReportsContributionsHiddenByStructuralFilters()
+    {
+        CSharpTypeDocument document = Create(Input());
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                document.Declarations[2].Anchor,
+                accessibilities: [CSharpTypeAccessibility.Public]));
+
+        Assert.DoesNotContain("private int", projection.Text, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            projection.Diagnostics.Count(diagnostic =>
+                diagnostic.Kind
+                    == CSharpTypeProjectionDiagnosticKind.HiddenSelectedBodyContribution));
+        Assert.Equal([0, 1], projection.Diagnostics
+            .Where(diagnostic =>
+                diagnostic.Kind
+                    == CSharpTypeProjectionDiagnosticKind.HiddenSelectedBodyContribution)
+            .Select(static diagnostic => diagnostic.DeclarationId));
+    }
+
+    [Fact]
+    public void SelectedBody_RejectsHiddenAndForeignMembers()
+    {
+        CSharpTypeDocument document = Create(Input());
+
+        var hidden = Assert.IsType<CSharpTypeProjectionOutcome.Rejected>(
+            CSharpTypeDocumentProjector.Project(
+                document,
+                new(
+                    CSharpTypeBodyMode.SelectedBody,
+                    document.Declarations[0].Anchor,
+                    accessibilities: [CSharpTypeAccessibility.Public])));
+        Assert.Equal(
+            CSharpTypeProjectionFailureKind.SelectedMemberHidden,
+            hidden.Kind);
+
+        var foreign = Assert.IsType<CSharpTypeProjectionOutcome.Rejected>(
+            CSharpTypeDocumentProjector.Project(
+                document,
+                new(
+                    CSharpTypeBodyMode.SelectedBody,
+                    Anchor("Foreign", "void Foreign()"))));
+        Assert.Equal(
+            CSharpTypeProjectionFailureKind.SelectedMemberNotFound,
+            foreign.Kind);
+    }
+
+    [Fact]
+    public void NarrowPlacementFilters_DoNotGuessUnclassifiedDeclarations()
+    {
+        var input = Input();
+        input.Declarations[3] = input.Declarations[3] with
+        {
+            Placement = CSharpTypeDeclarationPlacement.Unclassified,
+        };
+        CSharpTypeDocument document = Create(input);
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(placement: CSharpTypePlacementFilter.Static));
+
+        Assert.Empty(projection.Declarations);
+        Assert.Equal("public class Sample\n{\n}", projection.Text);
+    }
+
+    [Fact]
+    public void Outcomes_RequireExactIncompleteBodyEvidence()
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            Outcome = CSharpTypeBodyOutcome.Failed,
+            Fidelity = DecompilationFidelity.Failed,
+        };
+        CSharpTypeDocument document = Create(input);
+
+        Assert.Throws<ArgumentException>(
+            () => new CSharpTypeDocumentOutcome.Available(document));
+        var incomplete = new CSharpTypeDocumentOutcome.Incomplete(document, [0]);
+        Assert.Equal([0], incomplete.FailedBodyIds);
+        Assert.Throws<ArgumentException>(
+            () => new CSharpTypeDocumentOutcome.Incomplete(document, [1]));
+    }
+
+    static CSharpTypeDocumentProjection Project(
+        CSharpTypeDocument document,
+        CSharpTypeProjectionRequest request)
+        => Assert.IsType<CSharpTypeProjectionOutcome.Projected>(
+            CSharpTypeDocumentProjector.Project(document, request)).Projection;
+
+    static string Slice(string text, CSharpSourceRange range)
+        => text.Substring(range.Start, range.Length);
+
+    static CSharpTypeDocument Create(DocumentInput input)
+        => CSharpTypeDocument.Create(
+            input.TypeName,
+            input.TypeAddress,
+            input.Source,
+            input.Frame,
+            input.Artifacts,
+            input.Bodies,
+            input.Declarations);
+
+    static DocumentInput Input()
+    {
+        Guid mvid = Guid.Parse("D1D973E2-91F0-45F2-8B5D-4F85944B8114");
+        MemberAnchor fieldA = Anchor("_a", "int Sample._a", "aaaaaaaaaa");
+        MemberAnchor fieldB = Anchor("_b", "int Sample._b", "aaaaaaaaaa");
+        MemberAnchor constructor = Anchor(".ctor()", "void Sample..ctor()");
+        MemberAnchor getter = Anchor(
+            "get_X()",
+            "int Sample.get_X()");
+        MemberAnchor setter = Anchor(
+            "set_X(int)",
+            "void Sample.set_X(int value)");
+        MemberAnchor property = Anchor("X", "int Sample.X");
+
+        const string constructorBody = " { _a = 1; _b = 2; }";
+        const string propertyBody =
+            " { get { return _a; } set { _a = value; } }";
+        int getterStart = propertyBody.IndexOf("{ return", StringComparison.Ordinal);
+        int setterStart = propertyBody.IndexOf("{ _a = value", StringComparison.Ordinal);
+
+        return new(
+            TypeName("Samples", "Sample"),
+            MetadataTypeDefinitionAddress.FromToken(
+                mvid,
+                0x02000001),
+            new(
+                CSharpTypeSourceKind.Decompiled,
+                "Sample.Assembly",
+                PdbSupplied: false,
+                DecompilerSymbolSource.None,
+                "structured-type-document-v1"),
+            new(
+                [
+                    Fixed(0, "public class Sample\n{"),
+                ],
+                "\n    ",
+                "\n}"),
+            [
+                Artifact(0, fieldA, 0x04000001, CSharpTypeArtifactKind.Field, 0),
+                Artifact(1, fieldB, 0x04000002, CSharpTypeArtifactKind.Field, 1),
+                Artifact(2, constructor, 0x06000001, CSharpTypeArtifactKind.Method, 2),
+                Artifact(
+                    3,
+                    getter,
+                    0x06000002,
+                    CSharpTypeArtifactKind.Method,
+                    3,
+                    CSharpTypeArtifactRole.Getter),
+                Artifact(
+                    4,
+                    setter,
+                    0x06000003,
+                    CSharpTypeArtifactKind.Method,
+                    3,
+                    CSharpTypeArtifactRole.Setter),
+                Artifact(5, property, 0x17000001, CSharpTypeArtifactKind.Property, 3),
+            ],
+            [
+                Body(0, mvid, 0x06000001, 2, CSharpTypeBodyRole.Method, 'A'),
+                Body(1, mvid, 0x06000002, 3, CSharpTypeBodyRole.Getter, 'B'),
+                Body(2, mvid, 0x06000003, 4, CSharpTypeBodyRole.Setter, 'C'),
+            ],
+            [
+                new(
+                    0,
+                    0,
+                    fieldA,
+                    0x04000001,
+                    CSharpTypeDeclarationKind.Field,
+                    CSharpTypeAccessibility.Private,
+                    CSharpTypeDeclarationPlacement.Instance,
+                    CSharpTypeOrigin.NonGenerated,
+                    [
+                        Fixed(0, "private int _a"),
+                        Implementation(
+                            1,
+                            " = 1",
+                            "",
+                            CSharpTypeImplementationKind.Initializer,
+                            contributions:
+                            [
+                                new(
+                                    0,
+                                    CSharpTypeBodyContributionRole.FieldInitializer,
+                                    new(1, 3)),
+                            ]),
+                        Fixed(2, ";"),
+                    ]),
+                new(
+                    1,
+                    1,
+                    fieldB,
+                    0x04000002,
+                    CSharpTypeDeclarationKind.Field,
+                    CSharpTypeAccessibility.Private,
+                    CSharpTypeDeclarationPlacement.Instance,
+                    CSharpTypeOrigin.NonGenerated,
+                    [
+                        Fixed(0, "private int _b"),
+                        Implementation(
+                            1,
+                            " = 2",
+                            "",
+                            CSharpTypeImplementationKind.Initializer,
+                            contributions:
+                            [
+                                new(
+                                    0,
+                                    CSharpTypeBodyContributionRole.FieldInitializer,
+                                    new(1, 3)),
+                            ]),
+                        Fixed(2, ";"),
+                    ]),
+                new(
+                    2,
+                    2,
+                    constructor,
+                    0x06000001,
+                    CSharpTypeDeclarationKind.Constructor,
+                    CSharpTypeAccessibility.Public,
+                    CSharpTypeDeclarationPlacement.Instance,
+                    CSharpTypeOrigin.NonGenerated,
+                    [
+                        Fixed(0, "public Sample()"),
+                        Implementation(
+                            1,
+                            constructorBody,
+                            " { }",
+                            CSharpTypeImplementationKind.Body,
+                            ownedBodies:
+                            [
+                                new(
+                                    0,
+                                    new(1, constructorBody.Length - 1)),
+                            ]),
+                    ]),
+                new(
+                    3,
+                    3,
+                    property,
+                    0x17000001,
+                    CSharpTypeDeclarationKind.Property,
+                    CSharpTypeAccessibility.Public,
+                    CSharpTypeDeclarationPlacement.Instance,
+                    CSharpTypeOrigin.NonGenerated,
+                    [
+                        Fixed(0, "public int X"),
+                        Implementation(
+                            1,
+                            propertyBody,
+                            " { get; set; }",
+                            CSharpTypeImplementationKind.Body,
+                            ownedBodies:
+                            [
+                                new(
+                                    1,
+                                    new(
+                                        getterStart,
+                                        "{ return _a; }".Length)),
+                                new(
+                                    2,
+                                    new(
+                                        setterStart,
+                                        "{ _a = value; }".Length)),
+                            ]),
+                    ]),
+            ]);
+    }
+
+    static CSharpTypePhysicalArtifact Artifact(
+        int id,
+        MemberAnchor anchor,
+        int token,
+        CSharpTypeArtifactKind kind,
+        int declarationId,
+        CSharpTypeArtifactRole role = CSharpTypeArtifactRole.Declaration)
+        => new(
+            id,
+            anchor,
+            token,
+            kind,
+            CSharpTypeOrigin.NonGenerated,
+            new(
+                CSharpTypeArtifactRepresentationKind.Declaration,
+                role,
+                declarationId));
+
+    static CSharpTypePhysicalBody Body(
+        int id,
+        Guid mvid,
+        int token,
+        int artifactId,
+        CSharpTypeBodyRole role,
+        char fingerprint)
+        => new(
+            id,
+            new(
+                mvid,
+                MetadataTokens.MethodDefinitionHandle(token & 0x00FFFFFF)),
+            artifactId,
+            role,
+            HasManagedBody: true,
+            CSharpTypeBodyOutcome.Available,
+            DecompilationFidelity.Full,
+            new string(fingerprint, 64));
+
+    static CSharpTypeRenderPart Fixed(int id, string text)
+        => new(
+            id,
+            CSharpTypeRenderPartKind.Fixed,
+            CSharpTypeRegionRole.Signature,
+            text,
+            text);
+
+    static CSharpTypeRenderPart Implementation(
+        int id,
+        string full,
+        string skeleton,
+        CSharpTypeImplementationKind kind,
+        ImmutableArray<CSharpTypeOwnedBodyReference> ownedBodies = default,
+        ImmutableArray<CSharpTypeBodyContribution> contributions = default)
+        => new(
+            id,
+            CSharpTypeRenderPartKind.Implementation,
+            CSharpTypeRegionRole.Implementation,
+            full,
+            skeleton,
+            kind,
+            ownedBodies,
+            contributions);
+
+    static MemberAnchor Anchor(
+        string selector,
+        string signature,
+        string? fingerprint = null)
+        => new(
+            selector,
+            signature,
+            fingerprint ?? MemberAnchor.ComputeFingerprint(signature),
+            "Samples.Sample",
+            selector);
+
+    static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        params string[] segments)
+        => Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [.. segments])).Name;
+
+    sealed record DocumentInput(
+        MetadataTypeDefinitionName TypeName,
+        MetadataTypeDefinitionAddress TypeAddress,
+        CSharpTypeDocumentSource Source,
+        CSharpTypeFrame Frame,
+        List<CSharpTypePhysicalArtifact> Artifacts,
+        List<CSharpTypePhysicalBody> Bodies,
+        List<CSharpTypeDeclaration> Declarations);
+}
