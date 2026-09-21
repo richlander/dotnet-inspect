@@ -748,7 +748,7 @@ internal static class DiffHistoryCommand
             CommandError.WriteNote(diagnostic.Summary.ToString());
     }
 
-    sealed class DesktopHistoryCellExecutor : 
+    sealed class DesktopHistoryCellExecutor :
         IPackageHouseVersionPopulationCellExecutor,
         IDisposable
     {
