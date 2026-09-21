@@ -494,9 +494,12 @@ public static class PackageDependencyMemberCallGraphOperation
         PackageDependencyMemberCallGraphRequest request,
         PackageDependencyWorkspaceRouteOutcome.Completed routes)
     {
-        var candidates = new List<PackageRootBinding>(
-            request.RootBindings.Length + routes.Destinations.Length);
-        candidates.Add(
+        var candidates =
+            new Dictionary<WorkspacePackageOccurrenceIdentity,
+                PackageRootBinding>(ReferenceEqualityComparer.Instance);
+        AddExactGraphBinding(
+            routes.Scope,
+            candidates,
             request.RootBindings[
                 request.Focus.RootOccurrenceIndex]);
         for (int rootIndex = 0;
@@ -504,7 +507,12 @@ public static class PackageDependencyMemberCallGraphOperation
             rootIndex++)
         {
             if (rootIndex != request.Focus.RootOccurrenceIndex)
-                candidates.Add(request.RootBindings[rootIndex]);
+            {
+                AddExactGraphBinding(
+                    routes.Scope,
+                    candidates,
+                    request.RootBindings[rootIndex]);
+            }
         }
         foreach (PackageDependencyWorkspaceDestination.Package package
             in routes.Destinations.OfType<
@@ -519,21 +527,27 @@ public static class PackageDependencyMemberCallGraphOperation
             {
                 continue;
             }
-            candidates.Add(contributed.Contribution.Binding);
+            PackageRootBinding binding =
+                contributed.Contribution.Binding;
+            WorkspacePackageOccurrenceDescriptor? occurrence =
+                routes.Scope.FindExactPackageOccurrence(binding);
+            if (!ReferenceEquals(occurrence, package.Occurrence))
+            {
+                throw new InvalidOperationException(
+                    "A completed dependency Package route must retain the exact contributed binding or fail before graph construction.");
+            }
+            candidates.TryAdd(
+                occurrence.Occurrence.Identity,
+                binding);
         }
 
         var bindings = ImmutableArray.CreateBuilder<PackageRootBinding>();
-        var admitted = new HashSet<WorkspacePackageOccurrenceIdentity>(
-            ReferenceEqualityComparer.Instance);
         foreach (WorkspacePackageOccurrenceDescriptor occurrence
             in routes.Scope.Packages)
         {
-            PackageRootBinding? binding = candidates.FirstOrDefault(
-                candidate => ReferenceEquals(
-                    routes.Scope.FindExactPackageOccurrence(candidate),
-                    occurrence));
-            if (binding is null
-                || !admitted.Add(occurrence.Occurrence.Identity))
+            if (!candidates.TryGetValue(
+                    occurrence.Occurrence.Identity,
+                    out PackageRootBinding? binding))
             {
                 continue;
             }
@@ -546,6 +560,24 @@ public static class PackageDependencyMemberCallGraphOperation
                 "Dependency call-graph composition requires at least one routed Package Root.");
         }
         return bindings.ToImmutable();
+    }
+
+    private static void AddExactGraphBinding(
+        WorkspaceScopeSnapshot scope,
+        Dictionary<WorkspacePackageOccurrenceIdentity, PackageRootBinding>
+            bindings,
+        PackageRootBinding binding)
+    {
+        WorkspacePackageOccurrenceDescriptor? occurrence =
+            scope.FindExactPackageOccurrence(binding);
+        if (occurrence is null)
+        {
+            throw new InvalidOperationException(
+                "A dependency call-graph root must retain its exact final Workspace occurrence.");
+        }
+        bindings.TryAdd(
+            occurrence.Occurrence.Identity,
+            binding);
     }
 
     private static ImmutableArray<PackageDependencyMemberCallGraphRoute>

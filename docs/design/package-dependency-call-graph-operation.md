@@ -133,6 +133,10 @@ realization set.
 
 A committed or no-effect Scope result permits package-role construction. Any
 other Scope result is returned as a typed not-completed outcome with no graph.
+When a no-effect publication reuses a logical Package occurrence from another
+content generation, graph construction fails visibly unless the completed
+route retains the exact binding for that final occurrence. It never silently
+omits the routed Package from the implementation context.
 
 The route result remains authoritative:
 
@@ -266,13 +270,15 @@ Release gates cover:
 6. every traversal root binding identifies its exact retained generation and
    selection in the captured Workspace Scope;
 7. only exact routed Package occurrences enter the package-role demand;
-8. the exact root implementation MethodDef remains the graph seed;
-9. a dependency boundary call enters the external-focused graph without
+8. a reused logical Package occurrence from another generation fails visibly
+   rather than being omitted from graph analysis;
+9. the exact root implementation MethodDef remains the graph seed;
+10. a dependency boundary call enters the external-focused graph without
    retaining dependency-internal continuation;
-10. route and graph evidence remain usable after source-operation and
+11. route and graph evidence remain usable after source-operation and
    package-role cleanup;
-11. cleanup failure cannot return a success-shaped graph; and
-12. existing edge realization, Workspace route, package-role, and ordinary
+12. cleanup failure cannot return a success-shaped graph; and
+13. existing edge realization, Workspace route, package-role, and ordinary
     call-graph behavior remain unchanged.
 
 ## Non-claims

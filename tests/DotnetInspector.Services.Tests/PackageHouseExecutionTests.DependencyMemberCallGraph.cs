@@ -58,7 +58,6 @@ public sealed partial class PackageHouseExecutionTests
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
                     PackageHouseTargetContext.Exact("net12.0")));
-
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
@@ -166,7 +165,6 @@ public sealed partial class PackageHouseExecutionTests
                     PackageHouseOperation.Create(
                         PackageHouseOperationProfile.Realize),
                     PackageHouseTargetContext.Exact("net12.0")));
-
         await using var workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
         WorkspaceScopeSnapshot rooted =
@@ -301,6 +299,108 @@ public sealed partial class PackageHouseExecutionTests
             current.FindExactPackageOccurrence(scopeBinding));
         Assert.Null(
             current.FindExactPackageOccurrence(requestBinding));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphRejectsReusedDependencyGeneration()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        PackageRootBinding rootBinding = CallGraphRootBinding(
+            (CallGraphTargetPackage, RouteVersion));
+        RealizedPackageDependencyContext rootContext =
+            await RouteRootContextAsync(rootBinding);
+        PackageDependencyTraversalOutcome traversal =
+            await RouteTraversalAsync(
+                environment,
+                new PackageDependencyTraversalRootOccurrence(
+                    rootContext,
+                    PackageDependencyTraversalExpansionAuthority
+                        .RecursiveSources));
+        PackageDependencyEdgeRealizationExecution execution =
+            PackageDependencyEdgeRealizationQuery.Execute(
+                new PackageDependencyEdgeRealizationRequest(
+                    traversal,
+                    rootOccurrenceIndex: 0,
+                    edgeIndex: 0,
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize),
+                    PackageHouseTargetContext.Exact("net12.0")));
+        PackageDependencyEdgeRealizationEvidence retainedRealization =
+            await execution.ExecuteAsync(
+                environment.CreateHouse(
+                    (_, _) => new InMemoryPackageStore()),
+                environment.IssueOperation(
+                    execution.Request,
+                    TestContext.Current.CancellationToken));
+        PackageRootBinding retainedDependency =
+            Assert.IsType<
+                PackageHouseRootContributionOutcome.Contributed>(
+                retainedRealization.RootContribution)
+            .Contribution.Binding;
+
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot empty = await CurrentScopeAsync(workspace);
+        WorkspaceScopeSnapshot rooted =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    empty.Revision,
+                    empty.PublicationBase,
+                    [rootBinding, retainedDependency],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    TestContext.Current.CancellationToken)).Snapshot;
+        var request = new PackageDependencyMemberCallGraphRequest(
+            workspace,
+            rooted,
+            traversal,
+            [rootBinding],
+            [execution],
+            new PackageDependencyMemberCallGraphFocus(
+                rootOccurrenceIndex: 0,
+                ModuleVersionId(CallGraphCallerPath),
+                MethodToken(
+                    CallGraphCallerPath,
+                    "Entry",
+                    "RunAcrossBoundary")),
+            new(
+                maxDepth: 2,
+                maxNodes: 10),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () =>
+                    PackageDependencyMemberCallGraphOperation.ExecuteAsync(
+                        request,
+                        environment.CreateHouse(
+                            (_, _) => new InMemoryPackageStore()),
+                        environment.IssueOperation(
+                            execution.Request,
+                            TestContext.Current.CancellationToken)));
+
+        Assert.Contains(
+            "exact contributed binding",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            environment.Clients.Sum(client =>
+                client.PayloadPackageIds.Count(package =>
+                    package == CallGraphTargetPackage)));
+        WorkspaceScopeSnapshot current = await CurrentScopeAsync(workspace);
+        Assert.Equal(2, current.Packages.Length);
+        Assert.NotNull(
+            current.FindExactPackageOccurrence(retainedDependency));
         await environment.AssertRootSettledAsync();
     }
 
