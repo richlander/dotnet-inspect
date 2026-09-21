@@ -793,7 +793,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             Framework,
             runtimeIdentifier: null);
         await using var coordinator =
-            new WorkspaceRealizationCoordinator();
+            new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
                 await coordinator.BeginCandidateAsync(
@@ -918,7 +918,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
         WorkspaceContextInput input = Input();
         await using var coordinator =
-            new WorkspaceRealizationCoordinator();
+            new WorkspaceReplacementCoordinator();
         (WorkspaceRealizationCandidate candidate,
             WorkspaceContextLoadOutcome.Loaded loaded) =
             await PrepareCandidateAsync(
@@ -1248,7 +1248,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             Framework,
             runtimeIdentifier: null);
         await using var coordinator =
-            new WorkspaceRealizationCoordinator();
+            new WorkspaceReplacementCoordinator();
         WorkspaceRealizationCandidate candidate =
             Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
                 await coordinator.BeginCandidateAsync(
@@ -1344,7 +1344,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             typeName);
         WorkspaceContextInput input = Input();
         var plan = new WorkspacePlan([], [input]);
-        await using var coordinator = new WorkspaceRealizationCoordinator();
+        await using var coordinator = new WorkspaceReplacementCoordinator();
 
         (WorkspaceRealizationCandidate predecessorCandidate,
             WorkspaceContextLoadOutcome.Loaded predecessorLoaded) =
@@ -1488,7 +1488,7 @@ public sealed partial class ExactTypeInspectionOperationTests
     static async Task<(
         WorkspaceRealizationCandidate Candidate,
         WorkspaceContextLoadOutcome.Loaded Loaded)> PrepareCandidateAsync(
-            WorkspaceRealizationCoordinator coordinator,
+            WorkspaceReplacementCoordinator coordinator,
             WorkspacePlan plan,
             WorkspaceContextInput input,
             WorkspaceContextLoadOptions options)

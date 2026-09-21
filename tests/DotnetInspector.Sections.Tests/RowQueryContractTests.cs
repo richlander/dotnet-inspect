@@ -807,6 +807,34 @@ public sealed class RowQueryContractTests
                     baselineFactoryPlan)));
         Assert.Equal(2, baselineFactoryCalls);
 
+        ResolvedRowQueryPlan<QueryRow> competingFailurePlan =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    RowQueryVocabulary<QueryRow>.Create(
+                        RowQueryVocabularyIdentity.Create(),
+                        [predicateKey],
+                        [baselineFactoryOrder]),
+                    Intent(
+                        predicates:
+                        [
+                            Predicate(
+                                "value",
+                                RowQueryOperator.Equals,
+                                "1")
+                        ],
+                        baseline:
+                            RowQueryOrderIntent.Named(
+                                "baseline-throwing",
+                                RowQueryOrderDirection.Ascending))));
+        baselineFactoryCalls = 0;
+        Assert.Same(
+            predicateException,
+            Assert.Throws<SentinelException>(
+                () => RowQueryExecutor.Apply(
+                    [new("A", 1, 1, "x")],
+                    competingFailurePlan)));
+        Assert.Equal(0, baselineFactoryCalls);
+
         var comparerException =
             new SentinelException("comparer");
         RowQueryKey<QueryRow> comparerKey =

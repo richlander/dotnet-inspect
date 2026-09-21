@@ -10,12 +10,17 @@ the target contract agreed before the held Depends and Library Query changes in
 [#7945](https://github.com/richlander/dotnet-inspect/pull/7945), and
 [#7872](https://github.com/richlander/dotnet-inspect/pull/7872) continue.
 
-The current implementation has several prerequisites:
+The current implementation has several prerequisites and one executable row
+composition slice:
 
 - `QuerySpace` carries portable intent, row-query resolution, semantic row
   selection, Query Operation registration, and the immutable
   `QuerySpaceDescriptor`, `QuerySpaceRequest`, and explicit row-intent
   association contracts;
+- `QuerySpaceBinding` retains the executable operation route beside typed row
+  scope bindings, and each typed row binding validates that its structural
+  facets, operators, named orders, and order capabilities match one owner-issued
+  `RowQueryVocabulary<TRow>`;
 - [Query Operation Infrastructure](query-operation-infrastructure.md) derives
   effective route capabilities from executable operation registration;
 - [L2 row query and ordering](row-query-order.md) resolves typed row predicates
@@ -28,16 +33,30 @@ The current implementation has several prerequisites:
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
 
-The Query Operation and direct-consumer Release gates verify that descriptors
+The Query Operation, Sections, and direct-consumer Release gates verify that
+descriptors
 project operation terms and work-bound dimensions from executable routes,
 project order and semantic-stage capabilities only through explicit row
 scopes, reject duplicate canonical keys, and that requests preserve explicit
 compatible row-set associations while separating operation bounds from row
-order and semantic selection. Transitional Query Operation route order and
-stage capabilities are not operation-scope capabilities. Section projection,
-typed row-plan resolution, terminal execution, continuation binding, and the
-complete gates in [Required gates](#required-gates) remain **unverified** until
-their named implementation slices land and run in Release.
+order and semantic selection. The complete-source, one-association path lowers
+one structural row intent through its typed row binding, retains the resolved
+plan beside the structural association, constructs the matching Sections
+execution request, retains the selected terminal, and executes Rows or Count
+without section-name or presentation-schema inference. A mismatched terminal
+cannot be invoked through the composed executor. The independent consumer
+exercises that path over application-owned types.
+Because the current structural descriptor cannot distinguish unqualified Top
+from explicit-ranking-only Top, a scope advertises Top only when its executable
+vocabulary supplies a default Top ranking. A future richer capability may
+represent the explicit-ranking-only form separately.
+
+Transitional Query Operation route order and stage capabilities are not
+operation-scope capabilities. Multiple row-intent associations, source
+evidence, projection stages, continuation binding, the full structural-plan
+meaning record, and the remaining gates in
+[Required gates](#required-gates) remain **unverified** until their named
+implementation slices land and run in Release.
 
 ## Owner and exact claim
 

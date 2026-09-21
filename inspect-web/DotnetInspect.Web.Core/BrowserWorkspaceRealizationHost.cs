@@ -113,7 +113,7 @@ internal abstract record BrowserWorkspaceRealizationCandidateRetirementResult
 }
 
 internal sealed record BrowserWorkspaceRealizationHostCloseReport(
-    WorkspaceRealizationCoordinatorCloseReport Coordinator,
+    WorkspaceReplacementCoordinatorCloseReport Coordinator,
     BrowserWorkspaceRealizationCapacitySnapshot Capacity);
 
 /// <summary>
@@ -127,7 +127,7 @@ internal sealed class BrowserWorkspaceRealizationHost : IAsyncDisposable
 
     readonly object _gate = new();
     readonly SemaphoreSlim _candidateStartGate = new(1, 1);
-    readonly WorkspaceRealizationCoordinator _coordinator = new();
+    readonly WorkspaceReplacementCoordinator _coordinator = new();
     readonly List<Charge> _charges = [];
     TaskCompletionSource _capacityChanged = NewSignal();
     TaskCompletionSource? _beginOperationsDrained;
@@ -698,12 +698,12 @@ internal sealed class BrowserWorkspaceRealizationHost : IAsyncDisposable
     }
 
     async Task CompleteCloseAsync(
-        Task<WorkspaceRealizationCoordinatorCloseReport> coordinatorClose,
+        Task<WorkspaceReplacementCoordinatorCloseReport> coordinatorClose,
         Task beginOperations,
         TaskCompletionSource<BrowserWorkspaceRealizationHostCloseReport>
             completion)
     {
-        WorkspaceRealizationCoordinatorCloseReport coordinator =
+        WorkspaceReplacementCoordinatorCloseReport coordinator =
             await coordinatorClose.ConfigureAwait(false);
         await beginOperations.ConfigureAwait(false);
         foreach (WorkspaceRealizationSettlement settlement

@@ -15,6 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
     <ProjectReference Include="../DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />

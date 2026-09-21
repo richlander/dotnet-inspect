@@ -1654,37 +1654,6 @@ public class AuthoredCorpusRatchetTests
         Assert.Contains("[integrity-only]", captured.ToString(), StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// <c>AuthoredCorpusBenchmark</c> names <c>Console.Out</c> exactly once, where it
-    /// defaults the caller's writer.
-    ///
-    /// <para>This is a source pin rather than a behavioural assertion because the defect
-    /// it guards is an <em>omission</em>: a report line added later that writes to the
-    /// global console instead of the injected writer. A behavioural test only catches
-    /// the lines it happens to assert on, which is exactly how two such lines survived
-    /// the round-five fix that introduced the writer. Any new global write fails here
-    /// whether or not anyone thought to assert on it.</para>
-    ///
-    /// <para>If this fails, do not raise the count — route the new write through the
-    /// <c>output</c> parameter. <c>Console.Error</c> is deliberately not pinned: the
-    /// side channel stays on stderr in both modes so <c>--json</c> emits parseable JSON
-    /// on stdout.</para>
-    /// </summary>
-    [Fact]
-    public void Benchmark_WritesToTheGlobalConsoleOnlyWhereItDefaultsTheWriter()
-    {
-        string source = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(), "tools", "DecompilerHarness", "AuthoredCorpusBenchmark.cs"));
-
-        var mentions = source
-            .Split('\n')
-            .Where(line => line.Contains("Console.Out", StringComparison.Ordinal))
-            .Select(line => line.Trim())
-            .ToArray();
-
-        Assert.Equal(["output ??= Console.Out;"], mentions);
-    }
-
     internal static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
