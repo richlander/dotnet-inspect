@@ -24,6 +24,13 @@ public union Boxed<TValue>(TValue, string);
 // classifier while its wire form stays a Base64 JSON string.
 public union Wrapped<TValue>(TValue, int);
 
+public union TimestampSelection(
+    DateTimeOffset,
+    DateTimeOffset?[],
+    IReadOnlyDictionary<string, DateTimeOffset>);
+
+public union NullableTimestampSelection(DateTimeOffset?, bool);
+
 public enum WidgetKind
 {
     Basic,
@@ -50,6 +57,8 @@ public sealed record SelectionEnvelope(
 [JsonSerializable(typeof(Boxed<int>))]
 [JsonSerializable(typeof(Boxed<WidgetDto>))]
 [JsonSerializable(typeof(Wrapped<byte[]>))]
+[JsonSerializable(typeof(TimestampSelection))]
+[JsonSerializable(typeof(NullableTimestampSelection))]
 [JsonSerializable(typeof(SelectionEnvelope))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class UnionFixtureJsonContext : JsonSerializerContext;

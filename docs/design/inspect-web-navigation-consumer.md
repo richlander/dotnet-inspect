@@ -683,6 +683,23 @@ occur in the defined order.
 
 ## Implementation gates
 
+### Platform catalog to Workspace history
+
+The motivating repository source is
+[`selectWorkspaceApplicationScope` at `5744ae5cd`](https://github.com/richlander/dotnet-inspect/blob/5744ae5cd/inspect-web/src/dotnet-inspect.ts).
+Its catalog-only Platform branch renders Workspace before projecting a URL,
+so maintenance synchronization replaces the catalog history entry. This
+violates the explicit-Workspace-action push classification above.
+The PR-fast `Platform Workspace entry preserves the catalog for Back and
+Forward` browser case exercises the existing production control, canonical
+packet path, and Platform fixture containing `System.Text.Json`. Neighboring
+cases gate pending projection, visible failure with an unchanged predecessor,
+superseding Query navigation, and preservation of newer Search focus.
+Package-backed fallback and new entry controls on other routed surfaces are
+outside this repair.
+
+### Existing transition gates
+
 Before implementation claims this interaction contract, it must add and pass
 these named Inspect Web tests. Descriptor-rendering and widget-focus gates for
 this same test file are recorded in
