@@ -13,8 +13,10 @@ namespace ILInspector.Decompiler.Tests;
 /// The long-literal spelling choice
 /// <see cref="PrinterOptions.PreferLongLiteralSuffix"/> (#3347, #7763): the
 /// user-facing product default renders compiler-shaped <c>long</c> constants as
-/// idiomatic <c>NL</c> literals, while the low-level fidelity default and the
-/// explicit alternate retain <c>(long)N</c> casts.
+/// idiomatic literals: <c>NL</c> when the marker fixes the type, and bare
+/// <c>N</c> when another binary operand independently fixes long promotion.
+/// The low-level fidelity default and explicit alternate retain
+/// <c>(long)N</c> casts.
 ///
 /// <para>Three claims are pinned here, in the order they matter:</para>
 /// <list type="number">
@@ -135,10 +137,10 @@ public sealed class LongLiteralFoldTests
         { nameof(LongLiteralFoldFixture.TernaryArms), "public static long TernaryArms(bool c, long tail) => (c ? 10L : 20L) + tail;" },
         { nameof(LongLiteralFoldFixture.SmallReturn), "public static long SmallReturn() => 42L;" },
         { nameof(LongLiteralFoldFixture.SmallArgument), "public static long SmallArgument() => Consume(7L);" },
-        { nameof(LongLiteralFoldFixture.BinaryOperand), "public static long BinaryOperand(long x) => x * 3L;" },
+        { nameof(LongLiteralFoldFixture.BinaryOperand), "public static long BinaryOperand(long x) => x * 3;" },
         // `-1L` is a UNARY expression, not a primary one; at the right operand of `*`
         // the demand is exactly Unary, so it stays bare and still binds correctly.
-        { nameof(LongLiteralFoldFixture.NegativeBinaryOperand), "public static long NegativeBinaryOperand(long x) => x * -1L;" },
+        { nameof(LongLiteralFoldFixture.NegativeBinaryOperand), "public static long NegativeBinaryOperand(long x) => x * -1;" },
         { nameof(LongLiteralFoldFixture.Zero), "public static long Zero() => 0L;" },
         { nameof(LongLiteralFoldFixture.MinusOne), "public static long MinusOne() => -1L;" },
         { nameof(LongLiteralFoldFixture.IntMinValue), "public static long IntMinValue() => -2147483648L;" },

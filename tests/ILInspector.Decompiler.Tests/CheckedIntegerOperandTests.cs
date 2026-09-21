@@ -8,6 +8,8 @@ namespace ILInspector.Decompiler.Tests;
 public sealed class CheckedIntegerOperandTests
 {
     const string FixtureType = "ILInspector.Decompiler.Fixtures.CheckedIntegerOperandSamples";
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
 
     [Theory]
     [InlineData("Unsigned64", "UInt64", "ulong")]
@@ -29,6 +31,104 @@ public sealed class CheckedIntegerOperandTests
             Assert.Equal(type, Assert.IsType<Coerce>(binary.Right).Target.Name);
             Assert.Contains($"checked {{ value += unchecked(({keyword})", CSharpPrinter.Print(function).Output);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProductSpellingUsesSiblingLongPromotionForCompilerFixture(bool updated)
+    {
+        using var source = MetadataSource.Open(FixturePath(updated));
+        var function = Raise(source, "Unsigned64");
+
+        string strict = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+        string product = Assert.IsType<string>(
+            CSharpPrinter.Print(function, StyleOptionCatalog.DefaultOptions).Output);
+
+        Assert.Contains("amount + (long)1", strict);
+        Assert.Contains("amount + 1", product);
+        Assert.DoesNotContain("amount + 1L", product);
+        Assert.DoesNotContain("amount + (long)1", product);
+    }
+
+    [Theory]
+    [InlineData(BinaryKind.Add, "+")]
+    [InlineData(BinaryKind.Subtract, "-")]
+    [InlineData(BinaryKind.Multiply, "*")]
+    [InlineData(BinaryKind.Divide, "/")]
+    [InlineData(BinaryKind.Remainder, "%")]
+    public void ProductSpellingElidesLongMarkerWhenSiblingFixesArithmeticWidth(
+        BinaryKind kind,
+        string token)
+    {
+        var widening = LongConstant(1);
+
+        Assert.Contains(
+            $"return left {token} 1;",
+            PrintBinary(kind, new LoadArgument(0, "left", Int64), widening,
+                StyleOptionCatalog.DefaultOptions));
+        Assert.Contains(
+            $"return 1 {token} right;",
+            PrintBinary(kind, LongConstant(1), new LoadArgument(1, "right", Int64),
+                StyleOptionCatalog.DefaultOptions));
+        Assert.Contains(
+            $"return left {token} (long)1;",
+            PrintBinary(kind, new LoadArgument(0, "left", Int64), LongConstant(1),
+                PrinterOptions.Default));
+    }
+
+    [Fact]
+    public void ProductSpellingRetainsLongMarkerWithoutIndependentLongOperand()
+    {
+        Assert.Contains(
+            "return left + 1L;",
+            PrintBinary(
+                BinaryKind.Add,
+                new LoadArgument(0, "left", Int32),
+                LongConstant(1),
+                StyleOptionCatalog.DefaultOptions,
+                returnType: Int64,
+                leftParameterType: Int32));
+        Assert.Contains(
+            "return 1L + 2L;",
+            PrintBinary(
+                BinaryKind.Add,
+                LongConstant(1),
+                LongConstant(2),
+                StyleOptionCatalog.DefaultOptions));
+        Assert.Contains(
+            "return left + 1L;",
+            PrintBinary(
+                BinaryKind.Add,
+                new Coerce(Int64, new LoadArgument(0, "left", Int32)),
+                LongConstant(1),
+                StyleOptionCatalog.DefaultOptions,
+                leftParameterType: Int32));
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [Trait("Area", "Fidelity")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompilerProducedBinaryPromotionProductSpellingRecompilesExactly(bool updated)
+    {
+        string path = FixturePath(updated);
+        var result = Assert.Single(FidelityCheck.EvaluateTargets(
+            [path],
+            [
+                new FidelityCheck.CompileBackTarget(
+                    path,
+                    FixtureType,
+                    "Unsigned64",
+                    Overload: 0,
+                    Signature: "(corelib:System.UInt64, corelib:System.Int64) -> corelib:System.UInt64"),
+            ],
+            lowered: false,
+            options: StyleOptionCatalog.DefaultOptions));
+
+        Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Method}: {result.Status}: {result.Detail}");
     }
 
     [Theory]
@@ -265,5 +365,39 @@ public sealed class CheckedIntegerOperandTests
         Assert.Empty(CoercionInvariant.Check(function));
         function.CheckInvariant(includeSemantics: true);
         return function;
+    }
+
+    static IrExpression LongConstant(int value)
+        => new ILInspector.Decompiler.Pipeline.Convert(
+            Int64, isChecked: false, isUnsigned: false, new Constant(value, Int32));
+
+    static string PrintBinary(
+        BinaryKind kind,
+        IrExpression left,
+        IrExpression right,
+        PrinterOptions options,
+        TypeRef? returnType = null,
+        TypeRef? leftParameterType = null,
+        TypeRef? rightParameterType = null)
+    {
+        var binary = new Binary(kind, isChecked: false, isUnsigned: false, left, right);
+        var block = new Block(0);
+        block.Add(new Return(binary));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "Boundary",
+            TypeRef.Definition("fixture", "", "Boundary"),
+            new MethodSignature(
+                returnType ?? binary.ResultType!,
+                [
+                    new Parameter("left", leftParameterType ?? Int64),
+                    new Parameter("right", rightParameterType ?? Int64),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+        return Assert.IsType<string>(CSharpPrinter.Print(function, options).Output);
     }
 }
