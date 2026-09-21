@@ -680,7 +680,6 @@ public class LibraryInspectionView
     public List<string>? MissingSourceFilesSection =>
         _data.MissingSourceFiles?
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-            .Take(10)
             .Select(MarkoutInline.Code)
             .ToList();
 

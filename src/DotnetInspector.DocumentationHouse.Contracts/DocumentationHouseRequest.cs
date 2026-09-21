@@ -200,6 +200,8 @@ public sealed class DocumentationSubjectReference
 public enum DocumentationDemand
 {
     CompiledXml,
+    AuthoredSourceDocumentation,
+    CompiledXmlAndAuthoredSourceDocumentation,
 }
 
 public sealed class DocumentationHouseLimits
@@ -256,7 +258,8 @@ public sealed class DocumentationHouseOperationPlan
         DocumentationHousePolicyGeneration policyGeneration,
         DocumentationHouseLimits limits,
         DateTimeOffset deadline,
-        IReadOnlyList<CompiledXmlContribution> compiledXmlContributions)
+        IReadOnlyList<CompiledXmlContribution> compiledXmlContributions,
+        DocumentationAuthoredSourceChannelPlan? authoredSource = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(policyGeneration);
@@ -294,6 +297,7 @@ public sealed class DocumentationHouseOperationPlan
 
         CompiledXmlContributions =
             Array.AsReadOnly(_compiledXmlContributions);
+        AuthoredSource = authoredSource;
     }
 
     public DocumentationHouseOperationPlanIdentity Identity { get; }
@@ -306,11 +310,38 @@ public sealed class DocumentationHouseOperationPlan
     {
         get;
     }
+    public DocumentationAuthoredSourceChannelPlan? AuthoredSource { get; }
 }
 
 /// <summary>
-/// One resource-free DocumentationHouse request. Live Library authority is
-/// transferred separately to the executing operation.
+/// One pre-authorized source-neutral operation available to an authored
+/// documentation channel.
+/// </summary>
+public sealed class DocumentationAuthoredSourceChannelPlan
+{
+    public DocumentationAuthoredSourceChannelPlan(
+        DocumentationAuthoredSourceOperationBinding binding,
+        DocumentationAuthoredSourceOperationLimits limits,
+        IDocumentationAuthoredSourceOperation operation)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        Binding = binding;
+        Limits = limits;
+        Operation = operation;
+    }
+
+    public DocumentationAuthoredSourceOperationBinding Binding { get; }
+    public DocumentationAuthoredSourceOperationLimits Limits { get; }
+    public IDocumentationAuthoredSourceOperation Operation { get; }
+}
+
+/// <summary>
+/// One DocumentationHouse request. Live Library authority is transferred
+/// separately; an optional cold authored operation is consumed only by
+/// explicit authored demand.
 /// </summary>
 public sealed class DocumentationHouseRequest
 {
@@ -325,6 +356,13 @@ public sealed class DocumentationHouseRequest
         if (!Enum.IsDefined(demand))
             throw new ArgumentOutOfRangeException(nameof(demand));
         ArgumentNullException.ThrowIfNull(plan);
+        if (demand == DocumentationDemand.CompiledXml
+            && plan.AuthoredSource is not null)
+        {
+            throw new ArgumentException(
+                "Compiled-only demand cannot retain an authored-source operation.",
+                nameof(plan));
+        }
 
         Identity = identity;
         Subject = subject;
@@ -336,6 +374,59 @@ public sealed class DocumentationHouseRequest
     public DocumentationSubjectReference Subject { get; }
     public DocumentationDemand Demand { get; }
     public DocumentationHouseOperationPlan Plan { get; }
+}
+
+/// <summary>Resource-free evidence for an accepted operation plan.</summary>
+public sealed class DocumentationHouseOperationPlanEvidence
+{
+    internal DocumentationHouseOperationPlanEvidence(
+        DocumentationHouseOperationPlan plan)
+    {
+        Identity = plan.Identity;
+        PolicyGeneration = plan.PolicyGeneration;
+        Limits = plan.Limits;
+        Deadline = plan.Deadline;
+        SuppliedCompiledXmlContributionCount =
+            plan.SuppliedCompiledXmlContributionCount;
+        ExceedsCompiledXmlContributionLimit =
+            plan.ExceedsCompiledXmlContributionLimit;
+        CompiledXmlContributions = plan.CompiledXmlContributions;
+        AuthoredSourceBinding = plan.AuthoredSource?.Binding;
+        AuthoredSourceLimits = plan.AuthoredSource?.Limits;
+    }
+
+    public DocumentationHouseOperationPlanIdentity Identity { get; }
+    public DocumentationHousePolicyGeneration PolicyGeneration { get; }
+    public DocumentationHouseLimits Limits { get; }
+    public DateTimeOffset Deadline { get; }
+    public int SuppliedCompiledXmlContributionCount { get; }
+    public bool ExceedsCompiledXmlContributionLimit { get; }
+    public IReadOnlyList<CompiledXmlContribution> CompiledXmlContributions
+    {
+        get;
+    }
+    public DocumentationAuthoredSourceOperationBinding?
+        AuthoredSourceBinding { get; }
+    public DocumentationAuthoredSourceOperationLimits?
+        AuthoredSourceLimits { get; }
+}
+
+/// <summary>Resource-free evidence for one DocumentationHouse request.</summary>
+public sealed class DocumentationHouseRequestEvidence
+{
+    internal DocumentationHouseRequestEvidence(
+        DocumentationHouseRequest request)
+    {
+        Identity = request.Identity;
+        Subject = request.Subject;
+        Demand = request.Demand;
+        Plan = new(request.Plan);
+    }
+
+    public DocumentationHouseRequestIdentity Identity { get; }
+    public DocumentationSubjectReference Subject { get; }
+    public DocumentationDemand Demand { get; }
+    public DocumentationHouseOperationPlanEvidence Plan { get; }
 }
 
 internal static class DocumentationHouseContractName

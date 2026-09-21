@@ -106,14 +106,31 @@ The merge handoff remains the more specific final form.
 
 ## Making your work findable
 
-Inside tmux only, set the stable window identity at work start and when identity
-or scope changes; update the pane title at start, resume, and meaningful phase
-changes; publish `@agent`/`@agent_state` after every state change; and signal
-`HELP` while awaiting a human decision. Always announce the PR number and
-branch or expected head at start, resume, and each round start. Emit supporting
-status before opening a concise approval prompt. Exact commands, naming, state
-fields, and clear rules live in
-[Agent session state](docs/agent-session-state.md).
+Inside tmux only (`[ -n "$TMUX" ]`), use this operator template at work start,
+after every resume, and at each meaningful phase or state change. Replace the
+placeholders and issue each `tmux` command separately:
+
+```sh
+tmux rename-window -t "${TMUX_PANE:?}" \
+  "PR <number> | <domain> | <purpose>"
+tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"
+tmux set -w -t "${TMUX_PANE:?}" @agent \
+  "theme <theme>; round <n>, candidate <n> on PR <number>"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state \
+  "theme=<theme> pr=<number> head=<sha> round=<n> candidates=<n> usable=<n> findings=<n> reviews=<clean>/<required> rec=<action>"
+```
+
+Before a PR exists, replace `PR <number>` with `Issue <number>` in the window
+and `@agent` values, and use `issue=<number>` instead of `pr` in
+`@agent_state`; add `blocked`, `waiting`, and status-wait fields when
+applicable. Put `HELP` in `@agent` while awaiting a human decision and clear it
+immediately when answered; clear both options only when the window no longer
+owns work. At start, resume, and each round start, announce the current Issue
+or PR number plus branch or expected head. Emit supporting status before
+opening a concise approval prompt. This command block, its cadence, and its
+required fields must remain directly in `AGENTS.md`; [Agent session
+state](docs/agent-session-state.md) owns full naming, field, and lifecycle
+mechanics.
 
 ### Keep the review-clean label current
 
@@ -134,12 +151,11 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 
 ## User-directed workflow adjustments
 
-The user may adjust a sequencing gate for a specific task or PR. Follow that
-direction, record its scope and evidentiary consequence, and preserve every
-other requirement. An adjustment does not make failed validation successful,
-make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
-The standing adjustments and their exact evidence requirements live in
-[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
+A user may adjust sequencing for one task or PR, but cannot turn failed
+validation green, make an unmergeable PR ready, or transfer fixed-head evidence.
+Record its scope and consequence; follow
+[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments)
+for the standing mechanics.
 
 ## Before changing files
 
@@ -575,22 +591,9 @@ Every PR body puts `## Demo` above validation and follows the full
 
 When an issue is too large for one coherent PR, prefer a **stack** — a sequence
 of PRs targeting their predecessors — over one unreviewable PR or parallel PRs
-that race in the same files. `docs/stacked-prs.md` owns the mechanics.
-
-- Each slice must land independently with one claim and its own evidence, and
-  name its slice position, parent PR, and remaining work. Fold in any slice
-  that depends on later work for correctness.
-- Give each slice its own branch and worktree, branched from and targeted at
-  its parent; only the bottom open slice uses `main`. During a GitHub outage,
-  branch from the recorded last-known base or parent, then update and
-  validate bottom-up on recovery before pushing.
-- Merge bottom-up. After each merge, complete the theme handoff; if another
-  slice remains, propose confirming its retargeted diff as the next task.
-- Restacking your own slices is the exception to the no-force-push rule. Use
-  `--force-with-lease` and post a `range-diff` proving only the base changed.
-- Apply review depth and the canonical eligibility table per slice and
-  stack-wide. Every upper-slice restack and every other moved head needs a
-  review-clean round — the sole exception is a bottom open slice with a
-  user-approved exact-head trivial-interaction waiver; restacking never
-  retires findings.
-- Stop when another slice would exist only to continue the stack.
+that race in the same files. Each slice lands independently, branches and
+targets from its parent, and is merged bottom-up; only the bottom open slice
+targets `main`. Restack only your own slices with `--force-with-lease`, publish
+a `range-diff`, and re-review moved heads without retiring findings. Stop when
+another slice would exist only to continue the stack.
+[Stacked PRs](docs/stacked-prs.md) owns all mechanics.
