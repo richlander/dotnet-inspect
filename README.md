@@ -565,6 +565,10 @@ considers all package manifest groups by default; add
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
 dependency under the same scope. Use
+`depends-prefix=<literal-package-id-prefix>` to require a direct dependency
+whose package ID begins with that prefix. The match is literal and
+case-insensitive; include a trailing `.` to express a dot-delimited family.
+Use
 `depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
 against the ecosystem's registered exact packages and package prefixes:
 
@@ -577,6 +581,9 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends-prefix=Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
