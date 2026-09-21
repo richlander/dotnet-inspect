@@ -2926,7 +2926,9 @@ public sealed partial class PackageHouseExecutionTests
             NuGetOperationContext?,
             CancellationToken,
             Task>? BeforeVersions = null,
-        IReadOnlyList<string>? PayloadEntries = null);
+        IReadOnlyList<string>? PayloadEntries = null,
+        IReadOnlyList<(string EntryPath, byte[] Content)>?
+            PayloadContentEntries = null);
 
     private sealed class HouseEnvironment : IAsyncDisposable
     {
@@ -2954,6 +2956,13 @@ public sealed partial class PackageHouseExecutionTests
             params SourceBehavior[] behaviors)
             => CreateForPackage(PackageId, behaviors);
 
+        public static HouseEnvironment CreateForAnyPackage(
+            params SourceBehavior[] behaviors) =>
+            CreateForPackage(
+                packageId: null,
+                behaviors: behaviors,
+                useNuGetOrgEndpoint: false);
+
         public static HouseEnvironment CreateNuGetOrg(
             SourceBehavior behavior) =>
             CreateNuGetOrg(PackageId, behavior);
@@ -2975,7 +2984,7 @@ public sealed partial class PackageHouseExecutionTests
                 useNuGetOrgEndpoint: false);
 
         private static HouseEnvironment CreateForPackage(
-            string packageId,
+            string? packageId,
             SourceBehavior[] behaviors,
             bool useNuGetOrgEndpoint)
         {
@@ -3076,16 +3085,19 @@ public sealed partial class PackageHouseExecutionTests
 
     private sealed class FixedAuthorization(
         PackageSourceAuthorization authorization,
-        string expectedPackageId = PackageId)
+        string? expectedPackageId = PackageId)
         : IPackageSourceAuthorization
     {
         public PackageSourceAuthorization AuthorizeSourcesFor(
             string packageId)
         {
-            Assert.Equal(
-                expectedPackageId,
-                packageId,
-                ignoreCase: false);
+            if (expectedPackageId is not null)
+            {
+                Assert.Equal(
+                    expectedPackageId,
+                    packageId,
+                    ignoreCase: false);
+            }
             return authorization;
         }
     }
@@ -3261,11 +3273,11 @@ public sealed partial class PackageHouseExecutionTests
                         PackageSourceFailureKind.NotFound));
             }
 
-            IReadOnlyList<string> payloadEntries =
-                behavior.PayloadEntries
-                ?? [$"lib/net10.0/{PackageId}.dll"];
-            byte[] archive = TestPackageArchive.Create(
-                [.. payloadEntries]);
+            byte[] archive = behavior.PayloadContentEntries is { } content
+                ? TestPackageArchive.Create([.. content])
+                : TestPackageArchive.Create(
+                    [.. (behavior.PayloadEntries
+                        ?? [$"lib/net10.0/{PackageId}.dll"])]);
             PackageSourcePayload payload = factory.Payload(
                 coordinate,
                 PackageSourcePayloadKind.Package,
