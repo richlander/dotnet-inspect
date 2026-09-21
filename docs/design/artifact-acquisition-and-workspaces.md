@@ -4095,15 +4095,16 @@ resolution state or live access:
 | Retained immutable package-content snapshots, source-cache entries, and validated derivations | Realizations may hold independently releasable lower-owner references to the same snapshot or backing content when that owner validates identity, authorization, freshness, and lifetime. | Optional reuse, never promised. |
 | Persistent-cache evidence | A cache-category owner may admit a validated result under its complete semantic key and current authorization contract. A hit never supplies Workspace identity or operation authority. | Optional reuse; a miss or invalid entry takes the ordinary typed path. |
 
-An owner-defined operation may name two exact Workspaces, borrow its source
-input through one, and independently borrow its destination input through the
-other. Each Workspace authorizes only its own Root and realization, either
-borrow may fail visibly, and borrowed content remains inside both owners'
-lifetimes. The operation may compare those inputs or detach resource-free
+A focused owner-defined operation may take a caller-selected source Workspace
+and destination Workspace as explicit arguments. It accesses the named source
+only under the source Workspace's authority and, while that access remains
+valid, accesses the named destination only under the destination Workspace's
+authority. These are operation-scoped accesses to the two supplied endpoints,
+not a facility for discovering or borrowing from a set of active Workspaces.
+Either access may fail visibly, and accessed content remains inside both
+owners' lifetimes. The operation may compare the inputs or detach resource-free
 evidence; it does not install one Workspace's Root, registration, binding
-context, resolution index, lease, or authority in the other. This is
-caller-orchestrated composition, not a general
-simultaneous-active-Workspace policy.
+context, resolution index, lease, or authority in the other.
 
 Candidate, active, and draining realizations may therefore reuse lower-owner
 immutable backing without depending on that reuse. Closing a predecessor
