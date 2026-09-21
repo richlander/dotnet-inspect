@@ -193,8 +193,19 @@ public partial class ApiCommand
         bool projectedFactsJson = IsProjectedFactsJson(options);
         bool callsJson = IsCallsJson(options);
         bool callersJson = IsCallersJson(options);
-        bool barePayloadRenderer =
-            options.Bare && !options.Count && !options.JsonOutput;
+        bool typeApiDeclarationsJson =
+            options.JsonOutput
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && options is TypeOptions
+            {
+                IncludeSections: { Count: 1 },
+                TypeApiDeclarationInspection: not null,
+            }
+            && options.IncludeSections.Contains(
+                SectionNames.ApiDeclarations);
+        bool nativePayloadRenderer =
+            options.UsesNativePayloadDefault;
         string? exactSourceFailure =
             options is MemberOptions exactSourceOptions
                 ? ExactSourceFailure(exactSourceOptions)
@@ -212,7 +223,7 @@ public partial class ApiCommand
                         || (!memberOptions.MemberHasNoPdbDeclaration
                             && exactSourceFailure is { Length: > 0 }))))
             && !IsProjectionRequested(options)
-            && !barePayloadRenderer
+            && !nativePayloadRenderer
             && (options.Count
                 || options.Tabular
                 || options.JsonOutput)
@@ -245,14 +256,16 @@ public partial class ApiCommand
         }
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
+            && !typeApiDeclarationsJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson)
         {
-            if (GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.ImplementationProfiles))
+            if (SectionNames.IncludesBodyMetrics(
+                    GetRequestedMemberSections(type, options)))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
+                    $"Document --json cannot represent "
+                    + $"{(options is MemberOptions ? SectionNames.MemberMetrics : SectionNames.TypeMetrics)} analysis. "
                     + "Use --jsonl, --tsv, or --table.");
                 return 1;
             }
@@ -280,6 +293,23 @@ public partial class ApiCommand
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
             WriteJsonTypeOutput(type, options);
             return 0;
+        }
+
+        if (typeApiDeclarationsJson)
+        {
+            InspectionEnvelope<TypeApiDeclarationResult> inspection =
+                ((TypeOptions)options).TypeApiDeclarationInspection!;
+            JsonOutputHelper.Write(
+                inspection,
+                TypeApiDeclarationInspectionJsonContext.Default
+                    .InspectionEnvelopeTypeApiDeclarationResult,
+                TypeApiDeclarationInspectionJsonContext.Default
+                    .InspectionEnvelopeTypeApiDeclarationResult,
+                options.CompactJson);
+            return inspection.Content.Outcome
+                == TypeApiDeclarationOutcome.Available
+                    ? 0
+                    : 1;
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
@@ -449,8 +479,8 @@ public partial class ApiCommand
             }
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.ImplementationProfiles))
+                && SectionNames.IncludesBodyMetrics(
+                    GetRequestedMemberSections(type, options)))
             {
                 bool restrictImplementationProfiles =
                     ApiMemberSectionPipelines
@@ -465,7 +495,8 @@ public partial class ApiCommand
                             options)
                         : type,
                     TypeAnalysisIndex(),
-                    restrictToModelMembers:
+                            options is MemberOptions,
+                            restrictToModelMembers:
                         restrictImplementationProfiles,
                     selectedMethodToken:
                         (options as MemberOptions)?
@@ -766,6 +797,39 @@ public partial class ApiCommand
         // Sits OUTSIDE the member-sections region so enum types (which
         // populate EnumValues and skip that region) also compose.
         if (fullSerializer
+            && options is TypeOptions declarationOptions
+            && options.IncludeSections is { Count: > 0 }
+            && GetRequestedMemberSections(type, options)
+                .Contains(SectionNames.ApiDeclarations))
+        {
+            if (declarationOptions.TypeApiDeclarationInspection is not
+                { } inspection)
+            {
+                CommandError.Write(
+                    "The completed Type API declaration inspection is unavailable.");
+                return 1;
+            }
+            if (inspection.Content
+                is not
+                {
+                    Outcome: TypeApiDeclarationOutcome.Available,
+                    Text: { } declaration,
+                })
+            {
+                if (inspection.Diagnostics.Length == 0)
+                {
+                    CommandError.Write(
+                        "Type API declaration inspection did not produce an available declaration.");
+                }
+                return 1;
+            }
+
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.ApiDeclarationsCode =
+                new Markout.CodeSection("csharp", declaration);
+        }
+
+        if (fullSerializer
             && options is TypeOptions decompilationOptions
             && options.DllPath is not null
             && options.IncludeSections is { Count: > 0 }
@@ -929,19 +993,14 @@ public partial class ApiCommand
             return 0;
         }
 
-        // --bare: only the selected payload — no heading, fence, separator, or tips.
-        if (options.Bare)
+        if (options.UsesNativePayloadDefault)
         {
-            if (!TryGetBareApiPayload(view, options, out var raw, out var error))
+            if (TryGetNativeApiPayload(view, options, out var raw))
             {
-                CommandError.Write(error);
-                return 1;
+                OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
             }
-            // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
-            // it with LF too so --bare stays byte-stable for machine consumers.
-            OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
-            ApiOutputFormatter.WriteCallGraphWarning(view);
-            return 0;
         }
 
         if (options.Tabular)
@@ -1265,6 +1324,7 @@ public partial class ApiCommand
 
         var documents = section switch
         {
+            SectionNames.ApiDeclarations => CodeSectionDocument(section, SectionNames.ApiDeclarations, null, view.MemberCode?.ApiDeclarationsCode.Content),
             SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, MemberSourceUrl(options as MemberOptions), view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
@@ -1274,7 +1334,7 @@ public partial class ApiCommand
         };
 
         if (documents.Count == 0
-            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.PdbSource
+            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.ApiDeclarations or SectionNames.PdbSource
                 or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
             CommandError.Write($"section '{section}' is not printable.");
@@ -1288,8 +1348,8 @@ public partial class ApiCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                options.Bare,
-                new ProjectionDestination(null, options.Rows)));
+                new ProjectionDestination(null, options.Rows),
+                Markdown: options.UsesMarkdownPayloadFormat));
     }
 
     private static int WriteApiShapeProjection(TypeView view, ApiOptions options)
@@ -1413,10 +1473,22 @@ public partial class ApiCommand
                 static diagnostic => diagnostic.ToString())));
     }
 
-    private static List<PrintableDocument> CodeSectionDocument(string section, string label, string? url, string? content)
+    private static List<PrintableDocument> CodeSectionDocument(
+        string section,
+        string label,
+        string? url,
+        string? content)
         => string.IsNullOrEmpty(content)
             ? []
-            : [new PrintableDocument(1, section, label, null, url, content)];
+            : [new PrintableDocument(1, section, label, null, url, content)
+            {
+                Language = section switch
+                {
+                    SectionNames.IL => "il",
+                    SectionNames.SourceDiff => "diff",
+                    _ => "csharp"
+                }
+            }];
 
     /// <summary>
     /// Selects the row addressed by <paramref name="selector"/> from the rows a
@@ -1466,20 +1538,20 @@ public partial class ApiCommand
         return selected;
     }
 
-    private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)
+    private static bool TryGetNativeApiPayload(
+        TypeView view,
+        ApiOptions options,
+        out string raw)
     {
         raw = "";
-        error = "";
 
         if (options.IncludeSections is not { Count: 1 } included)
-        {
-            error = "--bare requires exactly one -S section.";
             return false;
-        }
 
         var section = included.First();
         raw = section switch
         {
+            SectionNames.ApiDeclarations => view.MemberCode?.ApiDeclarationsCode.Content ?? "",
             SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
             SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content ?? "",
@@ -1488,32 +1560,13 @@ public partial class ApiCommand
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
             SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode?.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
-            SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
-            SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
             _ => ""
         };
 
         if (raw.Length > 0)
             return true;
 
-        if (error.Length == 0)
-            error = "--bare requires a single selected payload with content.";
         return false;
-    }
-
-    private static string BareUrlColumn(IEnumerable<string?>? urls, string section, out string error)
-    {
-        error = "";
-        var values = urls?
-            .Where(url => !string.IsNullOrWhiteSpace(url))
-            .Select(url => url!)
-            .ToList() ?? [];
-
-        if (values.Count > 0)
-            return string.Join('\n', values);
-
-        error = $"--bare found no URL in section '{section}'.";
-        return "";
     }
 
 }

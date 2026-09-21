@@ -492,6 +492,53 @@ wrapped `throw <expr>;` would fold identically should one ever print multi-line;
 the printer does not currently produce multi-line throws, so that path is latent,
 not reachable.)
 
+#### Property expression bodies and accessor layout
+
+For a computed getter-only property, prefer the whole-property expression body
+when it can represent the property without dropping initialization or accessor
+metadata. Short expressions stay on one line:
+
+```csharp
+public string Foo => "Foo";
+```
+
+Otherwise, use the normal multi-line accessor list. Keep an expression-bodied
+getter where eligible, and a block where the body requires one. An initializer,
+setter, or getter attributes can require retaining the accessor list; do not
+compact a computed accessor into `Property { get => expression; }` merely
+because it fits on one line. For the
+[proven initializer source form](design/member-body-substrate.md#proven-initializer-source-form):
+
+```csharp
+public readonly struct ReadOnlyList<T>(IList<T> list)
+{
+    public IList<T> List
+    {
+        get => field ?? Array.Empty<T>();
+    } = list;
+}
+```
+
+Choose the valid syntax first, then its layout. This preference does not infer
+initializers or their containing scope, move read-time work into initialization,
+expand automatic `{ get; }` properties, or override expression continuation and
+[line-wrapping policy](#line-wrapping).
+
+The **declared** oracle at runtime commit
+`f8546ab27b4eb75894e2574c7da144f039d4c95c` sets
+[`csharp_style_expression_bodied_properties = true:silent` and `csharp_style_expression_bodied_accessors = true:silent`](https://github.com/dotnet/runtime/blob/f8546ab27b4eb75894e2574c7da144f039d4c95c/.editorconfig#L111-L119).
+Those rules favor arrow syntax, not one-line accessor-list compaction.
+The **revealed** oracle supplies neighboring patterns:
+[`CodeTypeMember.cs:8-28`](https://github.com/dotnet/runtime/blob/f8546ab27b4eb75894e2574c7da144f039d4c95c/src/libraries/System.CodeDom/src/System/CodeDom/CodeTypeMember.cs#L8-L28)
+uses whole-property arrows for simple getter-only properties and multi-line
+lists for computed get/set accessors;
+[`JsonSerializerOptions.cs:38-43`](https://github.com/dotnet/runtime/blob/f8546ab27b4eb75894e2574c7da144f039d4c95c/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializerOptions.cs#L38-L43)
+retains a multi-line list around an attributed expression getter; and
+[`TarWriterOptions.cs:16-27`](https://github.com/dotnet/runtime/blob/f8546ab27b4eb75894e2574c7da144f039d4c95c/src/libraries/System.Formats.Tar/src/System/Formats/Tar/TarWriterOptions.cs#L16-L27)
+places an initializer after a multi-line accessor list. These are analogous
+cases, not an exact getter-only-plus-initializer witness: the chosen layout is
+our oracle-informed preference, not a uniquely prescribed runtime form.
+
 ### Semantic vertical spacing
 
 The printer adds at most one blank line between sibling statements in a
@@ -863,6 +910,23 @@ accepted for compatibility. The registry presents the inverse `Use IL slot
 local names` choice, off by default. The setting is byte-preserving (names do
 not affect IL), so it is not part of the oracle-endorsed
 [taste](#style-configuration) aggregate and carries its own tool-owned key.
+
+Set `dotnet_inspect_style_approximate_pdb_local_names = true` to prefer a
+familiar PDB-derived name when exact row-and-scope identity cannot be emitted.
+The exact allocator always runs first. For a declined physical slot, the
+printer deterministically chooses the earliest usable, non-hidden PDB
+declaration, resolves C# collisions with a suffix, and records an
+`approximate-pdb-local-name` decision. This changes only the displayed
+identifier: the exact naming cause and `Partial` fidelity remain visible.
+Incomplete method-wide symbol evidence and unusable rows decline to the normal
+readable or `V_index` fallback.
+
+The declared and revealed runtime style oracles are silent on decompiler PDB
+identity policy. ILSpy, dnSpyEx, and the published JustDecompile engine provide
+the analogous ecosystem convention: they flatten scoped PDB records into a
+slot-level name before reconstructing C# declarations. The option deliberately
+offers that familiar presentation while the shipped default remains stricter.
+It is not selected by `--taste` or `dotnet_inspect_style_full_taste`.
 
 ## Shared enum case-label order
 

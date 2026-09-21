@@ -589,14 +589,14 @@ public sealed class WorkspaceTopLevelInventoryTests
     sealed class WorkspaceInventoryFixture : IAsyncDisposable
     {
         WorkspaceInventoryFixture(
-            WorkspaceRealizationCoordinator coordinator,
+            WorkspaceReplacementCoordinator coordinator,
             WorkspaceRealizationOperationLease lease)
         {
             Coordinator = coordinator;
             Lease = lease;
         }
 
-        WorkspaceRealizationCoordinator Coordinator { get; }
+        WorkspaceReplacementCoordinator Coordinator { get; }
 
         internal WorkspaceRealizationOperationLease Lease { get; }
 
@@ -613,7 +613,7 @@ public sealed class WorkspaceTopLevelInventoryTests
             ImmutableArray<WorkspaceRegistration> registrations,
             ImmutableArray<string> packageIds)
         {
-            var coordinator = new WorkspaceRealizationCoordinator();
+            var coordinator = new WorkspaceReplacementCoordinator();
             try
             {
                 WorkspaceRealizationCandidate candidate =

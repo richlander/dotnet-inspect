@@ -157,6 +157,27 @@ public static class SelectedContextExactTypeInspectionOperation
             liveTargetConsumer);
     }
 
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            InspectionWorkspace workspace,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+        return ExecuteActivation(
+            workspace,
+            activation,
+            request,
+            facet,
+            scope,
+            liveTargetConsumer);
+    }
+
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         ExecuteActivation(
             WorkspaceRealizationOperationLease authority,
@@ -196,6 +217,45 @@ public static class SelectedContextExactTypeInspectionOperation
     }
 
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteActivation(
+            InspectionWorkspace workspace,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            ViewFacetId? facet,
+            ApiSurfaceScope scope,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(activation);
+        if (activation.SelectedContext is not { } context)
+        {
+            ExactTypeInspectionResult unavailable =
+                ExactTypeInspectionResult.RuntimeUnavailable(
+                    request.Type,
+                    "The restored Workspace has no selected context.");
+            return new(
+                new SelectedContextExactTypeInspectionResult(
+                    unavailable,
+                    []),
+                new InspectionShare.NonProjectable(
+                    "scenario.context",
+                    "A derived Type scenario requires one selected "
+                        + "Workspace context."),
+                ExactTypeInspectionOperation.Diagnostics(unavailable));
+        }
+
+        return ExecuteCore(
+            workspace,
+            context,
+            request,
+            projectionLimits: null,
+            activation,
+            facet,
+            scope,
+            liveTargetConsumer);
+    }
+
+    static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         ExecuteCore(
             WorkspaceRealizationOperationLease authority,
             WorkspaceDeclarationContext context,
@@ -209,14 +269,61 @@ public static class SelectedContextExactTypeInspectionOperation
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
+        using WorkspaceRealizationOperationUse operation =
+            authority.EnterUse();
 
-        ExactTypeInspectionExecution execution =
+        return Complete(
             ExactTypeInspectionQuery.ExecuteSelectedContext(
-                authority,
+                operation.Workspace,
                 context,
                 request,
                 scope,
-                projectionLimits);
+                projectionLimits),
+            context,
+            request,
+            activation,
+            facet,
+            liveTargetConsumer);
+    }
+
+    static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteCore(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request,
+            ApiSurfaceProjectionLimits? projectionLimits,
+            CompleteWorkspaceActivation? activation,
+            ViewFacetId? facet,
+            ApiSurfaceScope scope,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+
+        return Complete(
+            ExactTypeInspectionQuery.ExecuteSelectedContext(
+                workspace,
+                context,
+                request,
+                scope,
+                projectionLimits),
+            context,
+            request,
+            activation,
+            facet,
+            liveTargetConsumer);
+    }
+
+    static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        Complete(
+            ExactTypeInspectionExecution execution,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request,
+            CompleteWorkspaceActivation? activation,
+            ViewFacetId? facet,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
+    {
         ImmutableArray<ExactTypeDefiningSource> definingSources =
             execution.DefiningSources;
         ExactTypeInspectionResult inspection = execution.Result;

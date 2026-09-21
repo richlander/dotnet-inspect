@@ -2,11 +2,61 @@ using System.Text.Json;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Sections.Tests;
 
 public sealed class WorkspaceTopLevelInventoryOperationTests
 {
+    [Fact]
+    public async Task ExecuteAsync_DirectWorkspaceRetainsExactSelectionScope()
+    {
+        var registration = new WorkspaceRegistration.PackagePrefix(
+            new PackagePrefixDeclaration("Microsoft.Extensions."));
+        var workspace =
+            new InspectionWorkspace(new WorkspacePlan([registration]));
+        try
+        {
+            WorkspaceTopLevelInventoryExecution execution =
+                await WorkspaceTopLevelInventoryOperation.ExecuteAsync(
+                    workspace,
+                    WorkspaceTopLevelInventoryRequest.All,
+                    TestContext.Current.CancellationToken);
+
+            var available =
+                Assert.IsType<WorkspaceTopLevelInventoryOutcome.Available>(
+                    execution.Inspection.Content);
+            WorkspaceTopLevelPackagePrefixEntry entry =
+                Assert.IsType<WorkspaceTopLevelPackagePrefixEntry>(
+                    Assert.Single(available.Document.Entries));
+            var selected =
+                Assert.IsType<
+                    WorkspaceTopLevelInventorySelectionResolution.Selected>(
+                    await execution.Selection.ResolveAsync(
+                        workspace,
+                        entry.Key,
+                        TestContext.Current.CancellationToken));
+            var selectedRegistration =
+                Assert.IsType<
+                    WorkspaceTopLevelInventorySelection.Registration>(
+                    selected.Selection);
+
+            Assert.Equal(
+                WorkspaceTopLevelInventoryEntryKind.PackagePrefix,
+                selectedRegistration.RegistrationKind);
+            Assert.Equal(0, selectedRegistration.SourceIndex);
+            Assert.Same(
+                workspace.Identity,
+                selected.Scope.Revision.Workspace);
+        }
+        finally
+        {
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync();
+            Assert.True(report.Succeeded);
+        }
+    }
+
     [Fact]
     public async Task Execute_ComposesExactPacketAndDetachedExecution()
     {
@@ -204,20 +254,20 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
     sealed class RealizationFixture : IAsyncDisposable
     {
         RealizationFixture(
-            WorkspaceRealizationCoordinator coordinator,
+            WorkspaceReplacementCoordinator coordinator,
             WorkspaceRealizationOperationLease lease)
         {
             Coordinator = coordinator;
             Lease = lease;
         }
 
-        WorkspaceRealizationCoordinator Coordinator { get; }
+        WorkspaceReplacementCoordinator Coordinator { get; }
 
         internal WorkspaceRealizationOperationLease Lease { get; }
 
         internal static async Task<RealizationFixture> CreateAsync()
         {
-            var coordinator = new WorkspaceRealizationCoordinator();
+            var coordinator = new WorkspaceReplacementCoordinator();
             try
             {
                 WorkspaceRealizationCandidateStartResult start =

@@ -22,6 +22,7 @@ internal sealed record LibraryBodyAnalysisResult(
 internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<MethodIdentity> DeclaredMethods,
     ImmutableArray<MethodIdentity> Methods,
+    ImmutableArray<FailedMethodBodyAnalysis> FailedMethodBodies,
     ImmutableArray<DirectCall> DirectCalls,
     ImmutableArray<MethodResultSink> ResultSinks,
     ImmutableArray<FieldStoreFact> FieldStores,
@@ -33,6 +34,10 @@ internal sealed record MethodBodyAnalysisResult(
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
     IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
     ImmutableArray<MethodLocalThrowEvidence> LocalThrows);
+
+internal sealed record FailedMethodBodyAnalysis(
+    int MethodToken,
+    AnalysisDiagnostic Diagnostic);
 
 internal sealed record SafetyAnalysisResult(
     ImmutableArray<UnsafeEvidence> Evidence,

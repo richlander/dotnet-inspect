@@ -2349,6 +2349,7 @@ public sealed partial class CSharpPrinter
                 SynthesizedLocalNames = localFunction.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = localFunction.LocalDeclaredInNestedScope,
                 LocalDeclarationBindings = localFunction.LocalDeclarationBindings,
+                PdbLocalNameCandidates = localFunction.PdbLocalNameCandidates,
                 LocalNameImportCauses = localFunction.LocalNameImportCauses,
                 UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = localFunction.SkipLocalsInit,
@@ -6631,10 +6632,40 @@ public sealed partial class CSharpPrinter
             taken.UnionWith(exact.DisplayNames.OfType<string>());
 
             // Exact source names may legally shadow non-captured enclosing or
-            // descendant binders. Generated names remain conservative so they do
-            // not introduce new, avoidable shadowing into reconstructed source.
+            // descendant binders. Approximate and generated names remain
+            // conservative so they do not introduce avoidable shadowing.
             taken.UnionWith(_reservedScopeNames);
             AddDescendantBinderNames(taken);
+
+            if (_options.ApproximatePdbLocalNames)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    if (assigned[i]
+                        || ApproximatePdbLocalName(
+                            i,
+                            names,
+                            exact) is not { } candidate)
+                    {
+                        continue;
+                    }
+
+                    string approximate = ReserveName(candidate, taken);
+                    display[i] = approximate;
+                    assigned[i] = true;
+                    AddDecision(
+                        "approximate-pdb-local-name",
+                        DecompilerDecisionCategories.Taste,
+                        $"V_{i}",
+                        $"Used Portable PDB name '{candidate}' as an approximate display name "
+                            + $"for physical local slot {i}; exact row/scope identity remains "
+                            + "unrepresented and fidelity is unchanged "
+                            + "(dotnet_inspect_style_approximate_pdb_local_names).",
+                        newValue: approximate,
+                        dedupDiscriminator:
+                            $"{_labelScopeSuffix}\0{i.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
 
             var synthesizedNames = _function.SynthesizedLocalNames;
             for (int i = 0; i < count && i < synthesizedNames.Length; i++)
@@ -6674,6 +6705,25 @@ public sealed partial class CSharpPrinter
             _localDisplayNames = display;
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    string? ApproximatePdbLocalName(
+        int index,
+        ImmutableArray<string?> exactNames,
+        ExactLocalNameAllocation exact)
+    {
+        if (index < exact.Dispositions.Length
+            && exact.Dispositions[index] == ExactLocalNameDisposition.Collision
+            && index < exactNames.Length
+            && exactNames[index] is { } collided
+            && CSharpNaming.IsUsableIdentifier(collided))
+        {
+            return collided;
+        }
+
+        return index < _function.PdbLocalNameCandidates.Length
+            ? _function.PdbLocalNameCandidates[index]
+            : null;
     }
 
     static string ReserveName(string baseName, HashSet<string> taken)

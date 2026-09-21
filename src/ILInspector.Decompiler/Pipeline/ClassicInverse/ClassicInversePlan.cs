@@ -22,7 +22,8 @@ internal sealed record ClassicInversePlan
         ImmutableArray<ClassicInverseAncestorReceipt> StructuredAncestorReceipts,
         ImmutableArray<TypeRef> TypeArguments = default,
         ImmutableArray<bool> LocalDeclaredInNestedScope = default,
-        ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings = default)
+        ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings = default,
+        ImmutableArray<string?> PdbLocalNameCandidates = default)
     {
         this.Recipe = Recipe;
         this.Body = Body;
@@ -33,6 +34,8 @@ internal sealed record ClassicInversePlan
             LocalDeclaredInNestedScope.IsDefault ? [] : LocalDeclaredInNestedScope;
         this.LocalDeclarationBindings =
             LocalDeclarationBindings.IsDefault ? [] : LocalDeclarationBindings;
+        this.PdbLocalNameCandidates =
+            PdbLocalNameCandidates.IsDefault ? [] : PdbLocalNameCandidates;
         this.TypeFacts = TypeFacts;
         this.SourceOffset = SourceOffset;
         this.PhysicalPartition = PhysicalPartition;
@@ -56,6 +59,8 @@ internal sealed record ClassicInversePlan
     internal ImmutableArray<bool> LocalDeclaredInNestedScope { get; }
 
     internal ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; }
+
+    internal ImmutableArray<string?> PdbLocalNameCandidates { get; }
 
     /// <summary>Execution type parameters bound into the authenticated kickoff context.</summary>
     internal ImmutableArray<TypeRef> TypeArguments { get; }
@@ -128,6 +133,7 @@ internal sealed record ClassicInversePlan
                 $"synthesizedNames={string.Join(";", SynthesizedLocalNames.Select(static n => n ?? ""))}",
                 $"nestedScopes={string.Join(";", LocalDeclaredInNestedScope)}",
                 $"localBindings={string.Join(";", LocalDeclarationBindings.Select(BindingSignature))}",
+                $"pdbLocalNameCandidates={string.Join(";", PdbLocalNameCandidates.Select(static n => n ?? ""))}",
                 $"body={Body.Signature}",
                 $"typefacts={TypeFacts.Signature}",
                 $"physical={ClassicInverseSignature.Join(PhysicalPartition.Select(static r => r.Signature))}",
