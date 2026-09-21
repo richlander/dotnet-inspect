@@ -998,6 +998,7 @@ let homeBotAnimationStartedAt: number | null = null;
 let homeReadyGlintPending = true;
 let homeFocusRenderGeneration = 0;
 let pendingHomeFocusTarget: HomeFocusTarget | null = null;
+type LibraryOpenReturnTarget = "home" | "application" | "surface";
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   memberFiltersExpanded: false,
@@ -1017,6 +1018,7 @@ const initialState = {
   libraryOpenBusy: false,
   libraryOpenFileName: "",
   libraryOpenError: "",
+  libraryOpenReturn: "surface" as LibraryOpenReturnTarget,
   packageQueryOpenedFromApp: false,
   packageActivityOpenedFromApp: false,
   packageQueryPredecessorEntryId: null,
@@ -1291,6 +1293,28 @@ let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let disconnectLibraryOpen: (() => void) | null = null;
 let libraryOpenSequence = 0;
+const libraryEngineReadyWaiters: Array<{
+  resolve: () => void;
+  reject: (error: Error) => void;
+}> = [];
+
+function waitForLibraryEngineReady(): Promise<void> {
+  if (state.engineReady) return Promise.resolve();
+  if (state.engineStartupFailed) {
+    return Promise.reject(new Error(
+      "The browser inspection engine did not start."));
+  }
+  return new Promise<void>((resolve, reject) => {
+    libraryEngineReadyWaiters.push({ resolve, reject });
+  });
+}
+
+function settleLibraryEngineReadyWaiters(error?: Error) {
+  for (const waiter of libraryEngineReadyWaiters.splice(0)) {
+    if (error) waiter.reject(error);
+    else waiter.resolve();
+  }
+}
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -12001,7 +12025,7 @@ function homeArtSvg() {
 const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: dismissQueryNotice,
   onOpenDemos: openProductDemos,
-  onOpenLibrary: openLibraryDialog,
+  onOpenLibrary: () => openLibraryDialog("home"),
   onToggleTheme: toggleTheme,
 };
 
@@ -15902,7 +15926,7 @@ function clearTaste() {
 function dispatchApplicationAction(action: ApplicationAction) {
   switch (action) {
     case "open-library":
-      openLibraryDialog();
+      openLibraryDialog("application");
       return;
     case "share":
       if (state.rootKind === "library") {
@@ -15921,10 +15945,26 @@ function dispatchApplicationAction(action: ApplicationAction) {
   }
 }
 
-function openLibraryDialog() {
+function prepareLibraryOpen(returnTarget: LibraryOpenReturnTarget) {
+  graphExplorer.close(false);
+  graphExplorerNavigationFocusPending = false;
+  dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
+  state.explorer = null;
+  spotlight.reset();
+  sourceInspection.clearGraphSource();
+  documentInspection.clear();
+  if (!state.libraryOpen) {
+    state.libraryOpenReturn = returnTarget;
+  }
   state.libraryOpen = true;
+}
+
+function openLibraryDialog(
+  returnTarget: LibraryOpenReturnTarget = "surface",
+) {
+  prepareLibraryOpen(returnTarget);
   state.libraryOpenBusy = false;
   state.libraryOpenFileName = "";
   state.libraryOpenError = state.engineReady
@@ -15935,10 +15975,24 @@ function openLibraryDialog() {
 
 function closeLibraryDialog() {
   if (state.libraryOpenBusy) return;
+  const returnTarget = state.libraryOpenReturn;
+  libraryOpenSequence++;
   state.libraryOpen = false;
   state.libraryOpenFileName = "";
   state.libraryOpenError = "";
   render({ synchronizeUrl: false });
+  requestAnimationFrame(() => {
+    if (returnTarget === "home") {
+      document.querySelector<HTMLElement>("#home-open-library")
+        ?.focus({ preventScroll: true });
+    } else if (returnTarget === "application") {
+      restoreOrdinaryModalDismissFocus(() =>
+        document.querySelector<HTMLElement>("#application-menu-button")
+          ?.focus({ preventScroll: true }));
+    } else {
+      focusLevelOneHeading();
+    }
+  });
 }
 
 function bindLibraryOpenEvents() {
@@ -15947,6 +16001,12 @@ function bindLibraryOpenEvents() {
     app.insertAdjacentHTML(
       "beforeend",
       renderLibraryOpenDialog(currentLibraryOpenView(), escapeHtml));
+  }
+  if (state.libraryOpen) {
+    const backdrop = app.querySelector("#library-open-backdrop");
+    for (const child of app.children) {
+      if (child !== backdrop) child.setAttribute("inert", "");
+    }
   }
   disconnectLibraryOpen = bindLibraryOpen(
     document,
@@ -15965,8 +16025,8 @@ function currentLibraryOpenView() {
 
 const libraryOpenActions: LibraryOpenActions = {
   onDismiss: closeLibraryDialog,
-  onReject: message => {
-    state.libraryOpen = true;
+  onReject: (message, input) => {
+    if (input === "drop") prepareLibraryOpen("surface");
     state.libraryOpenError = message;
     render({ synchronizeUrl: false });
   },
@@ -15985,13 +16045,22 @@ async function openUploadedLibraryFile(
   const isCurrent = () =>
     operationSequence === libraryOpenSequence
     && navigationSequence.isCurrent(navigationSeq);
-  state.libraryOpen = true;
-  state.libraryOpenBusy = true;
+  if (input === "drop") prepareLibraryOpen("surface");
+  else state.libraryOpen = true;
+  state.libraryOpenBusy = state.engineReady;
   state.libraryOpenFileName = file.name;
-  state.libraryOpenError = "";
+  state.libraryOpenError = state.engineReady
+    ? ""
+    : "Wait for the browser inspection engine to finish starting.";
   render({ synchronizeUrl: false });
 
+  let activatedLibrary = false;
   try {
+    await waitForLibraryEngineReady();
+    if (!isCurrent()) return;
+    state.libraryOpenBusy = true;
+    state.libraryOpenError = "";
+    render({ synchronizeUrl: false });
     const content = Array.from(new Uint8Array(await file.arrayBuffer()));
     if (!isCurrent()) return;
     const inspection = await inspectOpenUploadedLibrary(file.name, content);
@@ -16031,6 +16100,7 @@ async function openUploadedLibraryFile(
     state.libraryOpen = false;
     state.libraryOpenFileName = "";
     state.libraryOpenError = "";
+    activatedLibrary = true;
     workspaceLocation.replace("/");
   } catch (error) {
     if (!isCurrent()) return;
@@ -16041,6 +16111,9 @@ async function openUploadedLibraryFile(
     if (isCurrent()) {
       state.libraryOpenBusy = false;
       render({ synchronizeUrl: false });
+      if (activatedLibrary) {
+        afterCurrentNavigationFrame(() => focusLevelOneHeading());
+      }
     }
   }
 }
@@ -17516,6 +17589,9 @@ function showEngineFailure(error: unknown) {
   state.engineReady = false;
   state.engineRuntimeReady = false;
   state.engineStartupFailed = true;
+  settleLibraryEngineReadyWaiters(error instanceof Error
+    ? error
+    : new Error(String(error)));
   state.engineStatus = "";
   state.error =
     "Couldn’t start the inspection engine. Retry, or open a different package.";
@@ -17633,6 +17709,7 @@ async function bootstrap() {
         `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     state.engineReady = true;
+    settleLibraryEngineReadyWaiters();
     state.engineStatus = "";
     if (isDiagnosticsPath(location.pathname)) {
       state.loading = false;

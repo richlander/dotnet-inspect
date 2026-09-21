@@ -55,6 +55,15 @@ async function waitForWorkspaceReady(page: Page) {
     .not.toHaveAttribute("aria-busy", "true");
 }
 
+async function openLibraryFromApplicationMenu(page: Page) {
+  await page.locator("#application-menu-button").click();
+  await page.getByRole(
+    "menuitem",
+    { name: "Open Library…", exact: true },
+  ).click();
+  await expect(page.locator("#library-open-title")).toBeFocused();
+}
+
 test("global drop keeps managed-image rejection visible", async ({ page }) => {
   await installLibraryUploadFacades(page, "rejected");
   await page.goto(root);
@@ -69,6 +78,88 @@ test("global drop keeps managed-image rejection visible", async ({ page }) => {
   await expect(page.locator(".library-open-error"))
     .toHaveText("The dropped file is not a managed assembly.");
   await expect(page.locator(".library-open-error")).toBeFocused();
+});
+
+test("Open dismissal restores its logical invoker", async ({ page }) => {
+  await installLibraryUploadFacades(page, "rejected");
+  await page.goto("/");
+  await expect(page.locator("#home-open-library")).toBeEnabled();
+
+  await page.locator("#home-open-library").click();
+  await page.locator("#library-open-close").click();
+  await expect(page.locator("#home-open-library")).toBeFocused();
+
+  await page.goto(root);
+  await waitForWorkspaceReady(page);
+  await openLibraryFromApplicationMenu(page);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#application-menu-button")).toBeFocused();
+
+  await openLibraryFromApplicationMenu(page);
+  await page.locator("#library-open-backdrop").click({
+    position: { x: 5, y: 5 },
+  });
+  await expect(page.locator("#application-menu-button")).toBeFocused();
+});
+
+test("global drop replaces another modal and inerts its surface", async ({
+  page,
+}) => {
+  await installLibraryUploadFacades(page, "rejected");
+  await page.goto(root);
+  await waitForWorkspaceReady(page);
+  await page.locator("#application-menu-button").click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await expect(page.locator("#settings-dialog")).toBeVisible();
+
+  await dropLibrary(page, "native.dll", [0x4d, 0x5a, 0, 1]);
+
+  await expect(page.locator("#settings-dialog")).toHaveCount(0);
+  await expect(page.locator("#library-open-dialog")).toBeVisible();
+  await expect(page.locator("#app > .workbench")).toHaveAttribute("inert", "");
+  await expect(page.locator(".library-open-error")).toBeFocused();
+});
+
+test("early drop waits for engine readiness before reading bytes", async ({
+  page,
+}) => {
+  await installLibraryUploadFacades(page, "available");
+  let releaseEngine!: () => void;
+  const engineGate = new Promise<void>(resolve => {
+    releaseEngine = resolve;
+  });
+  await page.route(/\/assets\/engine-worker-entry-[^/]+\.js$/, async route => {
+    await engineGate;
+    await route.fallback();
+  });
+  await page.goto("/");
+  await expect(page.locator(".home-title")).toBeVisible();
+  await page.evaluate(() => {
+    File.prototype.arrayBuffer = function () {
+      document.documentElement.dataset.libraryArrayBufferReads =
+        String(Number(
+          document.documentElement.dataset.libraryArrayBufferReads ?? "0")
+          + 1);
+      return Blob.prototype.arrayBuffer.call(this);
+    };
+  });
+
+  await dropLibrary(page, "Uploaded.Library.dll", [1, 2, 3, 4]);
+
+  await expect(page.locator(".library-open-error"))
+    .toHaveText("Wait for the browser inspection engine to finish starting.");
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-library-array-buffer-reads", /.+/);
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-library-upload-request", /.+/);
+
+  releaseEngine();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-library-array-buffer-reads",
+    "1",
+  );
+  await expect(page.getByText("Browser upload", { exact: true }))
+    .toBeVisible();
 });
 
 test("routed navigation retires an in-flight upload", async ({ page }) => {
@@ -118,6 +209,7 @@ test("successful upload replaces stale Package URL with Home", async ({ page }) 
 
   await expect(page.getByText("Browser upload", { exact: true }))
     .toBeVisible();
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
   await expect.poll(() => new URL(page.url()).pathname).toBe("/");
   await expect.poll(() => new URL(page.url()).search).toBe("");
   await expect.poll(() => new URL(page.url()).hash).toBe("");
@@ -229,4 +321,6 @@ test("page-level drop remains available on Diagnostics", async ({ page }) => {
     .toBeVisible();
   await expect(page.locator(".library-open-error"))
     .toHaveText("The dropped file is not a managed assembly.");
+  await expect(page.locator("#app > :not(#library-open-backdrop)"))
+    .toHaveAttribute("inert", "");
 });

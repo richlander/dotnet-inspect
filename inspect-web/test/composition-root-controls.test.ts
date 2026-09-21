@@ -391,7 +391,7 @@ test("uploaded Libraries remain transient closed-world subjects", () => {
 
   assert.match(
     open,
-    /const operationSequence = \+\+libraryOpenSequence;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const isCurrent = \(\) =>\s*operationSequence === libraryOpenSequence\s*&& navigationSequence\.isCurrent\(navigationSeq\);[\s\S]*state\.libraryOpen = true;[\s\S]*file\.arrayBuffer\(\)[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*inspectOpenUploadedLibrary\(file\.name, content\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*createUploadedLibraryModel\(inspection\.content\)[\s\S]*activatePackage\(packageModel, \{ resetAccessibility: true \}\)[\s\S]*state\.uploadedLibrary = packageModel[\s\S]*state\.rootKind = "library"[\s\S]*workspaceLocation\.replace\("\/"\)/);
+    /const operationSequence = \+\+libraryOpenSequence;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const isCurrent = \(\) =>\s*operationSequence === libraryOpenSequence\s*&& navigationSequence\.isCurrent\(navigationSeq\);[\s\S]*state\.libraryOpen = true;[\s\S]*await waitForLibraryEngineReady\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*file\.arrayBuffer\(\)[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*inspectOpenUploadedLibrary\(file\.name, content\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*createUploadedLibraryModel\(inspection\.content\)[\s\S]*activatePackage\(packageModel, \{ resetAccessibility: true \}\)[\s\S]*state\.uploadedLibrary = packageModel[\s\S]*state\.rootKind = "library"[\s\S]*workspaceLocation\.replace\("\/"\)/);
   assert.doesNotMatch(
     open,
     /retainPackageModel|state\.packages|syncUrl|workspaceShareBasis/);
@@ -787,7 +787,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
-    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenLibrary: openLibraryDialog,\s*onToggleTheme: toggleTheme/);
+    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenLibrary: \(\) => openLibraryDialog\("home"\),\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
