@@ -266,7 +266,11 @@ public static class CompiledDocumentationQuery
         return outcome switch
         {
             DocumentationHouseOutcome.Completed completed =>
-                Content(subject, completed.CompiledXmlAttempt),
+                Content(
+                    subject,
+                    completed.CompiledXmlAttempt
+                        ?? throw new InvalidOperationException(
+                            "Compiled documentation settlement did not return a compiled-XML attempt.")),
             DocumentationHouseOutcome.Rejected rejected =>
                 new CompiledDocumentationOutcome.RequestRejected(
                     subject,
