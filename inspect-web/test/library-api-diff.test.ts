@@ -7,12 +7,14 @@ import type {
   InspectionShare,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
+  bindLibraryApiDiffRows,
   createLibraryApiDiffCoordinator,
   renderLibraryApiDiff,
   type LibraryApiDiffSelection,
   type LibraryApiDiffState,
   type LibraryApiDiffStateHost,
 } from "../src/library-api-diff.ts";
+import { fakeDom } from "./fake-dom.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
@@ -441,8 +443,12 @@ test("leaving Compare cancels delayed work and suppresses its completion", async
 
 test("application admission closes on every non-Compare route", () => {
   const selectionSource = appSource.match(
-    /function currentLibraryApiDiffSelection\(\)[\s\S]*?\n}\n\nfunction scopedPlatformLibrary/,
+    /function currentCompareSubject\(\)[\s\S]*?\n}\n\nfunction currentCompareMode/,
   )?.[0] ?? "";
+  assert.match(
+    appSource,
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?const subject = currentCompareSubject\(\);\s*if \(!subject \|\| currentCompareMode\(\) !== "diff"\) return null;/,
+    "Diff work is admitted only through the shared Compare subject gate and the retained Diff mode");
   for (const condition of [
     "state.home",
     "state.credits",
@@ -623,4 +629,241 @@ test("unavailable rendering discloses retained endpoint failure evidence", () =>
   assert.match(html, /generic-constraint at 0x02000001/);
   assert.match(html, /MalformedSignature/);
   assert.match(html, /Dependency: Dependency, 2\.0\.0\.0/);
+});
+
+function readyState(result: BrowserLibraryApiDiffResult): LibraryApiDiffState {
+  return {
+    status: "ready",
+    input: {
+      packageModel: {},
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    result,
+  };
+}
+
+function withMembers(): BrowserLibraryApiDiffResult {
+  const result = succeeded("1.0.0");
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget, options] = result.value.types;
+  if (widget === undefined || options === undefined)
+    throw new Error("Expected two Types.");
+  const identity = (
+    fingerprint: string,
+    canonicalSignature: string,
+    display: string,
+  ) => ({
+    declaringTypeIdentifier: "after-widget",
+    stableSelector: "Run",
+    canonicalSignature,
+    fingerprint,
+    typeFullName: "Example.Widget",
+    memberName: "Run",
+    display,
+  });
+  return {
+    ...result,
+    value: {
+      ...result.value,
+      types: [
+        {
+          ...widget,
+          members: [
+            {
+              documentIdentifier: "relation-changed",
+              pairKind: "Changed",
+              role: "Both",
+              before: identity("digest-before", "void Run(int)", "Run(int)"),
+              after: identity("digest-run", "void Run(long)", "Run(long)"),
+            },
+            {
+              documentIdentifier: "relation-added",
+              pairKind: "Added",
+              role: "After",
+              before: null,
+              after: identity("digest-new", "void New()", "New()"),
+            },
+            {
+              documentIdentifier: "relation-removed",
+              pairKind: "Removed",
+              role: "Before",
+              before: identity("digest-gone", "void Gone()", "Gone()"),
+              after: null,
+            },
+          ],
+        },
+        // A removed Type keeps Before-side evidence and no current identity.
+        {
+          ...options,
+          state: "Deletion",
+          before: {
+            identifier: "before-options",
+            namespace: "Example",
+            segments: ["Options"],
+            display: "Example.Options",
+          },
+          after: null,
+        },
+      ],
+    },
+  };
+}
+
+test("Library rows activate only joined current-side Types; removed Types stay visible and inert", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: { kind: "library" },
+    subjectLabel: "Example",
+    activatableTypes: new Set(["after-widget"]),
+    targetText: "1.0.0 → 2.0.0",
+  });
+  assert.match(html, /<h1 id="compare-title">Example<\/h1>/);
+  assert.match(html, /data-compare-mode="diff" aria-selected="true"/);
+  assert.match(html, /data-compare-mode="clone" aria-selected="false"/);
+  assert.match(html, /Diff baseline<\/span>\s*<span class="compare-target-value">1\.0\.0 → 2\.0\.0/);
+  assert.match(html, /<button type="button" class="library-api-diff-row" data-compare-type-id="after-widget"/);
+  assert.doesNotMatch(html, /data-compare-type-id="before-options"/);
+  assert.match(html, /data-before-type-id="before-options" data-after-type-id=""><div class="library-api-diff-row" aria-disabled="true">/);
+  assert.match(html, /Removed in the current version; Before-side evidence only/);
+  // No selected-Type detail pane and no Library Explore action.
+  assert.doesNotMatch(html, /Explore/);
+  assert.doesNotMatch(html, /Whole type diff/);
+});
+
+test("a current-side Type that is not joined to a loaded subject stays inert with its reason", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: { kind: "library" },
+    activatableTypes: new Set(),
+  });
+  assert.doesNotMatch(html, /data-compare-type-id=/);
+  assert.match(html, /Not joined to a loaded Type/);
+});
+
+test("Type Diff projects the exact Type's Members from the Library-root document", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+    subjectLabel: "Example.Widget",
+    activatableMembers: new Set(["digest-run", "digest-new"]),
+  });
+  assert.match(html, /compare-surface-type/);
+  assert.match(html, /Comparison complete\. 3 changed Members\./);
+  assert.match(html, /2 changed Members<\/span>/);
+  assert.match(html, /Type definition changed/);
+  const rows = [...html.matchAll(/<li class="library-api-diff-member([^"]*)"/g)]
+    .map(match => match[1]);
+  assert.deepEqual(rows, ["", "", " library-api-diff-member-inert"]);
+  assert.match(html, /data-compare-member-fingerprint="digest-run"/);
+  assert.match(html, /data-compare-member-fingerprint="digest-new"/);
+  assert.doesNotMatch(html, /data-compare-member-fingerprint="digest-gone"/);
+  assert.match(html, /data-member-before-fingerprint="digest-gone"><div class="library-api-diff-row" aria-disabled="true">/);
+  assert.match(html, /<code>void Run\(int\)<\/code> → <code>void Run\(long\)<\/code>/);
+  // No whole-Type destination is owner-issued, so no row advertises one.
+  assert.doesNotMatch(html, /Whole type diff/);
+});
+
+test("Type Diff on an unchanged Type is a successful empty result inside the same frame", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: { kind: "type", typeIdentifier: "after-unrelated" },
+  });
+  assert.match(html, /Comparison complete\. No changed Members\./);
+  assert.match(html, /This Type is unchanged between these versions\./);
+  assert.match(html, /data-compare-mode="clone"/);
+});
+
+test("Member Diff presents the exact Member relation evidence and no Explore action", () => {
+  const html = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+    subjectLabel: "Example.Widget.Run",
+  });
+  assert.match(html, /compare-surface-member/);
+  assert.match(html, /Comparison complete\. Member changed\./);
+  assert.match(html, /<h2>Before<\/h2>\s*<p><code>Run\(int\)<\/code>/);
+  assert.match(html, /<h2>After<\/h2>\s*<p><code>Run\(long\)<\/code>/);
+  assert.match(html, /<dt>Digest<\/dt><dd><code>digest-run<\/code>/);
+  assert.match(html, /Correspondence identifier <code>relation-changed<\/code>/);
+  assert.doesNotMatch(html, /Explore/);
+
+  const removed = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-gone",
+    },
+  });
+  assert.match(removed, /Member removed\./);
+  assert.match(removed, /<h2>After<\/h2>\s*<p class="library-api-diff-absent">Not present on this side\./);
+
+  const unchanged = renderLibraryApiDiff(readyState(withMembers()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-unrelated",
+    },
+  });
+  assert.match(unchanged, /This Member is unchanged between these versions\./);
+});
+
+test("failure, loading, and unavailable states keep the mode control and target row at every subject", () => {
+  for (const subject of [
+    { kind: "library" } as const,
+    { kind: "type", typeIdentifier: "after-widget" } as const,
+    {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    } as const,
+  ]) {
+    const input = readyState(withMembers());
+    if (input.status !== "ready") throw new Error("Expected ready state.");
+    for (const state of [
+      { status: "loading", input: input.input } as const,
+      { status: "failed", input: input.input, error: "Boom" } as const,
+      {
+        status: "target-unavailable",
+        selection: selection({}),
+        message: "No earlier listed version is available.",
+      } as const,
+    ]) {
+      const html = renderLibraryApiDiff(state, String, { subject, mode: "diff" });
+      assert.match(html, /role="tablist" aria-label="Compare modes"/, subject.kind);
+      assert.match(html, /id="compare-change-target"/, subject.kind);
+      assert.doesNotMatch(html, /library-api-diff-row/, subject.kind);
+      if (state.status === "failed")
+        assert.match(html, /id="compare-retry"/, subject.kind);
+    }
+  }
+});
+
+test("row bindings dispatch owner-issued identities and ignore inert rows", () => {
+  const activated: string[] = [];
+  const buttons = (attribute: string, values: string[]) => values.map(value => {
+    let handler: (() => void) | undefined;
+    return {
+      dataset: { [attribute]: value },
+      addEventListener: (type: string, listener: () => void) => {
+        if (type === "click") handler = listener;
+      },
+      click: () => handler?.(),
+    };
+  });
+  const typeButtons = buttons("compareTypeId", ["after-widget", ""]);
+  const memberButtons = buttons("compareMemberFingerprint", ["digest-run"]);
+  bindLibraryApiDiffRows(fakeDom.parentNode({
+    querySelectorAll: (selector: string) =>
+      selector === "[data-compare-type-id]" ? typeButtons
+        : selector === "[data-compare-member-fingerprint]" ? memberButtons
+          : [],
+  }), {
+    activateType: identifier => activated.push(`type:${identifier}`),
+    activateMember: fingerprint => activated.push(`member:${fingerprint}`),
+  });
+  for (const button of [...typeButtons, ...memberButtons]) button.click();
+  assert.deepEqual(activated, ["type:after-widget", "member:digest-run"]);
 });
