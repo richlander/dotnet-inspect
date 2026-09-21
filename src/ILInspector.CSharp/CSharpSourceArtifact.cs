@@ -57,14 +57,15 @@ public sealed class CSharpSourceArtifact
     public string Source { get; }
 
     /// <summary>
-    /// The exact block, including braces, that the renderer selected for
-    /// replacement. Null when the print request did not select a body.
+    /// The exact body clause selected by the renderer: a block including its
+    /// braces, or an expression including its arrow and semicolon.
+    /// Null when the print request did not select a body.
     /// </summary>
     public CSharpSourceRange? ReplaceableBodyRange { get; }
 
     /// <summary>
-    /// Replaces only the selected body block while retaining every other byte of
-    /// the rendered compilation unit.
+    /// Replaces only the selected body clause with a block while retaining every
+    /// other byte of the rendered compilation unit.
     /// </summary>
     public string ReplaceBody(string body)
     {

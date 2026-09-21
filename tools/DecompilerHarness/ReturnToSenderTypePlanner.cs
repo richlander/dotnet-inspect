@@ -61,7 +61,8 @@ public static partial class CompileBackSourceComposer
             produced.Projection.ConstructorChain,
             produced.Body.RequiresAsyncModifier,
             produced.Body.RequiresUnsafeModifier,
-            produced.Projection.Fidelity);
+            produced.Projection.Fidelity,
+            SingleLineExpression: produced.SingleLineExpression);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"
@@ -100,7 +101,8 @@ public static partial class CompileBackSourceComposer
                 request.BodyPolicy,
                 request.TargetBody.RequiresUnsafeModifier,
                 request.TargetBody.UsesAutomaticGetterBody,
-                getter.InitializationConstructor),
+                getter.InitializationConstructor,
+                request.TargetBody.SingleLineExpression),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -697,7 +699,8 @@ public static partial class CompileBackSourceComposer
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
         bool targetBodyRequiresUnsafeModifier = false,
         bool usesAutomaticGetterBody = false,
-        PropertyInitializationConstructor? initializationConstructor = null)
+        PropertyInitializationConstructor? initializationConstructor = null,
+        string? targetExpressionBody = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -776,6 +779,7 @@ public static partial class CompileBackSourceComposer
             targetMembers[0] = targetMembers[0] with
             {
                 PropertyInitializer = initializer.Expression,
+                PropertyGetterExpression = targetExpressionBody,
             };
             targetFacts.Add(new CompileBackFact("product", "getter-initialization-constructor",
                 $"0x{MetadataTokens.GetToken(initializationConstructor.Address.Handle):X8}"));
@@ -2678,6 +2682,17 @@ public static partial class CompileBackSourceComposer
                 _ => throw new InvalidOperationException(
                     "A proven property initializer requires its getter body."),
             };
+            if (propertyBody.Getter is { Kind: CSharpAccessorBodyKind.Block } getter
+                && requirement.PropertyGetterExpression is { } expression)
+            {
+                propertyBody = propertyBody with
+                {
+                    Getter = CSharpAccessorBody.Expression(expression) with
+                    {
+                        IsReplacementTarget = getter.IsReplacementTarget,
+                    },
+                };
+            }
             return new CSharpMemberPolicy(
                 policy.Member, CSharpBodyPolicy.Full,
                 propertyBody with { Initializer = initializer });

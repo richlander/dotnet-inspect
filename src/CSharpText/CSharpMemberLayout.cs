@@ -10,9 +10,9 @@ namespace CSharpText;
 /// </summary>
 /// <remarks>
 /// This is intentionally <em>not</em> unified with
-/// <c>CSharpTypePrinter</c>: that composer is block-only and drops blank
-/// lines, whereas decompiled bodies are expression-capable and preserve blank
-/// lines. The two encode different policies on purpose.
+/// <c>CSharpTypePrinter</c>: that composer consumes explicit body shapes and drops
+/// blank lines, whereas this layout selects expression bodies from rendered
+/// statements and preserves blank lines. The two encode different policies on purpose.
 /// </remarks>
 public static class CSharpMemberLayout
 {
