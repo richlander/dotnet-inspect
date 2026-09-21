@@ -208,7 +208,7 @@ No external implementation or source code is transferred.
 
 ## Production adoption
 
-The end-to-end dependency-aware call-graph work has three remaining slices:
+The end-to-end dependency-aware call-graph adoption path has three slices:
 
 1. This owner prepares and completes one target-aware resolved-edge
    PackageHouse execution, including optional exact Platform pruning.
