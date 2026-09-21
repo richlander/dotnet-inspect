@@ -155,6 +155,96 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    public void PackagePipeline_DomainDescriptorsDeclareAuditedGrowth()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+        HashSet<string> baseSections =
+        [
+            .. pipeline.GetBaseCategoryDoors()
+                .SelectMany(category => categories[category]),
+        ];
+        string[] domainOnlySections =
+        [
+            .. categories
+                .Where(pair => !pipeline.GetBaseCategoryDoors().Contains(
+                    pair.Key,
+                    StringComparer.OrdinalIgnoreCase))
+                .SelectMany(static pair => pair.Value)
+                .Where(section => !baseSections.Contains(section))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(
+            [
+                PackageSections.AuditArtifactText,
+                PackageSections.AuditFindings,
+                PackageSections.AuditIdentifierConfusion,
+                PackageSections.DependencyHierarchy,
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkFiles,
+                PackageSections.SourceLinkIntegrity,
+                PackageSections.SourceLinkMissingFiles,
+            ],
+            domainOnlySections);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.AuditArtifactText.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.AuditFindings.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.AuditIdentifierConfusion.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.DependencyHierarchy.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            PackageSectionDescriptors.SourceLinkAvailability.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.SourceFiles.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Fixed,
+            PackageSectionDescriptors.SourceLinkIntegrity.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.SourceLinkMissingFiles.SizeClass);
+    }
+
+    [Fact]
+    public void PackagePipeline_DomainSectionsRemainOutsideAutomaticScope()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+        HashSet<string> automatic =
+        [
+            .. pipeline.GetCandidateSections(Verbosity.Detailed),
+        ];
+        HashSet<string> baseSections =
+        [
+            .. pipeline.GetBaseCategoryDoors()
+                .SelectMany(category => categories[category]),
+        ];
+        string[] domainOnlySections =
+        [
+            .. categories
+                .Where(pair => !pipeline.GetBaseCategoryDoors().Contains(
+                    pair.Key,
+                    StringComparer.OrdinalIgnoreCase))
+                .SelectMany(static pair => pair.Value)
+                .Where(section => !baseSections.Contains(section))
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+
+        Assert.All(
+            domainOnlySections,
+            section => Assert.DoesNotContain(section, automatic));
+    }
+
+    [Fact]
     public void PackagePipeline_PackageContentAuditRendersOnlyWithFindings()
     {
         var model = new InspectionResult

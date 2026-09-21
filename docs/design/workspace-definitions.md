@@ -833,123 +833,82 @@ invalid and over-limit packets, unauthorized content, broken
 Root/occurrence correspondence, and a non-projectable Package facet or query
 that preserves ordinary stdout.
 
-Implementation integrates the active Package/Library CLI adoption rather than
-racing its transitional execution or option policy. #7668 and its successors
-own Package aggregate execution, tools-v2 containment, authoritative Package
-identity, aggregate-by-default routing, namesake narrowing, aliases, and
-`--all-libraries` retirement. #7293 owns evidence-envelope CLI transport and
-publication. #7765 owns exact Package selection from Workspace packet context,
-baseline CLI adoption, and the Package routing-evidence adopter after those
-supporting owners settle.
+Implementation reuses the existing Package aggregate executor without broadening
+the `workspace` command into an inspection host. #7430 owns the remaining direct
+Package/Library aggregate-default adoption and `--all-libraries` retirement.
+Issue #7293 owns evidence-envelope CLI transport and publication. #7765 owns
+exact Package selection from Workspace packet context and baseline CLI
+adoption.
 
 #### Library packet-context adoption
 
-The third noun-command adoption is specified by
-[#7746](https://github.com/richlander/dotnet-inspect/issues/7746). Its exact CLI
-shape is:
+Library inspection composes with a populated Workspace by naming its Package
+subject separately from its Library target:
 
 ```console
-dotnet-inspect library Microsoft.Azure.SignalR.Common \
+dotnet-inspect library \
+  --package Microsoft.Azure.SignalR \
   --workspace "$packet"
 
-dotnet-inspect library Microsoft.Azure.SignalR.Common \
+dotnet-inspect library \
+  --package Microsoft.Azure.SignalR \
   --workspace "$packet" \
-  --share packet
+  --namesake-library
+
+dotnet-inspect library Microsoft.Azure.SignalR.Common.dll \
+  --package Microsoft.Azure.SignalR \
+  --workspace "$packet"
 ```
 
 `--workspace` accepts one canonical Base64URL Workspace packet string as the
-`library` command's aggregate location context; URL input is rejected. The
-Library name remains an ordinary `library` subject. The packet is the sole
-location source and cannot be combined with Package, Platform, project,
-framework/version/TFM, local-path, package-inference, or aggregate-Library
-source selection.
+`library` command's location context; URL input is rejected. `--package`
+identifies one exact Package occurrence in the packet's selected context. The
+packet is the sole location and target-framework source and cannot be combined
+with Platform, project, framework/version/TFM, local-path, package-inference,
+preview, or latest selection.
 
-The first slice requires one positional exact assembly simple name. It adds no
-path, filename, wildcard, fuzzy, or full assembly-identity grammar. Matching is
-case-insensitive over the owner-issued assembly identity name; it does not strip
-`.dll` or infer identity from an asset filename. Library listing, replay of the
-packet's prior active subject, the `library coordinate` child, and aggregate
-Library selection remain later work.
+No Library selector means the selected Package's admitted compile-Library
+aggregate. `--namesake-library` is an explicit narrowing gesture. The existing
+positional Library selector narrows to one exact package asset. The two
+narrowing gestures are mutually exclusive and neither may fall back to the
+aggregate, a sibling Library, or Package inspection.
 
 Complete Restoration realizes the packet under the receiving host's ordinary
 source authorization and acquisition policy. The packet's **selected context**,
-not its focused Navigation tab, supplies the aggregate Library search scope.
-Resolution consumes one host-neutral selected-context exact-Library operation
-that accepts the complete realized context and returns either:
+not its focused Navigation tab, supplies Package occurrence scope. The shared
+selected-context exact-Package operation resolves that Package before Library
+selection. The Library route reuses the operation's live admitted Package Root
+and selected target; it does not reacquire the Package, infer the Package from
+focus, choose the first occurrence, or materialize a selected Library as an
+unrelated local-file inspection.
 
-- one unique exact participant with its live operation-bounded assembly,
-  detached Package source coordinate, and exact assembly identity;
-- no matching participant;
-- multiple exact candidates;
-- incomplete participant evidence; or
-- unavailable selected-context or realization authority.
+Aggregate execution preserves every selected compile Library as a managed
+participant or visible failure. Exact narrowing uses the package asset selector.
+Namesake narrowing resolves the unique managed assembly identity matching the
+Package ID. Missing, ambiguous, or failed selection is visible and does not
+fall back. Aggregate and narrowed output retain Package, version, Library, and
+target-framework provenance.
 
-The detached selection evidence records how many selected-context participants
-were considered, the exact matching candidates, and participant failures. The
-Workspace adopter does not choose a Package or participant before invoking the
-operation. Resolution never:
-
-- searches a global Package, Platform, project, or filesystem fallback;
-- chooses the first Package or Library participant;
-- reconstructs Library identity from a path, asset filename, heading, row
-  position, or rendered text; or
-- adds a packet-specific Library inventory or matching algorithm.
-
-The selected live participant retains its exact Package coordinate, selected
-target and asset provenance while the admitted Workspace operation remains
-valid. Execution must not materialize the selected bytes and silently downgrade
-the request to an unrelated local-file inspection. Without `--share`, the
-command preserves ordinary exact-Library output, sections, formats,
-projections, diagnostics, counts, source-sensitive behavior, and exit behavior.
-
-Appending `--share[=url|packet]` follows the additive
-[CLI Workspace Sharing](cli-workspace-sharing.md) contract and performs neither
-a second Library selection nor a second Library inspection. A schema-4 derived
-packet:
-
-1. moves focus to the existing tab for the exact effective source containing
-   the selected Library;
-2. carries `PortableSubjectRequest.Library`;
-3. retains the owner-issued exact Library identity beneath that direct Package
-   row; and
-4. includes a Library facet or query only when the ordinary command choice has
-   a faithful portable representation.
-
-Schemas 3 and 4 are valid packet inputs for ordinary Library inspection. A
-successful derived Library packet requires schema 4 because
-`PortableSubjectRequest.Library` has no schema-3 representation. A Share
-refusal preserves ordinary stdout, writes no partial scalar, names the first
-non-projectable choice, and makes the explicitly requested side output fail
-nonzero.
+Derived Library Share remains a later adoption. The packet is input context,
+not permission for the command to rewrite or replay prior active Navigation
+state.
 
 Inspected content, metadata rows, acquired bytes, diagnostics, credentials,
 and live Workspace authority do not enter the packet. The receiving host
 applies its own offline mode, source configuration, credentials, cache,
 timeout, preview, and transfer limits.
 
-The real multi-Library case uses
-`Microsoft.Azure.SignalR@1.33.1`. Selecting
-`Microsoft.Azure.SignalR.Common` must inspect that exact participant rather
-than the namesake or first selected compile Library. A two-context case selects
-the SignalR context while focus names a neighboring context; resolution uses
-the selected context, and derived Share focuses the exact SignalR source while
-preserving the neighboring context and dormant state.
+The real multi-Library case uses `Microsoft.Azure.SignalR@1.33.1`: the default
+includes both selected-framework compile Libraries, namesake narrowing chooses
+`Microsoft.Azure.SignalR.dll`, and the positional
+`Microsoft.Azure.SignalR.Common.dll` selector chooses only that asset. A
+two-context case selects the SignalR context while focus names a neighboring
+context; Package resolution uses the selected context.
 
-A focused ambiguity fixture places two participants with the same assembly
-simple name but different exact identities in the selected context. The
-command reports both candidates and emits no derived Share rather than choosing
-the first participant. Neighboring gates cover one unique Library, no match,
-incomplete evidence, registration-only or null-selected-context packets,
-schema-3 ordinary inspection and Share refusal, schema-4 derived Share, URL
-rejection, invalid and over-limit packets, unauthorized content, and a
-non-projectable section or query choice that preserves ordinary stdout.
-
-Implementation integrates the active Package/Library CLI adoption rather than
-racing its transitional execution or option policy. #7668 and its successors
-own Package aggregate execution, tools-v2 containment, authoritative Package
-identity, aggregate-by-default routing, namesake narrowing, aliases, and
-`--all-libraries` retirement. #7746 owns only exact Library selection from
-Workspace packet context.
+This command adoption composes the Workspace definition owner with the
+aggregate and narrowing policy owned by #7318 and the Package/Library CLI
+adoption tracked by #7430. It does not add Library inspection behavior to the
+`workspace` command.
 
 Platform, project, local, and registration-only Library activation remain
 outside this slice. Packet format 4 intentionally leaves non-Package
@@ -3043,7 +3002,7 @@ One restoration attempt proceeds in this order:
    `UnsupportedCompleteRestorationGroup_ReturnsTypedFailure` gates refusal.
 4. Ask the consuming host for construction authority over one fresh Workspace
    created from that exact plan. Inspect Web begins a
-   `WorkspaceRealizationCoordinator` candidate and supplies its
+   `WorkspaceReplacementCoordinator` candidate and supplies its
    `WorkspaceRealizationConstructionLease`; the CLI supplies its sole
    invocation Workspace lifetime. Populate complete explicit membership and
    registrations through ordinary Artifact and Scope operations. Resolve and

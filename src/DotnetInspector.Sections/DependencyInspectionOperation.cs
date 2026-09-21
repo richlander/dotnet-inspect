@@ -14,7 +14,10 @@ public sealed record DependencyInspectionPlan(
     bool Traversal,
     bool Pruning,
     InertString? RequestedFramework,
-    int? RequestedDepth);
+    int? RequestedDepth)
+{
+    public bool Licenses { get; init; }
+}
 
 /// <summary>
 /// One acquired explicit root before dependency evidence is joined.
@@ -106,6 +109,12 @@ public sealed record DependencyInspectionOperationRequest
 
     public DependencyInspectionPruningSummary PruningSummary { get; }
 
+    public ImmutableArray<DependencyInspectionLicense> Licenses { get; init; } =
+        [];
+
+    public DependencyInspectionLicenseSummary LicenseSummary { get; init; } =
+        DependencyInspectionLicenseSummary.NotRequested;
+
     public InspectionShare Share { get; }
 }
 
@@ -174,7 +183,12 @@ public static class DependencyInspectionOperation
             request.Plan.Pruning
                 ? [.. request.Pruning.Select(DetachPruning)]
                 : [],
-            failures);
+            failures)
+        {
+            Licenses = request.Plan.Licenses
+                ? request.Licenses
+                : [],
+        };
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
             content,
             request.Share);
@@ -608,7 +622,8 @@ public static class DependencyInspectionOperation
         {
             DependencyInspectionFailure.Evidence evidence =>
                 IsSelectedFailurePhase(evidence.Value.Phase, plan),
-            DependencyInspectionFailure.Traversal => plan.Traversal,
+            DependencyInspectionFailure.Traversal =>
+                plan.Traversal || plan.Licenses,
             DependencyInspectionFailure.Pruning => plan.Pruning,
             _ => false,
         };
@@ -624,7 +639,9 @@ public static class DependencyInspectionOperation
             DependencyEvidenceFailurePhase.Declaration => plan.Declarations,
             DependencyEvidenceFailurePhase.Graph =>
                 plan.RestoredRelationships,
-            DependencyEvidenceFailurePhase.Traversal => plan.Traversal,
+            DependencyEvidenceFailurePhase.Traversal =>
+                plan.Traversal || plan.Licenses,
+            DependencyEvidenceFailurePhase.License => plan.Licenses,
             DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
             _ => false,
         };
@@ -715,7 +732,12 @@ public static class DependencyInspectionOperation
                 ? request.PruningSummary
                 : DependencyInspectionPruningSummary.NotRequested,
             request.IsPrefixRootSet,
-            evidence.Summary.PackagePrefix);
+            evidence.Summary.PackagePrefix)
+        {
+            Licenses = request.Plan.Licenses
+                ? request.LicenseSummary
+                : DependencyInspectionLicenseSummary.NotRequested,
+        };
     }
 
     private static bool IsCompleteRootSet(

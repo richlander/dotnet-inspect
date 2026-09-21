@@ -74,6 +74,160 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
     }
 
     [Fact]
+    public async Task DistinctWorkspaces_ReturnExactDestinationType()
+    {
+        await using var sourceWorkspace = new InspectionWorkspace();
+        await using var destinationWorkspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        CoordinatePackageObservation first =
+            await ObserveSingle(sourceWorkspace, before);
+        CoordinatePackageObservation second =
+            await ObserveSingle(destinationWorkspace, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "Api"));
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                sourceWorkspace,
+                destinationWorkspace,
+                source,
+                first,
+                second,
+                Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact, result.Status);
+        StructuralSubjectIdentity.TypeSubject resultSource =
+            Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+                result.Source);
+        StructuralSubjectIdentity.TypeSubject destination =
+            Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+                result.Destination);
+        Assert.Same(
+            Assert.Single(first.Libraries).Subject.Identity.Registration,
+            resultSource.Library.Identity.Registration);
+        Assert.Same(
+            Assert.Single(second.Libraries).Subject.Identity.Registration,
+            destination.Library.Identity.Registration);
+        Assert.Same(destinationWorkspace.Identity, destination.Workspace.Identity);
+        Assert.NotSame(
+            source.Library.Identity.Registration,
+            destination.Library.Identity.Registration);
+
+        ApiCoordinateCorrespondenceEvidence evidence = result.Detach();
+        await sourceWorkspace.CloseAsync();
+        await destinationWorkspace.CloseAsync();
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact, evidence.Status);
+        Assert.Equal("1.0.0", evidence.Source.Library.Package.PackageVersion);
+        Assert.Equal("2.0.0", evidence.Destination!.Library.Package.PackageVersion);
+    }
+
+    [Fact]
+    public async Task DistinctWorkspaces_ReturnExactDestinationMember()
+    {
+        await using var sourceWorkspace = new InspectionWorkspace();
+        await using var destinationWorkspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("lib/net11.0/Fixture.dll",
+                FixtureCatalog.MetadataApiCorrespondencePair.OldAssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("lib/net11.0/Fixture.dll",
+                FixtureCatalog.MetadataApiCorrespondencePair.NewAssemblyPath()));
+        CoordinatePackageObservation first =
+            await ObserveSingle(sourceWorkspace, before);
+        CoordinatePackageObservation second =
+            await ObserveSingle(destinationWorkspace, after);
+        const string type =
+            "MetadataCorrespondenceFixture.OrdinalSelection";
+        ApiCoordinateSourceSelectionResult selection =
+            await ApiCoordinateSourceSelectionQuery.ExecuteAsync(
+                sourceWorkspace,
+                first,
+                new("coordinate.sample", "1.0.0", "2.0.0", type, "Pick:1"),
+                cancellationToken: Cancellation);
+        StructuralSubjectIdentity.MemberSubject source =
+            Assert.IsType<StructuralSubjectIdentity.MemberSubject>(
+                selection.Subject);
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                sourceWorkspace,
+                destinationWorkspace,
+                source,
+                ApiDeclarationKind.Method,
+                first,
+                second,
+                Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact, result.Status);
+        StructuralSubjectIdentity.MemberSubject destination =
+            Assert.IsType<StructuralSubjectIdentity.MemberSubject>(
+                result.Destination);
+        Assert.Equal(
+            source.Identity.Member.StableSelector,
+            destination.Identity.Member.StableSelector);
+        Assert.Same(destinationWorkspace.Identity, destination.Workspace.Identity);
+        Assert.NotSame(
+            source.DeclaringType.Library.Identity.Registration,
+            destination.DeclaringType.Library.Identity.Registration);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ForeignEndpointWorkspace_IsRefused(bool sourceEndpoint)
+    {
+        await using var sourceWorkspace = new InspectionWorkspace();
+        await using var destinationWorkspace = new InspectionWorkspace();
+        await using var foreignWorkspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        CoordinatePackageObservation first =
+            await ObserveSingle(sourceWorkspace, before);
+        CoordinatePackageObservation second =
+            await ObserveSingle(destinationWorkspace, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "Api"));
+
+        ApiCoordinateCorrespondenceResult result =
+            await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                sourceEndpoint ? foreignWorkspace : sourceWorkspace,
+                sourceEndpoint ? destinationWorkspace : foreignWorkspace,
+                source,
+                first,
+                second,
+                Cancellation);
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Refused, result.Status);
+        Assert.Equal(
+            ApiCoordinateCorrespondenceFailureKind.ForeignWorkspace,
+            result.Failure!.Kind);
+        Assert.Null(result.SourceBinding);
+        Assert.Null(result.Resolution);
+        Assert.Null(result.Correspondence);
+        Assert.Null(result.Destination);
+    }
+
+    [Fact]
     public async Task RetiredSourceRoot_ReturnsTypedFailure()
     {
         await using var workspace = new InspectionWorkspace();
@@ -328,6 +482,23 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
                 binding,
                 scope.FindPackageOccurrence(binding)!,
                 Cancellation)).Observation;
+
+    static async Task<CoordinatePackageObservation> ObserveSingle(
+        InspectionWorkspace workspace,
+        PackageRootBinding binding)
+    {
+        WorkspaceScopeSnapshot current =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    current.Revision,
+                    [binding],
+                    DateTimeOffset.UtcNow.AddMinutes(1),
+                    Cancellation)).Snapshot;
+        return await Observe(workspace, binding, scope);
+    }
 
     internal static PackageRootBinding Binding(
         string version,

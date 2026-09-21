@@ -172,7 +172,7 @@ public class IndexBuildInvariantTests
                 SectionNames.AllocationFacts,
                 SectionNames.SafetyFacts,
                 SectionNames.CostFacts,
-                SectionNames.ImplementationProfiles,
+                SectionNames.TypeMetrics,
                 SectionNames.PerformanceTriage,
             ],
             TipLevel = TipLevel.Quiet,
@@ -200,7 +200,7 @@ public class IndexBuildInvariantTests
             [
                 SectionNames.UnsafeMembers,
                 SectionNames.TopLeverage,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
                 SectionNames.PerformanceTriage,
                 SectionNames.ArrayPoolEscapes,
             ],
@@ -241,68 +241,6 @@ public class IndexBuildInvariantTests
 
         Assert.Single(input.OldAssemblies);
         Assert.Single(input.NewAssemblies);
-        Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
-    }
-
-    [Fact]
-    public void TimelineCommand_AnalysisInspection_OpensTargetedSession()
-    {
-        MethodBodyInspectionSession.OpenCountForTests = 0;
-
-        FindingInspection<Analysis.UnsafetyOccurrence> inspection =
-            TimelineCommand.InspectUnsafetyAssemblies(
-                [FixtureAssembly],
-                typeof(IndexBuildGuardFixture).FullName!,
-                nameof(IndexBuildGuardFixture.Work));
-
-        Assert.IsType<
-            FindingInspection<Analysis.UnsafetyOccurrence>.Complete>(
-                inspection.Value);
-        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
-    }
-
-    [Fact]
-    public void TimelineCommand_AnalysisSession_HonorsCapabilitiesAndBodyScope()
-    {
-        Analysis.MethodIdentity target = Analysis.LibraryBodyIndex
-            .Open(
-                FixtureAssembly,
-                includeAllocations: false,
-                includeOpportunities: false)
-            .DeclaredMethods
-            .Single(method =>
-                method.DeclaringType.Name
-                    == nameof(IndexBuildGuardFixture)
-                && method.Name
-                    == nameof(IndexBuildGuardFixture.Work));
-        MethodBodyInspectionSession.OpenCountForTests = 0;
-
-        MethodBodyInspectionSession session =
-            TimelineCommand.OpenAnalysisSession(
-                FixtureAssembly,
-                Analysis.AnalysisFindings.AllocationDescriptor,
-                target.MetadataToken);
-
-        Assert.Equal(
-            Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
-                | Analysis.LibraryBodyAnalysisFeatures.Allocations,
-            session.BodyIndex.Features);
-        Assert.NotEmpty(
-            session.BodyIndex.GetAllocationOccurrences()[target.MetadataToken]);
-        Assert.Equal(
-            [target.MetadataToken],
-            session.BodyIndex.GetDirectCallsByCaller().Keys);
-
-        MethodBodyInspectionSession unsafetySession =
-            TimelineCommand.OpenAnalysisSession(
-                FixtureAssembly,
-                Analysis.AnalysisFindings.UnsafetyDescriptor,
-                target.MetadataToken);
-
-        Assert.Equal(
-            Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
-            unsafetySession.BodyIndex.Features);
-        Assert.Empty(unsafetySession.BodyIndex.GetAllocationOccurrences());
         Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
     }
 

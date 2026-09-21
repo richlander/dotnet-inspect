@@ -1006,7 +1006,7 @@ public static class StyleOptionCatalog
         {
             Id = LongLiteralStyleId,
             Title = "Use explicit long literal casts",
-            Summary = "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse NL suffix; genuine ldc.i8 sources keep their current spelling.",
+            Summary = "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse spelling: NL when a marker is required, or bare N when a binary sibling fixes long promotion. Genuine ldc.i8 sources keep their current spelling.",
             Tier = StyleOptionTier.Spelling,
             ByteDivergent = false,
             DefaultValue = "true",
@@ -1025,7 +1025,7 @@ public static class StyleOptionCatalog
                 new StyleOptionValue
                 {
                     Token = "true",
-                    Title = "NL suffix (default)",
+                    Title = "Terse long spelling (default)",
                     ConfigKey = "dotnet_inspect_style_prefer_long_literal_suffix",
                     IsSelected = static o => o.PreferLongLiteralSuffix,
                     SetSelected = static (o, on) =>

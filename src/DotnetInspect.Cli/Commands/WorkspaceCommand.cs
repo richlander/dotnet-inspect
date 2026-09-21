@@ -269,188 +269,134 @@ public static partial class WorkspaceCommand
             return 1;
         }
 
-        await using var coordinator = new WorkspaceRealizationCoordinator();
-        WorkspaceRealizationCandidateStartResult start =
-            await coordinator.BeginCandidateAsync(
-                plan,
+        var workspace = new InspectionWorkspace(plan);
+        int exitCode;
+        try
+        {
+            exitCode = await ExecuteWorkspaceAsync(
+                workspace,
+                directMembers,
+                options,
+                loadOptions,
+                payloadProvider,
                 cancellationToken).ConfigureAwait(false);
-        if (start
-            is not WorkspaceRealizationCandidateStartResult.Prepared prepared)
+        }
+        catch (Exception failure)
+        {
+            try
+            {
+                InspectionWorkspaceCloseReport report =
+                    await workspace.CloseAsync().ConfigureAwait(false);
+                if (!report.Succeeded)
+                {
+                    failure.Data[
+                        "DotnetInspect.Cli.WorkspaceCleanupReport"] =
+                        report;
+                }
+            }
+            catch (Exception cleanupFailure)
+            {
+                failure.Data[
+                    "DotnetInspect.Cli.WorkspaceCleanupFailure"] =
+                    cleanupFailure;
+            }
+            throw;
+        }
+
+        InspectionWorkspaceCloseReport close =
+            await workspace.CloseAsync().ConfigureAwait(false);
+        if (!close.Succeeded)
         {
             CommandError.Write(
-                "The Workspace realization could not be prepared.",
-                [
-                    start switch
-                    {
-                        WorkspaceRealizationCandidateStartResult.Closed =>
-                            "The realization coordinator is closed.",
-                        WorkspaceRealizationCandidateStartResult.Superseded =>
-                            "The realization request was superseded.",
-                        _ => "The realization request returned an unsupported result.",
-                    },
-                ]);
+                "The Workspace could not release every participant.");
+            return 1;
+        }
+        return exitCode;
+    }
+
+    static async Task<int> ExecuteWorkspaceAsync(
+        InspectionWorkspace workspace,
+        IReadOnlyList<WorkspaceMemberCoordinate> directMembers,
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        IPackageRootPayloadProvider? payloadProvider,
+        CancellationToken cancellationToken)
+    {
+        WorkspaceScopeReadResult read =
+            await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+        if (read is WorkspaceScopeReadResult.Unavailable unavailable)
+        {
+            CommandError.Write(
+                "The Workspace package inventory is unavailable.",
+                [unavailable.RuntimeFailure.ToString()]);
             return 1;
         }
 
+        WorkspaceScopeSnapshot snapshot =
+            ((WorkspaceScopeReadResult.Available)read).Snapshot;
         IReadOnlyList<PackageRootBinding> committedBindings = [];
-        using (WorkspaceRealizationConstructionLease construction =
-            prepared.Candidate.EnterConstruction())
+        if (options.RootRequest is not null)
         {
-            WorkspaceScopeReadResult read =
-                await construction.Workspace.GetScopeSnapshotAsync()
-                    .ConfigureAwait(false);
-            if (read is WorkspaceScopeReadResult.Unavailable unavailable)
-            {
-                CommandError.Write(
-                    "The Workspace package inventory is unavailable.",
-                    [unavailable.RuntimeFailure.ToString()]);
-                await AbandonCandidateAsync(
-                    coordinator,
-                    prepared.Candidate).ConfigureAwait(false);
+            PackageRootBinding? root =
+                await AcquireRootRequestAsync(
+                    options,
+                    loadOptions,
+                    payloadProvider,
+                    cancellationToken).ConfigureAwait(false);
+            if (root is null)
                 return 1;
-            }
-
-            WorkspaceScopeSnapshot snapshot =
-                ((WorkspaceScopeReadResult.Available)read).Snapshot;
-            if (options.RootRequest is not null)
+            committedBindings = [root];
+        }
+        else if (directMembers.Count != 0)
+        {
+            var packageBindings =
+                new List<PackageRootBinding>(directMembers.Count);
+            foreach (WorkspaceMemberCoordinate member in directMembers)
             {
-                PackageRootBinding? root =
-                    await AcquireRootRequestAsync(
-                        options,
+                WorkspacePackageRootAcquisitionOutcome outcome =
+                    await WorkspaceContextLoader.AcquirePackageRootAsync(
+                        new WorkspaceContextInput
+                        {
+                            Framework = options.Tfm,
+                            Members = [member],
+                        },
                         loadOptions,
-                        payloadProvider,
                         cancellationToken).ConfigureAwait(false);
-                if (root is null)
+                if (outcome
+                    is WorkspacePackageRootAcquisitionOutcome.Failed failed)
                 {
-                    await AbandonCandidateAsync(
-                        coordinator,
-                        prepared.Candidate).ConfigureAwait(false);
+                    CommandError.Write(
+                        "The Workspace package inventory could not be loaded.",
+                        [
+                            .. failed.Failures.Select(static failure =>
+                                $"{failure.Kind}: {failure.Message}"),
+                        ]);
                     return 1;
                 }
-                committedBindings = [root];
-            }
-            else if (directMembers.Length != 0)
-            {
-                var packageBindings =
-                    new List<PackageRootBinding>(directMembers.Length);
-                foreach (WorkspaceMemberCoordinate member in directMembers)
-                {
-                    WorkspacePackageRootAcquisitionOutcome outcome =
-                        await WorkspaceContextLoader.AcquirePackageRootAsync(
-                            new WorkspaceContextInput
-                            {
-                                Framework = options.Tfm,
-                                Members = [member],
-                            },
-                            loadOptions,
-                            cancellationToken).ConfigureAwait(false);
-                    if (outcome
-                        is WorkspacePackageRootAcquisitionOutcome.Failed failed)
-                    {
-                        CommandError.Write(
-                            "The Workspace package inventory could not be loaded.",
-                            [
-                                .. failed.Failures.Select(static failure =>
-                                    $"{failure.Kind}: {failure.Message}"),
-                            ]);
-                        await AbandonCandidateAsync(
-                            coordinator,
-                            prepared.Candidate).ConfigureAwait(false);
-                        return 1;
-                    }
 
-                    packageBindings.Add(
-                        ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome)
-                            .Root);
-                }
-
-                committedBindings =
-                [
-                    .. packageBindings.DistinctBy(
-                        static binding =>
-                            binding.CreateReacquisitionRequest()),
-                ];
+                packageBindings.Add(
+                    ((WorkspacePackageRootAcquisitionOutcome.Acquired)outcome)
+                        .Root);
             }
 
-            if (committedBindings.Count != 0
-                && await AddAcquiredPackagesAsync(
-                    construction.Workspace,
-                    snapshot,
-                    committedBindings,
-                    cancellationToken).ConfigureAwait(false) is null)
-            {
-                await AbandonCandidateAsync(
-                    coordinator,
-                    prepared.Candidate).ConfigureAwait(false);
-                return 1;
-            }
+            committedBindings =
+            [
+                .. packageBindings.DistinctBy(
+                    static binding =>
+                        binding.CreateReacquisitionRequest()),
+            ];
         }
 
-        WorkspaceRealizationCandidateCompletionResult completion =
-            await coordinator.CompleteCandidateAsync(
-                prepared.Candidate,
-                cancellationToken).ConfigureAwait(false);
-        if (completion
-            is not WorkspaceRealizationCandidateCompletionResult.Ready ready)
+        if (committedBindings.Count != 0
+            && await AddAcquiredPackagesAsync(
+                workspace,
+                snapshot,
+                committedBindings,
+                cancellationToken).ConfigureAwait(false) is null)
         {
-            CommandError.Write(
-                "The Workspace realization did not become ready.",
-                [
-                    completion switch
-                    {
-                        WorkspaceRealizationCandidateCompletionResult.Rejected
-                            rejected =>
-                            rejected.RuntimeFailure is null
-                                ? rejected.Reason.ToString()
-                                : $"{rejected.Reason}: {rejected.RuntimeFailure}",
-                        _ => "The completion returned an unsupported result.",
-                    },
-                ]);
-            await AbandonCandidateAsync(
-                coordinator,
-                prepared.Candidate).ConfigureAwait(false);
             return 1;
         }
 
-        WorkspaceTopLevelInventoryShareBasis shareBasis =
-            WorkspaceTopLevelInventoryShareBasis
-                .CreateRealizedWorkspace(ready.Definition);
-
-        WorkspaceRealizationCutoverResult cutover =
-            coordinator.CutOver(prepared.Candidate);
-        if (cutover is not WorkspaceRealizationCutoverResult.Activated)
-        {
-            CommandError.Write(
-                "The Workspace realization did not become active.",
-                [
-                    cutover is WorkspaceRealizationCutoverResult.Rejected rejected
-                        ? rejected.Reason.ToString()
-                        : "The cutover returned an unsupported result.",
-                ]);
-            return 1;
-        }
-
-        WorkspaceRealizationOperationAdmission admission =
-            await coordinator.EnterOperationAsync(cancellationToken)
-                .ConfigureAwait(false);
-        if (admission
-            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
-        {
-            CommandError.Write(
-                "The active Workspace realization did not admit the inventory operation.",
-                [
-                    admission switch
-                    {
-                        WorkspaceRealizationOperationAdmission.Unavailable
-                            unavailable =>
-                            unavailable.Reason.ToString(),
-                        _ => "Operation admission returned an unsupported result.",
-                    },
-                ]);
-            return 1;
-        }
-
-        using WorkspaceRealizationOperationLease authority = admitted.Lease;
         WorkspaceTopLevelInventoryRequest request =
             options.InventoryKinds.Length == 0
                 ? WorkspaceTopLevelInventoryRequest.All
@@ -458,16 +404,16 @@ public static partial class WorkspaceCommand
                     new WorkspaceTopLevelInventoryKindFilter(
                         options.InventoryKinds));
         WorkspaceTopLevelInventoryExecution inventory =
-            WorkspaceTopLevelInventoryOperation.Execute(
-                authority,
+            await WorkspaceTopLevelInventoryOperation.ExecuteAsync(
+                workspace,
                 request,
-                shareBasis);
+                cancellationToken).ConfigureAwait(false);
 
         if (options.ActivePackage is not null)
         {
             WorkspaceNavigationCommandResult? result =
                 await EvaluateNavigationAsync(
-                    authority,
+                    workspace,
                     inventory,
                     committedBindings,
                     options,
@@ -749,29 +695,26 @@ public static partial class WorkspaceCommand
             return 1;
         }
 
-        await using WorkspacePacketRestoration restoration =
+        WorkspacePacketRestoration restoration =
             ((WorkspacePacketRestorationResult.Restored)result).Value;
-        WorkspaceTopLevelInventoryRequest request =
-            options.InventoryKinds.Length == 0
-                ? WorkspaceTopLevelInventoryRequest.All
-                : new WorkspaceTopLevelInventoryRequest(
-                    new WorkspaceTopLevelInventoryKindFilter(
-                        options.InventoryKinds));
-        WorkspaceTopLevelInventoryExecution inventory =
-            WorkspaceTopLevelInventoryOperation.Execute(
-                restoration.Authority,
-                request,
-                WorkspaceTopLevelInventoryShareBasis
-                    .CreateCompleteRestoration(restoration.Workspace));
-        return WriteInventory(inventory, options);
-    }
-
-    static Task AbandonCandidateAsync(
-        WorkspaceRealizationCoordinator coordinator,
-        WorkspaceRealizationCandidate candidate)
-    {
-        _ = coordinator.AbandonCandidate(candidate);
-        return Task.CompletedTask;
+        return await restoration.ExecuteAsync(async activeRestoration =>
+        {
+            WorkspaceTopLevelInventoryRequest request =
+                options.InventoryKinds.Length == 0
+                    ? WorkspaceTopLevelInventoryRequest.All
+                    : new WorkspaceTopLevelInventoryRequest(
+                        new WorkspaceTopLevelInventoryKindFilter(
+                            options.InventoryKinds));
+            WorkspaceTopLevelInventoryExecution inventory =
+                await WorkspaceTopLevelInventoryOperation.ExecuteAsync(
+                    activeRestoration.Workspace,
+                    request,
+                    WorkspaceTopLevelInventoryShareBasis
+                        .CreateCompleteRestoration(
+                            activeRestoration.Activation),
+                    cancellationToken).ConfigureAwait(false);
+            return WriteInventory(inventory, options);
+        }).ConfigureAwait(false);
     }
 
     static bool TryCreateRegistrations(
@@ -1083,13 +1026,12 @@ public static partial class WorkspaceCommand
 
     static async Task<WorkspaceNavigationCommandResult?>
         EvaluateNavigationAsync(
-        WorkspaceRealizationOperationLease authority,
+        InspectionWorkspace workspace,
         WorkspaceTopLevelInventoryExecution inventory,
         IReadOnlyList<PackageRootBinding> bindings,
         WorkspaceOptions options,
         CancellationToken cancellationToken)
     {
-        WorkspaceScopeSnapshot scope = authority.Scope;
         ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot executableEntries =
             CurrentCatalogEntriesExecutable(registry);
@@ -1120,12 +1062,15 @@ public static partial class WorkspaceCommand
         }
 
         WorkspaceTopLevelInventorySelectionResolution resolution =
-            inventory.Selection.Resolve(authority, entry.Key);
+            await inventory.Selection.ResolveAsync(
+                workspace,
+                entry.Key,
+                cancellationToken).ConfigureAwait(false);
         if (resolution
             is not WorkspaceTopLevelInventorySelectionResolution.Selected
             {
                 Selection: WorkspaceTopLevelInventorySelection.Package selected,
-            })
+            } selectedResolution)
         {
             CommandError.Write(
                 $"Package occurrence {requestedOrder} could not be selected from the Workspace inventory receipt.",
@@ -1142,6 +1087,7 @@ public static partial class WorkspaceCommand
             return null;
         }
 
+        WorkspaceScopeSnapshot scope = selectedResolution.Scope;
         int index = selected.SourceIndex;
         if (index < 0
             || index >= scope.Packages.Length
@@ -1182,7 +1128,7 @@ public static partial class WorkspaceCommand
 
         PackageRootBinding binding = bindings[index];
         ArtifactRootResult<NavigationPackageEvaluation> query =
-            await authority.Workspace.ExecutePackageRootQueryAsync(
+            await workspace.ExecutePackageRootQueryAsync(
                 (PackageArtifactRootCorrespondence)
                     occurrence.Occurrence.Correspondence,
                 ready.Generation,

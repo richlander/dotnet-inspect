@@ -119,15 +119,17 @@ For a Member, the resolution name is its exact declaring
 Source validation remains with the strict correspondence producer. Invalid
 source evidence cannot be repaired by finding a destination lookalike.
 
-The entry pair carries the existing same-Workspace, same-package-ID,
-same-producer and generation/selection obligations. Pairing refusal or failure
-stops at that boundary. Pairing absence or ambiguity remains native evidence,
-but the composition validates the requested source declaration before
-classifying the overall result; an unresolved source cannot become destination
-absence. This composition never scans for another entry.
-An already forwarded source view must first identify its real source
-declaration under its owning operation; this contract does not reinterpret a
-source `ExportedType` as a `TypeDef`.
+The entry pair carries the existing exact-Workspace endpoint, same-package-ID,
+same-producer and generation/selection obligations. Source and destination may
+belong to the same Workspace or to separately realized Workspaces; each
+observation must match the explicit Workspace argument used to enter its Root
+operation. Pairing refusal or failure stops at that boundary. Pairing absence
+or ambiguity remains native evidence, but the composition validates the
+requested source declaration before classifying the overall result; an
+unresolved source cannot become destination absence. This composition never
+scans for another entry. An already forwarded source view must first identify
+its real source declaration under its owning operation; this contract does not
+reinterpret a source `ExportedType` as a `TypeDef`.
 
 ## Destination route and population
 
@@ -235,9 +237,9 @@ adds no lease, publication or scheduling protocol.
 
 `ApiCoordinateCorrespondenceResult` is the live operation result. It retains
 Workspace-local source and destination subjects, Library-pairing observations,
-and the associations needed by an immediate in-Workspace consumer such as
-matched Member Analysis. It is not the value retained after the Workspace
-closes.
+and the associations needed by an immediate consumer such as matched Member
+Analysis while both endpoint Workspaces remain alive. It is not the value
+retained after either Workspace closes.
 
 `ApiCoordinateCorrespondenceResult.Detach()` projects that live result once,
 while its associations remain valid, into
@@ -287,21 +289,45 @@ This Queries design does not change that active-subject policy or authorize a
 Browser override.
 
 The public prerequisite API accepts the source identity already selected once
-in the source Package:
+in the source Package. A source/successor composition names both Workspace
+owners:
 
 ```csharp
 ApiCoordinateCorrespondenceResult result =
     await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
-        workspace, sourceType, beforeObservation, afterObservation,
+        sourceWorkspace, destinationWorkspace,
+        sourceType, beforeObservation, afterObservation,
         cancellationToken);
 ApiCoordinateCorrespondenceEvidence retained = result.Detach();
 
 ApiCoordinateCorrespondenceResult memberResult =
     await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
-        workspace, sourceMember, sourceDeclarationKind,
+        sourceWorkspace, destinationWorkspace,
+        sourceMember, sourceDeclarationKind,
         beforeObservation, afterObservation, cancellationToken);
 ApiCoordinateCorrespondenceEvidence retainedMember = memberResult.Detach();
 ```
+
+Per
+[cross-Workspace composition and sharing](artifact-acquisition-and-workspaces.md#cross-workspace-composition-and-sharing),
+this operation does not make the Workspaces share resolution state. The caller
+supplies the Workspace that owns the source declaration and the separately
+realized Workspace that owns the destination observation as explicit query
+arguments. The query binds the exact source inside a source Root operation and,
+while that access remains valid, resolves and matches the exact destination
+inside a destination Root operation. This operation-scoped use neither exposes
+a set of active Workspaces nor makes either Workspace available through the
+other. Destination resolution consumes only the destination realization. No
+Root, registration, binding context, resolution index, lease, or operation
+authority moves between the Workspaces.
+
+The one-Workspace overload remains a convenience that supplies the same
+Workspace for both endpoint roles. Source binding executes only inside the
+source Workspace's Root operation. Destination resolution and strict
+correspondence execute only inside the destination Workspace's Root operation.
+A source subject or endpoint observation that does not belong to its named
+Workspace is `Refused(ForeignWorkspace)`; the operation does not downgrade that
+association failure to Root unavailability.
 
 The Member overload requires Metadata's declaration kind because
 `StructuralSubjectIdentity.MemberSubject` intentionally retains its
@@ -388,6 +414,16 @@ Shared implementation stays with its production-consumer delivery group.
 Interim Package/Library preferences retire only when Browser adoption preserves
 their shipped behavior. No new capability step or six-PR estimate is implied.
 
+Issue [#8024](https://github.com/richlander/dotnet-inspect/issues/8024) is step
+2 of #6751's five focused successor-realization slices. #8015 completed step 1
+by preserving separate Workspace identities through Library pairing. This step
+accesses correspondence content only through the caller-supplied source and
+destination Workspace arguments. Navigation then consumes the two realizations
+without Scope Replace; portable replacement adopts that operation and
+exercises the existing Avalonia CLI gate; Scope finally retires Replace.
+Issues #5510 and #5511 continue to track Browser installation. This step adds
+no host path, rendering, transport, or lifecycle policy.
+
 ## Required implementation evidence
 
 This deterministic composition adds no stateful resolution protocol.
@@ -406,7 +442,7 @@ The acceptance cohort is PR-fast: its slowest observed individual case was
 | `Avalonia_MoveUsesTheExplicitMarkupToBaseForwarder` | Avalonia 11.3.14 -> 12.1.2/net8.0 establishes the Markup entry, Base terminal, exact MultiBinding Type and parameterless constructor, with ordered route evidence. |
 | `ForwardedTypeSuccess_DoesNotProveMemberCorrespondence` | MultiBinding's Converter Property remains strict Absent after successful forwarding, preserving the Base candidate and route. |
 | `ForwarderTargetOmittedFromSelectedPopulation_IsNotApiAbsence` | A fixture containing the pinned facades without Base produces Refused/UnboundBinding with its target and route, never API absence. |
-| `ApiCoordinateCorrespondenceQueryTests` | Direct exact correspondence, retired Root refusal, and source-binding precedence over Library absence. |
+| `ApiCoordinateCorrespondenceQueryTests` | Direct exact correspondence in one or two Workspaces, exact Type and Member destination registrations, foreign endpoint-Workspace refusal, retired Root refusal, and source-binding precedence over Library absence. |
 | `DetachedEvidence_PublicBoundaryExcludesLiveQueryTypes` | The immediate public properties of the detached correspondence, declaration, Library-pairing, Library, and resolution-assembly evidence do not expose live Workspace/query result types. |
 | `CoordinateLibraryPairingQueryTests` | Complete API populations, identity-profile differences, ambiguity, incomplete observations, occurrence association, and retirement. |
 | `OverloadOrdinalMoves_MatchingUsesSourceAnchorNotDestinationOrdinal` | Independently compiled Metadata fixtures insert an earlier destination overload; matching follows the source declaration, not its ordinal. |
