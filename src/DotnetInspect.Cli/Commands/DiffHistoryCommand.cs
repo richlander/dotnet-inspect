@@ -246,6 +246,11 @@ internal static class DiffHistoryCommand
             error = "--compact requires --json or --envelope.";
             return false;
         }
+        if (options.Tree)
+        {
+            error = "Diff History does not support --tree.";
+            return false;
+        }
         if (options.CompactJson
             && (options.Count
                 || HasHistoryPresentationProjection(options)))
@@ -263,7 +268,6 @@ internal static class DiffHistoryCommand
                 || options.Tsv
                 || options.Jsonl
                 || options.NoHeader
-                || options.Tree
                 || options.Discover is not null
                 || options.Schema
                 || options.VerbosityExplicitlySet
@@ -278,11 +282,10 @@ internal static class DiffHistoryCommand
         }
         if (options.Count
             && (options.Columns is not null
-                || options.Fields is not null
-                || options.Tree))
+                || options.Fields is not null))
         {
             error =
-                "Diff History Count cannot be combined with field, column, or tree projections.";
+                "Diff History Count cannot be combined with field or column projections.";
             return false;
         }
 

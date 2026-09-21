@@ -123,6 +123,34 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiffHistory_RejectsTreeBeforeAcquisition(bool json)
+    {
+        List<string> arguments =
+        [
+            "diff",
+            "--history",
+            "--package",
+            "Definitely.Does.Not.Exist@1.0.0..2.0.0",
+            "--type",
+            "Example.Widget",
+            "--tree",
+        ];
+        if (json)
+            arguments.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Diff History does not support --tree",
+            error);
+        Assert.DoesNotContain("Package 'Definitely.Does.Not.Exist'", error);
+    }
+
     [Fact]
     public async Task DiffHistory_RejectsNonReplayableSourceBeforeAcquisition()
     {
