@@ -30,9 +30,10 @@ public static class MemberSourcePairInspection
                 .ConfigureAwait(false);
 
         return new(
+            InspectionContentKind.Result,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "member-source-pair/share",
-                "Member source pair requests do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

@@ -173,10 +173,11 @@ public static class DiffHistoryInspection
     static InspectionEnvelope<DiffHistoryOutcome> Envelope(
         DiffHistoryOutcome outcome) =>
         new(
+            InspectionContentKind.Outcome,
             outcome,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "diff-history/share",
-                "Diff History does not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             Diagnostics(outcome));
 
     static DiffHistoryOutcome BindCount(

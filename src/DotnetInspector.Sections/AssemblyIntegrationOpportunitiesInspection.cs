@@ -101,10 +101,11 @@ public static class AssemblyIntegrationOpportunitiesInspection
         AssemblyIntegrationsEntry integrations,
         AssemblyIntegrationOpportunitiesEntry opportunities) =>
         new(
+            InspectionContentKind.Result,
             new(
                 integrations,
                 opportunities),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "assembly-integration-opportunities/share",
-                "Assembly Integration Opportunities do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 }

@@ -301,8 +301,8 @@ public sealed class EcosystemChangeReportPresentationTests
             EcosystemChangeReportJson.Serialize(
                 inspection.Content,
                 compact: true));
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
         Assert.Equal("package-changes/share", share.Path);
         Assert.Empty(inspection.Diagnostics);
         Assert.Equal(

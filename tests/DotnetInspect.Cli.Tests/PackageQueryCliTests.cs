@@ -1726,7 +1726,7 @@ public class PackageQueryCliTests
                 root.GetProperty("content")));
         Assert.Equal(
             "nonProjectable",
-            root.GetProperty("share").GetProperty("kind").GetString());
+            root.GetProperty("portable_projection").GetProperty("kind").GetString());
     }
 
     [Fact]

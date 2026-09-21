@@ -1,6 +1,7 @@
 import type {
   BrowserInspectionDiagnostic,
-  BrowserInspectionShare,
+  BrowserInspectionContentKind,
+  BrowserInspectionPortableProjection,
   BrowserPackageAssemblySemanticCandidateOutcome,
   BrowserPackageAssemblySemanticDocument,
   BrowserPackageAssemblySemanticOccurrence,
@@ -205,8 +206,9 @@ export type EngineWorkerPackageQueryCompletionEvent =
   };
 
 interface EngineWorkerPackageQueryInspection {
+  readonly contentKind: BrowserInspectionContentKind;
   readonly content: EngineWorkerPackageQueryDocument;
-  readonly share: BrowserInspectionShare;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: readonly BrowserInspectionDiagnostic[];
 }
 
@@ -457,6 +459,14 @@ function literal<const TAllowed extends readonly string[]>(
   }
   throw new PackageQueryPayloadError(
     `Unsupported ${description} '${String(value)}'.`);
+}
+
+function nullableLiteral<const TAllowed extends readonly string[]>(
+  value: unknown,
+  allowed: TAllowed,
+  description: string,
+): TAllowed[number] | null {
+  return value === null ? null : literal(value, allowed, description);
 }
 
 function stringArray(
@@ -1262,10 +1272,15 @@ function parseInspection(
   inspectionValue: unknown,
 ): EngineWorkerPackageQueryInspection {
   const inspection = dataRecord(inspectionValue, [
+    "contentKind",
     "content",
-    "share",
+    "portableProjection",
     "diagnostics",
   ], "Package Query inspection");
+  const contentKind = literal(
+    inspection.contentKind,
+    ["document"] as const,
+    "Package Query inspection content kind");
   const documentRecord = dataRecord(
     inspection.content,
     ["results", "failures", "completion", "hasPackages", "assemblySemantic"],
@@ -1815,47 +1830,52 @@ function parseInspection(
     remainingCharacters: maximumEventCharacters,
     remainingItems: maximumCollectionItems,
   };
-  const share = dataRecord(
-    inspection.share,
-    ["kind", "fullUrl", "packet", "path", "reason"],
-    "Package Query inspection Share");
+  const portableProjection = dataRecord(
+    inspection.portableProjection,
+    ["kind", "fullUrl", "packet", "path", "reason", "explanation"],
+    "Package Query inspection portable projection");
   const kind = literal(
-    share.kind,
+    portableProjection.kind,
     ["Available", "NonProjectable"] as const,
-    "Package Query inspection Share kind");
-  const projectedShare: BrowserInspectionShare = {
+    "Package Query inspection portable projection kind");
+  const projectedPortableProjection: BrowserInspectionPortableProjection = {
     kind,
     fullUrl: nullableText(
-      share.fullUrl,
-      "Package Query inspection Share URL",
+      portableProjection.fullUrl,
+      "Package Query inspection portable projection URL",
       metadataBudget),
     packet: nullableText(
-      share.packet,
-      "Package Query inspection Share packet",
+      portableProjection.packet,
+      "Package Query inspection portable projection packet",
       metadataBudget),
     path: nullableText(
-      share.path,
-      "Package Query inspection Share path",
+      portableProjection.path,
+      "Package Query inspection portable projection path",
       metadataBudget),
-    reason: nullableText(
-      share.reason,
-      "Package Query inspection Share reason",
+    reason: nullableLiteral(
+      portableProjection.reason,
+      ["notSupported", "invalid", "incomplete", "unavailable", "failed"] as const,
+      "Package Query inspection portable projection reason"),
+    explanation: nullableText(
+      portableProjection.explanation,
+      "Package Query inspection portable projection explanation",
       metadataBudget),
   };
   if (kind === "Available") {
-    if (projectedShare.fullUrl === null
-        || projectedShare.packet === null
-        || projectedShare.path !== null
-        || projectedShare.reason !== null) {
+    if (projectedPortableProjection.fullUrl === null
+        || projectedPortableProjection.packet === null
+        || projectedPortableProjection.path !== null
+        || projectedPortableProjection.reason !== null
+        || projectedPortableProjection.explanation !== null) {
       throw new PackageQueryPayloadError(
-        "Available Package Query Share data is malformed.");
+        "Available Package Query portable projection data is malformed.");
     }
-  } else if (projectedShare.fullUrl !== null
-      || projectedShare.packet !== null
-      || projectedShare.path === null
-      || projectedShare.reason === null) {
+  } else if (projectedPortableProjection.fullUrl !== null
+      || projectedPortableProjection.packet !== null
+      || projectedPortableProjection.path === null
+      || projectedPortableProjection.reason === null) {
     throw new PackageQueryPayloadError(
-      "Non-projectable Package Query Share data is malformed.");
+      "Non-projectable Package Query portable projection data is malformed.");
   }
 
   const diagnostics = arrayItems(
@@ -1889,8 +1909,9 @@ function parseInspection(
     });
 
   return {
+    contentKind,
     content,
-    share: projectedShare,
+    portableProjection: projectedPortableProjection,
     diagnostics,
   };
 }

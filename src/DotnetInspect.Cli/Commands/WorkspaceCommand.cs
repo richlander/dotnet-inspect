@@ -416,7 +416,9 @@ public static partial class WorkspaceCommand
                 return 1;
             }
 
-            return WorkspaceShareOutput.WriteScalar(envelope.Share, format);
+            return WorkspaceShareOutput.WriteScalar(
+                envelope.PortableProjection,
+                format);
         }
         catch (Exception ex) when (ex is
             WorkspaceSharePacketException

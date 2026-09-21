@@ -69,6 +69,7 @@ function succeeded(
     kind: "Succeeded",
     value: null,
     inspection: {
+      contentKind: "document",
       content: {
         hasPackages: false,
         results: [],
@@ -76,12 +77,13 @@ function succeeded(
         completion: value.completion!,
         assemblySemantic: null,
       },
-      share: {
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-query/share",
-        reason: "No canonical Workspace packet.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace packet.",
       },
       diagnostics: [],
     },
@@ -173,6 +175,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     kind: "Succeeded",
     value: null,
     inspection: {
+      contentKind: "document",
       content: {
         hasPackages: true,
         results: [{
@@ -222,12 +225,13 @@ function semanticSucceeded(): BrowserPackageQueryResult {
         },
         assemblySemantic,
       },
-      share: {
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-query/share",
-        reason: "No canonical Workspace packet.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace packet.",
       },
       diagnostics: [],
     },
@@ -699,12 +703,13 @@ test("Browser source retains the Package Query inspection envelope", async () =>
   assert.equal(inspections.length, 2);
   assert.equal(inspections[0], null);
   assert.equal(inspections[1]?.content.completion.kind, "Exhausted");
-  assert.deepEqual(inspections[1]?.share, {
+  assert.deepEqual(inspections[1]?.portableProjection, {
     kind: "NonProjectable",
     fullUrl: null,
     packet: null,
     path: "package-query/share",
-    reason: "No canonical Workspace packet.",
+    reason: "notSupported",
+    explanation: "No canonical Workspace packet.",
   });
 });
 

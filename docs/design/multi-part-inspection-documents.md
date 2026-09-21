@@ -33,7 +33,8 @@ Supporting owners retain their existing authority:
 
 - [Host-observable content kinds](host-observable-content-kinds.md) defines
   Result, Document, and Outcome.
-- [Inspection envelope](inspection-envelope.md) owns Content, Share, and
+- [Inspection envelope](inspection-envelope.md) owns ContentKind, Content,
+  PortableProjection, and
   cross-host diagnostics.
 - [Section model](section-model.md) owns sections, authored categories,
   selection, effectiveness, and format compatibility.

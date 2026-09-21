@@ -16,7 +16,7 @@ internal static class DependsShareProjection
     private const string BrowserPlatformPackageId = "Microsoft.NETCore.App";
 
     internal sealed record AssetSharePreparation(
-        InspectionShare Share,
+        InspectionPortableProjection PortableProjection,
         PackageSourceCoordinate? Coordinate = null,
         PackageSourceAuthorization? Authorization = null);
 
@@ -69,23 +69,19 @@ internal static class DependsShareProjection
                 httpClient,
                 logger,
                 cancellationToken).ConfigureAwait(false);
-        return WriteAsset(preparation.Share, options.ShareFormat!.Value);
+        return WriteAsset(
+            preparation.PortableProjection,
+            options.ShareFormat!.Value);
     }
 
     internal static int WriteAsset(
-        InspectionShare share,
+        InspectionPortableProjection share,
         WorkspaceShareFormat format)
     {
-        if (share is InspectionShare.NonProjectable nonProjectable)
-        {
-            CommandError.Write(nonProjectable.Reason.ToString());
-            return 1;
-        }
-
         return WorkspaceShareOutput.WriteScalar(share, format);
     }
 
-    internal static async Task<InspectionShare> ProjectAssetAsync(
+    internal static async Task<InspectionPortableProjection> ProjectAssetAsync(
         DependsOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
@@ -94,7 +90,7 @@ internal static class DependsShareProjection
             options,
             httpClient,
             logger,
-            cancellationToken).ConfigureAwait(false)).Share;
+            cancellationToken).ConfigureAwait(false)).PortableProjection;
 
     internal static async Task<AssetSharePreparation> PrepareAssetAsync(
         DependsOptions options,
@@ -241,7 +237,7 @@ internal static class DependsShareProjection
         string encoded =
             WorkspaceSharePacketCodec.Encode(projection.Packet!);
         return new AssetSharePreparation(
-            new InspectionShare.Available(
+            new InspectionPortableProjection.Available(
                 WorkspaceShareOutput.UrlPrefix + encoded,
                 encoded),
             PackageSourceCoordinate.Create(
@@ -250,7 +246,7 @@ internal static class DependsShareProjection
             sourceAuthorization);
     }
 
-    internal static InspectionShare ProjectType(
+    internal static InspectionPortableProjection ProjectType(
         DependsOptions options,
         string typeName)
     {
@@ -387,13 +383,16 @@ internal static class DependsShareProjection
         }
 
         string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
-        return new InspectionShare.Available(
+        return new InspectionPortableProjection.Available(
             WorkspaceShareOutput.UrlPrefix + encoded,
             encoded);
     }
 
-    private static InspectionShare NonProjectableShare(string reason) =>
-        new InspectionShare.NonProjectable("type-dependency-share", reason);
+    private static InspectionPortableProjection NonProjectableShare(string reason) =>
+        new InspectionPortableProjection.NonProjectable(
+            "type-dependency-share",
+            InspectionPortableProjectionFailureReason.NotSupported,
+            reason);
 
     internal static bool TryNormalizeFramework(
         string? value,
@@ -430,9 +429,12 @@ internal static class DependsShareProjection
         }
     }
 
-    private static InspectionShare.NonProjectable
+    private static InspectionPortableProjection.NonProjectable
         NonProjectableAssetShare(string reason) =>
-            new(AssetSharePath, reason);
+            new(
+                AssetSharePath,
+                InspectionPortableProjectionFailureReason.NotSupported,
+                reason);
 
     private static AssetSharePreparation
         NonProjectableAssetPreparation(string reason) =>

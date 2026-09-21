@@ -1002,7 +1002,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             root.GetProperty("content")));
         Assert.Equal(
             "available",
-            root.GetProperty("share").GetProperty("kind").GetString());
+            root.GetProperty("portable_projection").GetProperty("kind").GetString());
     }
 
     [Fact]

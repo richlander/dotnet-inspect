@@ -72,10 +72,11 @@ public static class PackageAssemblySemanticQueryInspection
     private static InspectionEnvelope<PackageAssemblySemanticQueryDocument>
         CreateEnvelope(PackageAssemblySemanticQueryDocument document) =>
         new(
+            InspectionContentKind.Document,
             document,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-assembly-semantic-query/share",
-                "Package assembly-semantic Query requests do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 
     private sealed class SinkBridge(
         IPackageAssemblySemanticQueryNonterminalSink sink)

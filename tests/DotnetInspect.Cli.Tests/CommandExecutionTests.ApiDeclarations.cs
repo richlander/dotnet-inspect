@@ -201,7 +201,7 @@ public partial class CommandExecutionTests
                 .GetString());
         Assert.Equal(
             "nonProjectable",
-            root.GetProperty("share").GetProperty("kind")
+            root.GetProperty("portable_projection").GetProperty("kind")
                 .GetString());
         Assert.Equal(
             0,

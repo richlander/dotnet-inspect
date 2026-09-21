@@ -56,7 +56,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
             execution.Surface.PublicTypeCount,
             result.Inventory?.TypeKinds.Sum(facet => facet.Count));
         Assert.NotEmpty(result.Inventory?.Namespaces ?? []);
-        Assert.IsType<InspectionShare.Available>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
         AssertDetachedContract();
     }
 
@@ -147,7 +147,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
             envelope.Diagnostics,
             diagnostic =>
                 diagnostic.Code == "exact-library-api.not-found");
-        Assert.IsType<InspectionShare.Available>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
     }
 
     [Fact]

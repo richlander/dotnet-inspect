@@ -52,7 +52,7 @@ internal static class ApiCoordinateMatchOutput
                 : 1;
         if (options.ShareFormat is { } shareFormat
             && WorkspaceShareOutput.Write(
-                envelope.Share,
+                envelope.PortableProjection,
                 shareFormat) != 0)
         {
             exitCode = 1;

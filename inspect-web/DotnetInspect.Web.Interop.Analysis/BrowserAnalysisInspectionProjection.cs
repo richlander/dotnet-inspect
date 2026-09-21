@@ -13,11 +13,12 @@ internal static class BrowserAnalysisInspectionProjection
         ArgumentNullException.ThrowIfNull(inspection);
 
         return new(
+            Project(inspection.ContentKind),
             JsonSerializer.SerializeToElement(
                 inspection.Content,
                 AssemblyIntegrationsInspectionJsonContext.Default
                     .AssemblyIntegrationsEntry),
-            Project(inspection.Share),
+            Project(inspection.PortableProjection),
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
@@ -28,33 +29,73 @@ internal static class BrowserAnalysisInspectionProjection
         ArgumentNullException.ThrowIfNull(inspection);
 
         return new(
+            Project(inspection.ContentKind),
             JsonSerializer.SerializeToElement(
                 inspection.Content,
                 AssemblyIntegrationsInspectionJsonContext.Default
                     .AssemblyIntegrationOpportunitiesInspectionResult),
-            Project(inspection.Share),
+            Project(inspection.PortableProjection),
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
-    static BrowserAnalysisInspectionShare Project(InspectionShare share) =>
-        share switch
+    static BrowserAnalysisInspectionPortableProjection Project(
+        InspectionPortableProjection portableProjection) =>
+        portableProjection switch
         {
-            InspectionShare.Available available =>
+            InspectionPortableProjection.Available available =>
                 new(
                     "available",
                     available.FullUrl,
                     available.Packet,
                     Path: null,
-                    Reason: null),
-            InspectionShare.NonProjectable nonProjectable =>
+                    Reason: null,
+                    Explanation: null),
+            InspectionPortableProjection.NonProjectable nonProjectable =>
                 new(
                     "nonProjectable",
                     FullUrl: null,
                     Packet: null,
                     nonProjectable.Path,
-                    nonProjectable.Reason.ToString()),
+                    Project(nonProjectable.Reason),
+                    nonProjectable.Explanation),
             _ => throw new InvalidOperationException(
-                "Unknown inspection Share outcome."),
+                "Unknown inspection portable projection."),
+        };
+
+    static BrowserAnalysisInspectionContentKind Project(
+        InspectionContentKind contentKind) =>
+        contentKind switch
+        {
+            InspectionContentKind.Result =>
+                BrowserAnalysisInspectionContentKind.Result,
+            InspectionContentKind.Document =>
+                BrowserAnalysisInspectionContentKind.Document,
+            InspectionContentKind.Outcome =>
+                BrowserAnalysisInspectionContentKind.Outcome,
+            _ => throw new InvalidOperationException(
+                "Unknown inspection content kind."),
+        };
+
+    static BrowserAnalysisInspectionPortableProjectionFailureReason Project(
+        InspectionPortableProjectionFailureReason reason) =>
+        reason switch
+        {
+            InspectionPortableProjectionFailureReason.NotSupported =>
+                BrowserAnalysisInspectionPortableProjectionFailureReason
+                    .NotSupported,
+            InspectionPortableProjectionFailureReason.Invalid =>
+                BrowserAnalysisInspectionPortableProjectionFailureReason
+                    .Invalid,
+            InspectionPortableProjectionFailureReason.Incomplete =>
+                BrowserAnalysisInspectionPortableProjectionFailureReason
+                    .Incomplete,
+            InspectionPortableProjectionFailureReason.Unavailable =>
+                BrowserAnalysisInspectionPortableProjectionFailureReason
+                    .Unavailable,
+            InspectionPortableProjectionFailureReason.Failed =>
+                BrowserAnalysisInspectionPortableProjectionFailureReason.Failed,
+            _ => throw new InvalidOperationException(
+                "Unknown portable projection failure reason."),
         };
 
     static BrowserAnalysisInspectionDiagnostic Project(

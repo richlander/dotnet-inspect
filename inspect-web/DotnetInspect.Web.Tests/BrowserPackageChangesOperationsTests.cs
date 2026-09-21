@@ -159,10 +159,11 @@ public sealed class BrowserPackageChangesOperationsTests
             CreateDocument(progress, row, failure);
         var envelope =
             new InspectionEnvelope<EcosystemChangeReportDocument>(
+                InspectionContentKind.Document,
                 document,
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "package-changes/share",
-                    "not yet projectable"));
+                    InspectionPortableProjectionFailureReason.NotSupported));
 
         BrowserPackageChangesInspection inspection =
             BrowserPackageChangesWireProjection.Project(envelope);
@@ -189,9 +190,9 @@ public sealed class BrowserPackageChangesOperationsTests
             Serialize(failureEvent.Failure),
             Serialize(Assert.Single(inspection.Content.Failures)));
         Assert.Equal(
-            BrowserInspectionShareKind.NonProjectable,
-            inspection.Share.Kind);
-        Assert.Equal("package-changes/share", inspection.Share.Path);
+            BrowserInspectionPortableProjectionKind.NonProjectable,
+            inspection.PortableProjection.Kind);
+        Assert.Equal("package-changes/share", inspection.PortableProjection.Path);
         Assert.Empty(inspection.Diagnostics);
 
         string serialized = JsonSerializer.Serialize(

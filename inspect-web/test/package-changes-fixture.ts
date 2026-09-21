@@ -148,12 +148,14 @@ export function inspection(
         completion,
       },
     },
-    share: {
+    contentKind: "document",
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
       path: "package-changes/share",
-      reason: "Package Activity reports are not shareable yet.",
+      reason: "notSupported",
+      explanation: "Package Activity reports are not shareable yet.",
     },
     diagnostics: [],
   };

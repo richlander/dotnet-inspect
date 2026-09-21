@@ -139,10 +139,11 @@ public static class PackageVersionSettlementInspection
         PackageVersionSettlementOutcome outcome,
         IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
+            InspectionContentKind.Outcome,
             outcome,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-version-settlement/share",
-                "Package version settlement does not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics);
 
     private static InertString Field(string value) => new(TextPolicy.Field, value);

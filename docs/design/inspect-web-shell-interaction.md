@@ -206,7 +206,7 @@ The menu inventory is stable among the actions applicable to the current
 surface:
 
 1. `Share` appears whenever a retained inspection workspace supplies an
-   explicit Share outcome. A non-projectable workspace retains the item because
+   explicit portable projection. A non-projectable workspace retains the item because
    activation must present the owner-issued reason; a surface with no Share
    action omits it rather than rendering a disabled placeholder.
 2. A separator divides the current-workspace action from the application-wide

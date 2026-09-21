@@ -639,8 +639,8 @@ public sealed class AssemblyPairCallUseQueryTests
             diagnostic =>
                 diagnostic.Code
                 == "cluster-root-paths.analysis-boundary");
-        Assert.IsType<InspectionShare.NonProjectable>(
-            inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            inspection.PortableProjection);
     }
 
     [Fact(Timeout = 10_000)]

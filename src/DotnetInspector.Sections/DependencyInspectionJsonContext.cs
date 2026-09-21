@@ -129,8 +129,8 @@ namespace DotnetInspector.Sections;
     typeof(PackageDependencyEvidenceProcessingResult.Available),
     TypeInfoPropertyName = "PackageEvidenceProcessingAvailable")]
 [JsonSerializable(
-    typeof(InspectionShare.Available),
-    TypeInfoPropertyName = "InspectionShareAvailable")]
+    typeof(InspectionPortableProjection.Available),
+    TypeInfoPropertyName = "InspectionPortableProjectionAvailable")]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceDeclarationResult.NotApplicable),
     TypeInfoPropertyName = "PackageEvidenceDeclarationNotApplicable")]

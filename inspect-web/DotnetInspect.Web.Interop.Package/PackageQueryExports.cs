@@ -536,8 +536,9 @@ namespace DotnetInspect.Web.Interop.Package
             ArgumentNullException.ThrowIfNull(envelope);
 
             return new BrowserPackageQueryInspection(
+                BrowserInspectionWireProjection.Project(envelope.ContentKind),
                 Project(envelope.Content),
-                Project(envelope.Share),
+                Project(envelope.PortableProjection),
                 [.. envelope.Diagnostics.Select(diagnostic =>
                     new BrowserInspectionDiagnostic(
                         diagnostic.Code,
@@ -546,25 +547,28 @@ namespace DotnetInspect.Web.Interop.Package
                         diagnostic.Correspondence?.ToString()))]);
         }
 
-        internal static BrowserInspectionShare Project(InspectionShare share) =>
+        internal static BrowserInspectionPortableProjection Project(InspectionPortableProjection share) =>
             share switch
             {
-                InspectionShare.Available available =>
+                InspectionPortableProjection.Available available =>
                     new(
-                        BrowserInspectionShareKind.Available,
+                        BrowserInspectionPortableProjectionKind.Available,
                         available.FullUrl,
                         available.Packet,
                         Path: null,
-                        Reason: null),
-                InspectionShare.NonProjectable nonProjectable =>
+                        Reason: null,
+                        Explanation: null),
+                InspectionPortableProjection.NonProjectable nonProjectable =>
                     new(
-                        BrowserInspectionShareKind.NonProjectable,
+                        BrowserInspectionPortableProjectionKind.NonProjectable,
                         FullUrl: null,
                         Packet: null,
                         nonProjectable.Path,
-                        nonProjectable.Reason.ToString()),
+                        BrowserInspectionWireProjection.Project(
+                            nonProjectable.Reason),
+                        nonProjectable.Explanation),
                 _ => throw new InvalidOperationException(
-                    "Unknown inspection Share outcome."),
+                    "Unknown inspection portable projection."),
             };
 
         internal static BrowserPackageQueryEvent Project(

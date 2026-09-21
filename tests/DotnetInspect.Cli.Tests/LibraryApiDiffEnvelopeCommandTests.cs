@@ -38,9 +38,9 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
         Assert.NotEmpty(document.GetProperty("comparison").GetProperty("subjects").EnumerateArray());
         Assert.Equal(JsonValueKind.Number, document.GetProperty("before").GetProperty("scope").ValueKind);
         Assert.Contains("TypeDefinitionOnly", document.GetRawText());
-        Assert.Equal("nonProjectable", root.GetProperty("share").GetProperty("kind").GetString());
-        Assert.Equal(JsonValueKind.Null, root.GetProperty("share").GetProperty("full_url").ValueKind);
-        Assert.Equal(JsonValueKind.Null, root.GetProperty("share").GetProperty("packet").ValueKind);
+        Assert.Equal("nonProjectable", root.GetProperty("portable_projection").GetProperty("kind").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("portable_projection").GetProperty("full_url").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("portable_projection").GetProperty("packet").ValueKind);
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
         Assert.False(root.TryGetProperty("evidence", out _));
         Assert.EndsWith(Environment.NewLine, envelope.Output);

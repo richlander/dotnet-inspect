@@ -693,10 +693,11 @@ public partial class SectionPipelineTests
             Failures: []);
         var inspection =
             new InspectionEnvelope<DependencyInspectionContent>(
+                InspectionContentKind.Document,
                 content,
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "dependencies",
-                    "Synthetic discovery fixture."));
+                    InspectionPortableProjectionFailureReason.NotSupported));
         return new DependsAssetProjection(
             inspection,
             summary,

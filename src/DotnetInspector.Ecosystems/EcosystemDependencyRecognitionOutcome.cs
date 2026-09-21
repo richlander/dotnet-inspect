@@ -977,21 +977,22 @@ public abstract record EcosystemDependencyRecognitionOutcome
 }
 
 /// <summary>
-/// Share outcome bound to the semantic subject of one recognition plan.
+/// Portable projection bound to the semantic subject of one recognition plan.
 /// </summary>
-public sealed record EcosystemDependencyRecognitionShare
+public sealed record EcosystemDependencyRecognitionPortableProjection
 {
-    public EcosystemDependencyRecognitionShare(
+    public EcosystemDependencyRecognitionPortableProjection(
         EcosystemDependencySubject subject,
-        InspectionShare share)
+        InspectionPortableProjection portableProjection)
     {
         Subject = subject ?? throw new ArgumentNullException(nameof(subject));
-        Share = share ?? throw new ArgumentNullException(nameof(share));
+        PortableProjection = portableProjection
+            ?? throw new ArgumentNullException(nameof(portableProjection));
     }
 
     public EcosystemDependencySubject Subject { get; }
 
-    public InspectionShare Share { get; }
+    public InspectionPortableProjection PortableProjection { get; }
 }
 
 /// <summary>
@@ -1038,21 +1039,23 @@ public static class EcosystemDependencyRecognizer
         Recognize(
             EcosystemDependencyRecognitionProfile profile,
             EcosystemDependencyObservationBatch batch,
-            EcosystemDependencyRecognitionShare share,
+            EcosystemDependencyRecognitionPortableProjection
+                portableProjection,
             IEnumerable<InspectionDiagnostic>? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        ArgumentNullException.ThrowIfNull(share);
-        if (share.Subject != batch.Subject)
+        ArgumentNullException.ThrowIfNull(portableProjection);
+        if (portableProjection.Subject != batch.Subject)
         {
             throw new ArgumentException(
-                "The Share outcome does not correspond to the recognition subject.",
-                nameof(share));
+                "The portable projection does not correspond to the recognition subject.",
+                nameof(portableProjection));
         }
 
         return new(
+            InspectionContentKind.Outcome,
             Recognize(profile, batch),
-            share.Share,
+            portableProjection.PortableProjection,
             diagnostics);
     }
 }

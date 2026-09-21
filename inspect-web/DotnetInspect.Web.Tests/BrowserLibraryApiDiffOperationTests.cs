@@ -516,13 +516,14 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
                 new InspectionEnvelope<LibraryApiDiffOutcome>(
+                    InspectionContentKind.Outcome,
                     new LibraryApiDiffOutcome.Unavailable(
                         LibraryApiDiffUnavailableKind.BeforeIncomplete,
                         new LibraryApiDiffEndpointSummary(
                             endpoint.Identity, endpoint.Scope, IsComplete: false,
                             [.. Enumerable.Repeat<LibraryApiDiffEndpointIssue>(issue, issueCount)]),
                         endpoint),
-                    baseline.Share,
+                    baseline.PortableProjection,
                     Enumerable.Repeat(diagnostic, diagnosticCount)),
                 EndpointContext(TargetVersion),
                 EndpointContext(CurrentVersion));
@@ -726,20 +727,21 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 available.Document.Before,
                 available.Document.After),
         };
-        var share = new InspectionShare.NonProjectable(
-            "comparison/endpoints", "The ordered endpoints cannot be shared.");
+        var share = new InspectionPortableProjection.NonProjectable(
+            "comparison/endpoints", InspectionPortableProjectionFailureReason.NotSupported);
         InspectionDiagnostic[] diagnostics =
         [
             new("first", InspectionDiagnosticSeverity.Warning, "<warning>", "T:Widget"),
             new("second", InspectionDiagnosticSeverity.Information, "detail"),
         ];
         var inspection = new InspectionEnvelope<LibraryApiDiffOutcome>(
+            InspectionContentKind.Outcome,
             content, share, diagnostics);
         BrowserLibraryApiDiffResult result = BrowserLibraryApiDiffWireProjection.Project(
             Request("Envelope.Package"), inspection,
             EndpointContext(TargetVersion), EndpointContext(CurrentVersion));
         Assert.NotNull(result.Inspection);
-        Assert.Same(share, result.Inspection.Share);
+        Assert.Same(share, result.Inspection.PortableProjection);
         Assert.Equal(diagnostics, result.Inspection.Diagnostics);
 
         string json = JsonSerializer.Serialize(
@@ -750,8 +752,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
         JsonElement expectedContent = JsonSerializer.SerializeToElement(
             content, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
         Assert.True(JsonElement.DeepEquals(expectedContent, roundTrip.Inspection.Content));
-        var roundTripShare = Assert.IsType<InspectionShare.NonProjectable>(
-            roundTrip.Inspection.Share);
+        var roundTripShare = Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            roundTrip.Inspection.PortableProjection);
         Assert.Equal(share.Path, roundTripShare.Path);
         Assert.Equal(share.Reason.ToString(), roundTripShare.Reason.ToString());
         Assert.Equal(
@@ -1110,10 +1112,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
     static InspectionEnvelope<LibraryApiDiffOutcome> Inspection(
         LibraryApiDiffOutcome content) =>
         new(
+            InspectionContentKind.Outcome,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "comparison/endpoints",
-                "The comparison endpoints cannot be shared."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 
     static long WorkerCollectionEntries(BrowserLibraryApiDiffResult result)
     {

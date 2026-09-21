@@ -978,7 +978,8 @@ otherwise equivalent baseline. Producers shared by both plans retain their
 ordinary failure meaning.
 
 For one settled operation request and baseline plan, ordinary and enriched
-execution yield equal Content, Share, and Diagnostics. This is not a
+execution yield equal ContentKind, Content, PortableProjection, and
+Diagnostics. This is not a
 cross-owner structural-equality contract for independently reconstructed
 Package Dependency Evidence or dependency graphs. Rendering or serialization
 consumes the settled values and never reopens an archive, assets file, package

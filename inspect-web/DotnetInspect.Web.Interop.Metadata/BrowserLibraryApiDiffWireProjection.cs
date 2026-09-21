@@ -56,10 +56,11 @@ internal static class BrowserLibraryApiDiffWireProjection
         ArgumentNullException.ThrowIfNull(current);
 
         var wireInspection = new InspectionEnvelope<JsonElement>(
+            inspection.ContentKind,
             JsonSerializer.SerializeToElement(
                 inspection.Content,
                 LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome),
-            inspection.Share,
+            inspection.PortableProjection,
             inspection.Diagnostics);
         BrowserLibraryApiDiffResult? inspectionRejection =
             AdmitInspectionTransport(request, wireInspection);

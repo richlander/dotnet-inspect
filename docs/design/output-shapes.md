@@ -50,7 +50,8 @@ Related docs:
 The output-shape ladder is oriented on the **content layer**.
 `--envelope` operates at the **service layer**: it exposes the completed
 operation's [inspection envelope](inspection-envelope.md), not another rung
-above Document. Share and envelope diagnostics are not content sections,
+above Document. PortableProjection and envelope diagnostics are not content
+sections,
 columns, or rows.
 
 This section locks the target CLI boundary for
@@ -86,10 +87,12 @@ complete enriched frame atomically.
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
 both
 `queryResult.dependency.relationships` and the selected
-`rowSelection.relationships`. The service constructs Share for both JSON
+`rowSelection.relationships`. The service constructs PortableProjection for
+both JSON
 boundaries regardless of stderr projection; `--json` emits Content only, while
-`--envelope` exposes Share. Mixed-source plans and explicit `--depth` issue
-typed `Share.NonProjectable`. Explicit `--share` retains the existing final
+`--envelope` exposes PortableProjection. Mixed-source plans and explicit
+`--depth` issue typed `PortableProjection.NonProjectable`. Explicit `--share`
+retains the existing final
 stderr line policy after host diagnostics.
 
 Admission rejects competing or unadopted output operations before acquisition.
@@ -113,7 +116,8 @@ with `--envelope`, as are non-API modes and multi-Library endpoints. `--all`
 remains a service API-scope input; `--compact` controls whitespace for either
 JSON boundary, and rejects projected or unadopted Diff operations rather than
 silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
-Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
+PortableProjection remains the service-issued `NonProjectable` at
+`comparison/endpoints`.
 
 Package Activity registers `ecosystem-change-report` at schema version `1`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
@@ -162,11 +166,12 @@ serializer. They do not add Browser framing or runtime evidence capture.
 The adopting Release gate assignments are:
 
 - [`ConfiguredPayloadAcquisitionTests.TypeEnvelope.cs`](../../tests/DotnetInspect.Cli.Tests/ConfiguredPayloadAcquisitionTests.TypeEnvelope.cs)
-  owns the real Npgsql paired JSON scenario, both Share cases, semantic
+  owns the real Npgsql paired JSON scenario, both PortableProjection cases,
+  semantic
   windows/depth, failed and empty results, and pre-acquisition admission.
 - [`InspectionEnvelopeOutputTests.cs`](../../tests/DotnetInspect.Cli.Tests/InspectionEnvelopeOutputTests.cs)
   owns framing, ordered diagnostics, serialization-failure buffering, and
-  deferred Share after host metrics.
+  deferred `--share` output after host metrics.
 - [`LibraryApiDiffEnvelopeCommandTests.cs`](../../tests/DotnetInspect.Cli.Tests/LibraryApiDiffEnvelopeCommandTests.cs)
   owns the real System.Text.Json paired JSON scenario, native Content,
   empty success, rejection, admission, formatting, and acquisition failure.
@@ -292,7 +297,7 @@ The first production scenario is
 `Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`,
 and `net8.0`. The named adopting gates above own this scenario and its
 transport, selection, failure, provenance, and Browser-boundary coverage. A
-content-only success does not imply that Share is available or envelope
+content-only success does not imply that a portable projection is available or envelope
 diagnostics are empty. The later Library scenario remains
 `System.Text.Json@9.0.0..10.0.0`.
 
@@ -314,8 +319,9 @@ The baseline object's required members are:
 | --- | --- | --- |
 | `schema_version` | Integer | Version of the wire contract selected by `result_kind`, initially `1`. |
 | `result_kind` | String | Stable registered content-contract identity, independent of command spelling and CLR type names. |
+| `content_kind` | String | Semantic extent of `content`: `result`, `document`, or `outcome`. |
 | `content` | Owner-defined, non-null | Complete owner-issued Content, including any Outcome discriminator. |
-| `share` | Object, non-null | Complete owner-issued Share outcome. |
+| `portable_projection` | Object, non-null | Complete owner-issued portable projection. |
 | `diagnostics` | Array | Ordered diagnostics; `[]` when empty, never omitted. |
 
 The evidence attachment adds one required non-null `evidence` member to this
@@ -359,10 +365,12 @@ different content contract, such as Discover or semantic Count, needs its own
 registration. Neither the command token nor the generic CLR name is a wire
 discriminator.
 
-Envelope and diagnostic member names use lower snake case. Share keeps its
+Envelope and diagnostic member names use lower snake case. PortableProjection
+keeps its
 owner-issued `kind` discriminator and values, including `available` and
-`nonProjectable`; the CLI does not rename cases. Other Share members use lower
-snake case, such as `full_url`. Diagnostic severity uses the strings
+`nonProjectable`; the CLI does not rename cases. Other PortableProjection
+members use lower snake case, such as `full_url`. Diagnostic severity uses the
+strings
 `Information`, `Warning`, and `Error`. Nullable diagnostic correspondence is
 present as `null` when absent. NonProjectable's `full_url` and `packet` are
 likewise `null`, not manufactured strings.
@@ -416,7 +424,7 @@ ordinary authorized resolution first. Resolution does not authorize an
 inspection solely to discover whether transport can represent its result.
 Evidence capture intent reaches the service before execution, under the
 [enrichment contract](inspection-envelope.md#request-and-capture-boundary).
-Serialization never recaptures evidence or projects Share.
+Serialization never recaptures evidence or constructs PortableProjection.
 
 | Input or modifier | With `--envelope` | With `--evidence-envelope <path>` |
 | --- | --- | --- |
@@ -424,7 +432,7 @@ Serialization never recaptures evidence or projects Share.
 | `--json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
-| `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
+| `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's PortableProjection. | Preserve the same contract from the enriched value's PortableProjection. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
 | `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
@@ -504,7 +512,8 @@ no envelope payload. The transport does not fabricate a service result.
 Ordinary diagnostic disclosure remains on stderr even though the same typed
 diagnostics appear in the envelope. Their severity alone does not decide exit
 status. Progress and host-only notices remain outside the value.
-`Share.NonProjectable` alone does not fail an otherwise successful inspection;
+`PortableProjection.NonProjectable` alone does not fail an otherwise
+successful inspection;
 an explicit `--share` request still follows
 [CLI Workspace sharing](cli-workspace-sharing.md#output-selection), including
 its nonzero refusal and the documented existing-adopter exception for an
@@ -540,7 +549,8 @@ likewise exercise their public command entry point:
 
 - parse each complete payload and compare Content between the paired JSON
   modes, including empty success and owner-issued non-success;
-- round-trip named fields, native values, both Share cases, and ordered
+- round-trip named fields, native values, all ContentKind values, both
+  PortableProjection cases, and ordered
   diagnostics through the registered closed serialization contracts;
 - preserve stderr and exit behavior, reject competing modes and post-service
   modifiers, and retain admitted semantic selection without clipping JSON;

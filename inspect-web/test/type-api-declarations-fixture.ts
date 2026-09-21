@@ -11,6 +11,7 @@ export function apiDeclarationsFixture(
   return {
     kind: "apiDeclarations",
     inspection: {
+      contentKind: "result",
       content: {
         outcome: unavailable ? "Unavailable" : "Available",
         typeIdentity: { namespace: "System.Text.Json", segments: ["JsonNamingPolicy"] },
@@ -28,12 +29,13 @@ export function apiDeclarationsFixture(
           subjectToken: null,
         }] : [],
       },
-      share: {
+      portableProjection: {
         kind: "nonProjectable",
         fullUrl: null,
         packet: null,
         path: "type-api-declarations/share",
-        reason: inertStringFixture("No portable Workspace Share representation."),
+        reason: "notSupported",
+        explanation: "No portable Workspace Share representation.",
       },
       diagnostics: unavailable ? [{
         code: "type-api-declaration.projection-truncated",

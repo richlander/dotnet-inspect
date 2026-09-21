@@ -153,7 +153,7 @@ No external code or architecture is transferred.
 | Graph subjects, relationships, occurrences, characteristics, limits, and failures | [Inspection Graph Document](inspection-graph-document.md) | Carries the selected spine without adding a second graph envelope |
 | Single-seed, peer-seed, induced-set, and bounded neighborhood semantics | [Inspection Graph Modes](inspection-graph-modes.md) | Supplies the request population and seed roles; spine is an authored Graph profile, not a new mode family |
 | One authoritative multi-part content value and its projections | [Multi-part Inspection Documents](multi-part-inspection-documents.md) | Keeps selection, graph, completeness, and receipts in one domain-owned Document while renderings remain projections |
-| Shared Content, Share, and diagnostics | [Inspection Envelope](inspection-envelope.md) | Carries the completed spine Document or typed non-available outcome to CLI, Browser/Wasm, Canvas, and automation |
+| Shared ContentKind, Content, PortableProjection, and diagnostics | [Inspection Envelope](inspection-envelope.md) | Carries the completed spine Document or typed non-available outcome to CLI, Browser/Wasm, Canvas, and automation |
 | Complete content JSON and public envelope transport | [Output shapes](output-shapes.md) and [Projected JSON](projected-json.md) | Own CLI option interactions, transport framing, and the distinction between complete typed JSON and Markout-lowered JSON |
 | Implementation profiles and coverage | [Library Metrics report](library-structural-report.md) and Analysis | Supplies descriptive annotations; complexity does not select the first spine methodology |
 | Research identity, admission, correspondence, and evidence composition | [Inspection Layers](inspection-layers.md) and focused Research owners | Supplies the owner-issued identities and detached composition boundary |
@@ -576,7 +576,7 @@ InspectionEnvelope<ImplementationSpineOutcome>
       DetachedCallCensus,
       Limits,
       Failures)
-  Share
+  PortableProjection
   Diagnostics
 ```
 

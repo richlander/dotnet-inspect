@@ -4,7 +4,7 @@ import test from "node:test";
 import type {
   BrowserLibraryApiDiffEndpoint,
   BrowserLibraryApiDiffResult,
-  InspectionShare,
+  InspectionPortableProjection,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   createLibraryApiDiffCoordinator,
@@ -139,17 +139,18 @@ function succeeded(
 function inspection(
   content: unknown = { outcome: "available", document: {} },
 ): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
-  const share: InspectionShare = {
+  const portableProjection: InspectionPortableProjection = {
     kind: "nonProjectable",
     path: "comparison/endpoints",
-    reason: metadataInertStringFixture(
-      "Ordered endpoints are not shareable."),
+    reason: "notSupported",
+    explanation: "Ordered endpoints are not shareable.",
     fullUrl: null,
     packet: null,
   };
   return {
+    contentKind: "outcome",
     content,
-    share,
+    portableProjection,
     diagnostics: [],
   };
 }
@@ -318,7 +319,8 @@ test("missing or contradictory baselines cannot publish a successful comparison"
       }),
     },
     { ...result, inspection: { ...inspection(), diagnostics: null } },
-    { ...result, inspection: { ...inspection(), share: null } },
+    { ...result, inspection: { ...inspection(), portableProjection: null } },
+    { ...result, inspection: { ...inspection(), contentKind: "document" } },
   ]) {
     const state: LibraryApiDiffStateHost = {
       libraryApiDiff: { status: "idle" },

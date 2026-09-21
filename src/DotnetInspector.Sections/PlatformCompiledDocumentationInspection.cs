@@ -419,6 +419,7 @@ public static class PlatformCompiledDocumentationInspection
                     .Select(id => outcomes[id]),
             ];
             return new(
+                InspectionContentKind.Outcome,
                 new PlatformCompiledDocumentationInspectionOutcome.Completed(
                     new(selection, ordered)),
                 Share());
@@ -444,6 +445,7 @@ public static class PlatformCompiledDocumentationInspection
             PlatformCompiledDocumentationFailure failure,
             string diagnosticCode) =>
         new(
+            InspectionContentKind.Outcome,
             new PlatformCompiledDocumentationInspectionOutcome.NotAvailable(
                 failure),
             Share(),
@@ -455,11 +457,10 @@ public static class PlatformCompiledDocumentationInspection
                     correspondence: null),
             ]);
 
-    private static InspectionShare Share() =>
-        new InspectionShare.NonProjectable(
+    private static InspectionPortableProjection Share() =>
+        new InspectionPortableProjection.NonProjectable(
             "platform-compiled-documentation/share",
-            "Platform compiled documentation does not yet have a canonical "
-                + "Workspace Share projection.");
+            InspectionPortableProjectionFailureReason.NotSupported);
 
     private static InertString Field(string value) =>
         new(TextPolicy.Field, value);

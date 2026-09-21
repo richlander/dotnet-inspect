@@ -286,7 +286,7 @@ The parser retains independent gesture axes long enough for the plan builder
 to classify them.
 
 - `--share` does not change the content purpose. It asks the CLI to render the
-  already-required Share outcome alongside ordinary content.
+  already-required portable projection alongside ordinary content.
 - `--share` may accompany Execute, Discover, an ordinary result format, or a
   reducer because its scalar is written on the separate diagnostic stream.
 - verbosity, row presentation, and result formatting may change CLI content
@@ -294,7 +294,7 @@ to classify them.
 - ordinary Execute and Discover operations retain their share outcome even when
   the host does not render it.
 - explicit section, facet, query, focus, or traversal choices are semantic.
-  Share projection preserves them or returns a typed non-projectable outcome.
+  portable projection preserves them or returns a typed non-projectable outcome.
 - local source policy, credentials, offline mode, timeout, cache choice,
   tracing, and tips govern producing-host resolution but are not portable
   scenario state.
@@ -312,7 +312,7 @@ Each plan adds only failures it owns:
 | --- | --- |
 | Section execution | Plan denial, unavailable authorized closure, or producer failure |
 | Effective discovery | Per-section `Unknown` or `Failed`, plus common plan denial |
-| Share projection | `NonProjectable(path, reason)` or Workspace Definition projection failure |
+| portable projection | `NonProjectable(path, reason)` or Workspace Definition projection failure |
 
 A content-purpose mismatch is invalid construction, not an empty result. A
 share refusal writes no packet or partial URL and does not discard valid
@@ -358,7 +358,7 @@ The graph contains real inbound `EnumConverter<T>.Write` and
 branches. The execution plan produces that result and projects the
 `member.call-graph` scenario without graph nodes or edges. Effective discovery
 reports section dispositions under probe policy and retains the subject's
-default `member.overview` Share projection because that invocation makes no
+default `member.overview` portable projection because that invocation makes no
 explicit facet selection. The final invocation explicitly selects Call Graph;
 it produces the same graph content as the first invocation on stdout and writes
 the canonical URL on stderr.

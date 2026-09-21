@@ -194,7 +194,7 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             ],
             outcome.InputIssues.Select(static issue => issue.Role));
         Assert.Equal(3, inspection.Diagnostics.Length);
-        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
     }
 
     [Fact]
@@ -685,7 +685,7 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             subject,
             new EcosystemDependencyInputContext.Library(
                 new EcosystemDependencyReferenceInput.Available()));
-        var share = new InspectionShare.Available(
+        var share = new InspectionPortableProjection.Available(
             "https://example.test/inspect?packet=abc",
             "abc");
         var diagnostic = new InspectionDiagnostic(
@@ -697,12 +697,12 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             EcosystemDependencyRecognizer.Recognize(
                 EcosystemPackCatalog.DependencyRecognitionProfile,
                 batch,
-                new EcosystemDependencyRecognitionShare(subject, share),
+                new EcosystemDependencyRecognitionPortableProjection(subject, share),
                 [diagnostic]);
 
         Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
             envelope.Content);
-        Assert.Same(share, envelope.Share);
+        Assert.Same(share, envelope.PortableProjection);
         Assert.Same(diagnostic, Assert.Single(envelope.Diagnostics));
     }
 
@@ -721,11 +721,11 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
         var otherSubject = new EcosystemDependencySubject.Library(
             ExactPackageLibrarySource(Library("Other.Library")),
             Library("Other.Library"));
-        var share = new EcosystemDependencyRecognitionShare(
+        var share = new EcosystemDependencyRecognitionPortableProjection(
             otherSubject,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "ecosystem-dependencies/share",
-                "Test."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 
         Assert.Throws<ArgumentException>(() =>
             EcosystemDependencyRecognizer.Recognize(

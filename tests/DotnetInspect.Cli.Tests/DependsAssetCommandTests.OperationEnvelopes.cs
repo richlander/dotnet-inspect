@@ -93,10 +93,11 @@ public partial class DependsAssetCommandTests
             [],
             []);
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
+            InspectionContentKind.Document,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "dependencies",
-                "Test inspection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
         var root = new DependsRootRow(
             contentRoot,
             source: "Path",

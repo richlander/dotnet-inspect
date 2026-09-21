@@ -61,8 +61,9 @@ implementation members.
 
 The completed result retains the requested type identity, declaration scope,
 declaration text when available, and explicit failure evidence. Envelope
-diagnostics and Share survive host projection. Until a canonical Workspace
-Share exists for this view, Share is explicitly non-projectable.
+diagnostics and PortableProjection survive host projection. Until a canonical
+Workspace Share exists for this view, PortableProjection is explicitly
+non-projectable.
 
 Extraction uses the existing acquired participant and explicit caller-supplied
 bounds. Browser supplies its existing bounded surface policy. Truncation,

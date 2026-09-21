@@ -99,7 +99,7 @@ public sealed class BrowserIntegrationsEnvelopeParityTests
         Assert.True(
             JsonElement.DeepEquals(expectedContent, actual.Content),
             "Browser Content differed from the shared service terminal.");
-        AssertShare(expected.Share, actual.Share);
+        AssertShare(expected.PortableProjection, actual.PortableProjection);
         Assert.Equal(expected.Diagnostics.Length, actual.Diagnostics.Length);
         for (int index = 0; index < expected.Diagnostics.Length; index++)
         {
@@ -123,30 +123,33 @@ public sealed class BrowserIntegrationsEnvelopeParityTests
     }
 
     static void AssertShare(
-        InspectionShare expected,
-        BrowserAnalysisInspectionShare actual)
+        InspectionPortableProjection expected,
+        BrowserAnalysisInspectionPortableProjection actual)
     {
         switch (expected)
         {
-            case InspectionShare.Available available:
+            case InspectionPortableProjection.Available available:
                 Assert.Equal("available", actual.Kind);
                 Assert.Equal(available.FullUrl, actual.FullUrl);
                 Assert.Equal(available.Packet, actual.Packet);
                 Assert.Null(actual.Path);
                 Assert.Null(actual.Reason);
                 break;
-            case InspectionShare.NonProjectable nonProjectable:
+            case InspectionPortableProjection.NonProjectable nonProjectable:
                 Assert.Equal("nonProjectable", actual.Kind);
                 Assert.Null(actual.FullUrl);
                 Assert.Null(actual.Packet);
                 Assert.Equal(nonProjectable.Path, actual.Path);
                 Assert.Equal(
                     nonProjectable.Reason.ToString(),
-                    actual.Reason);
+                    actual.Reason?.ToString());
+                Assert.Equal(
+                    nonProjectable.Explanation,
+                    actual.Explanation);
                 break;
             default:
                 throw new InvalidOperationException(
-                    "Unknown inspection Share outcome.");
+                    "Unknown inspection portable projection.");
         }
     }
 }

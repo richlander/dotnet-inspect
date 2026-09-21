@@ -398,7 +398,7 @@ complete Ecosystem.
 The owning result is consumed inside host-neutral operation orchestration
 before returning to a host. After ownership has transferred to Workspace or
 been retired, the host-facing API exposes the resource-free content, receipt,
-Share projection, and diagnostics through
+portable projection, and diagnostics through
 `InspectionEnvelope<EcosystemPopulationLoadContent>`. The envelope does not
 carry Library owners, source leases, callbacks, or Workspace mutation
 authority.

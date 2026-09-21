@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 
 namespace DotnetInspect.Web.Interop.Package;
@@ -172,8 +173,9 @@ public sealed record BrowserPackageChangesEvent(
     BrowserPackageChangesFailure? Failure);
 
 public sealed record BrowserPackageChangesInspection(
+    BrowserInspectionContentKind ContentKind,
     BrowserPackageChangesDocument Content,
-    BrowserInspectionShare Share,
+    BrowserInspectionPortableProjection PortableProjection,
     BrowserInspectionDiagnostic[] Diagnostics);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageChangesResultKind>))]

@@ -120,10 +120,11 @@ public static class PackageQueryInspection
         ValidateContent(plan, content);
 
         return new(
+            InspectionContentKind.Document,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-query/share",
-                "Package Query plans do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 
     private static void ValidateContent(

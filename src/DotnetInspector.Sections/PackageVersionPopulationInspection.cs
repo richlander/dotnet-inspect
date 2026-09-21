@@ -193,10 +193,11 @@ public static class PackageVersionPopulationInspection
         PackageVersionPopulationOutcome outcome,
         IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
+            InspectionContentKind.Outcome,
             outcome,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-version-population/share",
-                "Package version population does not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics);
 
     private static InertString Field(string value) => new(TextPolicy.Field, value);

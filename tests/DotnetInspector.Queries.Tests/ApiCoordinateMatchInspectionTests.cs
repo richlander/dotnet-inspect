@@ -34,7 +34,7 @@ public sealed class ApiCoordinateMatchInspectionTests
         Assert.NotEqual(content.Source.ModuleVersionId, content.Destination.ModuleVersionId);
         Assert.Equal(member is null ? ApiDeclarationKind.Type : ApiDeclarationKind.Method,
             content.Destination.DeclarationKind);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
         ApiCoordinateCorrespondenceEvidence evidence =
             Assert.IsType<ApiCoordinateCorrespondenceEvidence>(content.Evidence);
@@ -149,7 +149,7 @@ public sealed class ApiCoordinateMatchInspectionTests
         AssertStatus(ApiCoordinateMatchStatus.Refused, envelope);
         Assert.Equal(ApiCoordinateMatchStage.SourceSelection, envelope.Content.Stage);
         Assert.Null(envelope.Content.Destination);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Equal("api-match.sourceselection", Assert.Single(envelope.Diagnostics).Code);
     }
 

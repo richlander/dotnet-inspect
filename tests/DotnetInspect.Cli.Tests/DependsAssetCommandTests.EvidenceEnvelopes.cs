@@ -71,7 +71,7 @@ public partial class DependsAssetCommandTests
             "asset-dependencies",
             root.GetProperty("result_kind").GetString());
         Assert.True(root.TryGetProperty("content", out _));
-        Assert.True(root.TryGetProperty("share", out _));
+        Assert.True(root.TryGetProperty("portable_projection", out _));
         Assert.True(root.TryGetProperty("diagnostics", out _));
         Assert.True(root.TryGetProperty("evidence", out _));
         Assert.False(root.TryGetProperty("inspection", out _));
@@ -283,8 +283,8 @@ public partial class DependsAssetCommandTests
             baselineRoot.GetProperty("content"),
             enrichedRoot.GetProperty("content")));
         Assert.True(JsonElement.DeepEquals(
-            baselineRoot.GetProperty("share"),
-            enrichedRoot.GetProperty("share")));
+            baselineRoot.GetProperty("portable_projection"),
+            enrichedRoot.GetProperty("portable_projection")));
         Assert.True(JsonElement.DeepEquals(
             baselineRoot.GetProperty("diagnostics"),
             enrichedRoot.GetProperty("diagnostics")));
@@ -560,7 +560,7 @@ public partial class DependsAssetCommandTests
             JsonDocument.Parse(await File.ReadAllTextAsync(
                 sidecar,
                 TestContext.Current.CancellationToken));
-        JsonElement share = document.RootElement.GetProperty("share");
+        JsonElement share = document.RootElement.GetProperty("portable_projection");
         Assert.Equal("available", share.GetProperty("kind").GetString());
         Assert.Equal(
             packet,
@@ -641,7 +641,7 @@ public partial class DependsAssetCommandTests
     [Fact]
     public async Task EvidenceEnvelopePreservesLatestPackageShareAndSettledCoordinate()
     {
-        const string packageId = "Contoso.Share.Latest";
+        const string packageId = "Contoso.PortableProjection.Latest";
         const string version = "2.0.0";
         string[] arguments =
         [
@@ -964,7 +964,7 @@ public partial class DependsAssetCommandTests
     {
         using var directory =
             new TemporaryTestDirectory("depends-evidence-share-");
-        const string packageId = "Sidecar.Share";
+        const string packageId = "Sidecar.PortableProjection";
         const string version = "1.0.0";
         WriteLocalSourcePackage(
             directory.FullName,

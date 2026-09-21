@@ -28,7 +28,7 @@ import type {
 import type {
   BrowserLibraryApiDiffResult,
   InertString,
-  InspectionShare,
+  InspectionPortableProjection,
 } from "../src/facades/inspect-web-metadata.js";
 import {
   renderLibraryApiDiff,
@@ -817,10 +817,11 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     },
     members: [],
   });
-  const share: InspectionShare = {
+  const portableProjection: InspectionPortableProjection = {
     kind: "nonProjectable",
     path: "comparison/endpoints",
-    reason: metadataInertString("Ordered endpoints are not shareable."),
+    reason: "notSupported",
+    explanation: "Ordered endpoints are not shareable.",
     fullUrl: null,
     packet: null,
   };
@@ -859,7 +860,8 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     reason: null,
     inspection: {
       content: { outcome: "available", document: {} },
-      share,
+      contentKind: "outcome",
+      portableProjection,
       diagnostics: [],
     },
   };
@@ -1870,7 +1872,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       packageId: healthy.packageId.toLowerCase(),
       version,
     });
-    expect(openedResult.versionSettlement.share.kind).toBe("NonProjectable");
+    expect(
+      openedResult.versionSettlement.portableProjection.kind,
+    ).toBe("NonProjectable");
     expect(openedResult.versionSettlement.diagnostics).toEqual([]);
 
     // The production C# serializer, generated facade, Worker transport, and
@@ -1911,7 +1915,9 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(
       missingResult.versionSettlement.content.failure?.reason.length,
     ).toBeGreaterThan(0);
-    expect(missingResult.versionSettlement.share.kind).toBe("NonProjectable");
+    expect(
+      missingResult.versionSettlement.portableProjection.kind,
+    ).toBe("NonProjectable");
     expect(missingResult.versionSettlement.diagnostics).toEqual([]);
 
     // A repeated request for the same coordinate joins the retained scope: no

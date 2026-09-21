@@ -68,8 +68,8 @@ public sealed class PackageDependencyPruningInspectionTests
             evaluated.Result.Pruning.Supply.DelegatesToPlatform);
         Assert.Equal(1, source.PinnedCalls);
 
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Equal("package-dependency-pruning/share", share.Path);
         Assert.Empty(envelope.Diagnostics);
     }

@@ -51,7 +51,7 @@ public sealed class InspectionEnvelopeTests
     }
 
     [Fact]
-    public void ConstructionPreservesRequiredContentShareAndDiagnosticOrder()
+    public void ConstructionPreservesRequiredValuesAndDiagnosticOrder()
     {
         var first = new InspectionDiagnostic(
             "type-dependency.participant-rejected",
@@ -62,19 +62,21 @@ public sealed class InspectionEnvelopeTests
             InspectionDiagnosticSeverity.Error,
             "Selection failed");
         var envelope = new InspectionEnvelope<string>(
+            InspectionContentKind.Result,
             "content",
-            new InspectionShare.Available(
+            new InspectionPortableProjection.Available(
                 "https://dotnet-inspect.net/?w=encoded",
                 "encoded"),
             [first, second]);
 
+        Assert.Equal(InspectionContentKind.Result, envelope.ContentKind);
         Assert.Equal("content", envelope.Content);
         Assert.Equal(
             "https://dotnet-inspect.net/?w=encoded",
-            Assert.IsType<InspectionShare.Available>(envelope.Share).FullUrl);
+            Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection).FullUrl);
         Assert.Equal(
             "encoded",
-            Assert.IsType<InspectionShare.Available>(envelope.Share).Packet);
+            Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection).Packet);
         Assert.Collection(
             envelope.Diagnostics,
             diagnostic =>
@@ -100,21 +102,57 @@ public sealed class InspectionEnvelopeTests
     }
 
     [Fact]
-    public void NonProjectableShareRetainsContainedReason()
+    public void NonProjectableRetainsTypedReasonAndExplanation()
     {
-        var share = new InspectionShare.NonProjectable(
+        var portableProjection =
+            new InspectionPortableProjection.NonProjectable(
             "workspace.contexts[0]",
-            "unsupported\u001b[31m");
+            InspectionPortableProjectionFailureReason.NotSupported,
+            "This operation has no portable form.");
 
-        Assert.Equal("workspace.contexts[0]", share.Path);
-        Assert.Equal("unsupported\\^[[31m", share.Reason.ToString());
+        Assert.Equal("workspace.contexts[0]", portableProjection.Path);
+        Assert.Equal(
+            InspectionPortableProjectionFailureReason.NotSupported,
+            portableProjection.Reason);
+        Assert.Equal(
+            "This operation has no portable form.",
+            portableProjection.Explanation);
     }
 
     [Fact]
-    public void AvailableShareRequiresHttpsUrl()
+    public void ConstructionRejectsUnknownContentKind()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new InspectionEnvelope<string>(
+                (InspectionContentKind)int.MaxValue,
+                "content",
+                NonProjectable()));
+    }
+
+    [Fact]
+    public void NonProjectableRejectsUnknownReason()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new InspectionPortableProjection.NonProjectable(
+                "workspace",
+                (InspectionPortableProjectionFailureReason)int.MaxValue));
+    }
+
+    [Fact]
+    public void NonProjectableRejectsEmptyExplanation()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new InspectionPortableProjection.NonProjectable(
+                "workspace",
+                InspectionPortableProjectionFailureReason.NotSupported,
+                ""));
+    }
+
+    [Fact]
+    public void AvailablePortableProjectionRequiresHttpsUrl()
     {
         ArgumentException failure = Assert.Throws<ArgumentException>(
-            () => new InspectionShare.Available(
+            () => new InspectionPortableProjection.Available(
                 "http://example.test/share",
                 "encoded"));
 
@@ -122,23 +160,24 @@ public sealed class InspectionEnvelopeTests
     }
 
     [Fact]
-    public void AvailableShareRequiresPacket()
+    public void AvailablePortableProjectionRequiresPacket()
     {
         Assert.Throws<ArgumentException>(
-            () => new InspectionShare.Available(
+            () => new InspectionPortableProjection.Available(
                 "https://dotnet-inspect.net/?w=encoded",
                 ""));
     }
 
     [Fact]
-    public void AvailableShareSerializesBothConsumerValues()
+    public void AvailablePortableProjectionSerializesBothConsumerValues()
     {
-        var share = new InspectionShare.Available(
+        var portableProjection =
+            new InspectionPortableProjection.Available(
             "https://dotnet-inspect.net/?w=encoded",
             "encoded");
 
         string json = JsonSerializer.Serialize(
-            share,
+            portableProjection,
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
         Assert.Contains("\"fullUrl\":\"https://dotnet-inspect.net/?w=encoded\"", json);
@@ -153,15 +192,66 @@ public sealed class InspectionEnvelopeTests
 
         Assert.Equal(first, second);
         Assert.Equal(first.GetHashCode(), second.GetHashCode());
-
     }
+
+    [Theory]
+    [InlineData(InspectionContentKind.Result, "\"result\"")]
+    [InlineData(InspectionContentKind.Document, "\"document\"")]
+    [InlineData(InspectionContentKind.Outcome, "\"outcome\"")]
+    public void ContentKindSerializesWithStableValue(
+        InspectionContentKind contentKind,
+        string expected)
+    {
+        Assert.Equal(expected, JsonSerializer.Serialize(contentKind));
+    }
+
+    [Fact]
+    public void EnvelopeEqualityIncludesContentKind()
+    {
+        InspectionEnvelope<string> result = CreateEquivalent();
+        var document = new InspectionEnvelope<string>(
+            InspectionContentKind.Document,
+            result.Content,
+            result.PortableProjection,
+            result.Diagnostics);
+
+        Assert.NotEqual(result, document);
+    }
+
+    [Fact]
+    public void EnvelopeEqualityIncludesPortableProjectionDetails()
+    {
+        InspectionEnvelope<string> baseline = CreateEquivalent();
+        var differentReason = new InspectionEnvelope<string>(
+            InspectionContentKind.Result,
+            "content",
+            new InspectionPortableProjection.NonProjectable(
+                "share",
+                InspectionPortableProjectionFailureReason.Unavailable),
+            baseline.Diagnostics);
+        var differentExplanation = new InspectionEnvelope<string>(
+            InspectionContentKind.Result,
+            "content",
+            new InspectionPortableProjection.NonProjectable(
+                "share",
+                InspectionPortableProjectionFailureReason.NotSupported,
+                "No portable form."),
+            baseline.Diagnostics);
+
+        Assert.NotEqual(baseline, differentReason);
+        Assert.NotEqual(baseline, differentExplanation);
+    }
+
+    private static InspectionPortableProjection NonProjectable() =>
+        new InspectionPortableProjection.NonProjectable(
+            "share",
+            InspectionPortableProjectionFailureReason.NotSupported);
 
     private static InspectionEnvelope<string> CreateEquivalent() =>
         new(
+            InspectionContentKind.Result,
             "content",
-            new InspectionShare.NonProjectable(
-                "share",
-                "not available"),
+            NonProjectable(),
             [
                 new InspectionDiagnostic(
                     "type-dependency.warning",

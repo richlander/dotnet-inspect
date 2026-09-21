@@ -78,11 +78,11 @@ public static class LibraryEcosystemDependencyRecognitionInspection
         return EcosystemDependencyRecognizer.Recognize(
             ProductEcosystemPacks.DependencyRecognitionProfile,
             batch,
-            new EcosystemDependencyRecognitionShare(
+            new EcosystemDependencyRecognitionPortableProjection(
                 subject,
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "ecosystem-dependency-recognition/library-share",
-                    "Library ecosystem dependency recognition does not yet have a canonical Workspace Share projection.")),
+                    InspectionPortableProjectionFailureReason.NotSupported)),
             diagnostics);
     }
 

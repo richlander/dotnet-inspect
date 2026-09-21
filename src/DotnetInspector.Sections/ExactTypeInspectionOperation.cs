@@ -170,11 +170,12 @@ public static class ExactTypeInspectionOperation
         ExactTypeInspectionResult result,
         ExactTypeInspectionRequest request) =>
         new(
+            InspectionContentKind.Result,
             result,
             ProjectShare(request, result),
             Diagnostics(result));
 
-    static InspectionShare ProjectShare(
+    static InspectionPortableProjection ProjectShare(
         ExactTypeInspectionRequest request,
         ExactTypeInspectionResult result)
     {
@@ -225,14 +226,19 @@ public static class ExactTypeInspectionOperation
         {
             WorkspaceSharePacketProjectionFailure failure =
                 projection.Failure!;
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 $"exact-type-share/{failure.Path}",
+                failure.Kind
+                    is WorkspaceSharePacketProjectionFailureKind
+                        .InvalidDefinitionSet
+                    ? InspectionPortableProjectionFailureReason.Invalid
+                    : InspectionPortableProjectionFailureReason.NotSupported,
                 failure.Message);
         }
 
         string encoded =
             WorkspaceSharePacketCodec.Encode(projection.Packet!);
-        return new InspectionShare.Available(
+        return new InspectionPortableProjection.Available(
             "https://dotnet-inspect.net/?w=" + encoded,
             encoded);
     }

@@ -137,14 +137,16 @@ public static class SelectedContextExactPackageInspectionOperation
             WorkspaceRealizationOperationLease authority,
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
+            InspectionContentKind contentKind,
             Func<SelectedContextExactPackageLiveTarget, TContent> inspect,
             ViewFacetId? facet = null,
-            InspectionShare.NonProjectable? shareRefusal = null)
+            InspectionPortableProjection.NonProjectable? shareRefusal = null)
     {
         CoreResult<TContent> result = ExecuteCoreAsync(
             authority,
             activation,
             request,
+            contentKind,
             target => new ValueTask<TContent>(inspect(target)),
             facet,
             shareRefusal).GetAwaiter().GetResult();
@@ -161,14 +163,16 @@ public static class SelectedContextExactPackageInspectionOperation
             WorkspaceRealizationOperationLease authority,
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
+            InspectionContentKind contentKind,
             Func<SelectedContextExactPackageLiveTarget, TContent> inspect,
             ViewFacetId? facet = null,
-            InspectionShare.NonProjectable? shareRefusal = null)
+            InspectionPortableProjection.NonProjectable? shareRefusal = null)
     {
         CoreResult<TContent> result = ExecuteCoreAsync(
             authority,
             activation,
             request,
+            contentKind,
             target => new ValueTask<TContent>(inspect(target)),
             facet,
             shareRefusal).GetAwaiter().GetResult();
@@ -188,16 +192,18 @@ public static class SelectedContextExactPackageInspectionOperation
             WorkspaceRealizationOperationLease authority,
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
+            InspectionContentKind contentKind,
             Func<
                 SelectedContextExactPackageLiveTarget,
                 ValueTask<TContent>> inspect,
             ViewFacetId? facet = null,
-            InspectionShare.NonProjectable? shareRefusal = null)
+            InspectionPortableProjection.NonProjectable? shareRefusal = null)
     {
         CoreResult<TContent> result = await ExecuteCoreAsync(
             authority,
             activation,
             request,
+            contentKind,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -214,16 +220,18 @@ public static class SelectedContextExactPackageInspectionOperation
             WorkspaceRealizationOperationLease authority,
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
+            InspectionContentKind contentKind,
             Func<
                 SelectedContextExactPackageLiveTarget,
                 ValueTask<TContent>> inspect,
             ViewFacetId? facet = null,
-            InspectionShare.NonProjectable? shareRefusal = null)
+            InspectionPortableProjection.NonProjectable? shareRefusal = null)
     {
         CoreResult<TContent> result = await ExecuteCoreAsync(
             authority,
             activation,
             request,
+            contentKind,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -240,16 +248,18 @@ public static class SelectedContextExactPackageInspectionOperation
             InspectionWorkspace workspace,
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
+            InspectionContentKind contentKind,
             Func<
                 SelectedContextExactPackageLiveTarget,
                 ValueTask<TContent>> inspect,
             ViewFacetId? facet = null,
-            InspectionShare.NonProjectable? shareRefusal = null)
+            InspectionPortableProjection.NonProjectable? shareRefusal = null)
     {
         CoreResult<TContent> result = await ExecuteCoreAsync(
             workspace,
             activation,
             request,
+            contentKind,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -264,11 +274,12 @@ public static class SelectedContextExactPackageInspectionOperation
         WorkspaceRealizationOperationLease authority,
         CompleteWorkspaceActivation activation,
         SelectedContextExactPackageInspectionRequest request,
+        InspectionContentKind contentKind,
         Func<
             SelectedContextExactPackageLiveTarget,
             ValueTask<TContent>> inspect,
         ViewFacetId? facet,
-        InspectionShare.NonProjectable? shareRefusal)
+        InspectionPortableProjection.NonProjectable? shareRefusal)
     {
         ArgumentNullException.ThrowIfNull(authority);
         using WorkspaceRealizationOperationUse operation =
@@ -277,6 +288,7 @@ public static class SelectedContextExactPackageInspectionOperation
             operation.Workspace,
             activation,
             request,
+            contentKind,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -286,11 +298,12 @@ public static class SelectedContextExactPackageInspectionOperation
         InspectionWorkspace workspace,
         CompleteWorkspaceActivation activation,
         SelectedContextExactPackageInspectionRequest request,
+        InspectionContentKind contentKind,
         Func<
             SelectedContextExactPackageLiveTarget,
             ValueTask<TContent>> inspect,
         ViewFacetId? facet,
-        InspectionShare.NonProjectable? shareRefusal)
+        InspectionPortableProjection.NonProjectable? shareRefusal)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(activation);
@@ -466,7 +479,7 @@ public static class SelectedContextExactPackageInspectionOperation
             declaration.Input.Framework);
         TContent content = await inspect(target).ConfigureAwait(false);
 
-        InspectionShare share =
+        InspectionPortableProjection share =
             shareRefusal
             ?? ProjectShare(
                 activation,
@@ -475,6 +488,7 @@ public static class SelectedContextExactPackageInspectionOperation
                 selected,
                 facet);
         var envelope = new InspectionEnvelope<TContent>(
+            contentKind,
             content,
             share);
         var evidence = new SelectedContextPackageRoutingEvidence(
@@ -484,7 +498,7 @@ public static class SelectedContextExactPackageInspectionOperation
         return new(envelope, evidence, Failure: null);
     }
 
-    static InspectionShare ProjectShare(
+    static InspectionPortableProjection ProjectShare(
         CompleteWorkspaceActivation activation,
         WorkspaceDeclarationContext context,
         SelectedContextExactPackageInspectionRequest request,
@@ -494,10 +508,9 @@ public static class SelectedContextExactPackageInspectionOperation
         if (request.Version is not null
             && selected.Member.Version is null)
         {
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 "workspace.package.version",
-                "An exact-version selector cannot be preserved by a "
-                    + "floating Workspace Package member.");
+                InspectionPortableProjectionFailureReason.NotSupported);
         }
 
         WorkspaceSharePacketProjectionResult projection =
@@ -513,8 +526,13 @@ public static class SelectedContextExactPackageInspectionOperation
                 projection.Failure
                 ?? throw new InvalidOperationException(
                     "A failed Package scenario projection requires a failure.");
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 failure.Path,
+                failure.Kind
+                    is WorkspaceSharePacketProjectionFailureKind
+                        .InvalidDefinitionSet
+                    ? InspectionPortableProjectionFailureReason.Invalid
+                    : InspectionPortableProjectionFailureReason.NotSupported,
                 failure.Message);
         }
 
@@ -523,7 +541,7 @@ public static class SelectedContextExactPackageInspectionOperation
             ?? throw new InvalidOperationException(
                 "A successful Package scenario projection requires a packet.");
         string encoded = WorkspaceSharePacketCodec.Encode(packet);
-        return new InspectionShare.Available(
+        return new InspectionPortableProjection.Available(
             "https://dotnet-inspect.net/?w=" + encoded,
             encoded);
     }

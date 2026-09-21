@@ -38,6 +38,7 @@ public sealed class PlatformCompiledDocumentationInspectionTests
             SourcesTruncated: false);
         var envelope = new InspectionEnvelope<
             PlatformCompiledDocumentationInspectionOutcome>(
+                InspectionContentKind.Outcome,
                 new PlatformCompiledDocumentationInspectionOutcome.Completed(
                     new(
                         new(
@@ -49,9 +50,9 @@ public sealed class PlatformCompiledDocumentationInspectionTests
                             PlatformCompiledDocumentationSubjectSelection
                                 .RequireAll),
                         [absent])),
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "platform-compiled-documentation/share",
-                    "No share."));
+                    InspectionPortableProjectionFailureReason.NotSupported));
 
         string json = JsonSerializer.Serialize(
             envelope,
@@ -117,6 +118,7 @@ public sealed class PlatformCompiledDocumentationInspectionTests
             PlatformCompiledDocumentationSubjectSelection.RequireAll);
         var envelope = new InspectionEnvelope<
             PlatformCompiledDocumentationInspectionOutcome>(
+                InspectionContentKind.Outcome,
                 new PlatformCompiledDocumentationInspectionOutcome
                     .NotAvailable(
                         new(
@@ -130,9 +132,9 @@ public sealed class PlatformCompiledDocumentationInspectionTests
                                 PlatformCompiledDocumentationSource.Installed,
                                 "InvalidLayout"),
                             Settlement: null)),
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "platform-compiled-documentation/share",
-                    "No share."));
+                    InspectionPortableProjectionFailureReason.NotSupported));
 
         string json = JsonSerializer.Serialize(
             envelope,

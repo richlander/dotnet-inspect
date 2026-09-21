@@ -399,7 +399,7 @@ public partial class DependsCommand
         {
             int shareExitCode =
                 WorkspaceShareOutput.Write(
-                    result.Share,
+                    result.PortableProjection,
                     format);
             if (shareExitCode != 0)
                 exitCode = shareExitCode;

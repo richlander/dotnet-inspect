@@ -24,9 +24,12 @@ public static class MemberSourceInspection
                     portablePdb,
                     cancellationToken)
                 .ConfigureAwait(false);
-        return new(content, new InspectionShare.NonProjectable(
-            "member-decompilation/share",
-            "Member decompilation requests do not yet have a canonical Workspace Share projection."));
+        return new(
+            InspectionContentKind.Outcome,
+            content,
+            new InspectionPortableProjection.NonProjectable(
+                "member-decompilation/share",
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 
     public static async Task<InspectionEnvelope<AssemblyMemberSourceEntry>> ExecuteAsync(
@@ -38,9 +41,12 @@ public static class MemberSourceInspection
     {
         AssemblyMemberSourceEntry content = await AssemblyContextSourceQuery.ExecuteMemberAsync(
             group, participant, request, context, cancellationToken).ConfigureAwait(false);
-        return new(content, new InspectionShare.NonProjectable(
-            "member-source/share",
-            "Member Source requests do not yet have a canonical Workspace Share projection."));
+        return new(
+            InspectionContentKind.Outcome,
+            content,
+            new InspectionPortableProjection.NonProjectable(
+                "member-source/share",
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 
     public static async Task<InspectionEnvelope<AssemblyMemberSourceComparisonEntry>> CompareAsync(
@@ -52,8 +58,11 @@ public static class MemberSourceInspection
     {
         AssemblyMemberSourceComparisonEntry content = await AssemblyContextSourceComparisonQuery.ExecuteAsync(
             group, participant, request, context, cancellationToken).ConfigureAwait(false);
-        return new(content, new InspectionShare.NonProjectable(
-            "member-source-comparison/share",
-            "Member Source comparison requests do not yet have a canonical Workspace Share projection."));
+        return new(
+            InspectionContentKind.Outcome,
+            content,
+            new InspectionPortableProjection.NonProjectable(
+                "member-source-comparison/share",
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

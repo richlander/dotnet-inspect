@@ -414,9 +414,10 @@ internal sealed class ExampleInspectionService
         }
 
         return new(
+            InspectionContentKind.Result,
             new ExampleInspectionContent(matches, IsComplete: true),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "evidence-adoption-pattern/share",
-                "The test-host pattern has no Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

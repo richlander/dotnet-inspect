@@ -252,6 +252,7 @@ function inspected(
     kind: "Succeeded",
     value: null,
     inspection: {
+      contentKind: "document",
       content: {
         hasPackages: results.length > 0,
         results,
@@ -263,12 +264,13 @@ function inspected(
         },
         assemblySemantic: null,
       },
-      share: {
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-query/share",
-        reason: "No canonical Workspace packet.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace packet.",
       },
       diagnostics: [{
         code: "package-query-note",
@@ -358,6 +360,7 @@ function semanticInspected(): BrowserPackageQueryResult {
     kind: "Succeeded",
     value: null,
     inspection: {
+      contentKind: "document",
       content: {
         hasPackages: true,
         results: [{
@@ -402,12 +405,13 @@ function semanticInspected(): BrowserPackageQueryResult {
         },
         assemblySemantic: semanticDocument,
       },
-      share: {
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-query/share",
-        reason: "No canonical Workspace packet.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace packet.",
       },
       diagnostics: [],
     },
@@ -996,6 +1000,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     value: {
       event: null,
       inspection: {
+        contentKind: "document",
         content: {
           hasPackages: true,
           results: [matchEvent.row],
@@ -1003,12 +1008,13 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
           completion: completionEvent.completion,
           assemblySemantic: null,
         },
-        share: {
+        portableProjection: {
           kind: "NonProjectable",
           fullUrl: null,
           packet: null,
           path: "package-query/share",
-          reason: "No canonical Workspace packet.",
+          reason: "notSupported",
+          explanation: "No canonical Workspace packet.",
         },
         diagnostics: [{
           code: "package-query-note",

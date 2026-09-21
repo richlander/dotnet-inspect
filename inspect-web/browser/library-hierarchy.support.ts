@@ -561,12 +561,14 @@ async function installFacades(
               },
               failure: null,
             },
-            share: {
+            contentKind: "outcome",
+            portableProjection: {
               kind: "NonProjectable",
               fullUrl: null,
               packet: null,
               path: "package-version-settlement/share",
-              reason: "No canonical Workspace share projection.",
+              reason: "notSupported",
+              explanation: "No canonical Workspace share projection.",
             },
             diagnostics: [],
           },
@@ -585,12 +587,14 @@ async function installFacades(
               unavailableReason: null,
               hasSelectedSlice: true,
             },
-            share: {
+            contentKind: "result",
+            portableProjection: {
               kind: "NonProjectable",
               fullUrl: null,
               packet: null,
               path: "package-info-measurements/share",
-              reason: "No canonical Workspace share projection.",
+              reason: "notSupported",
+              explanation: "No canonical Workspace share projection.",
             },
             diagnostics: [],
           },
@@ -661,12 +665,14 @@ async function installFacades(
               isComplete: failures.length === 0,
             },
           },
-          share: {
-            kind: "Unavailable",
+          contentKind: "document",
+          portableProjection: {
+            kind: "NonProjectable",
             fullUrl: null,
             packet: null,
-            path: null,
-            reason: "Library Query results are not shareable.",
+            path: "library-query/share",
+            reason: "notSupported",
+            explanation: "Library Query results are not shareable.",
           },
           diagnostics: [],
         };
@@ -783,9 +789,10 @@ async function installFacades(
             isComplete: !diagnosticsOptions.libraryApiIncomplete,
             isAvailable: true,
           },
-          share: {
+          contentKind: "result",
+          portableProjection: {
             kind: "Available", fullUrl: "https://dotnet-inspect.net/",
-            packet: "fixture", path: null, reason: null,
+            packet: "fixture", path: null, reason: null, explanation: null,
           },
           diagnostics: [],
         };
@@ -917,9 +924,11 @@ async function installFacades(
               },
               failures: []
             },
-            share: {
+            contentKind: "result",
+            portableProjection: {
               kind: "NonProjectable", fullUrl: null, packet: null,
-              path: "type-metadata/share", reason: "Fixture projection."
+              path: "type-metadata/share", reason: "notSupported",
+              explanation: "Fixture projection."
             },
             diagnostics: []
           },

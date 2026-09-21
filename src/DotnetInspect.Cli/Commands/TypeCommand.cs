@@ -1224,8 +1224,8 @@ public static class TypeCommand
             if (options.ShareFormat is not { } shareFormat)
                 return outputExitCode;
 
-            InspectionShare share =
-                shareChoice.Refusal ?? envelope.Share;
+            InspectionPortableProjection share =
+                shareChoice.Refusal ?? envelope.PortableProjection;
             int shareExitCode =
                 WorkspaceShareOutput.Write(share, shareFormat);
             return outputExitCode != 0 || shareExitCode != 0
@@ -1704,7 +1704,7 @@ public static class TypeCommand
 
     internal sealed record WorkspaceTypeShareChoice(
         ViewFacetId? Facet,
-        InspectionShare.NonProjectable? Refusal)
+        InspectionPortableProjection.NonProjectable? Refusal)
     {
         internal static WorkspaceTypeShareChoice From(
             TypeOptions options)
@@ -1726,11 +1726,9 @@ public static class TypeCommand
             {
                 return new(
                     Facet: null,
-                    new InspectionShare.NonProjectable(
+                    new InspectionPortableProjection.NonProjectable(
                         "type/query",
-                        "The requested Type filtering or section selection "
-                            + "has no portable Workspace query "
-                            + "representation."));
+                        InspectionPortableProjectionFailureReason.NotSupported));
             }
 
             return new(new ViewFacetId("type.api"), Refusal: null);

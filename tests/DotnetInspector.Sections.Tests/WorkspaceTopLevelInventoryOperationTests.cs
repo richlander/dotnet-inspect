@@ -80,8 +80,8 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
             Assert.IsType<WorkspaceTopLevelInventoryOutcome.Available>(
                 execution.Inspection.Content);
         Assert.Empty(available.Document.Entries);
-        var share = Assert.IsType<InspectionShare.Available>(
-            execution.Inspection.Share);
+        var share = Assert.IsType<InspectionPortableProjection.Available>(
+            execution.Inspection.PortableProjection);
         Assert.Equal(packet, share.Packet);
         Assert.Equal(
             $"https://dotnet-inspect.net/?w={packet}",
@@ -126,18 +126,18 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
 
         Assert.IsType<WorkspaceTopLevelInventoryOutcome.Available>(
             unfiltered.Inspection.Content);
-        var unfilteredShare = Assert.IsType<InspectionShare.NonProjectable>(
-            unfiltered.Inspection.Share);
+        var unfilteredShare = Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            unfiltered.Inspection.PortableProjection);
         Assert.Contains(
             "no retained Definitions-owned projection",
-            unfilteredShare.Reason.ToString());
+            unfilteredShare.Explanation);
         Assert.IsType<WorkspaceTopLevelInventoryOutcome.Available>(
             filtered.Inspection.Content);
-        var filteredShare = Assert.IsType<InspectionShare.NonProjectable>(
-            filtered.Inspection.Share);
+        var filteredShare = Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            filtered.Inspection.PortableProjection);
         Assert.Contains(
             "do not represent inventory kind filters",
-            filteredShare.Reason.ToString());
+            filteredShare.Explanation);
     }
 
     [Fact]
@@ -207,8 +207,8 @@ public sealed class WorkspaceTopLevelInventoryOperationTests
         Assert.Equal(
             WorkspaceTopLevelInventoryRejection.InvalidFilter,
             rejected.Reason);
-        Assert.IsType<InspectionShare.NonProjectable>(
-            execution.Inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            execution.Inspection.PortableProjection);
         Assert.Contains(
             execution.Inspection.Diagnostics,
             diagnostic =>

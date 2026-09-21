@@ -472,7 +472,8 @@ Endpoint inspection issues retain contained operation, token, mechanism,
 kind, detail, subject assembly, and dependency assembly evidence, not just a
 failure count.
 
-The terminal reports `Share.NonProjectable` at `comparison/endpoints`:
+The terminal reports `PortableProjection.NonProjectable` at
+`comparison/endpoints`:
 Workspace Share does not yet represent the comparison's ordered endpoints and
 API scope. A host must not manufacture a replayable Share from one endpoint.
 

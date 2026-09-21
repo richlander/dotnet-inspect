@@ -212,12 +212,14 @@ function packageInfo(): BrowserPackageInfoMeasurementInspection {
       unavailableReason: null,
       hasSelectedSlice: true,
     },
-    share: {
+    contentKind: "result",
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
       path: "package-info-measurements/share",
-      reason: "No canonical Workspace share projection.",
+      reason: "notSupported",
+      explanation: "No canonical Workspace share projection.",
     },
     diagnostics: [],
   };
@@ -307,12 +309,14 @@ test("NuGet package models retain the complete version settlement baseline", () 
       },
       failure: null,
     },
-    share: {
+    contentKind: "outcome",
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
       path: "package-version-settlement/share",
-      reason: "No canonical Workspace share projection.",
+      reason: "notSupported",
+      explanation: "No canonical Workspace share projection.",
     },
     diagnostics: [{
       code: "package-version-settlement.source-failure",
@@ -347,12 +351,14 @@ test("NuGet package models retain the shared Package Info envelope", () => {
         },
         failure: null,
       },
-      share: {
+      contentKind: "outcome",
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-version-settlement/share",
-        reason: "No canonical Workspace share projection.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace share projection.",
       },
       diagnostics: [],
     },
@@ -376,12 +382,14 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
       },
       failure: null,
     },
-    share: {
+    contentKind: "outcome",
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
       path: "package-version-settlement/share",
-      reason: "No canonical Workspace share projection.",
+      reason: "notSupported",
+      explanation: "No canonical Workspace share projection.",
     },
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
@@ -415,12 +423,14 @@ test("Workspace occurrence activation does not copy envelopes across TFMs", () =
         },
         failure: null,
       },
-      share: {
+      contentKind: "outcome",
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-version-settlement/share",
-        reason: "No canonical Workspace share projection.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace share projection.",
       },
       diagnostics: [],
     },
@@ -568,12 +578,14 @@ function acquisitionDependencies(
           },
           failure: null,
         },
-        share: {
+        contentKind: "outcome",
+        portableProjection: {
           kind: "NonProjectable",
           fullUrl: null,
           packet: null,
           path: "package-version-settlement/share",
-          reason: "No canonical Workspace share projection.",
+          reason: "notSupported",
+          explanation: "No canonical Workspace share projection.",
         },
         diagnostics: [],
       },
@@ -679,12 +691,14 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
         }],
       },
     },
-    share: {
+    contentKind: "outcome",
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
       path: "package-version-settlement/share",
-      reason: "No canonical Workspace share projection.",
+      reason: "notSupported",
+      explanation: "No canonical Workspace share projection.",
     },
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;

@@ -300,6 +300,7 @@ public class InspectionResultTests
     {
         const string UnsafeFramework = "net8.0\u202EHOSTILE";
         var envelope = new InspectionEnvelope<PackageInfoMeasurements>(
+            InspectionContentKind.Result,
             new PackageInfoMeasurements(
                 PackageInfoMeasurementStatus.NoApplicableSlice,
                 "Test",
@@ -317,9 +318,9 @@ public class InspectionResultTests
                     TextPolicy.Field,
                     "No compile slice applies to net10.0."),
                 unavailableReason: null),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-info-measurements/share",
-                "No canonical Workspace share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             []);
         var result = new InspectionResult
         {

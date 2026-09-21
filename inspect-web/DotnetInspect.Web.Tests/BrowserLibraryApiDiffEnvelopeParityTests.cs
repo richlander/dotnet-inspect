@@ -60,7 +60,7 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
         Assert.True(
             JsonElement.DeepEquals(expectedContent, delivered.Content),
             "Browser Content differed from the shared service terminal.");
-        Assert.Equal(terminal.Share, delivered.Share);
+        Assert.Equal(terminal.PortableProjection, delivered.PortableProjection);
         Assert.Equal(terminal.Diagnostics.Length, delivered.Diagnostics.Length);
         for (int index = 0; index < terminal.Diagnostics.Length; index++)
         {

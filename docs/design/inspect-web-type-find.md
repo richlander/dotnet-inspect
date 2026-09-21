@@ -71,7 +71,7 @@ or a navigation state store.
 | [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) | Structured Type matching, always-vector candidates, distinct observation context, deterministic order, and attributed coverage |
 | [Workspace Live Locator](workspace-live-locator.md) | One lazy resident locator, append-only admitted declaration population, receipt-pinned answers, and close drainage |
 | [Type declaration visibility](type-declaration-visibility.md) | Default public-surface, `EditorBrowsable`, obsolete, generated-name, and unknown-evidence policy |
-| [Inspection envelope](inspection-envelope.md) | One completed host boundary carrying owner-issued content, Share outcome, and diagnostics |
+| [Inspection envelope](inspection-envelope.md) | One completed host boundary carrying owner-issued content, portable projection, and diagnostics |
 | [Inspect Web retained Workspace realization](inspect-web-retained-workspace-realization.md) | Exact active realization and operation admission |
 | [Inspect Web Spotlight destination activation](inspect-web-spotlight-destination-activation.md) | Captured destination plan, current-authority validation, and settled activation result |
 | [Inspection Subject Navigation](inspection-subject-navigation.md) | Exact Package/Library/Type/Member subjects and action authority |
@@ -137,7 +137,7 @@ transport the complete typed result; a handwritten parallel DTO may not omit
 coverage, separate an action from its candidate, or replace the coordinate
 union with display strings.
 
-The Share outcome uses Workspace Definitions' exact codec when it can preserve
+The portable projection uses Workspace Definitions' exact codec when it can preserve
 the semantic plan. Until such a projection exists, it is visibly
 `NonProjectable`; a public package URL, displayed source label, or partial
 coordinate is not a substitute.
@@ -359,7 +359,7 @@ Managed Browser/Wasm gates must prove:
   owner outcomes.
 
 Generated-facade and Worker tests must prove the operation is registered once,
-preserves the coordinate union, candidate vectors, coverage, Share outcome,
+preserves the coordinate union, candidate vectors, coverage, portable projection,
 diagnostics, and malformed-result rejection, and uses the ordinary operation
 authority for supersession and cancellation.
 

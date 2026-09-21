@@ -18,26 +18,9 @@ internal static class BrowserPackageWireProjection
     {
         ArgumentNullException.ThrowIfNull(inspection);
         return new(
+            BrowserInspectionWireProjection.Project(inspection.ContentKind),
             Project(inspection.Content),
-            inspection.Share switch
-            {
-                InspectionShare.Available available =>
-                    new(
-                        BrowserInspectionShareKind.Available,
-                        available.FullUrl,
-                        available.Packet,
-                        Path: null,
-                        Reason: null),
-                InspectionShare.NonProjectable nonProjectable =>
-                    new(
-                        BrowserInspectionShareKind.NonProjectable,
-                        FullUrl: null,
-                        Packet: null,
-                        nonProjectable.Path,
-                        nonProjectable.Reason.ToString()),
-                _ => throw new InvalidOperationException(
-                    "Unknown inspection Share outcome."),
-            },
+            Project(inspection.PortableProjection),
             [
                 .. inspection.Diagnostics.Select(diagnostic =>
                     new BrowserInspectionDiagnostic(
@@ -241,8 +224,9 @@ internal static class BrowserPackageWireProjection
     {
         ArgumentNullException.ThrowIfNull(inspection);
         return new(
+            BrowserInspectionWireProjection.Project(inspection.ContentKind),
             Project(inspection.Content),
-            Project(inspection.Share),
+            Project(inspection.PortableProjection),
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
@@ -252,6 +236,7 @@ internal static class BrowserPackageWireProjection
         ArgumentNullException.ThrowIfNull(inspection);
         PackageInfoMeasurements content = inspection.Content;
         return new(
+            BrowserInspectionWireProjection.Project(inspection.ContentKind),
             new BrowserPackageInfoMeasurements(
                 content.Status.ToString(),
                 content.PackageId,
@@ -275,7 +260,7 @@ internal static class BrowserPackageWireProjection
                 content.Detail?.ToString(),
                 content.UnavailableReason?.ToString(),
                 content.HasSelectedSlice),
-            Project(inspection.Share),
+            Project(inspection.PortableProjection),
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
@@ -332,25 +317,29 @@ internal static class BrowserPackageWireProjection
         PackageCoordinate request) =>
         new(request.PackageId, request.Version);
 
-    internal static BrowserInspectionShare Project(InspectionShare share) =>
-        share switch
+    internal static BrowserInspectionPortableProjection Project(
+        InspectionPortableProjection portableProjection) =>
+        portableProjection switch
         {
-            InspectionShare.Available available =>
+            InspectionPortableProjection.Available available =>
                 new(
-                    BrowserInspectionShareKind.Available,
+                    BrowserInspectionPortableProjectionKind.Available,
                     available.FullUrl,
                     available.Packet,
                     Path: null,
-                    Reason: null),
-            InspectionShare.NonProjectable nonProjectable =>
+                    Reason: null,
+                    Explanation: null),
+            InspectionPortableProjection.NonProjectable nonProjectable =>
                 new(
-                    BrowserInspectionShareKind.NonProjectable,
+                    BrowserInspectionPortableProjectionKind.NonProjectable,
                     FullUrl: null,
                     Packet: null,
                     nonProjectable.Path,
-                    nonProjectable.Reason.ToString()),
+                    BrowserInspectionWireProjection.Project(
+                        nonProjectable.Reason),
+                    nonProjectable.Explanation),
             _ => throw new InvalidOperationException(
-                "Unknown inspection Share outcome."),
+                "Unknown inspection portable projection."),
         };
 
     internal static BrowserInspectionDiagnostic Project(

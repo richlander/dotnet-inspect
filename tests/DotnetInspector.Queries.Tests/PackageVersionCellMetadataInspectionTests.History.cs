@@ -369,7 +369,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 DiffHistoryChangedVersionCountEvidence>.Completed>(
                     outcome.Count);
         Assert.Equal(1, Assert.Single(count.Counts).Value);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
     }
 
     [Fact]
@@ -2422,8 +2422,8 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 executor,
                 TestContext.Current.CancellationToken);
 
-        var share = Assert.IsType<InspectionShare.NonProjectable>(
-            envelope.Share);
+        var share = Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            envelope.PortableProjection);
         Assert.Equal("diff-history/share", share.Path);
         InspectionDiagnostic diagnostic =
             Assert.Single(envelope.Diagnostics);

@@ -137,8 +137,8 @@ public sealed partial class BrowserEngineBoundaryTests
             "No listed version satisfies",
             failure.Reason.ToString(),
             StringComparison.OrdinalIgnoreCase);
-        Assert.IsType<InspectionShare.NonProjectable>(
-            result.VersionSettlement.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            result.VersionSettlement.PortableProjection);
         Assert.Empty(result.VersionSettlement.Diagnostics);
         Assert.Equal(2, handler.Requested.Count);
         Assert.DoesNotContain(
@@ -485,6 +485,7 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         var inspection =
             new InspectionEnvelope<PackageVersionSettlementOutcome>(
+                InspectionContentKind.Outcome,
                 new PackageVersionSettlementOutcome.Settled(
                     new(
                         new PackageCoordinate(
@@ -497,9 +498,9 @@ public sealed partial class BrowserEngineBoundaryTests
                         Freshness: null,
                         Listings: [],
                         SourceListings: [])),
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "package-version-settlement/share",
-                    "No canonical Workspace share projection."),
+                    InspectionPortableProjectionFailureReason.NotSupported),
                 [
                     new InspectionDiagnostic(
                         "package-version-settlement.source-failure",
@@ -508,6 +509,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 ]);
         var packageInfo =
             new InspectionEnvelope<PackageInfoMeasurements>(
+                InspectionContentKind.Result,
                 new PackageInfoMeasurements(
                     PackageInfoMeasurementStatus.Measured,
                     SettlementPackageId,
@@ -537,9 +539,9 @@ public sealed partial class BrowserEngineBoundaryTests
                     selectedLibraryCount: 2,
                     detail: null,
                     unavailableReason: null),
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "package-info-measurements/share",
-                    "No canonical Workspace share projection."),
+                    InspectionPortableProjectionFailureReason.NotSupported),
                 [
                     new InspectionDiagnostic(
                         "package-info-measurements.source-failure",
@@ -581,6 +583,9 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserPackageInfoMeasurementInspection packageInfoBaseline =
             Assert.IsType<BrowserPackageInfoMeasurementInspection>(
                 roundTripped.PackageInfo);
+        Assert.Equal(
+            BrowserInspectionContentKind.Result,
+            packageInfoBaseline.ContentKind);
         Assert.Equal("Measured", packageInfoBaseline.Content.Status);
         Assert.Equal(4096, packageInfoBaseline.Content.CompressedPackageBytes);
         Assert.Equal("net8.0", packageInfoBaseline.Content.SelectedTargetFramework);
@@ -596,13 +601,16 @@ public sealed partial class BrowserEngineBoundaryTests
                 packageInfoBaseline.Content.AvailableTargetFrameworks));
         Assert.True(packageInfoBaseline.Content.HasSelectedSlice);
         Assert.Equal(
-            BrowserInspectionShareKind.NonProjectable,
-            packageInfoBaseline.Share.Kind);
+            BrowserInspectionPortableProjectionKind.NonProjectable,
+            packageInfoBaseline.PortableProjection.Kind);
         Assert.Equal(
             "package-info-measurements.source-failure",
             Assert.Single(packageInfoBaseline.Diagnostics).Code);
         BrowserPackageVersionSettlementInspection baseline =
             roundTripped.VersionSettlement;
+        Assert.Equal(
+            BrowserInspectionContentKind.Outcome,
+            baseline.ContentKind);
         Assert.Equal(
             BrowserPackageVersionSettlementOutcomeKind.Settled,
             baseline.Content.Kind);
@@ -616,11 +624,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Empty(baseline.Content.Result.Listings);
         Assert.Empty(baseline.Content.Result.SourceListings);
         Assert.Equal(
-            BrowserInspectionShareKind.NonProjectable,
-            baseline.Share.Kind);
+            BrowserInspectionPortableProjectionKind.NonProjectable,
+            baseline.PortableProjection.Kind);
         Assert.Equal(
             "package-version-settlement/share",
-            baseline.Share.Path);
+            baseline.PortableProjection.Path);
         BrowserInspectionDiagnostic diagnostic =
             Assert.Single(baseline.Diagnostics);
         Assert.Equal(

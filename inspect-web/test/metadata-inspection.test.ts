@@ -21,6 +21,7 @@ import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
     exactTypeInspection: {
+      contentKind: "result",
       content: {
         outcome: 0,
         requestedType: fullName,
@@ -59,13 +60,13 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
         isAvailable: true,
         isComplete: true,
       },
-      share: {
+      portableProjection: {
         kind: "nonProjectable",
         fullUrl: null,
         packet: null,
         path: "exact-type",
-        reason: metadataInertStringFixture(
-          "Fixture exact-type inspection is not shareable."),
+        reason: "notSupported",
+        explanation: "Fixture exact-type inspection is not shareable.",
       },
       diagnostics: [],
     },
@@ -73,6 +74,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
     graphNodes: [],
     graphEdges: [],
     typeDependencyInspection: {
+      contentKind: "result",
       content: {
         queryResult: {
           dependency: {
@@ -93,13 +95,13 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
           failure: null,
         },
       },
-      share: {
+      portableProjection: {
         kind: "nonProjectable",
         fullUrl: null,
         packet: null,
         path: "type-dependencies",
-        reason: metadataInertStringFixture(
-          "Fixture dependency inspection is not shareable."),
+        reason: "notSupported",
+        explanation: "Fixture dependency inspection is not shareable.",
       },
       diagnostics: [],
     },

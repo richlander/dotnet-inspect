@@ -35,33 +35,43 @@ public sealed record EvidenceInspectionEnvelope<TContent, TEvidence>
 public sealed record InspectionEnvelope<TContent>
 {
     public InspectionEnvelope(
+        InspectionContentKind contentKind,
         TContent content,
-        InspectionShare share,
+        InspectionPortableProjection portableProjection,
         IEnumerable<InspectionDiagnostic>? diagnostics = null)
         : this(
+            contentKind,
             content,
-            share,
+            portableProjection,
             (diagnostics ?? []).ToImmutableArray())
     {
     }
 
     [JsonConstructor]
     public InspectionEnvelope(
+        InspectionContentKind contentKind,
         TContent content,
-        InspectionShare share,
+        InspectionPortableProjection portableProjection,
         ImmutableArray<InspectionDiagnostic> diagnostics)
     {
+        if (!Enum.IsDefined(contentKind))
+            throw new ArgumentOutOfRangeException(nameof(contentKind));
+
         ArgumentNullException.ThrowIfNull(content);
+        ContentKind = contentKind;
         Content = content;
-        Share = share ?? throw new ArgumentNullException(nameof(share));
+        PortableProjection = portableProjection
+            ?? throw new ArgumentNullException(nameof(portableProjection));
         Diagnostics = diagnostics.IsDefault
             ? []
             : diagnostics;
     }
 
+    public InspectionContentKind ContentKind { get; }
+
     public TContent Content { get; }
 
-    public InspectionShare Share { get; }
+    public InspectionPortableProjection PortableProjection { get; }
 
     public ImmutableArray<InspectionDiagnostic> Diagnostics { get; }
 
@@ -70,10 +80,13 @@ public sealed record InspectionEnvelope<TContent>
         if (ReferenceEquals(this, other))
             return true;
         if (other is null
+            || ContentKind != other.ContentKind
             || !EqualityComparer<TContent>.Default.Equals(
                 Content,
                 other.Content)
-            || !ShareEquals(Share, other.Share)
+            || !PortableProjectionEquals(
+                PortableProjection,
+                other.PortableProjection)
             || Diagnostics.Length != other.Diagnostics.Length)
         {
             return false;
@@ -93,8 +106,9 @@ public sealed record InspectionEnvelope<TContent>
     public override int GetHashCode()
     {
         var hash = new HashCode();
+        hash.Add(ContentKind);
         hash.Add(Content);
-        hash.Add(ShareHashCode(Share));
+        hash.Add(PortableProjectionHashCode(PortableProjection));
         foreach (InspectionDiagnostic diagnostic in Diagnostics)
         {
             hash.Add(diagnostic.Code, StringComparer.Ordinal);
@@ -108,56 +122,81 @@ public sealed record InspectionEnvelope<TContent>
         return hash.ToHashCode();
     }
 
-    private static bool ShareEquals(
-        InspectionShare left,
-        InspectionShare right) =>
+    private static bool PortableProjectionEquals(
+        InspectionPortableProjection left,
+        InspectionPortableProjection right) =>
         (left, right) switch
         {
-            (InspectionShare.Available a, InspectionShare.Available b) =>
+            (
+                InspectionPortableProjection.Available a,
+                InspectionPortableProjection.Available b) =>
                 a.FullUrl == b.FullUrl
                 && a.Packet == b.Packet,
             (
-                InspectionShare.NonProjectable a,
-                InspectionShare.NonProjectable b) =>
+                InspectionPortableProjection.NonProjectable a,
+                InspectionPortableProjection.NonProjectable b) =>
                 a.Path == b.Path
-                && a.Reason.ToString() == b.Reason.ToString(),
+                && a.Reason == b.Reason
+                && a.Explanation == b.Explanation,
             _ => false,
         };
 
-    private static int ShareHashCode(InspectionShare share) =>
-        share switch
+    private static int PortableProjectionHashCode(
+        InspectionPortableProjection portableProjection) =>
+        portableProjection switch
         {
-            InspectionShare.Available available =>
+            InspectionPortableProjection.Available available =>
                 HashCode.Combine(0, available.FullUrl, available.Packet),
-            InspectionShare.NonProjectable nonProjectable =>
+            InspectionPortableProjection.NonProjectable nonProjectable =>
                 HashCode.Combine(
                     1,
                     nonProjectable.Path,
-                    nonProjectable.Reason.ToString()),
+                    nonProjectable.Reason,
+                    nonProjectable.Explanation),
             _ => throw new InvalidOperationException(
-                "Unknown inspection Share outcome."),
+                "Unknown inspection portable projection."),
         };
 }
 
 /// <summary>
-/// The required portable-share outcome for an inspection.
+/// The semantic extent of the owner-issued content.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<InspectionContentKind>))]
+public enum InspectionContentKind
+{
+    [JsonStringEnumMemberName("result")]
+    Result,
+
+    [JsonStringEnumMemberName("document")]
+    Document,
+
+    [JsonStringEnumMemberName("outcome")]
+    Outcome,
+}
+
+/// <summary>
+/// The required portable projection of an inspection plan.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
-[JsonDerivedType(typeof(InspectionShare.Available), "available")]
-[JsonDerivedType(typeof(InspectionShare.NonProjectable), "nonProjectable")]
-public abstract record InspectionShare
+[JsonDerivedType(
+    typeof(InspectionPortableProjection.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(InspectionPortableProjection.NonProjectable),
+    "nonProjectable")]
+public abstract record InspectionPortableProjection
 {
-    private InspectionShare()
+    private InspectionPortableProjection()
     {
     }
 
     /// <summary>
-    /// The complete canonical production URL when this Share outcome is available.
+    /// The complete canonical production URL when this projection is available.
     /// </summary>
     public abstract string? FullUrl { get; }
 
     /// <summary>
-    /// The canonical encoded Workspace packet when this Share outcome is available.
+    /// The canonical encoded Workspace packet when this projection is available.
     /// </summary>
     public abstract string? Packet { get; }
 
@@ -165,7 +204,7 @@ public abstract record InspectionShare
     /// The complete canonical production URL and encoded Workspace packet for
     /// the same inspection plan.
     /// </summary>
-    public sealed record Available : InspectionShare
+    public sealed record Available : InspectionPortableProjection
     {
         public Available(string fullUrl, string packet)
         {
@@ -178,7 +217,7 @@ public abstract record InspectionShare
                     StringComparison.Ordinal))
             {
                 throw new ArgumentException(
-                    "An available inspection share must be a complete HTTPS URL.",
+                    "An available portable projection must be a complete HTTPS URL.",
                     nameof(fullUrl));
             }
 
@@ -192,35 +231,61 @@ public abstract record InspectionShare
     }
 
     /// <summary>
-    /// The semantic path and contained reason that could not be projected.
+    /// The semantic path and typed reason that could not be projected.
     /// </summary>
-    public sealed record NonProjectable : InspectionShare
+    public sealed record NonProjectable : InspectionPortableProjection
     {
-        public NonProjectable(string path, string reason)
-            : this(
-                path,
-                new InertString(TextPolicy.Field, reason))
-        {
-        }
-
         [JsonConstructor]
-        public NonProjectable(string path, InertString reason)
+        public NonProjectable(
+            string path,
+            InspectionPortableProjectionFailureReason reason,
+            string? explanation = null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            if (!Enum.IsDefined(reason))
+                throw new ArgumentOutOfRangeException(nameof(reason));
+            if (explanation is not null)
+                ArgumentException.ThrowIfNullOrWhiteSpace(explanation);
 
             Path = path;
             Reason = reason;
+            Explanation = explanation;
         }
 
         public string Path { get; }
 
-        [JsonConverter(typeof(InertStringJsonConverter))]
-        public InertString Reason { get; }
+        public InspectionPortableProjectionFailureReason Reason { get; }
+
+        public string? Explanation { get; }
 
         public override string? FullUrl => null;
 
         public override string? Packet => null;
     }
+}
+
+/// <summary>
+/// Why an inspection plan has no faithful portable projection.
+/// </summary>
+[JsonConverter(
+    typeof(JsonStringEnumConverter<
+        InspectionPortableProjectionFailureReason>))]
+public enum InspectionPortableProjectionFailureReason
+{
+    [JsonStringEnumMemberName("notSupported")]
+    NotSupported,
+
+    [JsonStringEnumMemberName("invalid")]
+    Invalid,
+
+    [JsonStringEnumMemberName("incomplete")]
+    Incomplete,
+
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
 }
 
 /// <summary>

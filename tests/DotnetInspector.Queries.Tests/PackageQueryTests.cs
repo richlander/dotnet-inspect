@@ -49,8 +49,8 @@ public sealed partial class PackageQueryTests
         Assert.Equal(
             PackageQueryCompletionKind.MatchLimitReached,
             envelope.Content.Summary.Completion);
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Equal("package-query/share", share.Path);
         Assert.Empty(envelope.Diagnostics);
     }
@@ -96,7 +96,7 @@ public sealed partial class PackageQueryTests
             sink.Events
                 .OfType<PackageQueryEvent.Failure>()
                 .Select(queryEvent => queryEvent.Value));
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
     }
 

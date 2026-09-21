@@ -277,9 +277,10 @@ public static class PackageDependencyPruningInspection
         }
 
         return new(
+            InspectionContentKind.Result,
             new PackageDependencyPruningInspectionResult(outcomes),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-dependency-pruning/share",
-                "Package dependency pruning requests do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

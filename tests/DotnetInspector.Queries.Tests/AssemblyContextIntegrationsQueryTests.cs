@@ -716,9 +716,9 @@ public sealed class AssemblyContextIntegrationsQueryTests
             signal =>
                 signal.Integration
                 == EcosystemIntegrationNames.Logging);
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(
-                inspection.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                inspection.PortableProjection);
         Assert.Equal("assembly-integrations/share", share.Path);
         Assert.Empty(inspection.Diagnostics);
         Assert.Equal(1, source.OpenCount);
@@ -904,9 +904,9 @@ public sealed class AssemblyContextIntegrationsQueryTests
             opportunity =>
                 opportunity.Integration
                 == EcosystemIntegrationNames.Aspire);
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(
-                inspection.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                inspection.PortableProjection);
         Assert.Equal(
             "assembly-integration-opportunities/share",
             share.Path);

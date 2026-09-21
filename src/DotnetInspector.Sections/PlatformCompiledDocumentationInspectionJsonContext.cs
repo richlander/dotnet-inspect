@@ -15,8 +15,8 @@ namespace DotnetInspector.Sections;
     typeof(PlatformCompiledDocumentationInspectionOutcome),
     TypeInfoPropertyName = "PlatformCompiledDocumentationInspectionOutcome")]
 [JsonSerializable(
-    typeof(InspectionShare.Available),
-    TypeInfoPropertyName = "InspectionShareAvailable")]
+    typeof(InspectionPortableProjection.Available),
+    TypeInfoPropertyName = "InspectionPortableProjectionAvailable")]
 [JsonSerializable(
     typeof(CompiledDocumentationOutcome.Available),
     TypeInfoPropertyName = "CompiledDocumentationAvailable")]

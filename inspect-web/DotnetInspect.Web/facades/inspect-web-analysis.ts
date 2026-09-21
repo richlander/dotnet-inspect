@@ -2,6 +2,10 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserAnalysisInspectionDiagnosticSeverity = number;
 
+export type BrowserAnalysisInspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type BrowserAnalysisInspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
+
 export type BrowserCloneCandidateAnalysisBlockerKind = "MetadataReadFailure" | "MethodLimit" | "SeedUnsupported" | "SeedProductionLimit" | "SeedProductionFailure" | "CandidateProductionLimit" | "CandidateProductionFailure" | number;
 
 export type BrowserCloneCandidateBreadth = "Everything" | "Self" | "SelfAndRegisteredEcosystems" | number;
@@ -52,17 +56,19 @@ export interface BrowserAnalysisInspectionDiagnostic {
 }
 
 export interface BrowserAnalysisInspectionEnvelope {
+  readonly contentKind: BrowserAnalysisInspectionContentKind;
   readonly content: unknown;
-  readonly share: BrowserAnalysisInspectionShare;
+  readonly portableProjection: BrowserAnalysisInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserAnalysisInspectionDiagnostic>;
 }
 
-export interface BrowserAnalysisInspectionShare {
+export interface BrowserAnalysisInspectionPortableProjection {
   readonly kind: string;
   readonly fullUrl: string | null;
   readonly packet: string | null;
   readonly path: string | null;
-  readonly reason: string | null;
+  readonly reason: BrowserAnalysisInspectionPortableProjectionFailureReason | null;
+  readonly explanation: string | null;
 }
 
 export interface BrowserCallFact {
@@ -666,4 +672,3 @@ export async function queryPlatformOpportunities(targetFramework: string, platfo
 export async function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformPerformance.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
 }
-

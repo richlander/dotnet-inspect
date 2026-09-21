@@ -166,7 +166,8 @@ shared lifetime rather than a CLI-owned House composition.
 
 `TypeSourceInspection.ExecuteAsync` is the completed host-neutral facade,
 returning `InspectionEnvelope<AssemblyTypeSourceEntry>` with explicit
-non-projectable Share. Browser Type Source consumes its content through the
+non-projectable PortableProjection. Browser Type Source consumes its content
+through the
 existing browser projection and operation/cancellation bridge. Its wire shape,
 source policy, viewer, and rendering substrate remain unchanged.
 `TypeSourceInspection.DecompileAsync` is the adjacent completed

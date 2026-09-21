@@ -176,7 +176,7 @@ public class PackageVersionTests
         Assert.False(content.TryGetProperty("count", out _));
         Assert.Equal(
             "nonProjectable",
-            root.GetProperty("share").GetProperty("kind").GetString());
+            root.GetProperty("portable_projection").GetProperty("kind").GetString());
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
     }
 
@@ -235,7 +235,7 @@ public class PackageVersionTests
             json.RootElement.GetProperty("content").GetInt32());
         Assert.Equal(
             "nonProjectable",
-            json.RootElement.GetProperty("share").GetProperty("kind").GetString());
+            json.RootElement.GetProperty("portable_projection").GetProperty("kind").GetString());
         Assert.Empty(
             json.RootElement.GetProperty("diagnostics").EnumerateArray());
         Assert.Equal((0, "1", ""), (
@@ -849,7 +849,7 @@ public class PackageVersionTests
         Assert.False(content.TryGetProperty("count", out _));
         Assert.Equal(
             "nonProjectable",
-            root.GetProperty("share").GetProperty("kind").GetString());
+            root.GetProperty("portable_projection").GetProperty("kind").GetString());
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
     }
 

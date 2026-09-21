@@ -19,7 +19,7 @@ internal sealed record TypeDependencyScanDiagnostic(
 
 internal sealed record TypeDependencyExecutionResult(
     InspectionEnvelope<TypeDependencySectionResult>? Envelope,
-    InspectionShare Share,
+    InspectionPortableProjection PortableProjection,
     IReadOnlyList<TypeDependencyScanDiagnostic> Diagnostics,
     bool IsAvailable)
 {
@@ -33,10 +33,10 @@ internal sealed record TypeDependencyExecutionResult(
         Envelope!.Content.RowSelection.Failure;
 
     internal static TypeDependencyExecutionResult Unavailable(
-        InspectionShare share) =>
+        InspectionPortableProjection portableProjection) =>
         new(
             Envelope: null,
-            share,
+            portableProjection,
             Diagnostics: [],
             IsAvailable: false);
 
@@ -44,14 +44,14 @@ internal sealed record TypeDependencyExecutionResult(
         TypeDependencySectionResult content,
         IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics,
         bool isAvailable,
-        InspectionShare share) =>
-        Create(content, diagnostics, isAvailable, share);
+        InspectionPortableProjection portableProjection) =>
+        Create(content, diagnostics, isAvailable, portableProjection);
 
     private static TypeDependencyExecutionResult Create(
         TypeDependencySectionResult content,
         IReadOnlyList<TypeDependencyScanDiagnostic> scanDiagnostics,
         bool isAvailable,
-        InspectionShare share)
+        InspectionPortableProjection portableProjection)
     {
         List<InspectionDiagnostic> diagnostics =
         [
@@ -73,10 +73,11 @@ internal sealed record TypeDependencyExecutionResult(
 
         return new(
             new InspectionEnvelope<TypeDependencySectionResult>(
+                InspectionContentKind.Result,
                 content,
-                share,
+                portableProjection,
                 diagnostics),
-            share,
+            portableProjection,
             scanDiagnostics,
             isAvailable);
     }
@@ -97,14 +98,14 @@ internal static class DependencyGraphService
         DependsOptions options,
         VerboseLogger logger,
         CancellationToken cancellationToken = default,
-        Func<string, InspectionShare>? shareProjection = null)
+        Func<string, InspectionPortableProjection>? shareProjection = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        InspectionShare ShareFor(string typeName) =>
+        InspectionPortableProjection ShareFor(string typeName) =>
             shareProjection is null
-                ? new InspectionShare.NonProjectable(
+                ? new InspectionPortableProjection.NonProjectable(
                     "share",
-                    "Share projection was not requested.")
+                    InspectionPortableProjectionFailureReason.NotSupported)
                 : shareProjection(typeName);
         RowQueryResolutionResult<TypeDependencyRelationship>
             rowQueryResolution =

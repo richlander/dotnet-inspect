@@ -1395,7 +1395,7 @@ public sealed class ExactPackageWorkspaceRouteTests
             root.GetProperty("content").TryGetProperty(
                 "inspection",
                 out _));
-        Assert.True(root.TryGetProperty("share", out _));
+        Assert.True(root.TryGetProperty("portable_projection", out _));
         Assert.True(root.TryGetProperty("diagnostics", out _));
         JsonElement evidence = root.GetProperty("evidence");
         Assert.Equal(

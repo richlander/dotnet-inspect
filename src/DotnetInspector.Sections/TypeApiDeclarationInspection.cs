@@ -253,6 +253,7 @@ public static class TypeApiDeclarationInspection
         string text = result.Source;
         cancellationToken.ThrowIfCancellationRequested();
         return new InspectionEnvelope<TypeApiDeclarationResult>(
+            InspectionContentKind.Result,
             new TypeApiDeclarationResult(
                 TypeApiDeclarationOutcome.Available,
                 identity,
@@ -686,13 +687,16 @@ public static class TypeApiDeclarationInspection
 
     static InspectionEnvelope<TypeApiDeclarationResult> Envelope(
         TypeApiDeclarationResult result) =>
-        new(result, Share(), Diagnostics(result));
+        new(
+            InspectionContentKind.Result,
+            result,
+            Share(),
+            Diagnostics(result));
 
-    static InspectionShare Share() =>
-        new InspectionShare.NonProjectable(
+    static InspectionPortableProjection Share() =>
+        new InspectionPortableProjection.NonProjectable(
             "type-api-declarations/share",
-            "Type API Declarations do not yet have a portable Workspace "
-                + "Share representation.");
+            InspectionPortableProjectionFailureReason.NotSupported);
 
     static IEnumerable<InspectionDiagnostic> Diagnostics(
         TypeApiDeclarationResult result)

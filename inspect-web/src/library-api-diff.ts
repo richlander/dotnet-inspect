@@ -420,6 +420,8 @@ function validateInspection(
   expectedOutcome: "available" | "unavailable" | "rejected",
 ): void {
   const inspection = requireRecord(value, "Library API Diff inspection");
+  if (inspection.contentKind !== "outcome")
+    throw new Error("Library API Diff inspection content kind is invalid.");
   const content = requireRecord(
     inspection.content,
     "Library API Diff inspection Content",
@@ -433,18 +435,42 @@ function validateInspection(
     requireRecord(content.before, "Library API Diff Content Before");
     requireRecord(content.after, "Library API Diff Content After");
   }
-  const share = requireRecord(inspection.share, "Library API Diff Share");
-  requireEnum(share.kind, "Library API Diff Share kind", [
+  const portableProjection = requireRecord(
+    inspection.portableProjection,
+    "Library API Diff portable projection",
+  );
+  requireEnum(
+    portableProjection.kind,
+    "Library API Diff portable projection kind",
+    [
     "available",
     "nonProjectable",
-  ]);
-  if (share.kind === "available") {
-    requireString(share.fullUrl, "Library API Diff Share URL");
-    requireString(share.packet, "Library API Diff Share packet");
+    ],
+  );
+  if (portableProjection.kind === "available") {
+    requireString(
+      portableProjection.fullUrl,
+      "Library API Diff portable projection URL",
+    );
+    requireString(
+      portableProjection.packet,
+      "Library API Diff portable projection packet",
+    );
   } else {
-    requireNull(share, "fullUrl", "packet");
-    requireString(share.path, "Library API Diff Share path");
-    requireString(share.reason, "Library API Diff Share reason");
+    requireNull(portableProjection, "fullUrl", "packet");
+    requireString(
+      portableProjection.path,
+      "Library API Diff portable projection path",
+    );
+    requireEnum(
+      portableProjection.reason,
+      "Library API Diff portable projection reason",
+      ["notSupported", "invalid", "incomplete", "unavailable", "failed"],
+    );
+    requireNullableString(
+      portableProjection.explanation,
+      "Library API Diff portable projection explanation",
+    );
   }
   if (!Array.isArray(inspection.diagnostics))
     throw new Error("Library API Diff inspection diagnostics must be an array.");

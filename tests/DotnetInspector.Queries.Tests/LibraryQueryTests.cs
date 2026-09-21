@@ -268,9 +268,9 @@ public sealed class LibraryQueryTests
         Assert.Equal(
             LibraryQueryIncompleteReason.PopulationFailure,
             envelope.Content.Summary.IncompleteReasons);
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(
-                envelope.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                envelope.PortableProjection);
         Assert.Equal("library-query/share", share.Path);
         Assert.Empty(envelope.Diagnostics);
     }

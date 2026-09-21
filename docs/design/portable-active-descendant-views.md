@@ -246,7 +246,7 @@ Illustrative completed host calls are **mockups**, not API declarations:
 InspectionEnvelope<WorkspaceViewContent> result =
     await inspections.RestoreWorkspaceViewAsync(packet, cancellationToken);
 Render(result.Content);
-RenderShare(result.Share);
+RenderShare(result.PortableProjection);
 RenderDiagnostics(result.Diagnostics);
 ```
 

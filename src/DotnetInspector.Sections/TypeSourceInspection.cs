@@ -24,9 +24,12 @@ public static class TypeSourceInspection
                     portablePdb,
                     cancellationToken)
                 .ConfigureAwait(false);
-        return new(content, new InspectionShare.NonProjectable(
-            "type-decompilation/share",
-            "Type decompilation requests do not yet have a canonical Workspace Share projection."));
+        return new(
+            InspectionContentKind.Outcome,
+            content,
+            new InspectionPortableProjection.NonProjectable(
+                "type-decompilation/share",
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 
     public static async Task<InspectionEnvelope<AssemblyTypeSourceEntry>> ExecuteAsync(
@@ -38,9 +41,12 @@ public static class TypeSourceInspection
     {
         AssemblyTypeSourceEntry content = await AssemblyContextSourceQuery.ExecuteTypeAsync(
             group, participant, request, context, cancellationToken).ConfigureAwait(false);
-        return new(content, new InspectionShare.NonProjectable(
-            "type-source/share",
-            "Type Source requests do not yet have a canonical Workspace Share projection."));
+        return new(
+            InspectionContentKind.Outcome,
+            content,
+            new InspectionPortableProjection.NonProjectable(
+                "type-source/share",
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 
     /// <summary>
@@ -68,9 +74,10 @@ public static class TypeSourceInspection
                     cancellationToken)
                 .ConfigureAwait(false);
         return new(
+            InspectionContentKind.Outcome,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "type-source/share",
-                "Type Source requests do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

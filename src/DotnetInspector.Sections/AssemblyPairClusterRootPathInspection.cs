@@ -26,11 +26,11 @@ public static class AssemblyPairClusterRootPathInspection
                 limits,
                 cancellationToken);
         return new(
+            InspectionContentKind.Result,
             result,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "assembly-pair/cluster-public-root-paths",
-                "Pairwise cluster public-root paths do not yet have "
-                    + "a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             Diagnostics(result));
     }
 

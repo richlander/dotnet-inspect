@@ -1123,7 +1123,8 @@ definition; it must not rerun Type inspection.
 The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
 view and its complete unprojected JSON boundary for an explicit package version
 and TFM. `--json` serializes `ExactTypeInspectionResult`; `--envelope` emits the
-same Content with result kind `exact-type`, Share, and ordered diagnostics.
+same Content with result kind `exact-type`, ContentKind `result`,
+PortableProjection, and ordered diagnostics.
 `--compact` controls either JSON boundary. Explicit sections, alternate
 formats, filters, `--all`, normal/detailed verbosity, documentation/source work,
 and every non-package source shape remain on the compatibility path because
@@ -1192,7 +1193,7 @@ The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
   ordered namespace counts;
 - typed selection, participant, extraction, and truncation failures, plus an
   explicit completion bit;
-- one Share projection selecting the exact Library asset, and stable typed
+- one portable projection selecting the exact Library asset, and stable typed
   diagnostics.
 
   The host-neutral execution also returns the detached owner-issued `ApiSurface`
@@ -1226,7 +1227,8 @@ the existing Platform projection and does not invoke `QueryLibraryApi`.
 Initial CLI adoption is limited to a pinned NuGet package, explicit non-`all`
 TFM, explicit Library, and the ordinary quiet/minimal type-listing catalog.
 Unprojected `--json` serializes `ExactLibraryApiInspectionResult`;
-`--envelope` emits the same Content with result kind `exact-library-api`, Share,
+`--envelope` emits the same Content with result kind `exact-library-api`,
+ContentKind `result`, PortableProjection,
 and ordered diagnostics. `--compact` controls either JSON boundary.
 Documentation, source/PDB, clone candidates, performance, decompilation,
 direct-file, project, Platform, package ranges, Type/member-detail requests,

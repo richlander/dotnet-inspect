@@ -50,10 +50,11 @@ public static class LibraryQueryInspection
         ValidateContent(plan, content);
 
         return new(
+            InspectionContentKind.Document,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "library-query/share",
-                "Library Query populations do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 
     private static void ValidateContent(

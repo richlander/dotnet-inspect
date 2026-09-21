@@ -43,7 +43,7 @@ public sealed class LibraryEcosystemDependencyRecognitionInspectionTests
                         EcosystemDependencyObservation.AssemblyReference>(
                             observation)
                         .Reference.Name));
-        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
         Assert.Empty(inspection.Diagnostics);
     }
 

@@ -26,12 +26,12 @@ internal static class WorkspaceShareOutput
     }
 
     internal static int Write(
-        InspectionShare share,
+        InspectionPortableProjection portableProjection,
         WorkspaceShareFormat format)
     {
-        switch (share)
+        switch (portableProjection)
         {
-            case InspectionShare.Available available:
+            case InspectionPortableProjection.Available available:
                 string text = format == WorkspaceShareFormat.Url
                     ? available.FullUrl
                     : available.Packet;
@@ -40,39 +40,58 @@ internal static class WorkspaceShareOutput
                 else
                     CommandError.WriteLine(text);
                 return 0;
-            case InspectionShare.NonProjectable nonProjectable:
+            case InspectionPortableProjection.NonProjectable nonProjectable:
                 CommandError.Write(
                     $"--share is not projectable at {nonProjectable.Path}: "
-                    + nonProjectable.Reason);
+                    + Explain(nonProjectable));
                 return 1;
             default:
                 throw new InvalidOperationException(
-                    "Unknown inspection Share outcome.");
+                    "Unknown inspection portable projection.");
         }
     }
 
     internal static int WriteScalar(
-        InspectionShare share,
+        InspectionPortableProjection portableProjection,
         WorkspaceShareFormat format)
     {
-        switch (share)
+        switch (portableProjection)
         {
-            case InspectionShare.Available available:
+            case InspectionPortableProjection.Available available:
                 Console.WriteLine(
                     format == WorkspaceShareFormat.Url
                         ? available.FullUrl
                         : available.Packet);
                 return 0;
-            case InspectionShare.NonProjectable nonProjectable:
+            case InspectionPortableProjection.NonProjectable nonProjectable:
                 CommandError.Write(
                     $"--share is not projectable at {nonProjectable.Path}: "
-                        + nonProjectable.Reason);
+                        + Explain(nonProjectable));
                 return 1;
             default:
                 throw new InvalidOperationException(
-                    "Unknown inspection Share outcome.");
+                    "Unknown inspection portable projection.");
         }
     }
+
+    private static string Explain(
+        InspectionPortableProjection.NonProjectable nonProjectable) =>
+        nonProjectable.Explanation
+        ?? nonProjectable.Reason switch
+        {
+            InspectionPortableProjectionFailureReason.NotSupported =>
+                "this inspection has no defined portable projection",
+            InspectionPortableProjectionFailureReason.Invalid =>
+                "the inspection state is invalid for portable projection",
+            InspectionPortableProjectionFailureReason.Incomplete =>
+                "the inspection lacks complete evidence for portable projection",
+            InspectionPortableProjectionFailureReason.Unavailable =>
+                "required portable state is unavailable",
+            InspectionPortableProjectionFailureReason.Failed =>
+                "the portable projection failed",
+            _ => throw new InvalidOperationException(
+                "Unknown portable projection failure reason."),
+        };
 
     private sealed class DeferredSideOutput : IDisposable
     {

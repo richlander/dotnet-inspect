@@ -189,15 +189,26 @@ internal static class InspectionEnvelopeOutput
     {
         writer.WriteNumber("schema_version", contract.SchemaVersion);
         writer.WriteString("result_kind", contract.ResultKind);
+        writer.WriteString(
+            "content_kind",
+            envelope.ContentKind switch
+            {
+                InspectionContentKind.Result => "result",
+                InspectionContentKind.Document => "document",
+                InspectionContentKind.Outcome => "outcome",
+                _ => throw new InvalidOperationException(
+                    "Unknown inspection content kind."),
+            });
 
         writer.WritePropertyName("content");
         contract.Write(writer, envelope.Content);
 
-        writer.WritePropertyName("share");
+        writer.WritePropertyName("portable_projection");
         JsonSerializer.Serialize(
             writer,
-            envelope.Share,
-            InspectionEnvelopeJsonContext.Default.InspectionShare);
+            envelope.PortableProjection,
+            InspectionEnvelopeJsonContext.Default
+                .InspectionPortableProjection);
 
         writer.WritePropertyName("diagnostics");
         writer.WriteStartArray();

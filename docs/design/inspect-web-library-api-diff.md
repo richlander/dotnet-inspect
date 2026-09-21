@@ -56,7 +56,7 @@ slice does not create a host-neutral abstraction waiting for a future adopter.
 | [Diff targets](inspect-web-diff-targets.md) | Previous/exact target intent and authoritative Gallery version ordering. |
 | [Selected-Library query](../inspection-space.md#selected-library-api-comparison) | Independently projected Before and After endpoints and Metadata-owned API comparison. |
 | [Library API Diff Presentation](library-api-diff-presentation.md) | Complete Library-root document, exact Type identities, aggregate counts, and typed Available/Unavailable/Rejected outcomes. |
-| [Inspection envelope](inspection-envelope.md#same-baseline-broader-clients) | One shared baseline containing Content, Share, and ordered diagnostics; lossless Browser transport projection is permitted. |
+| [Inspection envelope](inspection-envelope.md#same-baseline-broader-clients) | One shared baseline containing ContentKind, Content, PortableProjection, and ordered diagnostics; lossless Browser transport projection is permitted. |
 | Browser package Workspace | Exact Gallery package, framework, compile-asset identity, acquisition, and protected scope lifetime. |
 | [Operation authority](inspect-web-operation-authority.md) | Current-context publication, supersession, cancellation, disposal, and quiescence. |
 | [Managed operation bridge](inspect-web-managed-operation-bridge.md) | Keyed managed execution, cancellation forwarding, and release. |
@@ -158,7 +158,8 @@ the displayed inventory stand in for Content.
 Content crosses the Browser JSON boundary through its owner-issued
 `LibraryApiDiffJsonContext` serializer. The transport uses
 `InspectionEnvelope<JsonElement>`: Content retains that serializer's complete
-JSON value, while Share and ordered diagnostics retain their service-issued
+JSON value, while ContentKind, PortableProjection, and ordered diagnostics
+retain their service-issued
 values. This is serialization lowering, not an alternate domain model. In
 particular, the nested ComparisonDocument keeps its canonical snake_case
 schema rather than acquiring the CLR model's property shape. Browser envelope
@@ -188,7 +189,8 @@ The Browser wire result retains:
 
 The wire projection is all-or-nothing. The Browser inventory admits at most
 10,000 changed Types and a 6,000,000-character retained Type-and-Member-text
-budget. The **entire result**, including native Content, Share, and
+budget. The **entire result**, including native ContentKind, Content,
+PortableProjection, and
 diagnostics, must fit the ordinary Worker's 16,777,216-character and
 524,288-collection-entry limits, reserving its one-element result tuple.
 Collection accounting follows the serialized value: each object contributes
@@ -210,9 +212,10 @@ An inventory-only bound rejection can retain Available Content when the
 whole result still fits. Pre-service failure and cancellation have null
 `inspection`; neither manufactures a completed inspection.
 
-The shared terminal's Share is `NonProjectable` because Workspace Share does
-not represent ordered comparison endpoints. The Browser retains this outcome
-without manufacturing a replayable Share action. Non-empty baseline
+The shared terminal's PortableProjection is `NonProjectable` because the
+Workspace sharing feature does not represent ordered comparison endpoints.
+The Browser retains this outcome without manufacturing a replayable share
+action. Non-empty baseline
 diagnostics receive a collapsed disclosure in producer order; empty
 diagnostics add no persistent UI.
 
@@ -283,13 +286,14 @@ The published Browser demo uses the deterministic `LibraryApiDiff.V1` and
 | Gate | Adoption evidence |
 | --- | --- |
 | Release `BrowserLibraryApiDiffOperationTests` | Real V1-to-V2 and same-version results, exact Type-local changed-Member identities and moved-member roles, exact asset mismatch, typed non-success, member-heavy bounds, cancellation, and generated JSON shape. |
-| Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser Content, Share, and diagnostics agree with the shared terminal. |
+| Release `BrowserLibraryApiDiffEnvelopeParityTests` (Slow) | Authentic System.Text.Json 9.0.0-to-10.0.0 Library comparison: Browser ContentKind, Content, PortableProjection, and diagnostics agree with the shared terminal. |
 | Release `ProductionFacadeContextTests` and `generate-inspect-web-engine-facade.sh --check` | Existing Metadata facade exports and compiler-derived TypeScript transport. |
 | Node Library API Diff tests | Target resolution, request association, complete row rendering, exact identities, non-success, and stale completion suppression. |
 | Node ordinary Worker tests | Closed operation catalog, argument forwarding, cancellation forwarding, and bounded result transport. |
 | Published Firefox package-adoption gate | Real Gallery fixture acquisition through the generated facade and WebAssembly engine. |
 
-The envelope cases compare canonical Content JSON and Share/diagnostic
+The envelope cases compare canonical ContentKind, Content JSON,
+PortableProjection, and diagnostic
 values across serialization, retain non-empty ordered diagnostics, reject
 missing or contradictory baselines, and exercise full-result character and
 collection boundaries. The deterministic boundary cases are PR-fast; the

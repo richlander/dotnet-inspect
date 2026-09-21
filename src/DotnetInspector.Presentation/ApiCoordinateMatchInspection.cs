@@ -47,10 +47,12 @@ public static class ApiCoordinateMatchInspection
     }
 
     static InspectionEnvelope<ApiCoordinateMatchContent> Complete(ApiCoordinateMatchContent content) =>
-        new(content,
-            new InspectionShare.NonProjectable(
+        new(
+            InspectionContentKind.Result,
+            content,
+            new InspectionPortableProjection.NonProjectable(
                 "correspondence/endpoints",
-                "Workspace Share does not yet represent exact API correspondence across ordered Package endpoints."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             content.Status is ApiCoordinateMatchStatus.Exact or ApiCoordinateMatchStatus.Absent
                 ? []
                 : [new InspectionDiagnostic(

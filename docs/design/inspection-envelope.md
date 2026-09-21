@@ -4,10 +4,10 @@ Status: **proposed**.
 
 This design owns one cross-cutting result pattern:
 `InspectionEnvelope<TContent>` is the host-neutral boundary around one
-owner-issued content value, one required Share outcome, and cross-host
-diagnostics. The CLI consumes that baseline envelope. Broader hosts consume the
-same baseline and may compose additional owner-issued content or host-owned
-experience state around it without changing the baseline.
+classified owner-issued content value, one required portable projection, and
+cross-host diagnostics. The CLI consumes that baseline envelope. Broader hosts
+consume the same baseline and may compose additional owner-issued content or
+host-owned experience state around it without changing the baseline.
 
 The optional [service-evidence enrichment](#service-evidence-enrichment)
 composes that baseline with a second owner-issued type. It is an implemented
@@ -30,13 +30,16 @@ implementation adoption is
 
 ## Claim
 
-For one resolved semantic plan, every host receives the same content, Share
-outcome, and diagnostics:
+For one resolved semantic plan, every host receives the same content
+classification, content, portable projection, and diagnostics:
 
 ```text
 InspectionEnvelope<TContent>
+  ContentKind: Result | Document | Outcome
   Content: TContent
-  Share: Available(FullUrl, Packet) | NonProjectable(Path, Reason)
+  PortableProjection:
+    Available(FullUrl, Packet)
+    | NonProjectable(Path, Reason, Explanation)
   Diagnostics
 ```
 
@@ -47,7 +50,8 @@ universal inspection-content model.
 The envelope owns:
 
 - the non-null owner-issued content value;
-- one required Share outcome for the same semantic plan; and
+- its explicit semantic kind;
+- one required portable projection for the same semantic plan; and
 - an immutable ordered sequence of cross-host diagnostics.
 
 Other information may join the envelope only when a separately demonstrated
@@ -56,8 +60,8 @@ action dictionary is not an extension mechanism.
 
 ## Motivation
 
-The CLI and Inspect Web already need the same semantic results and Share
-scenario but currently adapt supplemental evidence independently.
+The CLI and Inspect Web already need the same semantic results and portable
+scenario projection but currently adapt supplemental evidence independently.
 
 The type-dependency path demonstrates the split:
 
@@ -88,8 +92,9 @@ The first adoption uses the already-merged real-package evidence in #6709 and
 the focused host integration in #6712.
 
 The envelope-specific evidence is cross-host equality and boundary behavior:
-the adopting tests must prove the same content, Share outcome, and diagnostics
-for equivalent plans, plus the non-projectable Share case defined here.
+the adopting tests must prove the same content kind, content, portable
+projection, and diagnostics for equivalent plans, plus the non-projectable
+case defined here.
 
 ## Boundary
 
@@ -98,9 +103,9 @@ result to a host:
 
 ```text
 resolved basis
-  -> one content plan plus required Share projection
+  -> one content plan plus required portable projection
   -> owner-issued result
-  -> Share outcome
+  -> portable projection
   -> InspectionEnvelope<TContent>
   -> CLI or Browser composition and presentation
 ```
@@ -111,9 +116,8 @@ result. An operation with an L2 section or inspection owner envelopes the L2
 result rather than nesting envelopes around each prerequisite.
 
 Execute and Discover return envelopes around their own content result types.
-One envelope never authorizes both Execute and Discover. CLI `--share` does not
-select another content state; it asks the host to present the same envelope's
-Share outcome alongside ordinary content.
+One envelope never authorizes both Execute and Discover. CLI `--share` does not select another content state; it asks the host to present
+the same envelope's portable projection alongside ordinary content.
 
 ## Primary content
 
@@ -143,14 +147,16 @@ particular CLR collection implementation. Arrays and other ordinary collection
 types may represent serialized sequences; `ImmutableArray<T>` is not required
 merely because content crosses the host boundary.
 
-## Share outcome
+## Portable projection
 
-Every envelope has one `Share` value derived from the same resolved basis:
+Every envelope has one `PortableProjection` value derived from the same
+resolved basis:
 
 ```text
-InspectionShare
+InspectionPortableProjection
   = Available(FullUrl, Packet)
-  | NonProjectable(Path, Reason)
+  | NonProjectable(Path, Reason: NotSupported | Invalid | Incomplete
+                    | Unavailable | Failed)
 ```
 
 `Available` contains both the complete canonical production URL and the
@@ -158,16 +164,24 @@ canonical encoded Workspace packet carried by that URL. Consumers may use
 either representation or both; they do not split the URL to recover the
 packet. Hosts do not rebuild either value from argv, rendered content, display
 names, Browser navigation, or the current origin.
-The producer supplies both values when constructing `Available`; the Share
+The producer supplies both values when constructing `Available`; the portable
 contract does not derive one by parsing the other.
 
-`NonProjectable` identifies the semantic path and owner-issued reason that
-cannot be represented faithfully. It contains no partial URL and never drops,
-defaults, or approximates semantic state to manufacture one.
+`NonProjectable` identifies the semantic path and closed reason that prevented
+a faithful representation. `NotSupported` means the admitted operation has no
+defined projection, `Invalid` means the state violates the projection
+contract, `Incomplete` means required settled evidence is incomplete,
+`Unavailable` means required portable state is absent, and `Failed` means the
+defined projection could not complete. The reason is typed owner output, not
+free-form presentation text. The trusted owner-issued `Explanation` supplies
+display text; hosts may render it but must not invent or reinterpret the
+projection-failure meaning.
+The outcome contains no partial URL and never drops, defaults, or approximates
+semantic state to manufacture one.
 
-Share projection performs no ordinary content execution or effectiveness
-probe. A non-projectable Share outcome does not invalidate independently valid
-content. A host that explicitly requests Share presentation may classify the
+Portable projection performs no ordinary content execution or effectiveness
+probe. A non-projectable outcome does not invalidate independently valid
+content. A host that explicitly requests `--share` presentation may classify the
 missing requested side output as unsuccessful without discarding or changing
 the content.
 
@@ -178,7 +192,7 @@ behavior remain owned by CLI Workspace Sharing.
 ## Diagnostics
 
 Diagnostics are common supplemental currency because both hosts need to
-disclose useful evidence that is not itself content or the Share outcome:
+disclose useful evidence that is not itself content or the portable projection:
 
 - one Workspace participant was rejected while neighboring participants
   produced useful content;
@@ -206,7 +220,7 @@ uses a documented stable composition order. A code may occur more than once
 when distinct owner-issued identities distinguish the occurrences.
 
 Severity alone does not determine operation success, CLI exit status, retry,
-or Browser navigation. Those decisions remain with the content and Share
+or Browser navigation. Those decisions remain with the content and PortableProjection
 owners plus host policy. In particular:
 
 - an `Error` diagnostic may accompany a valid partial result;
@@ -215,7 +229,7 @@ owners plus host policy. In particular:
 - adding a diagnostic cannot change content rows or selection.
 
 A diagnostic cannot replace a typed content non-success,
-`Share.NonProjectable`, or a missing required Share value.
+`PortableProjection.NonProjectable`, or a missing required portable projection value.
 
 Verbose logs, traces, tips, performance telemetry, exception stack traces, and
 host-authored convenience messages are not inspection diagnostics.
@@ -247,7 +261,7 @@ remove required information from the baseline.
 ```text
 InspectionEnvelope<TContent>
   Content: TContent
-  Share
+  PortableProjection
   Diagnostics: InspectionDiagnostic[]
 
 EvidenceInspectionEnvelope<TContent, TEvidence>
@@ -257,7 +271,7 @@ EvidenceInspectionEnvelope<TContent, TEvidence>
 
 The enriched form uses composition, not CLR inheritance. It contains one
 non-null baseline and one non-null evidence value; it does not redeclare or
-independently construct another Content, Share, or diagnostic collection.
+independently construct another Content, PortableProjection, or diagnostic collection.
 An ordinary consumer can use `Inspection` without knowing `TEvidence`.
 Services without evidence support keep the one-generic baseline and need no
 dummy evidence type.
@@ -310,10 +324,10 @@ Capture intent is resolved before execution. Additional observation work must
 have owner-declared costs, bounds, and capability requirements; requesting
 serialization is not permission to acquire data or recapture evidence while
 writing the result. The ordinary semantic plan remains the basis of Content
-and Share rather than being broadened into another inspection by capture.
+and PortableProjection rather than being broadened into another inspection by capture.
 
 For equivalent ordinary inputs and plans, enabling evidence preserves the
-baseline's Content, Share, and normal Diagnostics. An evidence-only
+baseline's Content, PortableProjection, and normal Diagnostics. An evidence-only
 observation failure belongs to the evidence owner's completion or non-success
 case; a failure affecting the inspection still requires the baseline's normal
 failure disclosure. Requested evidence that cannot be produced must be
@@ -356,13 +370,13 @@ Workspace borrow, callback, credential container, or unbounded logging stream.
 An evidence section may render that value; rendering does not own its
 collection or association.
 
-The logical serialized enrichment keeps Content, Share, and Diagnostics at
+The logical serialized enrichment keeps Content, PortableProjection, and Diagnostics at
 their baseline paths and adds Evidence alongside them. CLR composition does
 not require a nested serialized `Inspection` object or a duplicate baseline:
 
 ```text
-baseline wire value:  Content, Share, Diagnostics
-enriched wire value:  Content, Share, Diagnostics, Evidence
+baseline wire value:  Content, PortableProjection, Diagnostics
+enriched wire value:  Content, PortableProjection, Diagnostics, Evidence
 ```
 
 These are logical member names, not a new casing or framing standard.
@@ -449,7 +463,7 @@ the [typed enrichment](#service-evidence-enrichment).
 It may:
 
 - lower content through Markout or another approved typed presentation;
-- write `Share` to stderr for `--share` without changing ordinary stdout;
+- write `PortableProjection` to stderr for `--share` without changing ordinary stdout;
 - render diagnostics to stderr or a structured diagnostic projection;
 - map the owner-issued outcome to exit status; and
 - omit envelope structure from a published output format whose existing
@@ -473,7 +487,7 @@ one identifiable value; inheritance is valid only when serialization,
 NativeAOT, and facade ownership preserve the same contract.
 
 A Browser-specific DTO may project an envelope for transport, but it must
-preserve content, Share, and diagnostic identity without converting the DTO
+preserve content, PortableProjection, and diagnostic identity without converting the DTO
 into an alternate domain model.
 
 The first Browser pilot uses the closed CLR contract
@@ -497,8 +511,8 @@ For the same:
 - semantic query, section, traversal, and row plan; and
 - owner-issued capabilities that affect result semantics,
 
-the content, Share outcome, and diagnostic sequence are semantically equal.
-`Available` Share outcomes use the same complete canonical URL. Host
+the content, portable projection, and diagnostic sequence are semantically equal.
+`Available` portable projections use the same complete canonical URL. Host
 request IDs, operation epochs, cache keys, rendering formats, verbosity,
 navigation, and interaction do not participate.
 
@@ -549,7 +563,7 @@ discard required evidence and still claim the same envelope.
 ## Safety and lifetime
 
 The envelope crosses the existing resource-free result boundary. Content,
-Share, diagnostics, and any future supplement must therefore be
+PortableProjection, diagnostics, and any future supplement must therefore be
 detached from:
 
 - Workspace participants and leases;
@@ -570,7 +584,7 @@ dependencies:
 1. define the baseline envelope and diagnostic contracts in the lowest
    host-neutral product layer that both Queries/Sections and hosts can consume;
 2. return the selected non-null `TypeDependencySectionResult` as content;
-3. include the required full Share URL or typed non-projectable outcome without
+3. include the required full PortableProjection URL or typed non-projectable outcome without
    executing the dependency query a second time;
 4. move participant rejection and other cross-host notices into typed
    diagnostics without removing richer owner-issued evidence from the content;
@@ -579,7 +593,7 @@ dependencies:
 6. make Inspect Web Type Relationships consume the same baseline and compose
    its Research-owned derived relationships and Browser experience separately;
    and
-7. compare content, Share, and diagnostics across hosts for equivalent plans.
+7. compare content, PortableProjection, and diagnostics across hosts for equivalent plans.
 
 The adoption does not add Discover behavior or retire the remaining direct CLI
 scanner path. Those remain in
@@ -589,10 +603,10 @@ Planned Release gates:
 
 - generic construction and deterministic diagnostic-order tests;
 - the #6709 authentic composed and neighboring package cases;
-- content equality with and without CLI `--share`, plus non-projectable Share;
+- content equality with and without CLI `--share`, plus non-projectable PortableProjection;
 - CLI participant-rejection and strict-row-failure behavior; and
 - Browser managed-boundary tests that compare the same baseline content and
-  the same Share outcome and diagnostics before Browser-only composition.
+  the same portable projection and diagnostics before Browser-only composition.
 
 ## CLI envelope passthrough
 
@@ -622,6 +636,6 @@ This design does not:
   envelope;
 - move domain-specific evidence out of `TContent`;
 - make diagnostic severity determine success or exit status;
-- permit diagnostics to replace Share, typed failure, or completion;
+- permit diagnostics to replace PortableProjection, typed failure, or completion;
 - add an untyped metadata, extension, or action bag; or
 - authorize adopting every command or website inspector in one PR.

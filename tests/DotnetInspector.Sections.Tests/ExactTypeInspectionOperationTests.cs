@@ -62,7 +62,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             second.Content.SupplierAssembly);
         Assert.Equal(first.Content.ForwardingHops, second.Content.ForwardingHops);
         Assert.Equal(first.Content.Failures, second.Content.Failures);
-        Assert.Equal(first.Share, second.Share);
+        Assert.Equal(first.PortableProjection, second.PortableProjection);
         Assert.Equal(first.Diagnostics, second.Diagnostics);
         Assert.Equal(
             JsonSerializer.Serialize(first.Content.Type),
@@ -88,7 +88,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal(
             ExactTypeInspectionOutcome.NotFound,
             envelope.Content.Outcome);
-        Assert.IsType<InspectionShare.Available>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
         InspectionDiagnostic diagnostic = Assert.Single(
             envelope.Diagnostics,
             diagnostic => diagnostic.Code == "exact-type.not-found");
@@ -564,8 +564,8 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal("N.Outer+Inner", envelope.Content.MatchedType);
         WorkspaceSharePacket packet =
             WorkspaceSharePacketCodec.Decode(
-                Assert.IsType<InspectionShare.Available>(
-                    envelope.Share).Packet,
+                Assert.IsType<InspectionPortableProjection.Available>(
+                    envelope.PortableProjection).Packet,
                 TestContext.Current.CancellationToken);
         Assert.Equal("N.Outer+Inner", packet.Type);
     }
@@ -1437,7 +1437,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal(
             typeof(ExactTypeInspectionOperation).Module.ModuleVersionId,
             result.SupplierAssembly?.ModuleVersionId);
-        Assert.IsType<InspectionShare.Available>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
     }
 
     static WorkspaceContextLoadOptions LoadOptions(

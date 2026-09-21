@@ -50,8 +50,8 @@ public sealed class BrowserLibraryQueryOperationTests
         Assert.Equal("None", inspection.Content.Summary.IncompleteReasons);
         Assert.True(inspection.Content.Summary.IsComplete);
         Assert.Equal(
-            BrowserInspectionShareKind.NonProjectable,
-            inspection.Share.Kind);
+            BrowserInspectionPortableProjectionKind.NonProjectable,
+            inspection.PortableProjection.Kind);
     }
 
     [Fact]

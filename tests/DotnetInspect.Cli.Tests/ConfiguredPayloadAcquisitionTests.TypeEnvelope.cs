@@ -32,8 +32,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal("type-dependencies", root.GetProperty("result_kind").GetString());
         Assert.True(JsonElement.DeepEquals(contentDocument.RootElement, root.GetProperty("content")));
         Assert.False(root.TryGetProperty("evidence", out _));
-        Assert.Equal("nonProjectable", root.GetProperty("share").GetProperty("kind").GetString());
-        Assert.Equal(JsonValueKind.Null, root.GetProperty("share").GetProperty("full_url").ValueKind);
+        Assert.Equal("nonProjectable", root.GetProperty("portable_projection").GetProperty("kind").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("portable_projection").GetProperty("full_url").ValueKind);
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
 
         JsonElement body = root.GetProperty("content");
@@ -81,7 +81,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using JsonDocument baselineDocument = JsonDocument.Parse(baseline.Output);
         using JsonDocument sharedDocument = JsonDocument.Parse(shared.Output);
         Assert.True(JsonElement.DeepEquals(baselineDocument.RootElement, sharedDocument.RootElement));
-        JsonElement share = sharedDocument.RootElement.GetProperty("share");
+        JsonElement share = sharedDocument.RootElement.GetProperty("portable_projection");
         Assert.Equal("available", share.GetProperty("kind").GetString());
         string encoded = Assert.IsType<string>(share.GetProperty("packet").GetString());
         Assert.Equal("https://dotnet-inspect.net/?w=" + encoded,
@@ -134,9 +134,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         using JsonDocument document = JsonDocument.Parse(result.Output);
         Assert.True(document.RootElement.GetProperty("content").GetProperty("queryResult")
             .GetProperty("dependency").GetProperty("found").GetBoolean());
-        JsonElement share = document.RootElement.GetProperty("share");
+        JsonElement share = document.RootElement.GetProperty("portable_projection");
         Assert.Equal("nonProjectable", share.GetProperty("kind").GetString());
-        Assert.Contains("--depth", share.GetProperty("reason").GetString());
+        Assert.Equal("notSupported", share.GetProperty("reason").GetString());
+        Assert.Contains(
+            "--depth",
+            share.GetProperty("explanation").GetString());
         if (requestShare)
             Assert.Contains("--share is not projectable", result.Error);
         else
@@ -181,13 +184,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                     .GetProperty("found")
                     .GetBoolean());
             JsonElement share =
-                document.RootElement.GetProperty("share");
+                document.RootElement.GetProperty("portable_projection");
             Assert.Equal(
                 "nonProjectable",
                 share.GetProperty("kind").GetString());
+            Assert.Equal(
+                "notSupported",
+                share.GetProperty("reason").GetString());
             Assert.Contains(
                 "query predicates, ordering, or --top",
-                share.GetProperty("reason").GetString());
+                share.GetProperty("explanation").GetString());
             if (requestShare)
             {
                 Assert.Contains(

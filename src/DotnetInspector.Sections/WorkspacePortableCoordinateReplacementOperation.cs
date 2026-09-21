@@ -82,7 +82,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
                     lens.EffectiveLens?.Facet,
                     lens.Kind,
                     lens.Resolution));
-        InspectionShare share = ProjectShare(result, cancellationToken);
+        InspectionPortableProjection share = ProjectShare(result, cancellationToken);
         var diagnostics = ImmutableArray.CreateBuilder<InspectionDiagnostic>();
         if (result.Failure is { } failure)
         {
@@ -119,7 +119,11 @@ public static class WorkspacePortableCoordinateReplacementOperation
                 diagnostic.Message,
                 diagnostic.Library));
         }
-        return new(content, share, diagnostics.ToImmutable());
+        return new(
+            InspectionContentKind.Outcome,
+            content,
+            share,
+            diagnostics.ToImmutable());
     }
 
     static WorkspaceReplacementSubject Subject(NavigationConsumerSubject subject) =>
@@ -131,31 +135,44 @@ public static class WorkspacePortableCoordinateReplacementOperation
             : new(package.PackageId, package.PackageVersion,
                 package.RequestedTargetFramework, package.RuntimeIdentifier);
 
-    static InspectionShare ProjectShare(
+    static InspectionPortableProjection ProjectShare(
         WorkspacePortableCoordinateReplacementResult result,
         CancellationToken cancellationToken)
     {
         if (result.Definitions is null)
-            return new InspectionShare.NonProjectable(SharePath, result.Failure!.Detail);
+        {
+            return new InspectionPortableProjection.NonProjectable(
+                SharePath,
+                InspectionPortableProjectionFailureReason.Unavailable,
+                result.Failure!.Detail);
+        }
 
         WorkspaceSharePacketProjectionResult projection =
             WorkspaceSharePacketTransposer.ToPacket(
                 result.Definitions, cancellationToken);
         if (!projection.Succeeded)
         {
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 projection.Failure!.Path,
+                projection.Failure.Kind
+                    is WorkspaceSharePacketProjectionFailureKind
+                        .InvalidDefinitionSet
+                    ? InspectionPortableProjectionFailureReason.Invalid
+                    : InspectionPortableProjectionFailureReason.NotSupported,
                 projection.Failure.Message);
         }
         try
         {
             string packet = WorkspaceSharePacketCodec.Encode(projection.Packet!);
-            return new InspectionShare.Available(
+            return new InspectionPortableProjection.Available(
                 $"https://dotnet-inspect.net/?w={packet}", packet);
         }
         catch (WorkspaceSharePacketException failure)
         {
-            return new InspectionShare.NonProjectable(SharePath, failure.Message);
+            return new InspectionPortableProjection.NonProjectable(
+                SharePath,
+                InspectionPortableProjectionFailureReason.Failed,
+                failure.Message);
         }
     }
 }

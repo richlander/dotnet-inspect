@@ -41,9 +41,10 @@ public static class PackageAssemblySemanticFindInspection
                 cancellationToken).ConfigureAwait(false);
 
         return new(
+            InspectionContentKind.Document,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-assembly-semantic-find/share",
-                "Package assembly-semantic Find requests do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

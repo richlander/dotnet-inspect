@@ -40,6 +40,10 @@ export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | 
 
 export type InspectionDiagnosticSeverity = number;
 
+export type InspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type InspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
+
 export type JsonValueKind = number;
 
 export type TypeApiDeclarationFailureKind = "ProjectionTruncated" | "ParticipantRejected" | "ParticipantFailed" | "InspectionIncomplete" | "AccessorMetadataUnavailable" | "PrinterNotRendered" | number;
@@ -514,8 +518,9 @@ export interface InspectionDiagnostic {
 }
 
 export interface InspectionEnvelope<T0> {
+  readonly contentKind: InspectionContentKind;
   readonly content: T0;
-  readonly share: InspectionShare;
+  readonly portableProjection: InspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 
@@ -557,10 +562,11 @@ export interface NonProjectable {
   readonly fullUrl: string | null;
   readonly packet: string | null;
   readonly path: string;
-  readonly reason: InertString;
+  readonly reason: InspectionPortableProjectionFailureReason;
+  readonly explanation: string | null;
 }
 
-export type InspectionShare = Available | NonProjectable;
+export type InspectionPortableProjection = Available | NonProjectable;
 
 type $ManagedExports = {
   readonly "DotnetInspect": {
@@ -879,4 +885,3 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
-

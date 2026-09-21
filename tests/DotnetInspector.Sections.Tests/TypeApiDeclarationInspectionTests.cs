@@ -629,7 +629,7 @@ public sealed class TypeApiDeclarationInspectionTests
         Assert.Equal(envelope.Content.Scope, roundTrip.Content.Scope);
         Assert.Equal(envelope.Content.Text, roundTrip.Content.Text);
         Assert.Empty(roundTrip.Content.Failures);
-        Assert.IsType<InspectionShare.NonProjectable>(roundTrip.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(roundTrip.PortableProjection);
     }
 
     static async Task<InspectionEnvelope<TypeApiDeclarationResult>>

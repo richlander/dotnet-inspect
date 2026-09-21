@@ -126,7 +126,8 @@ renderShare(result.share);
 renderDiagnostics(result.diagnostics);
 ```
 
-The `Promise` represents waiting; the realized envelope retains Content, Share,
+The `Promise` represents waiting; the realized envelope retains ContentKind,
+Content, PortableProjection,
 and diagnostics. Runtime Scope and Navigation identities stay behind the
 shared command boundary rather than being serialized by this sketch.
 

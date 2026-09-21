@@ -117,7 +117,7 @@ resolved semantic invocation
          `-- --share -------------> URL or packet on stderr
 ```
 
-Every plan includes the Share projection. `--share` renders that projection
+Every plan includes the portable projection. `--share` renders that projection
 without changing the content plan or its stdout. It serializes what the caller
 asked the product to inspect: acquisition coordinates, Workspace context,
 structural focus, exact subject selectors, selected facets or queries,
@@ -230,7 +230,7 @@ dependency invocation still acquires and inspects the package when that is what
 its content path normally does. A member Call Graph invocation still executes
 the graph analysis needed for stdout.
 
-Share projection is separately bounded: it reuses the resolved semantic basis
+portable projection is separately bounded: it reuses the resolved semantic basis
 and performs only work required to establish exact portable identity and
 projectability. It does not run the ordinary query or analysis a second time,
 request Browser-only enrichment, or serialize the content result.
@@ -417,7 +417,7 @@ Neighboring cases prove the boundary:
 - the equivalent exact package/member Overview invocation succeeds;
 - an ambiguous member selection fails without choosing an overload;
 - a local or private artifact that the public Browser cannot reacquire fails
-  Share projection without leaking a path or credential while retaining
+  portable projection without leaking a path or credential while retaining
   ordinary CLI content;
 - a floating package that resolves uniquely emits the resolved exact version;
 - Markdown, JSON, Count, row selection, and graph formats preserve their
@@ -475,7 +475,7 @@ Each adoption must add focused Release gates proving:
   coordinate;
 - semantic selections are preserved when projectable and produce a typed
   refusal when not;
-- Share projection does not cause a second content execution;
+- portable projection does not cause a second content execution;
 - Markdown, JSON, Count, row selection, Discover, and other content modes
   coexist with the Share side output;
 - ambiguous identity and content failure retain their ordinary stdout/stderr

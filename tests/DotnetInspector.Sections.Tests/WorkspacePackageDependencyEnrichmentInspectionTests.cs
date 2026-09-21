@@ -119,7 +119,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 success.Definitions.View.States[1].Context);
 
             var share =
-                Assert.IsType<InspectionShare.Available>(envelope.Share);
+                Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
             WorkspaceSharePacket packet =
                 WorkspaceSharePacketCodec.Decode(
                     share.Packet,
@@ -274,7 +274,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         success.Definitions.Workspace.Contexts[0].Members[2])
                     .RuntimeIdentifier);
             Assert.Equal(3, success.Definitions.Navigation!.Tabs.Count);
-            Assert.IsType<InspectionShare.Available>(envelope.Share);
+            Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
         }
         finally
         {
@@ -329,7 +329,10 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 "dependency.missing",
                 failed.Failure.Message,
                 StringComparison.Ordinal);
-            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+            var portableProjection = Assert.IsType<
+                InspectionPortableProjection.NonProjectable>(
+                    envelope.PortableProjection);
+            Assert.Equal(failed.Failure.Message, portableProjection.Explanation);
         }
         finally
         {
@@ -375,7 +378,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         success.Definitions.Workspace!
                             .Contexts[0].Members[0])
                     .Framework);
-            Assert.IsType<InspectionShare.Available>(envelope.Share);
+            Assert.IsType<InspectionPortableProjection.Available>(envelope.PortableProjection);
         }
         finally
         {

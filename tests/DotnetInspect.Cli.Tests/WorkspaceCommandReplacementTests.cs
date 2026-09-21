@@ -51,7 +51,7 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(facet, content.GetProperty("inspector").GetProperty("requestedFacet").GetString());
         Assert.Equal(subject, content.GetProperty("activeSubject").GetProperty("kind")
             .GetString()!.ToLowerInvariant());
-        string derived = envelope.GetProperty("share").GetProperty("packet").GetString()!;
+        string derived = envelope.GetProperty("portable_projection").GetProperty("packet").GetString()!;
         using JsonDocument portable = JsonDocument.Parse(
             WorkspaceSharePacketCodec.SerializeJson(WorkspaceSharePacketCodec.Decode(
                 derived, TestContext.Current.CancellationToken)));

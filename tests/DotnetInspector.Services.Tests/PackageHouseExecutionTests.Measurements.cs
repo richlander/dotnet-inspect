@@ -536,7 +536,7 @@ public sealed partial class PackageHouseExecutionTests
             Assert.IsType<PackageHouseRealizationReceipt.Compile>(
                 settlement.Result.Evidence.Realization).Receipt,
             measurements.SelectionReceipt);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
         string json = JsonSerializer.Serialize(
             envelope,

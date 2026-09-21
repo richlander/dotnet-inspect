@@ -368,6 +368,7 @@ public static partial class PackageExports
 
         LibraryQueryDocument content = envelope.Content;
         return new(
+            BrowserInspectionWireProjection.Project(envelope.ContentKind),
             new(
                 [
                     .. content.Results.Select(result =>
@@ -408,7 +409,7 @@ public static partial class PackageExports
                     content.Summary.Failures,
                     content.Summary.IncompleteReasons.ToString(),
                     content.Summary.IsComplete)),
-            BrowserPackageQueryOperations.Project(envelope.Share),
+            BrowserPackageQueryOperations.Project(envelope.PortableProjection),
             [
                 .. envelope.Diagnostics.Select(diagnostic =>
                     new BrowserInspectionDiagnostic(

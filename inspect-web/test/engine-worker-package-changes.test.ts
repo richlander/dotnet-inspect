@@ -88,6 +88,7 @@ const failure: BrowserPackageChangesFailure = {
 
 function inspection(): BrowserPackageChangesInspection {
   return {
+    contentKind: "document",
     content: {
       schemaVersion: 1,
       request: {
@@ -148,12 +149,13 @@ function inspection(): BrowserPackageChangesInspection {
         completion: "Partial",
       },
     },
-    share: {
+    portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
       path: "package-changes/share",
-      reason: "Package Activity is not yet share-projectable.",
+      reason: "notSupported",
+      explanation: "Package Activity is not yet share-projectable.",
     },
     diagnostics: [],
   };
@@ -204,7 +206,10 @@ test("Package Activity terminal envelope remains physically successful when part
   if (settlement.kind === "succeeded") {
     assert.equal(settlement.value.content.summary.completion, "Partial");
     assert.equal(settlement.value.content.failures.length, 1);
-    assert.equal(settlement.value.share.kind, "NonProjectable");
+    assert.equal(
+      settlement.value.portableProjection.kind,
+      "NonProjectable",
+    );
   }
 
   const malformed = {

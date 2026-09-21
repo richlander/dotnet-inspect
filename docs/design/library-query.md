@@ -94,7 +94,7 @@ Each matching row preserves:
 
 The completed host-neutral result is
 `InspectionEnvelope<LibraryQueryDocument>`. The envelope is currently
-non-projectable because no canonical Workspace Share projection exists for an
+non-projectable because no canonical Workspace portable projection exists for an
 arbitrary local directory or installed pack.
 
 Ordinary output uses the single high-value `Libraries` section when matches

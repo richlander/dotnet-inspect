@@ -21,7 +21,7 @@ public sealed class InspectionEnvelopeOutputTests
     [InlineData(WorkspaceShareFormat.Packet)]
     public async Task EnvelopeShareRemainsAfterHostDiagnostics(WorkspaceShareFormat format)
     {
-        var share = new InspectionShare.Available("https://example.test/inspect", "packet");
+        var share = new InspectionPortableProjection.Available("https://example.test/inspect", "packet");
         (int _, string output, string error) = await ConsoleCapture.RunAsync(async () =>
         {
             using var scope = WorkspaceShareOutput.DeferSideOutput();
@@ -48,8 +48,9 @@ public sealed class InspectionEnvelopeOutputTests
             null,
             EnvelopeTestStatus.Ready);
         var envelope = new InspectionEnvelope<EnvelopeTestContent>(
+            InspectionContentKind.Document,
             content,
-            new InspectionShare.Available(
+            new InspectionPortableProjection.Available(
                 "https://example.test/inspect?p=packet",
                 "packet"),
             [
@@ -83,9 +84,19 @@ public sealed class InspectionEnvelopeOutputTests
         using JsonDocument envelopeDocument = JsonDocument.Parse(envelopeJson);
         JsonElement root = envelopeDocument.RootElement;
 
-        AssertPropertyNames(root, "schema_version", "result_kind", "content", "share", "diagnostics");
+        AssertPropertyNames(
+            root,
+            "schema_version",
+            "result_kind",
+            "content_kind",
+            "content",
+            "portable_projection",
+            "diagnostics");
         Assert.Equal(7, root.GetProperty("schema_version").GetInt32());
         Assert.Equal("test-content", root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "document",
+            root.GetProperty("content_kind").GetString());
         Assert.True(JsonElement.DeepEquals(
             contentDocument.RootElement,
             root.GetProperty("content")));
@@ -114,7 +125,7 @@ public sealed class InspectionEnvelopeOutputTests
             "Ready",
             framedContent.GetProperty("owner_status").GetString());
 
-        JsonElement share = root.GetProperty("share");
+        JsonElement share = root.GetProperty("portable_projection");
         Assert.Equal("available", share.GetProperty("kind").GetString());
         Assert.Equal(
             "https://example.test/inspect?p=packet",
@@ -145,13 +156,15 @@ public sealed class InspectionEnvelopeOutputTests
     }
 
     [Fact]
-    public async Task NonProjectableShareKeepsOwnerDiscriminatorNullsAndEmptyDiagnostics()
+    public async Task NonProjectableProjectionKeepsTypedReasonNullsAndEmptyDiagnostics()
     {
         var envelope = new InspectionEnvelope<EnvelopeTestContent>(
+            InspectionContentKind.Document,
             Content(),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "type/dependencies",
-                "cannot project this plan"));
+                InspectionPortableProjectionFailureReason.NotSupported,
+                "This plan has no portable representation."));
 
         (bool written, string json, string error) =
             await WriteAsync(envelope, includeEnvelope: true);
@@ -160,14 +173,27 @@ public sealed class InspectionEnvelopeOutputTests
         Assert.Empty(error);
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
-        JsonElement share = root.GetProperty("share");
+        JsonElement share = root.GetProperty("portable_projection");
 
         Assert.Equal("nonProjectable", share.GetProperty("kind").GetString());
-        AssertPropertyNames(share, "kind", "path", "reason", "full_url", "packet");
+        AssertPropertyNames(
+            share,
+            "kind",
+            "path",
+            "reason",
+            "explanation",
+            "full_url",
+            "packet");
         Assert.Equal("type/dependencies", share.GetProperty("path").GetString());
         Assert.Equal(
-            "cannot project this plan",
+            "notSupported",
             share.GetProperty("reason").GetString());
+        Assert.Equal(
+            "This plan has no portable representation.",
+            share.GetProperty("explanation").GetString());
+        Assert.Equal(
+            "document",
+            root.GetProperty("content_kind").GetString());
         Assert.Equal(JsonValueKind.Null, share.GetProperty("full_url").ValueKind);
         Assert.Equal(JsonValueKind.Null, share.GetProperty("packet").ValueKind);
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
@@ -177,8 +203,9 @@ public sealed class InspectionEnvelopeOutputTests
     public async Task CompactJsonChangesWhitespaceOnlyForBothOutputBoundaries()
     {
         var envelope = new InspectionEnvelope<EnvelopeTestContent>(
+            InspectionContentKind.Document,
             Content(),
-            new InspectionShare.Available(
+            new InspectionPortableProjection.Available(
                 "https://example.test/inspect",
                 "packet"));
 
@@ -217,8 +244,9 @@ public sealed class InspectionEnvelopeOutputTests
             1,
             FailingEnvelopeContentJsonContext.Default.FailingEnvelopeContent);
         var envelope = new InspectionEnvelope<FailingEnvelopeContent>(
+            InspectionContentKind.Result,
             new FailingEnvelopeContent(),
-            new InspectionShare.Available(
+            new InspectionPortableProjection.Available(
                 "https://example.test/inspect",
                 "packet"));
         bool written = true;
@@ -241,8 +269,9 @@ public sealed class InspectionEnvelopeOutputTests
     public void EnrichedEnvelopeUsesFlatTransportFrame()
     {
         var inspection = new InspectionEnvelope<EnvelopeTestContent>(
+            InspectionContentKind.Document,
             Content(),
-            new InspectionShare.Available(
+            new InspectionPortableProjection.Available(
                 "https://example.test/inspect",
                 "packet"));
         var enriched =

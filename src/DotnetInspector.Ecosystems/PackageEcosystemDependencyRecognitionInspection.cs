@@ -145,7 +145,7 @@ public static class PackageEcosystemDependencyRecognitionInspection
                 context,
                 observations.ToImmutable(),
                 issues.ToImmutable());
-        EcosystemDependencyRecognitionShare share = CreateShare(subject);
+        EcosystemDependencyRecognitionPortableProjection share = CreateShare(subject);
         return EcosystemDependencyRecognizer.Recognize(
             ProductEcosystemPacks.DependencyRecognitionProfile,
             batch,
@@ -241,13 +241,13 @@ public static class PackageEcosystemDependencyRecognitionInspection
         return true;
     }
 
-    private static EcosystemDependencyRecognitionShare CreateShare(
+    private static EcosystemDependencyRecognitionPortableProjection CreateShare(
         EcosystemDependencySubject.Package subject) =>
         new(
             subject,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "ecosystem-dependency-recognition/package-share",
-                "Package ecosystem dependency recognition does not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 
     private static RealizedMemberCoordinate.Package SubjectCoordinate(
         PackageHouseSettlement.Acquired settlement,

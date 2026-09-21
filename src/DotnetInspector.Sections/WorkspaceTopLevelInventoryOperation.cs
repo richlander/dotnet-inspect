@@ -314,13 +314,17 @@ public static class WorkspaceTopLevelInventoryOperation
     {
         var inspection =
             new InspectionEnvelope<WorkspaceTopLevelInventoryOutcome>(
+                InspectionContentKind.Outcome,
                 execution.Outcome,
-                ProjectShare(execution.Outcome, request, shareBasis),
+                ProjectPortableProjection(
+                    execution.Outcome,
+                    request,
+                    shareBasis),
                 ProjectDiagnostics(execution.Outcome));
         return new(inspection, execution.Selection);
     }
 
-    static InspectionShare ProjectShare(
+    static InspectionPortableProjection ProjectPortableProjection(
         WorkspaceTopLevelInventoryOutcome outcome,
         WorkspaceTopLevelInventoryRequest request,
         WorkspaceTopLevelInventoryShareBasis? shareBasis)
@@ -328,32 +332,42 @@ public static class WorkspaceTopLevelInventoryOperation
         if (outcome
             is WorkspaceTopLevelInventoryOutcome.Unavailable unavailable)
         {
-            return new InspectionShare.NonProjectable(
-                SharePath,
-                unavailable.Reason switch
+            (
+                InspectionPortableProjectionFailureReason reason,
+                string explanation) = unavailable.Reason switch
                 {
                     WorkspaceTopLevelInventoryUnavailableReason
                         .InvalidAuthority =>
-                        "The admitted Workspace definition and Scope do not share one exact revision basis.",
+                        (
+                            InspectionPortableProjectionFailureReason.Invalid,
+                            "The admitted Workspace definition and Scope do not share one exact revision basis."),
                     WorkspaceTopLevelInventoryUnavailableReason
                         .InvalidShareBasis =>
-                        "The retained Share basis does not name the admitted Workspace revisions.",
+                        (
+                            InspectionPortableProjectionFailureReason.Invalid,
+                            "The retained Share basis does not name the admitted Workspace revisions."),
                     _ => throw new InvalidOperationException(
                         "Unknown Workspace inventory unavailable reason."),
-                });
+                };
+            return new InspectionPortableProjection.NonProjectable(
+                SharePath,
+                reason,
+                explanation);
         }
 
         if (outcome is WorkspaceTopLevelInventoryOutcome.Rejected)
         {
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 SharePath,
+                InspectionPortableProjectionFailureReason.Invalid,
                 "The Workspace inventory request contains an invalid kind filter.");
         }
 
         if (request.Filter is not null)
         {
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 SharePath,
+                InspectionPortableProjectionFailureReason.NotSupported,
                 "Workspace packets do not represent inventory kind filters.");
         }
 
@@ -363,13 +377,25 @@ public static class WorkspaceTopLevelInventoryOperation
             .Projection switch
         {
             WorkspaceTopLevelInventoryShareProjection.Projectable projected =>
-                new InspectionShare.Available(
+                new InspectionPortableProjection.Available(
                     $"https://dotnet-inspect.net/?w={projected.CanonicalPacket}",
                     projected.CanonicalPacket),
             WorkspaceTopLevelInventoryShareProjection.NonProjectable
                 nonProjectable =>
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     SharePath,
+                    nonProjectable.Reason switch
+                    {
+                        WorkspaceTopLevelInventoryShareNonProjectableReason
+                            .NoRetainedDefinitionProjection =>
+                            InspectionPortableProjectionFailureReason
+                                .Unavailable,
+                        WorkspaceTopLevelInventoryShareNonProjectableReason
+                            .DefinitionsProjectionUnavailable =>
+                            InspectionPortableProjectionFailureReason.Failed,
+                        _ => throw new InvalidOperationException(
+                            "Unknown Workspace inventory Share projection reason."),
+                    },
                     nonProjectable.Reason switch
                     {
                         WorkspaceTopLevelInventoryShareNonProjectableReason

@@ -383,7 +383,7 @@ renderMatch(envelope.content);
 ```
 
 Completed host boundaries preserve the existing inspection envelope, including
-Content, Share and diagnostics. CLI content lowers through Markout; Browser
+ContentKind, Content, PortableProjection, and diagnostics. CLI content lowers through Markout; Browser
 content bypasses Markout at its existing interactive rendering boundary,
 because coordinate selection needs typed identities rather than rendered
 CLI text. Its host-owned projection preserves those identities and route

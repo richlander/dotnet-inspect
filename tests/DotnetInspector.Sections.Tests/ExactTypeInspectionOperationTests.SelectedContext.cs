@@ -79,7 +79,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             package.LibraryIdentity.Name);
         Assert.Equal(0, source.Observation.ContextOrder);
         Assert.Equal(1, source.Observation.MemberOrder);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
     }
 
     [Fact]

@@ -79,7 +79,8 @@ public static partial class WorkspaceCommand
             else
                 CommandError.WriteNote($"{diagnostic.Code}: {diagnostic.Summary}");
         }
-        if (inspection.Share is InspectionShare.NonProjectable refusal)
+        if (inspection.PortableProjection
+            is InspectionPortableProjection.NonProjectable refusal)
         {
             CommandError.Write(
                 $"The derived Workspace is not projectable at {refusal.Path}: {refusal.Reason}");
@@ -89,7 +90,8 @@ public static partial class WorkspaceCommand
             return 1;
         if (!options.EnvelopeOutput)
         {
-            var available = (InspectionShare.Available)inspection.Share;
+            var available = (InspectionPortableProjection.Available)
+                inspection.PortableProjection;
             Console.WriteLine(
                 options.ShareFormat == WorkspaceShareFormat.Packet
                     ? available.Packet

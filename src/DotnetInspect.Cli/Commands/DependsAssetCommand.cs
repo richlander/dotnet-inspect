@@ -306,7 +306,7 @@ public partial class DependsCommand
                 exitCode = Math.Max(
                     exitCode,
                     DependsShareProjection.WriteAsset(
-                        projection.Inspection.Share,
+                        projection.Inspection.PortableProjection,
                         shareFormat));
             }
 
@@ -1163,7 +1163,7 @@ public partial class DependsCommand
             pruning.Rows,
             pruning.Failures,
             pruning.Summary,
-            sharePreparation?.Share)
+            sharePreparation?.PortableProjection)
         {
             Licenses = licenses.Rows,
             LicenseSummary = licenses.Summary,

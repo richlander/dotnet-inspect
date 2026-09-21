@@ -364,7 +364,7 @@ facade's DTO as another facade's owner.
 
 Completed host-neutral [inspection envelopes](inspection-envelope.md) are
 owner-issued public contracts, not another host's DTOs. A local transport record
-may retain their content, Share, and diagnostics unchanged. Metadata retains its
+may retain their content kind, content, portable projection, and diagnostics unchanged. Metadata retains its
 exact-type and type-dependency inspection contracts; Source retains the
 [Type API Declaration Inspection](type-api-declarations.md) contract.
 

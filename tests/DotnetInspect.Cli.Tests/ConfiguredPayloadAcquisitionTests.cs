@@ -884,7 +884,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Same(
                 settlement.Result.Evidence.Realization,
                 measurements.Evidence!.Realization);
-            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
             Assert.Empty(envelope.Diagnostics);
             Assert.Equal(
                 1,

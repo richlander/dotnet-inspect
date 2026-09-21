@@ -41,7 +41,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Equal(library ? "library.references" : "type.metadata",
             result.Content.Inspector!.RequestedFacet);
         Assert.Equal(NavigationLensBasisKind.ExactRequest, result.Content.Inspector.Basis);
-        var share = Assert.IsType<InspectionShare.Available>(result.Share);
+        var share = Assert.IsType<InspectionPortableProjection.Available>(result.PortableProjection);
         Assert.Equal("https://dotnet-inspect.net/?w=" + share.Packet, share.FullUrl);
         Assert.NotEqual(Encode(input), share.Packet);
         Assert.Equal(4, WorkspaceSharePacketCodec.Decode(
@@ -55,9 +55,12 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             WorkspacePortableCoordinateReplacementJsonContext.Default
                 .InspectionEnvelopeWorkspacePortableCoordinateReplacementOutcome);
         using JsonDocument document = JsonDocument.Parse(json);
-        Assert.Equal("available", document.RootElement.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Equal(
+            "outcome",
+            document.RootElement.GetProperty("contentKind").GetString());
+        Assert.Equal("available", document.RootElement.GetProperty("portableProjection").GetProperty("kind").GetString());
         Assert.Equal(share.Packet,
-            document.RootElement.GetProperty("share").GetProperty("packet").GetString());
+            document.RootElement.GetProperty("portableProjection").GetProperty("packet").GetString());
         Assert.Equal(library ? "Library" : "Type",
             document.RootElement.GetProperty("content").GetProperty("activeSubject")
                 .GetProperty("kind").GetString());
@@ -86,7 +89,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Equal(NavigationLensBasisKind.Recommendation, result.Content.Inspector!.Basis);
         Assert.Null(result.Content.Inspector.RequestedFacet);
         Assert.Contains(result.Diagnostics, entry => entry.Code.EndsWith(".fallback"));
-        var share = Assert.IsType<InspectionShare.Available>(result.Share);
+        var share = Assert.IsType<InspectionPortableProjection.Available>(result.PortableProjection);
         var definitions = WorkspaceSharePacketTransposer.ToCommittedDefinitions(
             WorkspaceSharePacketCodec.Decode(share.Packet, TestContext.Current.CancellationToken),
             TestContext.Current.CancellationToken);
@@ -118,7 +121,10 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.False(result.Content.Succeeded);
         Assert.Equal(WorkspacePortableCoordinateReplacementFailureKind.NavigationSourceMissing,
             result.Content.Failure!.Kind);
-        Assert.IsType<InspectionShare.NonProjectable>(result.Share);
+        var portableProjection = Assert.IsType<
+            InspectionPortableProjection.NonProjectable>(
+                result.PortableProjection);
+        Assert.Equal(result.Content.Failure.Detail, portableProjection.Explanation);
         Assert.Null(result.Content.Scope);
         Assert.Null(result.Content.Retention);
         Assert.Contains(result.Diagnostics, entry => entry.Severity == InspectionDiagnosticSeverity.Error);
@@ -127,7 +133,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                 .InspectionEnvelopeWorkspacePortableCoordinateReplacementOutcome);
         using JsonDocument document = JsonDocument.Parse(json);
         Assert.Equal("nonProjectable",
-            document.RootElement.GetProperty("share").GetProperty("kind").GetString());
+            document.RootElement.GetProperty("portableProjection").GetProperty("kind").GetString());
         Assert.Equal("NavigationSourceMissing",
             document.RootElement.GetProperty("content").GetProperty("failure").GetProperty("kind").GetString());
     }

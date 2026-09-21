@@ -139,8 +139,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             typeName,
             workspace.ExactTypeInspection.Content.Type?.FullName);
-        Assert.IsType<InspectionShare.Available>(
-            workspace.ExactTypeInspection.Share);
+        Assert.IsType<InspectionPortableProjection.Available>(
+            workspace.ExactTypeInspection.PortableProjection);
         InspectionEnvelope<ExactTypeInspectionResult> direct =
             await ExactTypeInspectionOperation.ExecuteAsync(
                 new ExactTypeInspectionRequest(
@@ -175,9 +175,9 @@ public sealed partial class BrowserEngineBoundaryTests
             typeName,
             workspace.TypeDependencyInspection.Content
                 .QueryResult.Dependency.MatchedType);
-        InspectionShare.Available share =
-            Assert.IsType<InspectionShare.Available>(
-                workspace.TypeDependencyInspection.Share);
+        InspectionPortableProjection.Available share =
+            Assert.IsType<InspectionPortableProjection.Available>(
+                workspace.TypeDependencyInspection.PortableProjection);
         Assert.Contains(
             "?w=" + share.Packet,
             share.FullUrl,
@@ -844,9 +844,13 @@ public sealed partial class BrowserEngineBoundaryTests
                 ?? [];
             TypeDependencyRowSelectionResult rowSelection =
                 new(relationships, failure: null);
-            InspectionShare share =
-                JsonSerializer.Deserialize<InspectionShare>(
-                    root.GetProperty("share"),
+            InspectionContentKind contentKind =
+                Enum.Parse<InspectionContentKind>(
+                    root.GetProperty("contentKind").GetString()!,
+                    ignoreCase: true);
+            InspectionPortableProjection portableProjection =
+                JsonSerializer.Deserialize<InspectionPortableProjection>(
+                    root.GetProperty("portableProjection"),
                     wireOptions)!;
             ImmutableArray<InspectionDiagnostic> diagnostics =
                 root.GetProperty("diagnostics")
@@ -880,12 +884,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     .ToImmutableArray();
 
             return new(
+                contentKind,
                 new TypeDependencySectionResult(
                     new AssemblyContextTypeDependencyResult(
                         dependency,
                         []),
                     rowSelection),
-                share,
+                portableProjection,
                 diagnostics);
         }
 

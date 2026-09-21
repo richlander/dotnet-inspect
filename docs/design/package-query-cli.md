@@ -40,10 +40,10 @@ is the Package Query adoption tracked by
 [host-observable content-kind contract](host-observable-content-kinds.md).
 
 Package Query does not yet have a canonical Workspace packet projection, so
-its current Share outcome is explicitly non-projectable rather than a
+its current portable projection is explicitly non-projectable rather than a
 host-reconstructed URL. The Browser facade projects the same Document,
 including owners, manifest facts, declared dependencies, manifest identity
-provenance, and stable manifest-failure reasons, plus its Share outcome and
+provenance, and stable manifest-failure reasons, plus its portable projection and
 diagnostics through the Worker boundary. Browser state keeps that projection
 even though the current UI does not yet render Share metadata.
 Package-content evaluation is product-gated to at most 20 candidates.

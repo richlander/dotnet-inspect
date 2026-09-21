@@ -338,7 +338,7 @@ project after moving its residual responsibilities. `InfoTracker`,
 `CountingTextWriter`, and `RequestMermaidDiagram` are CLI operational
 diagnostics under `DotnetInspect.Cli`. `Downloader<T>` remains beside its sole
 `PlatformPackService` consumer until that separately tracked Services owner
-migrates. `InspectionEnvelope<TContent>`, `InspectionShare`,
+migrates. `InspectionEnvelope<TContent>`, `InspectionPortableProjection`,
 `InspectionDiagnostic`, and their JSON converter move to
 `DotnetInspector.Sections`, which already owns the corresponding cross-host
 section diagnostic construction and is consumed by both hosts.

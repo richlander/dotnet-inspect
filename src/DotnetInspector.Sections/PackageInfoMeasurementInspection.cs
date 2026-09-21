@@ -412,10 +412,11 @@ public static class PackageInfoMeasurementInspection
         }
 
         return new(
+            InspectionContentKind.Result,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-info-measurements/share",
-                "Package Info measurements do not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics.ToImmutable());
     }
 
@@ -449,10 +450,11 @@ public static class PackageInfoMeasurementInspection
         }
 
         return new(
+            InspectionContentKind.Result,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-info-measurements/share",
-                "Package Info measurements do not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics.ToImmutable());
     }
 
@@ -494,10 +496,11 @@ public static class PackageInfoMeasurementInspection
         }
 
         return new(
+            InspectionContentKind.Result,
             content,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-info-measurements/share",
-                "Package Info measurements do not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics.ToImmutable());
     }
 

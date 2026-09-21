@@ -1252,16 +1252,20 @@ public sealed class BrowserPackageQueryOperationsTests
             progress,
             TestContext.Current.CancellationToken);
         var envelope = new InspectionEnvelope<PackageQueryDocument>(
-                new(
-                    Results: [],
-                    Failures: [],
-                    completed.Value),
-                new InspectionShare.NonProjectable(
-                    "package-query/share",
-                    "No canonical Workspace packet."));
+            InspectionContentKind.Document,
+            new(
+                Results: [],
+                Failures: [],
+                completed.Value),
+            new InspectionPortableProjection.NonProjectable(
+                "package-query/share",
+                InspectionPortableProjectionFailureReason.NotSupported));
         BrowserPackageQueryInspection inspection =
             BrowserPackageQueryOperations.Complete(envelope);
 
+        Assert.Equal(
+            BrowserInspectionContentKind.Document,
+            inspection.ContentKind);
         Assert.Empty(inspection.Content.Results);
         Assert.False(inspection.Content.HasPackages);
         Assert.Empty(inspection.Content.Failures);
@@ -1269,9 +1273,9 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryCompletionKind.Exhausted,
             inspection.Content.Completion.Kind);
         Assert.Equal(
-            BrowserInspectionShareKind.NonProjectable,
-            inspection.Share.Kind);
-        Assert.Equal("package-query/share", inspection.Share.Path);
+            BrowserInspectionPortableProjectionKind.NonProjectable,
+            inspection.PortableProjection.Kind);
+        Assert.Equal("package-query/share", inspection.PortableProjection.Path);
         Assert.Empty(inspection.Diagnostics);
         Assert.Single(emitted);
         Assert.Equal(
@@ -1286,13 +1290,14 @@ public sealed class BrowserPackageQueryOperationsTests
         var completed = Assert.IsType<PackageQueryEvent.Completed>(
             CompletedEvent());
         var envelope = new InspectionEnvelope<PackageQueryDocument>(
+            InspectionContentKind.Document,
             new(
                 Results: [match.Value],
                 Failures: [],
                 completed.Value),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-query/share",
-                "No canonical Workspace packet."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 
         BrowserPackageQueryInspection inspection =
             BrowserPackageQueryOperations.Complete(envelope);
@@ -1318,16 +1323,18 @@ public sealed class BrowserPackageQueryOperationsTests
                 Failures: 0,
                 BrowserPackageQueryCompletionKind.Exhausted));
         var inspection = new BrowserPackageQueryInspection(
+            BrowserInspectionContentKind.Document,
             new BrowserPackageQueryDocument(
                 Results: [],
                 HasPackages: false,
                 Failures: [],
                 completed.Completion!),
-            new BrowserInspectionShare(
-                BrowserInspectionShareKind.NonProjectable,
+            new BrowserInspectionPortableProjection(
+                BrowserInspectionPortableProjectionKind.NonProjectable,
                 FullUrl: null,
                 Packet: null,
                 "package-query/share",
+                BrowserInspectionPortableProjectionFailureReason.NotSupported,
                 "No canonical Workspace packet."),
             [
                 new BrowserInspectionDiagnostic(
@@ -1359,7 +1366,7 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Empty(roundTripped.Inspection.Content.Results);
         Assert.False(roundTripped.Inspection.Content.HasPackages);
         Assert.Empty(roundTripped.Inspection.Content.Failures);
-        Assert.Equal(inspection.Share, roundTripped.Inspection.Share);
+        Assert.Equal(inspection.PortableProjection, roundTripped.Inspection.PortableProjection);
         Assert.Equal(
             inspection.Diagnostics,
             roundTripped.Inspection.Diagnostics);

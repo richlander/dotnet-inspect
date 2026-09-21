@@ -142,7 +142,8 @@ A completed host-neutral operation that hands one detached result to a host
 uses `InspectionEnvelope<TContent>` as the boundary value. `TContent` remains
 the owner-issued Result, Document, or owner-specific Outcome under
 [Host-observable content kinds](design/host-observable-content-kinds.md), while
-every host projection preserves its Content, Share outcome, and diagnostics.
+every host projection preserves its ContentKind, Content, PortableProjection,
+and diagnostics.
 A `Task` or `Promise` may represent waiting for the operation, but it is not
 the result crossing that completed boundary; internal prerequisites and
 progressive events remain governed by their own contracts. The full boundary

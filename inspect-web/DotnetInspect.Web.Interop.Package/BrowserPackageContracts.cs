@@ -70,8 +70,9 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageSurface? Surface);
 
 public sealed record BrowserPackageInfoMeasurementInspection(
+    BrowserInspectionContentKind ContentKind,
     BrowserPackageInfoMeasurements Content,
-    BrowserInspectionShare Share,
+    BrowserInspectionPortableProjection PortableProjection,
     BrowserInspectionDiagnostic[] Diagnostics);
 
 public sealed record BrowserPackageInfoMeasurements(
@@ -89,8 +90,9 @@ public sealed record BrowserPackageInfoMeasurements(
     bool HasSelectedSlice);
 
 public sealed record BrowserPackageVersionSettlementInspection(
+    BrowserInspectionContentKind ContentKind,
     BrowserPackageVersionSettlementOutcome Content,
-    BrowserInspectionShare Share,
+    BrowserInspectionPortableProjection PortableProjection,
     BrowserInspectionDiagnostic[] Diagnostics);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageVersionSettlementOutcomeKind>))]
@@ -705,19 +707,89 @@ public sealed record BrowserPackageQueryEvent(
     BrowserPackageQueryProgress? Progress = null,
     BrowserPackageAssemblyAssessment? Assessment = null);
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionShareKind>))]
-public enum BrowserInspectionShareKind
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionContentKind>))]
+public enum BrowserInspectionContentKind
+{
+    [JsonStringEnumMemberName("result")]
+    Result,
+
+    [JsonStringEnumMemberName("document")]
+    Document,
+
+    [JsonStringEnumMemberName("outcome")]
+    Outcome,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionPortableProjectionKind>))]
+public enum BrowserInspectionPortableProjectionKind
 {
     Available,
     NonProjectable,
 }
 
-public sealed record BrowserInspectionShare(
-    BrowserInspectionShareKind Kind,
+public sealed record BrowserInspectionPortableProjection(
+    BrowserInspectionPortableProjectionKind Kind,
     string? FullUrl,
     string? Packet,
     string? Path,
-    string? Reason);
+    BrowserInspectionPortableProjectionFailureReason? Reason,
+    string? Explanation);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<
+        BrowserInspectionPortableProjectionFailureReason>))]
+public enum BrowserInspectionPortableProjectionFailureReason
+{
+    [JsonStringEnumMemberName("notSupported")]
+    NotSupported,
+
+    [JsonStringEnumMemberName("invalid")]
+    Invalid,
+
+    [JsonStringEnumMemberName("incomplete")]
+    Incomplete,
+
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+}
+
+internal static class BrowserInspectionWireProjection
+{
+    internal static BrowserInspectionContentKind Project(
+        InspectionContentKind contentKind) =>
+        contentKind switch
+        {
+            InspectionContentKind.Result =>
+                BrowserInspectionContentKind.Result,
+            InspectionContentKind.Document =>
+                BrowserInspectionContentKind.Document,
+            InspectionContentKind.Outcome =>
+                BrowserInspectionContentKind.Outcome,
+            _ => throw new InvalidOperationException(
+                "Unknown inspection content kind."),
+        };
+
+    internal static BrowserInspectionPortableProjectionFailureReason Project(
+        InspectionPortableProjectionFailureReason reason) =>
+        reason switch
+        {
+            InspectionPortableProjectionFailureReason.NotSupported =>
+                BrowserInspectionPortableProjectionFailureReason.NotSupported,
+            InspectionPortableProjectionFailureReason.Invalid =>
+                BrowserInspectionPortableProjectionFailureReason.Invalid,
+            InspectionPortableProjectionFailureReason.Incomplete =>
+                BrowserInspectionPortableProjectionFailureReason.Incomplete,
+            InspectionPortableProjectionFailureReason.Unavailable =>
+                BrowserInspectionPortableProjectionFailureReason.Unavailable,
+            InspectionPortableProjectionFailureReason.Failed =>
+                BrowserInspectionPortableProjectionFailureReason.Failed,
+            _ => throw new InvalidOperationException(
+                "Unknown portable projection failure reason."),
+        };
+}
 
 public sealed record BrowserInspectionDiagnostic(
     string Code,
@@ -726,8 +798,9 @@ public sealed record BrowserInspectionDiagnostic(
     string? Correspondence);
 
 public sealed record BrowserExactLibraryApiInspection(
+    BrowserInspectionContentKind ContentKind,
     BrowserExactLibraryApiInspectionResult Content,
-    BrowserInspectionShare Share,
+    BrowserInspectionPortableProjection PortableProjection,
     BrowserInspectionDiagnostic[] Diagnostics);
 
 public enum BrowserExactLibraryApiInspectionOutcome
@@ -852,8 +925,9 @@ public sealed record BrowserPackageQueryDocument(
 }
 
 public sealed record BrowserPackageQueryInspection(
+    BrowserInspectionContentKind ContentKind,
     BrowserPackageQueryDocument Content,
-    BrowserInspectionShare Share,
+    BrowserInspectionPortableProjection PortableProjection,
     BrowserInspectionDiagnostic[] Diagnostics);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryResultKind>))]
@@ -1037,8 +1111,9 @@ public sealed record BrowserPackageDependencies(
     BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserLibraryQueryInspection(
+    BrowserInspectionContentKind ContentKind,
     BrowserLibraryQueryDocument Content,
-    BrowserInspectionShare Share,
+    BrowserInspectionPortableProjection PortableProjection,
     BrowserInspectionDiagnostic[] Diagnostics);
 
 public sealed record BrowserLibraryQueryDocument(

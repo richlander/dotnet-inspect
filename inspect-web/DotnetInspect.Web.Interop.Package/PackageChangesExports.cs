@@ -183,25 +183,29 @@ internal static class BrowserPackageChangesWireProjection
     internal static BrowserPackageChangesInspection Project(
         InspectionEnvelope<EcosystemChangeReportDocument> inspection) =>
         new(
+            BrowserInspectionWireProjection.Project(inspection.ContentKind),
             Project(inspection.Content),
-            inspection.Share switch
+            inspection.PortableProjection switch
             {
-                InspectionShare.Available available =>
+                InspectionPortableProjection.Available available =>
                     new(
-                        BrowserInspectionShareKind.Available,
+                        BrowserInspectionPortableProjectionKind.Available,
                         available.FullUrl,
                         available.Packet,
                         null,
+                        null,
                         null),
-                InspectionShare.NonProjectable nonProjectable =>
+                InspectionPortableProjection.NonProjectable nonProjectable =>
                     new(
-                        BrowserInspectionShareKind.NonProjectable,
+                        BrowserInspectionPortableProjectionKind.NonProjectable,
                         null,
                         null,
                         nonProjectable.Path,
-                        nonProjectable.Reason.ToString()),
+                        BrowserInspectionWireProjection.Project(
+                            nonProjectable.Reason),
+                        nonProjectable.Explanation),
                 _ => throw new InvalidOperationException(
-                    "Unknown inspection Share outcome."),
+                    "Unknown inspection portable projection."),
             },
             [
                 .. inspection.Diagnostics.Select(diagnostic =>

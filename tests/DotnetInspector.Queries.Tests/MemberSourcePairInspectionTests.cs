@@ -41,8 +41,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(
             after.Assembly.Registration,
             content.After.Subject.Registration);
-        InspectionShare.NonProjectable share =
-            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        InspectionPortableProjection.NonProjectable share =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
         Assert.Equal("member-source-pair/share", share.Path);
         Assert.Empty(inspection.Diagnostics);
         foreach (var endpoint in new[] { content.Before, content.After })

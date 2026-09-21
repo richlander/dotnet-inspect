@@ -737,12 +737,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
               isComplete: true,
             },
           },
-          share: {
+          contentKind: "document",
+          portableProjection: {
             kind: "Available",
             fullUrl: null,
             packet: "packet",
             path: null,
             reason: null,
+            explanation: null,
           },
           diagnostics: [],
         });
@@ -979,12 +981,14 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         },
         failure: null,
       },
-      share: {
+      contentKind: "outcome",
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-version-settlement/share",
-        reason: "No canonical Workspace share projection.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace share projection.",
       },
       diagnostics: [{
         code: "package-version-settlement.source-failure",
@@ -1008,12 +1012,14 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         unavailableReason: null,
         hasSelectedSlice: true,
       },
-      share: {
+      contentKind: "result",
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-info-measurements/share",
-        reason: "No canonical Workspace share projection.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace share projection.",
       },
       diagnostics: [],
     },
@@ -1040,12 +1046,14 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
           }],
         },
       },
-      share: {
+      contentKind: "outcome",
+      portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
         path: "package-version-settlement/share",
-        reason: "No canonical Workspace share projection.",
+        reason: "notSupported",
+        explanation: "No canonical Workspace share projection.",
       },
       diagnostics: [],
     },

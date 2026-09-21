@@ -295,12 +295,19 @@ const documentSchema = record({
   summary: summarySchema,
 });
 
-const shareSchema = record({
+const portableProjectionSchema = record({
   kind: text(32, ["Available", "NonProjectable"]),
   fullUrl: nullable(text(8_192)),
   packet: nullable(text(8_192)),
   path: nullable(text(256)),
-  reason: nullable(text()),
+  reason: nullable(text(32, [
+    "notSupported",
+    "invalid",
+    "incomplete",
+    "unavailable",
+    "failed",
+  ])),
+  explanation: nullable(text()),
 });
 
 const diagnosticSchema = record({
@@ -311,8 +318,9 @@ const diagnosticSchema = record({
 });
 
 const inspectionSchema = record({
+  contentKind: text(16, ["document"]),
   content: documentSchema,
-  share: shareSchema,
+  portableProjection: portableProjectionSchema,
   diagnostics: array(diagnosticSchema, 1_024),
 });
 
@@ -728,20 +736,21 @@ BoundedPayloadDecoder<BrowserPackageChangesInspection> = {
         throw new PackageChangesPayloadError(
           "Package Activity Document schema version is unsupported.");
       }
-      if (inspection.share.kind === "Available") {
-        if (inspection.share.fullUrl === null
-          || inspection.share.packet === null
-          || inspection.share.path !== null
-          || inspection.share.reason !== null) {
+      if (inspection.portableProjection.kind === "Available") {
+        if (inspection.portableProjection.fullUrl === null
+          || inspection.portableProjection.packet === null
+          || inspection.portableProjection.path !== null
+          || inspection.portableProjection.reason !== null
+          || inspection.portableProjection.explanation !== null) {
           throw new PackageChangesPayloadError(
-            "Available Package Activity Share has invalid fields.");
+            "Available Package Activity portable projection has invalid fields.");
         }
-      } else if (inspection.share.fullUrl !== null
-        || inspection.share.packet !== null
-        || inspection.share.path === null
-        || inspection.share.reason === null) {
+      } else if (inspection.portableProjection.fullUrl !== null
+        || inspection.portableProjection.packet !== null
+        || inspection.portableProjection.path === null
+        || inspection.portableProjection.reason === null) {
         throw new PackageChangesPayloadError(
-          "Non-projectable Package Activity Share has invalid fields.");
+          "Non-projectable Package Activity portable projection has invalid fields.");
       }
       return { kind: "decoded", value: inspection };
     } catch (error: unknown) {

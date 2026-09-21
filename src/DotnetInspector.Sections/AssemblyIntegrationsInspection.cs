@@ -58,8 +58,9 @@ public static class AssemblyIntegrationsInspection
     static InspectionEnvelope<AssemblyIntegrationsEntry> Envelope(
         AssemblyIntegrationsEntry integrations) =>
         new(
+            InspectionContentKind.Outcome,
             integrations,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "assembly-integrations/share",
-                "Assembly Integrations do not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
 }

@@ -104,16 +104,19 @@ Exactly one content purpose consumes that basis:
 - **Discover** determines applicability or effectiveness without pretending
   ordinary rendering is a probe.
 
-One required Share projection accompanies every content plan. It projects only
+One required PortableProjection accompanies every content plan. It projects
+only
 portable semantic state and does not execute the selected inspection. A
-non-projectable Share outcome does not invalidate independently valid Execute
-or Discover content. A host may classify an explicitly requested Share
+non-projectable portable projection does not invalidate independently valid Execute
+or Discover content. A host may classify an explicitly requested `--share`
 presentation as unsuccessful without discarding that content.
 
-Content and Share consume the same resolution without accepting the same
+Content and PortableProjection consume the same resolution without accepting
+the same
 inputs. For example, CLI verbosity may select automatic execution sections but
-has no portable Share meaning. A discovery probe budget has no execution or
-Share meaning. A portable graph depth may remain semantic in both execution
+has no portable-projection meaning. A discovery probe budget has no execution
+or portable-projection meaning. A portable graph depth may remain semantic in
+both execution
 and sharing.
 
 ## Rows, work bounds, and presentation
@@ -177,7 +180,7 @@ permission.
 | Query | Same L1 definitions, plans, costs, failures, and resource-free results | Executes in-process and writes diagnostics | Executes through managed facade and worker transport |
 | Section/rows | Same L2 section and logical-row plans | Exposes the broad CLI grammar | May expose fewer controls but constructs the same plan |
 | Work bounds | Same owner-issued dimensions and completion evidence | Lowers CLI options | Uses view policy or future UI controls |
-| Share | Same required portable projection and facet identity accompanies content | Writes it to stderr for `--share`; otherwise retains it without ordinary display | Restores it and exposes it with content |
+| PortableProjection | Same required portable projection and facet identity accompanies content | Writes it to stderr for `--share`; otherwise retains it without ordinary display | Restores it and exposes it with content |
 | Presentation | Typed result is unchanged | Markout, JSON, tables, trees, stderr, exit codes | Browser DTOs, interactive graph, navigation, diagnostics |
 
 Transport DTOs are not semantic plans. CLI option objects and browser request
@@ -273,7 +276,7 @@ those are separate follow-ups in
    command mode at a time.
 4. Route package realization through PackageHouse-to-Workspace orchestration
    without folding that migration into section plans.
-5. Adopt Discover content and required Share projection per subject,
+5. Adopt Discover content and required portable projection per subject,
    preserving their different inputs and outputs.
 6. Record each materially different CLI route and corresponding Web adoption
    or explicit non-applicability in
@@ -288,7 +291,7 @@ This document does not:
 - make CLI verbosity, output formats, diagnostics, or browser navigation
   portable;
 - treat semantic row selection as an execution bound;
-- make every content purpose or Share projection accept identical policy;
+- make every content purpose or portable projection accept identical policy;
 - require Web to expose every CLI row-control widget;
 - define PackageHouse-to-Workspace orchestration;
 - finish the section-pipeline extraction from the CLI project; or

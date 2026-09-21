@@ -24,7 +24,7 @@ public sealed class PackageVersionSettlementInspectionTests
         Assert.Equal(new PackageVersionInfo(Stable, true), Assert.Single(settled.Result.Listings));
         Assert.Equal(Stable, Assert.Single(settled.Result.SourceListings).Version);
         Assert.Equal(1, requests);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
     }
 
@@ -77,10 +77,13 @@ public sealed class PackageVersionSettlementInspectionTests
 
         Assert.Equal(json, Serialize(second));
         using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            "outcome",
+            document.RootElement.GetProperty("contentKind").GetString());
         Assert.Equal("settled", document.RootElement.GetProperty("content").GetProperty("kind").GetString());
         Assert.Equal(Stable, document.RootElement.GetProperty("content")
             .GetProperty("result").GetProperty("coordinate").GetProperty("version").GetString());
-        Assert.Equal("nonProjectable", document.RootElement.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Equal("nonProjectable", document.RootElement.GetProperty("portableProjection").GetProperty("kind").GetString());
         Assert.Equal(0, document.RootElement.GetProperty("diagnostics").GetArrayLength());
     }
 

@@ -61,8 +61,8 @@ public sealed class BrowserExactLibraryApiOperationTests
             Guid.Empty,
             inspection.Content.Assembly?.ModuleVersionId);
         Assert.Equal(
-            BrowserInspectionShareKind.Available,
-            inspection.Share.Kind);
+            BrowserInspectionPortableProjectionKind.Available,
+            inspection.PortableProjection.Kind);
         Assert.NotEqual(
             inspection.Content.Asset?.Id,
             neighbor.Content.Asset?.Id);
@@ -93,8 +93,8 @@ public sealed class BrowserExactLibraryApiOperationTests
             diagnostic =>
                 diagnostic.Code == "exact-library-api.not-found");
         Assert.Equal(
-            BrowserInspectionShareKind.Available,
-            inspection.Share.Kind);
+            BrowserInspectionPortableProjectionKind.Available,
+            inspection.PortableProjection.Kind);
     }
 
     static BrowserExactLibraryApiInspection Read(

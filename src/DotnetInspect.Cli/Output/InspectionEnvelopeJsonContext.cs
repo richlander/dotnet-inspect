@@ -7,8 +7,10 @@ namespace DotnetInspect.Cli.Output;
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(InspectionShare))]
-[JsonSerializable(typeof(InspectionShare.Available))]
-[JsonSerializable(typeof(InspectionShare.NonProjectable))]
+[JsonSerializable(typeof(InspectionContentKind))]
+[JsonSerializable(typeof(InspectionPortableProjection))]
+[JsonSerializable(typeof(InspectionPortableProjection.Available))]
+[JsonSerializable(typeof(InspectionPortableProjection.NonProjectable))]
+[JsonSerializable(typeof(InspectionPortableProjectionFailureReason))]
 [JsonSerializable(typeof(InspectionDiagnostic))]
 internal partial class InspectionEnvelopeJsonContext : JsonSerializerContext;

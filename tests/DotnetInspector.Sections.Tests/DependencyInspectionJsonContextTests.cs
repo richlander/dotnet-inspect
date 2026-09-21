@@ -49,10 +49,11 @@ public sealed class DependencyInspectionJsonContextTests
                 DependencyInspectionContent,
                 DependencyInspectionEvidenceDocument>(
                 new InspectionEnvelope<DependencyInspectionContent>(
+                    InspectionContentKind.Document,
                     content,
-                    new InspectionShare.NonProjectable(
+                    new InspectionPortableProjection.NonProjectable(
                         "depends",
-                        "No portable share.")),
+                        InspectionPortableProjectionFailureReason.NotSupported)),
                 evidence);
         JsonTypeInfo<
             EvidenceInspectionEnvelope<
@@ -75,8 +76,8 @@ public sealed class DependencyInspectionJsonContextTests
             roundTripped.Inspection.Content.Hierarchy.BackingGraph.Nodes);
         Assert.Empty(roundTripped.Evidence.PackageInputs.Roots);
         Assert.Empty(roundTripped.Evidence.AdmittedRootOccurrences);
-        Assert.IsType<InspectionShare.NonProjectable>(
-            roundTripped.Inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(
+            roundTripped.Inspection.PortableProjection);
     }
 
     [Fact]

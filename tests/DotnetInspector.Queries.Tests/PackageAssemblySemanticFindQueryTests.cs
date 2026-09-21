@@ -70,7 +70,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 TestContext.Current.CancellationToken);
 
         PackageAssemblySemanticQueryDocument document = envelope.Content;
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
         Assert.Equal(5, document.CandidateCount);
         Assert.Equal(5, document.EvaluatedCandidateCount);
@@ -481,7 +481,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 sink,
                 TestContext.Current.CancellationToken);
         PackageAssemblySemanticQueryDocument document = envelope.Content;
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
         Assert.Same(population, document.Population);
         Assert.Equal(1, document.CandidateCount);

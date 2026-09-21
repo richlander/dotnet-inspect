@@ -28,6 +28,9 @@ such value exists; it is not a nullable payload or an empty success.
 
 These kinds classify semantic content. Serialization, paging, event delivery,
 and rendering may project them but do not determine their kind.
+`InspectionEnvelope<TContent>.ContentKind` carries the classification as the
+closed `InspectionContentKind` enum so in-process, CLI, and Browser consumers
+can react without inspecting the CLR type or its name.
 
 ## Complexity basis
 
@@ -44,8 +47,10 @@ Three content kinds are the smallest distinction that separates:
 - valid content from an expected state in which no valid content exists; and
 - semantic content from its serialized, paged, streamed, or rendered form.
 
-No shared base type or generic outcome algebra is required. The pattern adds
-vocabulary and boundary rules only.
+No shared base type or generic outcome algebra is required. The envelope
+producer classifies its owner-issued content when it constructs the completed
+boundary value. This keeps lower-layer content owners independent of the
+envelope assembly while making the classification explicit and transportable.
 
 ## Boundary
 
@@ -55,7 +60,7 @@ content to a host:
 ```text
 owner-issued operation
   -> Result | Document | owner-specific Outcome
-  -> InspectionEnvelope<TContent>
+  -> InspectionEnvelope<TContent>(ContentKind)
   -> serialization
   -> CLI or Browser projection
 ```
@@ -250,6 +255,8 @@ Owner-specific terminology may replace a generic suffix when it is already
 more precise and its semantic kind is unambiguous. Existing owner contracts are
 not renamed by this pattern automatically. Each adoption decides whether a
 rename clarifies the boundary without changing the owner's semantics.
+Names remain design and review evidence; consumers use `ContentKind`, not a
+suffix or reflection, to determine the kind.
 
 Avoid using:
 
@@ -265,7 +272,7 @@ Avoid using:
 
 This document owns only the cross-cutting kind definitions, naming discipline,
 and serialization boundary. `InspectionEnvelope<TContent>` owns the surrounding
-Content, Share, and diagnostic composition. Each inspection owner retains:
+Content, PortableProjection, and diagnostic composition. Each inspection owner retains:
 
 - its exact Result and Document fields;
 - its Outcome alternatives;

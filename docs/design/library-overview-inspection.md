@@ -18,7 +18,7 @@ repository command inventory in
 > Given one exact realized Library, a transferred operation lease, and one
 > bounded overview request, inspect the owner-attested API assembly once and
 > return one `InspectionEnvelope<LibraryOverviewOutcome>` containing a
-> resource-free portable outcome, the required Share outcome for the same
+> resource-free portable outcome, the required portable projection for the same
 > semantic request, and ordered typed diagnostics, after settling the
 > transferred lease on every terminal path.
 
@@ -32,10 +32,11 @@ This owner composes existing contracts without redefining them:
   synchronous content snapshots, and retirement.
 - [Library-Metadata correspondence](library-metadata-correspondence.md) owns
   bounded Metadata inspection of owner-attested Library content.
-- [Inspection envelope](inspection-envelope.md) owns Content, Share, and
+- [Inspection envelope](inspection-envelope.md) owns ContentKind, Content,
+  PortableProjection, and
   diagnostics.
 - [Inspection plan projections](inspection-plan-projections.md) owns the
-  separation between content execution and required Share projection.
+  separation between content execution and required portable projection.
 - [Host-observable content kinds](host-observable-content-kinds.md) owns
   Result, Document, and Outcome semantics.
 - [View Facet Registry](view-facet-registry.md) owns canonical facet identity
@@ -72,7 +73,7 @@ source-specific realization
   -> LibraryOverviewRequest
   -> Library overview inspection
        |-- bounded LibraryMetadata API-surface inspection
-       `-- required Share projection
+       `-- required portable projection
   -> InspectionEnvelope<LibraryOverviewOutcome>
   -> CLI or Browser projection
 ```
@@ -101,7 +102,8 @@ bounded summary defined below. A host cannot request only the assembly name to
 avoid the declared API-surface work, nor can it request the retained full API
 surface through this overview contract.
 
-The content plan and Share projection use the same normalized request. Share
+The content plan and portable projection use the same normalized request.
+PortableProjection
 projection performs no Metadata inspection and cannot change the content
 outcome.
 
@@ -233,7 +235,7 @@ child lease.
 
 ## Share
 
-Every envelope carries one `InspectionShare` for the same overview request.
+Every envelope carries one `InspectionPortableProjection` for the same overview request.
 This first operation always returns `NonProjectable` with the owner-scoped path
 `library-overview/share` and a contained reason that no complete portable
 Workspace scenario was supplied.
@@ -248,7 +250,8 @@ The operation never serializes a local path, process-local Artifact identity,
 partial source coordinate, result counts, diagnostics, content bytes,
 credentials, or operation authority to manufacture a packet.
 
-An unavailable Share does not alter independently valid overview Content.
+An unavailable portable projection does not alter independently valid overview
+Content.
 
 ## Diagnostics
 
@@ -307,7 +310,7 @@ The complete initial operation adoption has six owner-scoped steps:
 
 1. Lock this focused operation design.
 2. Implement the request, portable outcome and Document, envelope assembly,
-   required non-projectable Share, diagnostics, and lease settlement in
+   required non-projectable PortableProjection, diagnostics, and lease settlement in
    `DotnetInspector.Sections`.
 3. Adopt the operation for one ordinary direct-file CLI Library overview
    through direct-Library realization and an ephemeral Workspace.
@@ -334,7 +337,7 @@ Available Library-overview Share is a separate four-step sequence under #8088:
 That later adoption must define the typed association between the complete
 Workspace scenario and exact Library request. This design does not accept
 loose framework, RID, Platform, navigation, or packet fields and does not let a
-host inject an arbitrary `InspectionShare`.
+host inject an arbitrary `InspectionPortableProjection`.
 
 Markout is the intended ordinary CLI rendering substrate. The implementation
 and host-adoption slices define typed views and generated serializers; this
@@ -359,7 +362,7 @@ The design remains **unverified** until Release gates prove:
 - every returned shape is resource-free and source-generated JSON
   serialization succeeds under NativeAOT;
 - direct, package, and Platform sources initially return the same truthful
-  non-projectable Share outcome;
+  non-projectable portable projection;
 - package and Platform adoption preserve the same overview Content for the
   same Library bytes; and
 - CLI and Inspect Web consume equal baseline envelopes for an equivalent
@@ -381,7 +384,7 @@ This owner does not define:
   Documentation, ecosystem, or Finding semantics;
 - CLI syntax, default verbosity, Browser navigation, rendering, or JSON
   transport;
-- available Share projection or its Workspace/request association;
+- available portable projection or its Workspace/request association;
 - a portable representation for direct local files; or
 - a generic inspection operation, outcome, diagnostic, or extension
   dictionary.

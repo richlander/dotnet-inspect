@@ -328,7 +328,7 @@ gates the reusable detached handoff, and
 gates the participant-at-a-time envelope handoff and release boundary.
 Those streaming tests also serialize the owner-issued Content after terminal
 release. `BrowserIntegrationsEnvelopeParityTests` compares the real
-`Serilog.Sinks.OpenTelemetry` package's Browser-delivered Content JSON, Share,
+`Serilog.Sinks.OpenTelemetry` package's Browser-delivered ContentKind, Content JSON, PortableProjection,
 and diagnostics with the reusable shared service envelopes.
 `AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection` gates the
 section-specific structured failure surface. Independently inducing a late

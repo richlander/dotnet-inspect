@@ -132,7 +132,7 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
         BrowserSource source = SourceExports.Adapt(inspection.Content, resolved.ImplementationParticipant);
 
-        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
         Assert.Equal(scenario == "authored" ? "pdb" : "decompiled", source.Provider);
         Assert.Contains("Counter", source.Text);
         if (scenario == "authored")

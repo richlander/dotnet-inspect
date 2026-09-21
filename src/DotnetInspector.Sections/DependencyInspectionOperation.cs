@@ -50,7 +50,7 @@ public sealed record DependencyInspectionOperationRequest
         IEnumerable<DependencyInspectionPruning>? pruning,
         IEnumerable<DependencyInspectionFailure>? pruningFailures,
         DependencyInspectionPruningSummary pruningSummary,
-        InspectionShare? share = null)
+        InspectionPortableProjection? portableProjection = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentOutOfRangeException.ThrowIfNegative(requestedRoots);
@@ -75,10 +75,10 @@ public sealed record DependencyInspectionOperationRequest
         Pruning = (pruning ?? []).ToImmutableArray();
         PruningFailures = (pruningFailures ?? []).ToImmutableArray();
         PruningSummary = pruningSummary;
-        Share = share
-            ?? new InspectionShare.NonProjectable(
+        PortableProjection = portableProjection
+            ?? new InspectionPortableProjection.NonProjectable(
                 "asset-dependencies/share",
-                "Asset dependency inspection does not yet have a canonical Workspace Share projection.");
+                InspectionPortableProjectionFailureReason.NotSupported);
     }
 
     public DependencyInspectionPlan Plan { get; }
@@ -115,7 +115,7 @@ public sealed record DependencyInspectionOperationRequest
     public DependencyInspectionLicenseSummary LicenseSummary { get; init; } =
         DependencyInspectionLicenseSummary.NotRequested;
 
-    public InspectionShare Share { get; }
+    public InspectionPortableProjection PortableProjection { get; }
 }
 
 /// <summary>
@@ -190,8 +190,9 @@ public static class DependencyInspectionOperation
                 : [],
         };
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
+            InspectionContentKind.Document,
             content,
-            request.Share);
+            request.PortableProjection);
         return (inspection, evidenceDocument);
     }
 

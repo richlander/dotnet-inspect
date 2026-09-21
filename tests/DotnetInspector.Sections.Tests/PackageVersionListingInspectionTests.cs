@@ -39,7 +39,7 @@ public sealed class PackageVersionListingInspectionTests
         Assert.Equal(
             ["1.1.0", "1.0.0"],
             listed.Document.SourceListings.Select(row => row.Version));
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
 
         using JsonDocument json = JsonDocument.Parse(Serialize(envelope));
@@ -93,8 +93,8 @@ public sealed class PackageVersionListingInspectionTests
             countEnvelope.Content);
         Assert.Equal(
             "package-version-count/share",
-            Assert.IsType<InspectionShare.NonProjectable>(
-                countEnvelope.Share).Path);
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                countEnvelope.PortableProjection).Path);
         Assert.Equal(envelope.Diagnostics, countEnvelope.Diagnostics);
     }
 

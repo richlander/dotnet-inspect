@@ -700,7 +700,8 @@ projection filters, sections, body/source/Analysis requests,
 platform/project/local sources, and other rendering modes before package
 acquisition. Markdown and plain text lower the typed result through its
 host-neutral presentation. `--json` emits the unprojected Content, while
-`--envelope` emits that identical Content with Share and diagnostics. This
+`--envelope` emits that identical Content with ContentKind,
+PortableProjection, and diagnostics. This
 operation does not reuse or relocate the root `match` command, whose subject is
 implementation-clone comparison rather than cross-version API-coordinate
 correspondence.
@@ -718,7 +719,7 @@ exact claim is:
 
 > An operation-first Diff request and an equivalent subject-section request
 > lower to the same host-neutral semantic operation and preserve the same
-> Content, Share outcome, diagnostics, limits, completeness, and failure.
+> Content, portable projection, diagnostics, limits, completeness, and failure.
 
 This owner defines CLI admission, subject binding, and production sequencing.
 It consumes rather than redefines comparison, correspondence, History, Count,
@@ -801,7 +802,8 @@ semantic copy. The
 owns the Library semantic extents.
 
 The [envelope owner](inspection-envelope.md) requires one owner-issued Content
-value, required Share, and ordered typed diagnostics at the completed shared
+value, required PortableProjection, and ordered typed diagnostics at the
+completed shared
 boundary. Operation-first and subject-section requests with equal semantic
 plans receive equal baselines, including typed unavailable, rejected, or
 partial outcomes. Hosts may render less information, but cannot discard it
@@ -810,13 +812,14 @@ from the delivered baseline or turn semantic failure into an empty value.
 Every adopted CLI surface consumes the completed envelope internally and
 supports the public `--envelope` projection defined by
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719). It serializes
-the already constructed baseline without another inspection, Share projection,
+the already constructed baseline without another inspection, portable projection,
 or host enrichment. The
 [CLI output boundary](output-shapes.md#content-shapes-and-service-envelopes)
 distinguishes Content-layer shapes and `--json` from service-layer
 `--envelope`.
 
-Browser adoption preserves Content, Share, and diagnostic identity and order
+Browser adoption preserves ContentKind, Content, PortableProjection, and
+diagnostic identity and order
 in one identifiable received baseline. It may compose UI state and additional
 owner-issued content outside that envelope. Markout remains the default CLI
 lowering for typed Diff content and Count; a specialized source-text or
@@ -872,7 +875,8 @@ The real cases are Library Diff for
 gates must cover unchanged endpoint content, non-range local pairs, explicit
 mode and Count units, sparse and failed History, visible non-success, and
 absence of duplicate execution for output. Cross-host adopters compare complete
-envelopes and round-trip both Share arms and ordered typed diagnostics.
+envelopes and round-trip all ContentKind values, both PortableProjection arms,
+and ordered typed diagnostics.
 
 These future Release gates are **unverified** in this specification-only
 change. Existing envelope and Library Diff evidence is a baseline, not proof

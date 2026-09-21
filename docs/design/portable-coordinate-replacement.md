@@ -112,7 +112,7 @@ Supporting owners keep their contracts:
 | [Forwarded correspondence](forwarded-api-coordinate-correspondence.md) | Exact Library/Type/Member evidence, supplied through Navigation |
 | [Definitions](workspace-definitions.md#complete-committed-views) | Existing committed-view, target, schema, validation and projection contracts |
 | [Acquisition](artifact-acquisition-and-workspaces.md) | Source authorization, realization, admission and drainage |
-| [Inspection envelope](inspection-envelope.md) | Completed Content, Share and diagnostics boundary |
+| [Inspection envelope](inspection-envelope.md) | Completed ContentKind, Content, PortableProjection, and diagnostics boundary |
 
 This is a finite definition transformation, not another asynchronous lifecycle.
 Existing Scope, Navigation and realization models retain authority. No new
@@ -169,7 +169,7 @@ not permission to rewrite that target.
 ### Complete outcome or refusal
 
 A derived result contains a complete validated scenario. Its canonical packet
-or URL is the Share outcome for that same scenario. A valid complete definition
+or URL is the portable projection for that same scenario. A valid complete definition
 outside the packet projection is still distinguished from an invalid or
 incomplete derivation by the existing typed non-projectable result.
 
@@ -303,7 +303,7 @@ hardening is introduced to manufacture those cases.
 | Singleton TFM change / shared-context TFM change | Coherent selected target / visible refusal without retargeting neighbors |
 | Committed Scope followed by preparation or projection failure | Actual outcome plus refusal, not rollback or successful input Share |
 | Unsupported active descendant or query-bearing state | Visible refusal, no reduced-state packet |
-| Equivalent CLI and Browser requests | Same Content, Share and diagnostics through the completed boundary |
+| Equivalent CLI and Browser requests | Same ContentKind, Content, PortableProjection, and diagnostics through the completed boundary |
 
 No new correspondence algorithm, migration match, dependency population,
 acquisition policy, query rebinding, packet version, Browser history protocol,

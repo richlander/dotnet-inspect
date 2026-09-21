@@ -108,6 +108,7 @@ public class MemberCodeProviderOverloadAddressingTests
         var inspection =
             new InspectionEnvelope<
                 AssemblyMemberDecompilationEntry>(
+                InspectionContentKind.Outcome,
                 new AssemblyMemberDecompilationEntry
                     .Settled(
                         new AssemblyContextSubject(
@@ -115,9 +116,9 @@ public class MemberCodeProviderOverloadAddressingTests
                         sourceRequest,
                         attempt,
                         HouseOutcome: null!),
-                new InspectionShare.NonProjectable(
+                new InspectionPortableProjection.NonProjectable(
                     "test/member-decompilation",
-                    "Synthetic non-available boundary."));
+                    InspectionPortableProjectionFailureReason.NotSupported));
         var request =
             new MemberCodeProvider.Request(
                 DecompiledSource: true,

@@ -838,8 +838,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(host.SourceRequests);
         Assert.Equal(
             "type-decompilation/share",
-            Assert.IsType<InspectionShare.NonProjectable>(
-                inspection.Share)
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(
+                inspection.PortableProjection)
                 .Path);
         Assert.Empty(inspection.Diagnostics);
     }
@@ -1178,7 +1178,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(selected.SourceUrl, Assert.Single(host.SourceRequests).AbsoluteUri);
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(0, assembly.Policy.SelectionCount);
-        Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
     }
 
     [Theory]
@@ -1394,7 +1394,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(0, assembly.Policy.SelectionCount);
         Assert.Equal("type-source/share",
-            Assert.IsType<InspectionShare.NonProjectable>(inspection.Share).Path);
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection).Path);
         Assert.Empty(inspection.Diagnostics);
     }
 

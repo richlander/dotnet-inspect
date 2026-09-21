@@ -101,13 +101,14 @@ function metadata() {
         isAvailable: true,
         isComplete: true,
       },
-      share: {
+      contentKind: "result" as const,
+      portableProjection: {
         kind: "nonProjectable" as const,
         fullUrl: null,
         packet: null,
         path: "exact-type",
-        reason: metadataInertString(
-          "Fixture exact-type inspection is not shareable."),
+        reason: "notSupported" as const,
+        explanation: "Fixture exact-type inspection is not shareable.",
       },
       diagnostics: [],
     },

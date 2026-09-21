@@ -244,7 +244,8 @@ The host defaults to the query-owned 42-day interval, accepts paired
 limit before execution. Markdown and plain text lower the shared Markout view;
 `--json` uses the shared lossless serializer. `--envelope` emits the complete
 authoritative service value with result kind `ecosystem-change-report`, the
-same Document under `content`, non-projectable Share, and ordered diagnostics.
+same Document under `content`, `content_kind: document`, non-projectable
+PortableProjection, and ordered diagnostics.
 `--compact` controls either JSON boundary. Catalog-only projections,
 single-table formats, Count, row selection, discovery, section selection, and
 competing formats fail explicitly with envelope output. `--verbose` reports

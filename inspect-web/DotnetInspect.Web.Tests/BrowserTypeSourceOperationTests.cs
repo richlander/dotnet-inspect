@@ -279,7 +279,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         Assert.Contains("protected JsonNamingPolicy();", declarations.Inspection.Content.Text);
         Assert.Contains("ConvertName(string name);", declarations.Inspection.Content.Text);
         Assert.DoesNotContain("throw ", declarations.Inspection.Content.Text);
-        Assert.IsType<InspectionShare.NonProjectable>(declarations.Inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(declarations.Inspection.PortableProjection);
 
         await using (BrowserScopeLease<BrowserInspectionScope> lease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -319,7 +319,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         Assert.Equal(TypeApiDeclarationOutcome.NotFound, declarations.Inspection.Content.Outcome);
         Assert.Null(declarations.Inspection.Content.Text);
         Assert.NotEmpty(declarations.Inspection.Diagnostics);
-        Assert.IsType<InspectionShare.NonProjectable>(declarations.Inspection.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(declarations.Inspection.PortableProjection);
         await AssertReleased(id, packageId);
     }
 

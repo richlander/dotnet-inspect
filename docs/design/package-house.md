@@ -649,7 +649,7 @@ realization after version settlement. It projects the same
 through `PackageHouseRootContributionAdapter` into the package Root used by the
 Browser workspace. The Browser therefore neither downloads the archive again
 nor repeats compile selection for its API surface. Its facade preserves
-Content, Share, and diagnostics in a Browser-local wire contract; TypeScript
+ContentKind, Content, PortableProjection, and diagnostics in a Browser-local wire contract; TypeScript
 retains that envelope and renders Package Info without reconstructing
 measurements from paths or choosing a representative assembly.
 
@@ -741,15 +741,15 @@ The shared boundary preserves:
 - a `NotSettled` outcome retaining the native House terminal kind, reason,
   operation-timeout fact, and credential-safe source failure kind, message,
   and timeout kind;
-- required Share for that same operation; and
+- required PortableProjection for that same operation; and
 - ordered cross-host diagnostics for source failures accompanying a valid
   settlement, without turning typed non-success into a warning or empty result.
 
-Version-only settlement currently has no canonical Workspace Share projection.
-Its Share is explicitly `NonProjectable` at
+Version-only settlement currently has no canonical Workspace portable projection.
+Its PortableProjection is explicitly `NonProjectable` at
 `package-version-settlement/share`; neither host substitutes an approximate
 package URL. Broader browser Workspace sharing is a separate operation and is
-not overwritten by this prerequisite's Share outcome.
+not overwritten by this prerequisite's portable projection.
 
 The returned baseline is detached and serialization-ready. It carries neither
 an acquisition candidate's authority nor live source resources. Typed source

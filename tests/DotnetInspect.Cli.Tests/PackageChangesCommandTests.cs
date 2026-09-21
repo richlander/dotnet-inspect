@@ -294,7 +294,7 @@ public sealed class PackageChangesCommandTests
                 root.GetProperty("content")));
         Assert.Equal(
             "nonProjectable",
-            root.GetProperty("share").GetProperty("kind").GetString());
+            root.GetProperty("portable_projection").GetProperty("kind").GetString());
         Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
     }
 

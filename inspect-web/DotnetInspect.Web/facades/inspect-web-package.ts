@@ -14,7 +14,11 @@ export type BrowserExactLibraryApiInspectionOutcome = number;
 
 export type BrowserExactLibraryApiProjectionLimit = number;
 
-export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
+export type BrowserInspectionPortableProjectionKind = "Available" | "NonProjectable" | number;
+
+export type BrowserInspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type BrowserInspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
 
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
 
@@ -161,7 +165,8 @@ export interface BrowserExactLibraryApiFacet {
 
 export interface BrowserExactLibraryApiInspection {
   readonly content: BrowserExactLibraryApiInspectionResult;
-  readonly share: BrowserInspectionShare;
+  readonly contentKind: BrowserInspectionContentKind;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
 
@@ -233,12 +238,13 @@ export interface BrowserInspectionDiagnostic {
   readonly correspondence: string | null;
 }
 
-export interface BrowserInspectionShare {
-  readonly kind: BrowserInspectionShareKind;
+export interface BrowserInspectionPortableProjection {
+  readonly kind: BrowserInspectionPortableProjectionKind;
   readonly fullUrl: string | null;
   readonly packet: string | null;
   readonly path: string | null;
-  readonly reason: string | null;
+  readonly reason: BrowserInspectionPortableProjectionFailureReason | null;
+  readonly explanation: string | null;
 }
 
 export interface BrowserLibraryQueryDocument {
@@ -258,7 +264,8 @@ export interface BrowserLibraryQueryFailure {
 
 export interface BrowserLibraryQueryInspection {
   readonly content: BrowserLibraryQueryDocument;
-  readonly share: BrowserInspectionShare;
+  readonly contentKind: BrowserInspectionContentKind;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
 
@@ -496,7 +503,8 @@ export interface BrowserPackageChangesFailure {
 
 export interface BrowserPackageChangesInspection {
   readonly content: BrowserPackageChangesDocument;
-  readonly share: BrowserInspectionShare;
+  readonly contentKind: BrowserInspectionContentKind;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
 
@@ -675,7 +683,8 @@ export interface BrowserPackageIcon {
 
 export interface BrowserPackageInfoMeasurementInspection {
   readonly content: BrowserPackageInfoMeasurements;
-  readonly share: BrowserInspectionShare;
+  readonly contentKind: BrowserInspectionContentKind;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
 
@@ -840,7 +849,8 @@ export interface BrowserPackageQueryFailure {
 
 export interface BrowserPackageQueryInspection {
   readonly content: BrowserPackageQueryDocument;
-  readonly share: BrowserInspectionShare;
+  readonly contentKind: BrowserInspectionContentKind;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
 
@@ -974,7 +984,8 @@ export interface BrowserPackageVersionSettlementFailure {
 
 export interface BrowserPackageVersionSettlementInspection {
   readonly content: BrowserPackageVersionSettlementOutcome;
-  readonly share: BrowserInspectionShare;
+  readonly contentKind: BrowserInspectionContentKind;
+  readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
 
@@ -1902,4 +1913,3 @@ export function searchTypes(query: string, candidatesJson: ReadonlyArray<Browser
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }
-

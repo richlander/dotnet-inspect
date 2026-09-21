@@ -406,8 +406,8 @@ function renderCoverage(
       <div><dt>Unevaluable populations</dt><dd>${completion.currentContextUnevaluableRows.toLocaleString()} current-context · ${completion.securityReleaseUnevaluableRows.toLocaleString()} security-release</dd></div>
       <div><dt>Returned rows</dt><dd>${completion.returnedRowCount.toLocaleString()} of ${completion.eligibleRowCount.toLocaleString()} eligible${completion.resultLimitReached ? " · result limit reached" : ""}</dd></div>
     </dl>
-    ${inspection.share.kind === "NonProjectable"
-      ? `<p class="query-facet-disclosure">Sharing is unavailable: ${escapeHtml(inspection.share.reason ?? "this report is not projectable.")}</p>`
+    ${inspection.portableProjection.kind === "NonProjectable"
+      ? `<p class="query-facet-disclosure">Sharing is unavailable: ${escapeHtml(inspection.portableProjection.explanation ?? "this report is not projectable.")}</p>`
       : ""}
   </section>`;
 }

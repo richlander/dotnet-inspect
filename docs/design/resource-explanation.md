@@ -349,7 +349,8 @@ rendered Markdown document shape, parser help, or a dictionary of display
 properties.
 
 The completed host-neutral service returns
-`InspectionEnvelope<ResourceExplanationDocument>`, preserving Content, Share,
+`InspectionEnvelope<ResourceExplanationDocument>`, preserving ContentKind,
+Content, PortableProjection,
 and diagnostics. Registration of a stable `result_kind`, schema version, and
 wire serializer remains an output-contract-owner adoption; it does not delay
 use of the ordinary typed service envelope.

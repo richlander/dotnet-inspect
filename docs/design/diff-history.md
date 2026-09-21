@@ -39,7 +39,8 @@ related metadata-only version-population reduction:
 > History returns one owner-specific Outcome whose available case carries a detached temporal
 > Document for CLI and Browser/Wasm. Population selection, evaluation selection,
 > and result-row selection remain distinct. The completed shared content reaches
-> both hosts without losing Content, Share, or diagnostics.
+> both hosts without losing ContentKind, Content, PortableProjection, or
+> diagnostics.
 
 The user approved this direction on 2026-09-14 and explicitly requested
 "remove the timeline command (no compat)". The subsequent

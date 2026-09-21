@@ -189,17 +189,18 @@ public static partial class MetadataExports
                     rowFailure));
         }
 
-        InspectionShare share =
+        InspectionPortableProjection share =
             ProjectTypeShare(
                 root,
                 typeName);
         return new InspectionEnvelope<TypeDependencySectionResult>(
+            InspectionContentKind.Result,
             dependencies,
             share,
             diagnostics);
     }
 
-    static InspectionShare ProjectTypeShare(
+    static InspectionPortableProjection ProjectTypeShare(
         BrowserPackageCoordinate root,
         string typeName)
     {
@@ -249,13 +250,18 @@ public static partial class MetadataExports
         {
             WorkspaceSharePacketProjectionFailure failure =
                 packet.Failure!;
-            return new InspectionShare.NonProjectable(
+            return new InspectionPortableProjection.NonProjectable(
                 $"type-dependency-share/{failure.Path}",
+                failure.Kind
+                    is WorkspaceSharePacketProjectionFailureKind
+                        .InvalidDefinitionSet
+                    ? InspectionPortableProjectionFailureReason.Invalid
+                    : InspectionPortableProjectionFailureReason.NotSupported,
                 failure.Message);
         }
 
         string encoded = WorkspaceSharePacketCodec.Encode(packet.Packet!);
-        return new InspectionShare.Available(
+        return new InspectionPortableProjection.Available(
             "https://dotnet-inspect.net/?w=" + encoded,
             encoded);
     }

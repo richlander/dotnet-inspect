@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Analysis;
 
@@ -28,16 +29,53 @@ public enum BrowserCompileLibraryStatus
 }
 
 public sealed record BrowserAnalysisInspectionEnvelope(
+    BrowserAnalysisInspectionContentKind ContentKind,
     JsonElement Content,
-    BrowserAnalysisInspectionShare Share,
+    BrowserAnalysisInspectionPortableProjection PortableProjection,
     BrowserAnalysisInspectionDiagnostic[] Diagnostics);
 
-public sealed record BrowserAnalysisInspectionShare(
+public sealed record BrowserAnalysisInspectionPortableProjection(
     string Kind,
     string? FullUrl,
     string? Packet,
     string? Path,
-    string? Reason);
+    BrowserAnalysisInspectionPortableProjectionFailureReason? Reason,
+    string? Explanation);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserAnalysisInspectionContentKind>))]
+public enum BrowserAnalysisInspectionContentKind
+{
+    [JsonStringEnumMemberName("result")]
+    Result,
+
+    [JsonStringEnumMemberName("document")]
+    Document,
+
+    [JsonStringEnumMemberName("outcome")]
+    Outcome,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<
+        BrowserAnalysisInspectionPortableProjectionFailureReason>))]
+public enum BrowserAnalysisInspectionPortableProjectionFailureReason
+{
+    [JsonStringEnumMemberName("notSupported")]
+    NotSupported,
+
+    [JsonStringEnumMemberName("invalid")]
+    Invalid,
+
+    [JsonStringEnumMemberName("incomplete")]
+    Incomplete,
+
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+
+    [JsonStringEnumMemberName("failed")]
+    Failed,
+}
 
 public enum BrowserAnalysisInspectionDiagnosticSeverity
 {

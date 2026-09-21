@@ -273,8 +273,16 @@ export const engineWorkerTypeSourceValue: BoundedPayloadDecoder<BrowserTypeCodeV
     }
     if (kind === "apiDeclarations" && hasExactData(candidate, ["kind", "inspection"])) {
       const inspection = dataRecord(ownData(candidate, "inspection"));
-      if (inspection === null || !hasExactData(inspection, ["content", "share", "diagnostics"]))
+      if (inspection === null
+        || !hasExactData(inspection, [
+          "contentKind",
+          "content",
+          "portableProjection",
+          "diagnostics",
+        ])
+        || ownData(inspection, "contentKind") !== "result") {
         return rejected("Expected a completed API Declarations inspection.");
+      }
       return decodeEngineWorkerJsonValue<BrowserTypeCodeView>(value);
     }
     return rejected("Unknown Type Source code view.");

@@ -450,7 +450,7 @@ subject command section
 
 If their subject bindings are semantically equivalent, the two routes resolve
 the same canonical intent through the same operation definition and retain the
-same result, completion, diagnostics, and Share outcome.
+same result, completion, diagnostics, and portable projection.
 
 An operation-backed section may contribute an owner-issued preset. The preset
 may select a result projection, default query profile, or fixed operation
@@ -489,7 +489,7 @@ operation definition:
 - Browser may use structured controls, presets, or restored portable intent.
 - Both construct the same canonical vocabulary terms and subject role.
 - Both resolve through the same owner-issued resolver.
-- Both receive the same typed content, Share outcome, diagnostics, and
+- Both receive the same typed content, portable projection, diagnostics, and
   completion evidence.
 
 Host-only interaction state, command-line aliases, navigation state, and

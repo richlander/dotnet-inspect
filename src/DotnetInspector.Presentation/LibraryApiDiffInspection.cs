@@ -25,9 +25,12 @@ public static class LibraryApiDiffInspection
                 perEndpointLimits);
 
         return new(
+            InspectionContentKind.Outcome,
             LibraryApiDiffPresentationAdapter.Create(comparison),
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "comparison/endpoints",
-                "Workspace Share does not yet represent a selected-Library comparison's ordered endpoints and API scope."));
+                InspectionPortableProjectionFailureReason.NotSupported,
+                "Workspace sharing does not yet represent a selected-Library "
+                    + "comparison's ordered endpoints and API scope."));
     }
 }

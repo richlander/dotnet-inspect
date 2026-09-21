@@ -286,8 +286,8 @@ public sealed class ProductionFacadeContextTests
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
         var sharedSourceContractTypes = new HashSet<Type>();
         Collect(typeof(InspectionEnvelope<TypeApiDeclarationResult>), sharedSourceContractTypes);
-        foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
-                     .Where(type => type.BaseType == typeof(InspectionShare)))
+        foreach (Type derived in typeof(InspectionPortableProjection).Assembly.GetTypes()
+                     .Where(type => type.BaseType == typeof(InspectionPortableProjection)))
         {
             Collect(derived, sharedContractTypes);
             Collect(derived, sharedSourceContractTypes);

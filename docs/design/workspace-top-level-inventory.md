@@ -103,7 +103,7 @@ resource-free receipt with the source kind, exact Workspace and revision
 identities, and its own canonical packet. The inventory surface never accepts a
 definition snapshot and packet string independently, so a host cannot
 accidentally pair inventory content from one definition with another
-definition's Share projection.
+definition's portable projection.
 
 An already-realized Workspace whose host did not retain a Definitions
 activation projection remains a supported inventory input. Its caller creates
@@ -532,7 +532,7 @@ Implementation proceeds as independently reviewable slices:
 
 1. **Host-neutral content and operation (implemented).** The outcome, document,
    typed entry family, entry key, selection receipt, kind filter, pure snapshot
-   query, Definitions-owned Share projection receipt, Share basis, and admitted
+   query, Definitions-owned portable projection receipt, Share basis, and admitted
    L2 operation are implemented in `DotnetInspector.Queries` and
    `DotnetInspector.Sections`.
 2. **CLI inventory adoption (implemented).** Directly own one ephemeral
@@ -570,13 +570,13 @@ filter, cannot yet be projected into a packet.
 The operation composes Share from its exact basis and inventory request:
 
 - an unfiltered request with `Projectable(CanonicalPacket)` returns
-  `InspectionShare.Available` with that exact packet;
+  `InspectionPortableProjection.Available` with that exact packet;
 - an unfiltered request with a non-projectable basis returns
-  `InspectionShare.NonProjectable` with the retained reason;
-- a filtered request returns `InspectionShare.Available` only when Workspace
+  `InspectionPortableProjection.NonProjectable` with the retained reason;
+- a filtered request returns `InspectionPortableProjection.Available` only when Workspace
   Definitions can project that exact filter state over the retained basis; and
 - otherwise a filtered request returns the specific
-  `InspectionShare.NonProjectable` reason for unsupported inventory request
+  `InspectionPortableProjection.NonProjectable` reason for unsupported inventory request
   projection.
 
 The first implementation slice must state whether the existing Workspace
@@ -588,7 +588,7 @@ filtered result remains fully usable even when it is not yet shareable.
 
 The current Workspace Definition packet does not project inventory kind-filter
 state. The implemented operation therefore returns
-`InspectionShare.NonProjectable` for every present inventory kind filter while
+`InspectionPortableProjection.NonProjectable` for every present inventory kind filter while
 preserving available filtered content.
 
 Required gates use Release configuration and include:

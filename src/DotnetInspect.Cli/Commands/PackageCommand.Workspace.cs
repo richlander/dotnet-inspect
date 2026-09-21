@@ -84,7 +84,7 @@ public partial class PackageCommand
                 .Value;
         return await restoration.ExecuteAsync(async activeRestoration =>
         {
-            InspectionShare.NonProjectable? shareRefusal =
+            InspectionPortableProjection.NonProjectable? shareRefusal =
                 WorkspacePackageShareRefusal(options);
             SelectedContextExactPackageEvidenceOperationResult<
                 WorkspacePackageInspectionContent> operation =
@@ -93,12 +93,13 @@ public partial class PackageCommand
                             activeRestoration.Workspace,
                             activeRestoration.Activation,
                             request!,
+                            InspectionContentKind.Outcome,
                             target => ExecuteWorkspaceTargetAsync(
                                 options,
                                 context,
                                 target),
                             facet: new("package.overview"),
-                            shareRefusal).ConfigureAwait(false);
+                            shareRefusal: shareRefusal).ConfigureAwait(false);
             if (operation
                 is SelectedContextExactPackageEvidenceOperationResult<
                     WorkspacePackageInspectionContent>.Failed selectionFailure)
@@ -161,7 +162,7 @@ public partial class PackageCommand
             if (options.ShareFormat is not null)
             {
                 int shareExitCode = WorkspaceShareOutput.Write(
-                    envelope.Inspection.Share,
+                    envelope.Inspection.PortableProjection,
                     options.ShareFormat.Value);
                 if (shareExitCode != 0)
                     exitCode = 1;
@@ -434,7 +435,7 @@ public partial class PackageCommand
         return true;
     }
 
-    static InspectionShare.NonProjectable?
+    static InspectionPortableProjection.NonProjectable?
         WorkspacePackageShareRefusal(InspectionOptions options)
     {
         if (options.ShareFormat is null)
@@ -449,8 +450,7 @@ public partial class PackageCommand
         {
             return new(
                 "package/lens",
-                "The requested Package lens has no portable Workspace "
-                    + "Package facet.");
+                InspectionPortableProjectionFailureReason.NotSupported);
         }
         if (options.IncludeSections is { Count: > 0 }
             && (options.IncludeSections.Count != 1
@@ -459,8 +459,7 @@ public partial class PackageCommand
         {
             return new(
                 "package/sections",
-                "The requested Package section selection has no portable "
-                    + "Workspace Package facet.");
+                InspectionPortableProjectionFailureReason.NotSupported);
         }
 
         return null;

@@ -114,7 +114,7 @@ This owner consumes, but does not redefine:
 - [Assembly inspection query](assembly-inspection-query.md) for direct assembly
   reference identities and metadata failure semantics;
 - [Inspection envelope](inspection-envelope.md) for completed cross-host
-  content, Share, and diagnostic handoff;
+  content kind, content, portable projection, and diagnostic handoff;
 - [Multi-part inspection documents](multi-part-inspection-documents.md) for one
   authoritative content value with independently useful summary, recognition,
   non-match, coverage, and failure parts;
@@ -370,7 +370,7 @@ the concrete effective target request.
 
 The semantic subject is not a display header. Two complete empty Documents for
 different subjects remain distinct and attributable. Hosts must not use
-`InspectionShare`, a rendered command, or a display label to repair missing
+`InspectionPortableProjection`, a rendered command, or a display label to repair missing
 Content identity.
 
 The Package and Library shapes are intentionally distinct:
@@ -611,7 +611,7 @@ typed input context, summary count, coverage value, and input issue.
 
 Dependency inspection first settles its ordinary
 `InspectionEnvelope<DependencyInspectionContent>`. The application composition
-preserves that exact Content, Share, and diagnostics while constructing:
+preserves that exact ContentKind, Content, PortableProjection, and diagnostics while constructing:
 
 ```text
 DependencyEcosystemRecognitionDocument
@@ -659,7 +659,8 @@ serializing a success-shaped partial Document.
 Unprojected `--json` serializes the complete
 `DependencyEcosystemRecognitionDocument`. `--envelope.content` serializes the
 same value under the same owner-issued serializer; envelope output adds only
-Share and diagnostics. The ordinary JSON document does not embed transport
+ContentKind, PortableProjection, and diagnostics. The ordinary JSON document
+does not embed transport
 framing, but its step-5 schema transition is the same public Content migration
 identified by `asset-dependencies` version 2. Projected JSON remains a named
 presentation rather than complete envelope Content.
@@ -750,15 +751,17 @@ InspectionEnvelope<DependencyEcosystemRecognitionDocument>
 ```
 
 The composition retains the exact lower Content as a Document part and
-propagates the lower envelope's Share and diagnostics into the new envelope.
+propagates the lower envelope's ContentKind, PortableProjection, and
+diagnostics into the new envelope.
 Classification and recognition coverage are the other parts of the one
 authoritative Content value.
 
 The Package or Library composition supplies a subject-bound
-`EcosystemDependencyRecognitionShare` containing the `InspectionShare` outcome
+`EcosystemDependencyRecognitionPortableProjection` containing the `InspectionPortableProjection` outcome
 for the exact semantic subject plan. Recognition requires its typed subject to
 equal the batch subject before constructing the envelope. It does not derive
-Share correspondence from a Package ID, assembly name, rendered command,
+PortableProjection correspondence from a Package ID, assembly name, rendered
+command,
 packet text, or dependency evidence.
 
 Input issues remain in the owner-issued content outcome. Supplemental
@@ -882,7 +885,8 @@ The implementation must name Release gates for:
 - product, source, and association ordering;
 - recognized, unrecognized, candidate, and association counts;
 - complete-empty, complete-unrecognized, incomplete, and unavailable outcomes;
-- envelope content, Share, and diagnostic preservation;
+- envelope content kind, content, portable projection, and diagnostic
+  preservation;
 - complete envelope transport retaining all recognition pairs, non-matches,
   context, coverage, counts, and failures independently from presentation
   shaping;
@@ -893,7 +897,8 @@ The implementation must name Release gates for:
 - dependency inspection preserving multi-root occurrence and declaration or
   assembly-reference joins inside the application composition Document;
 - dependency composition preserving the exact lower
-  `DependencyInspectionContent`, Share, and diagnostics without a generic
+  `DependencyInspectionContent`, ContentKind, PortableProjection, and
+  diagnostics without a generic
   auxiliary payload;
 - dependency baseline Content requesting complete direct evidence independently
   from output format without authorizing transitive traversal;
@@ -905,7 +910,7 @@ The implementation must name Release gates for:
 - version-1 producers and consumers refusing version-2 Content rather than
   silently reusing an incompatible registration;
 - unprojected dependency JSON equaling `--envelope.content`, with the envelope
-  adding only Share and diagnostics;
+  adding only ContentKind, PortableProjection, and diagnostics;
 - dependency inspection filtering pair rows through typed
   `EcosystemPackId` identity without classifying traversal-only nodes;
 - dependency recognition remaining distinct from Package Query's

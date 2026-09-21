@@ -193,13 +193,14 @@ function availableExactTypeInspection(
       isAvailable: true,
       isComplete,
     },
-    share: {
+    contentKind: "result" as const,
+    portableProjection: {
       kind: "nonProjectable" as const,
       fullUrl: null,
       packet: null,
       path: "exact-type",
-      reason: metadataInertStringFixture(
-        "Fixture exact-type inspection is not shareable."),
+      reason: "notSupported" as const,
+      explanation: "Fixture exact-type inspection is not shareable.",
     },
     diagnostics,
   };
@@ -224,13 +225,14 @@ function unavailableExactTypeInspection(
       isAvailable: false,
       isComplete: false,
     },
-    share: {
+    contentKind: "result" as const,
+    portableProjection: {
       kind: "nonProjectable" as const,
       fullUrl: null,
       packet: null,
       path: "exact-type",
-      reason: metadataInertStringFixture(
-        "Fixture exact-type inspection is not shareable."),
+      reason: "notSupported" as const,
+      explanation: "Fixture exact-type inspection is not shareable.",
     },
     diagnostics,
   };

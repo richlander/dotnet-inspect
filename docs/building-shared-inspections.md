@@ -9,7 +9,7 @@ The goal is a host-neutral operation that:
 - accepts typed semantic intent rather than CLI tokens or browser state;
 - executes through the product's acquisition, Workspace, query, and section
   owners;
-- returns useful, safe, typed content, Share, and diagnostics through a shared
+- returns useful, safe, typed content, PortableProjection, and diagnostics through a shared
   inspection envelope;
 - lets each client control applicable sections, rows, work bounds, and
   presentation; and
@@ -35,7 +35,7 @@ CLI argv / Web gesture / restored Workspace definition
   -> typed subject and inspection intent
   -> House settlement and Workspace admission
   -> host-neutral query and section plans
-  -> one content plan plus required Share projection
+  -> one content plan plus required portable projection projection
   -> InspectionEnvelope<TContent>
   -> CLI or Web projection
 ```
@@ -51,7 +51,7 @@ A successful capability usually has:
 - an L2 inspection or section plan when the capability has user-visible
   sections, row sets, ordering, or shaping;
 - an `InspectionEnvelope<TContent>` carrying non-null owner-issued content,
-  required Share, and typed diagnostics at the final host-neutral boundary;
+  required portable projection, and typed diagnostics at the final host-neutral boundary;
 - PackageHouse, PlatformHouse, SourceHouse, DocumentationHouse, or another
   owning House when settlement crosses multiple lower owners;
 - a Workspace-backed execution path when multiple admitted artifacts,
@@ -141,8 +141,9 @@ success and failure variants. The complete baseline is:
 
 ```text
 InspectionEnvelope<TContent>
+  ContentKind: Result | Document | Outcome
   Content: TContent
-  Share: Available(FullUrl, Packet) | NonProjectable(Path, Reason)
+  PortableProjection: Available(FullUrl, Packet) | NonProjectable(Path, Reason, Explanation)
   Diagnostics
 ```
 
@@ -150,13 +151,13 @@ InspectionEnvelope<TContent>
 operation's ordinary content type and continues to own success, partial,
 unavailable, failure, completion, and empty-result semantics.
 
-Every envelope carries Share for the same semantic plan. The available arm
+Every envelope carries PortableProjection for the same semantic plan. The available arm
 contains both the complete canonical production URL and its encoded Workspace
 packet, so a consumer can use either without splitting the URL. The
 producer supplies both values when constructing `Available`; the contract does
-not derive one by parsing the other. The non-projectable arm names
-the semantic path and reason that cannot be represented faithfully; it never
-contains a partial or approximated URL. Share projection executes no ordinary
+not derive one by parsing the other. The non-projectable arm carries the semantic path, typed reason, and trusted
+owner-issued explanation for what cannot be represented faithfully; it never
+contains a partial or approximated URL. Portable projection executes no ordinary
 content or effectiveness probe.
 
 Use one envelope at the final shared boundary, not around every prerequisite
@@ -164,7 +165,8 @@ query or intermediate. An operation with an L2 result envelopes that result;
 an operation with no L2 owner may envelope its final L1 result.
 
 For the same admitted content generation, exact subject, and semantic plan,
-the CLI and Web content, Share, and diagnostics must agree. A broader Web
+the CLI and Web content kind, content, portable projection, and diagnostics
+must agree. A broader Web
 experience requests additional shared content explicitly:
 
 ```text
@@ -245,7 +247,7 @@ meaning.
 
 Diagnostics do not determine success, completeness, retry, exit status, or
 navigation by themselves. They cannot replace a typed failure, turn failed
-execution into successful empty content, stand in for Share, or change logical
+execution into successful empty content, stand in for PortableProjection, or change logical
 row selection.
 
 ### Retain typed meaning
@@ -269,8 +271,8 @@ Return the useful result and its limitations together when partial evidence is
 meaningful. Return a typed non-success when no valid result exists.
 
 Use diagnostics to disclose supplemental limitations, not as a second failure
-model. A non-projectable Share outcome may accompany useful content. If the
-user explicitly requested Share presentation, the CLI may fail that requested
+model. A non-projectable portable projection may accompany useful content. If the
+user explicitly requested `--share` presentation, the CLI may fail that requested
 side output without discarding or changing content.
 
 Do not:
@@ -287,7 +289,7 @@ decides how to explain it; the query owns whether the answer is complete.
 
 ### Return resource-free data
 
-An envelope, its L1 or L2 result, Share, and diagnostics must not contain a live
+An envelope, its L1 or L2 result, PortableProjection, and diagnostics must not contain a live
 Workspace participant, metadata reader, stream, content lease, callback, or
 service. Execute while the host-owned operation or Workspace scope is valid,
 detach the result and envelope supplements, then release the resource.
@@ -420,7 +422,7 @@ The plan should preserve semantic controls that more than one host can use even
 when one host does not currently expose a widget. That host supplies the empty
 or default intent; it does not receive a different execution model.
 
-### 7. Choose content and Share independently
+### 7. Choose content and PortableProjection independently
 
 One resolved inspection basis lowers to exactly one content purpose:
 
@@ -429,13 +431,13 @@ One resolved inspection basis lowers to exactly one content purpose:
 - **Discover** determines section applicability or effectiveness through
   declared probes.
 
-Every content plan also projects Share through Workspace Definitions. The
-Share projection performs no duplicate inspection. CLI `--share` leaves
+Every content plan also projects PortableProjection through Workspace Definitions. The
+portable projection performs no duplicate inspection. CLI `--share` leaves
 Execute or Discover content unchanged on stdout and writes the required URL or
-packet as the final non-empty stderr line. Ordinary operations retain Share
+packet as the final non-empty stderr line. Ordinary operations retain PortableProjection
 even when the host does not display it.
 
-Content and Share overlap in source, context, subject, facet, and semantic
+Content and PortableProjection overlap in source, context, subject, facet, and semantic
 bounds, but they do not accept identical policy. CLI verbosity is execution
 presentation policy, probe budgets belong to discovery, and render formats do
 not belong in a share packet.
@@ -487,7 +489,7 @@ same selected logical rows.
 | Concern | Shared product | CLI | Inspect Web |
 | --- | --- | --- | --- |
 | Facts and relationships | Typed producer/query result | Consume unchanged | Consume unchanged |
-| Shared handoff | `InspectionEnvelope<TContent>` | Consume content, Share, and diagnostics | Consume the same baseline and compose a broader experience |
+| Shared handoff | `InspectionEnvelope<TContent>` | Consume content, PortableProjection, and diagnostics | Consume the same baseline and compose a broader experience |
 | Semantic request | Subject-specific plan | Lower argv | Lower gesture or restored state |
 | Source authority | Owner-issued capability contract | Desktop capabilities | Browser-authorized capabilities |
 | Workspace lifetime | Same admission and query semantics | Usually one operation | One retained active Workspace |
@@ -505,7 +507,7 @@ The CLI should:
 - construct the shared query or section plan;
 - execute it through a command-owned lifetime;
 - consume the shared envelope, lowering content into Markout or another
-  documented structured format, writing Share to stderr for `--share`, and
+  documented structured format, writing PortableProjection to stderr for `--share`, and
   lowering diagnostics into the applicable diagnostic channel; and
 - preserve typed failure distinctions in diagnostics and exit status.
 
@@ -529,7 +531,7 @@ Inspect Web should:
 - borrow the active Workspace only for the managed operation;
 - keep resource-bearing values behind the managed boundary;
 - transport the same baseline envelope through the narrow owning facade;
-- preserve the same Share outcome rather than rebuilding it from Browser
+- preserve the same portable projection rather than rebuilding it from Browser
   navigation or the current origin;
 - compose additional owner-issued content, navigation, interaction, and
   presentation without mutating the baseline;
@@ -552,7 +554,7 @@ Use proportional evidence at each owned boundary.
 3. **L2 tests.** Gate section applicability, row units, selection, shaping,
    Count, and strict semantic failure.
 4. **Envelope tests.** Gate non-null content, available versus non-projectable
-   Share, deterministic typed diagnostics, and baseline equality for
+   PortableProjection, deterministic typed diagnostics, and baseline equality for
    equivalent plans and content generations.
 5. **CLI tests.** Gate syntax lowering, authorization, output modes,
    diagnostic lowering, and exit codes.
@@ -582,8 +584,8 @@ repair the product evidence it claims to verify.
 | Return `[]` after a decode or acquisition failure | Return typed failure or uncertified partial evidence |
 | Put diagnostics directly in each host DTO | Publish typed diagnostics in the shared envelope and lower them per host |
 | Add Browser facts to the shared content after execution | Request another owner-issued result and compose it around the unchanged baseline |
-| Rebuild Share from argv, rendered content, or Browser origin | Consume the required owner-issued Share outcome |
-| Replace ordinary stdout with a Share scalar | Keep content unchanged and write Share as the final non-empty stderr line |
+| Rebuild PortableProjection from argv, rendered content, or Browser origin | Consume the required owner-issued portable projection |
+| Replace ordinary stdout with a `--share` scalar | Keep content unchanged and write PortableProjection as the final non-empty stderr line |
 | Apply `-n` to rendered lines or graph nodes | Declare and select the logical row unit in L2 |
 | Use a row window to reduce upstream work implicitly | Add a separately owned work-bound or delegation contract |
 | Serialize argv for sharing | Project portable semantic state through Workspace Definitions |
@@ -604,8 +606,8 @@ For each materially different command mode, classify these stages:
    result, cost, capabilities, failure, and completion.
 2. **L2 inspection controls** — sections, applicability, declared rows,
    ordering, semantic selection, Count, traversal, and explicit work bounds.
-3. **Content and Share** — Execute or effective Discover content plus required
-   portable Share, including a typed `NonProjectable` outcome when applicable.
+3. **Content and PortableProjection** — Execute or effective Discover content plus required
+   portable projection, including a typed `NonProjectable` outcome when applicable.
 4. **Settlement and ownership** — applicable Houses, source authorization,
    resource issuance, transfer, borrowing, and release.
 5. **Workspace composition** — admission, binding groups, lifetime, population,
@@ -663,8 +665,8 @@ on the semantic operation and result.
 [#6710](https://github.com/richlander/dotnet-inspect/issues/6710) tracks the
 successor adoption of `InspectionEnvelope<TypeDependencySectionResult>` or its
 design-approved equivalent. #6712 makes ordinary execution return present
-content with Share, makes `depends <type> --share` preserve the same stdout
-while writing the URL to stderr, and carries the same Share through Inspect
+content with PortableProjection, makes `depends <type> --share` preserve the same stdout
+while writing the URL to stderr, and carries the same PortableProjection through Inspect
 Web. The Browser composes Research-owned derived relationships and experience
 state around that unchanged baseline.
 
@@ -680,10 +682,10 @@ A new command and website inspector are complete when:
   completion;
 - L2 owns shared section, row, and shaping semantics where applicable;
 - the final shared result is an `InspectionEnvelope<TContent>` whose content,
-  Share, and diagnostics agree across hosts for an equivalent plan;
+  PortableProjection, and diagnostics agree across hosts for an equivalent plan;
 - broader clients request and compose additional owner-issued content rather
   than privately extending the baseline;
-- exactly one of Execute or Discover is selected, while Share remains required
+- exactly one of Execute or Discover is selected, while PortableProjection remains required
   and causes no duplicate content execution;
 - CLI and Web lower their gestures into the same host-neutral plans;
 - host-specific code is limited to authorization, lifetime, transport,

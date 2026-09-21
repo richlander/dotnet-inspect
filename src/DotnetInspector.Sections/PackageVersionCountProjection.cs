@@ -55,9 +55,10 @@ internal static class PackageVersionCountProjection
         InspectionEnvelope<TContent> source,
         PackageVersionPopulationCountOutcome.Completed count) =>
         new(
+            InspectionContentKind.Result,
             count.Result.Value,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-version-count/share",
-                "Package version Count does not yet have a canonical Workspace Share projection."),
+                InspectionPortableProjectionFailureReason.NotSupported),
             source.Diagnostics);
 }

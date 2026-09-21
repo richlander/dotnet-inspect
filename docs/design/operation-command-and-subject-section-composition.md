@@ -73,7 +73,7 @@ The package coordinate, target framework, selected library, exact subject,
 Workspace population, and source authority come from the subject command.
 The section contributes an authored operation preset. Equivalent top-level and
 subject-first requests consume the same host-neutral operation and preserve the
-same Content, Share outcome, diagnostics, limits, and completeness.
+same Content, portable projection, diagnostics, limits, and completeness.
 
 ## Retained top-level operations
 

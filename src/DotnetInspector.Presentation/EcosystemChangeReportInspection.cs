@@ -93,9 +93,10 @@ public static class EcosystemChangeReportInspection
         EcosystemChangeReportDocument document =
             EcosystemChangeReportPresentation.Create(collected);
         return new(
+            InspectionContentKind.Document,
             document,
-            new InspectionShare.NonProjectable(
+            new InspectionPortableProjection.NonProjectable(
                 "package-changes/share",
-                "Package Activity does not yet have a canonical Workspace Share projection."));
+                InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

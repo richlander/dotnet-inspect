@@ -359,7 +359,7 @@ Internal services, prerequisite queries, and Workspace operations return their
 owner-issued results; this design does not make the envelope universal. A
 completed host-neutral terminal operation already adopted under
 [Inspection Envelope](inspection-envelope.md) may wrap detached content and its
-Share outcome. Such an envelope contains no Workspace, session, group, lease,
+portable projection. Such an envelope contains no Workspace, session, group, lease,
 stream, callback, opener, metadata reader, or cache handle. Diagnostics cannot
 substitute for a typed failure or incomplete outcome.
 

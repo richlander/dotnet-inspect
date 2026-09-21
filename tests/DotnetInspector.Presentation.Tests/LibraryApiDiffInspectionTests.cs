@@ -33,15 +33,26 @@ public sealed class LibraryApiDiffInspectionTests
                 GenerousLimits);
 
         Assert.Equal(pathBacked.Content, memoryBacked.Content);
-        InspectionShare.NonProjectable pathShare =
-            Assert.IsType<InspectionShare.NonProjectable>(pathBacked.Share);
-        InspectionShare.NonProjectable memoryShare =
-            Assert.IsType<InspectionShare.NonProjectable>(memoryBacked.Share);
-        Assert.Equal(pathShare.Path, memoryShare.Path);
-        Assert.Equal(pathShare.Reason.ToString(), memoryShare.Reason.ToString());
-        Assert.Equal("comparison/endpoints", pathShare.Path);
-        Assert.Contains("ordered endpoints", pathShare.Reason.ToString(), StringComparison.Ordinal);
-        Assert.Contains("API scope", pathShare.Reason.ToString(), StringComparison.Ordinal);
+        InspectionPortableProjection.NonProjectable pathProjection =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(pathBacked.PortableProjection);
+        InspectionPortableProjection.NonProjectable memoryProjection =
+            Assert.IsType<InspectionPortableProjection.NonProjectable>(memoryBacked.PortableProjection);
+        Assert.Equal(pathProjection.Path, memoryProjection.Path);
+        Assert.Equal(pathProjection.Reason, memoryProjection.Reason);
+        Assert.Equal(pathProjection.Explanation, memoryProjection.Explanation);
+        Assert.Equal("comparison/endpoints", pathProjection.Path);
+        Assert.Equal(
+            InspectionPortableProjectionFailureReason.NotSupported,
+            pathProjection.Reason);
+        string explanation = Assert.IsType<string>(pathProjection.Explanation);
+        Assert.Contains(
+            "ordered endpoints",
+            explanation,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "API scope",
+            explanation,
+            StringComparison.Ordinal);
         Assert.Equal(pathBacked.Diagnostics.ToArray(), memoryBacked.Diagnostics.ToArray());
         Assert.Equal(pathBacked, memoryBacked);
 

@@ -714,7 +714,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal("system.text.json", settled.Result.Request.PackageId);
         Assert.Equal(PackageVersionDiscoveryFreshness.RefreshedForRequest, settled.Result.Freshness);
         Assert.Single(settled.Result.SourceListings);
-        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
         Assert.Empty(envelope.Diagnostics);
     }
 
