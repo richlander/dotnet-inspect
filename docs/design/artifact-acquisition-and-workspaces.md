@@ -4301,7 +4301,7 @@ success-shaped rejection.
 `WorkspaceAdmission_RejectsForeignRevisionAndSettlesTransferredResources`, and
 `WorkspaceAdmission_RegistrationChangesDoNotRevokeAcceptedOccurrence` gate
 the accepted and clean-rejection paths through the public API.
-`WorkspaceAdmission_DuplicateSessionMisuseDoesNotRetireAcceptedResources`
+`WorkspaceAdmission_SameWorkspaceDuplicateDoesNotRetireAcceptedResources`
 gates the pre-transfer duplicate-session boundary.
 `WorkspaceAdmission_CleanupFailureProducesTypedFailedOutcome` directly gates
 failure visibility.
