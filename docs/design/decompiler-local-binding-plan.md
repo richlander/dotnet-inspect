@@ -182,12 +182,16 @@ For a successful plan:
 7. Planning the same finalized body with the same options produces the same
    result.
 
-The first implementation must gate these positive properties in Release.
-This specification PR adds no implementation and therefore leaves them
-**unverified** as properties of a new planner. Existing output behavior remains
-covered by `PdbLocalDeclarationScopeTests`, `PdbLocalNameScopeTests`,
-`PdbLocalScopeFidelityTests`, `NestedScopeNameCollisionTests`,
-`ReadableLocalNamesTests`, and `ByteNeutralityGateTests`.
+The first production adoption gates the declaration-ownership subset in
+Release: `PdbLocalDeclarationScopeTests` checks that the plan owns
+materialized-local declarations, excludes residual stack slots, covers raised
+nested bodies, and supplies the emitted scopes consumed by exact-name
+allocation. Existing output behavior remains covered by
+`PdbLocalNameScopeTests`, `PdbLocalScopeFidelityTests`,
+`NestedScopeNameCollisionTests`, `ReadableLocalNamesTests`, and
+`ByteNeutralityGateTests`. Completing final approximate, synthesized, and
+fallback allocation as one closed plan remains **unverified** until later
+adoption slices.
 
 An eventual claim that no semantic declaration or local-name decision remains
 in the printer is a composition absence claim. Before making it, the operator
@@ -213,6 +217,15 @@ lambdas, and raised local functions. It must:
 A side-by-side computation is bounded migration evidence. It is not a
 long-lived second authority: the adoption slice names the production consumer
 and removes the replaced decision path.
+
+The first production consumer is `CSharpPrinter`: it consumes the
+pipeline-owned `LocalDeclarationPlan` for materialized-local declaring stores,
+syntax-owned declarations, verified `out` declarations, unsafe-placement
+dispositions, and exact emitted scopes. `ExactLocalNameAllocation` and
+`PdbLocalScopePass` consume those same emitted scopes directly. The former
+printer callback and its duplicate materialized-local collection path have
+been removed; residual `StoreStackSlot` declaration handling remains in the
+printer for the #2095 adoption.
 
 ## Pathological case
 
