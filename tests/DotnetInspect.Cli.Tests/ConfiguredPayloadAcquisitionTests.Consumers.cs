@@ -85,6 +85,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [InlineData("full", 3)]
     [InlineData("checkpoints", 2)]
     [InlineData("adaptive", 2)]
+    [InlineData("adaptive-large-budget", 2)]
+    [InlineData("survey", 2)]
     [InlineData("all", 3)]
     [InlineData("endpoints", 2)]
     [InlineData("midpoint", 1)]
@@ -101,6 +103,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             args.AddRange(["--at", "first", "--at", "last"]);
         else if (selection == "adaptive")
             args.AddRange(["--max-probes", "2"]);
+        else if (selection == "adaptive-large-budget")
+            args.AddRange([
+                "--max-probes",
+                "2147483647",
+                "--format", "json",
+            ]);
+        else if (selection == "survey")
+            args.AddRange(["--sample-percent", "50"]);
         else if (selection == "all")
             args.AddRange(["--at", "all"]);
         else if (selection is "endpoints" or "midpoint")
@@ -120,6 +130,107 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
         if (selection == "adaptive")
             Assert.Contains("## Outcome", result.Output);
+        if (selection == "adaptive-large-budget")
+        {
+            using var content = JsonDocument.Parse(result.Output);
+            JsonElement history = content.RootElement
+                .GetProperty("document")
+                .GetProperty("content");
+            Assert.Equal(
+                int.MaxValue,
+                history.GetProperty("evaluation_plan")
+                    .GetProperty("maximum_probes")
+                    .GetInt32());
+            Assert.Equal(
+                int.MaxValue,
+                history.GetProperty("authorized_probe_count").GetInt32());
+            Assert.Equal(
+                2,
+                history.GetProperty("evaluations").GetArrayLength());
+        }
+    }
+
+    [Fact]
+    public async Task
+        DiffHistoryRange_SurveyUsesPercentageAndAbsoluteCap()
+    {
+        const string Id = "range.diff-history.survey";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                [
+                    "1.0.0",
+                    "2.0.0",
+                    "3.0.0",
+                    "4.0.0",
+                    "5.0.0",
+                    "6.0.0",
+                    "7.0.0",
+                    "8.0.0",
+                ],
+                version => CreateApiPackage(Id, version),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..8.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--sample-percent", "50",
+                "--max-probes", "3",
+                "--format", "json",
+                "--tips", "q",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            3,
+            requests.Count(static request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/1.0.0/",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/8.0.0/",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            requests,
+            static request => request.Contains(
+                "/4.0.0/",
+                StringComparison.Ordinal));
+
+        using var content = JsonDocument.Parse(result.Output);
+        JsonElement history = content.RootElement
+            .GetProperty("document")
+            .GetProperty("content");
+        JsonElement plan = history.GetProperty("evaluation_plan");
+        Assert.Equal(
+            "representativeSurvey",
+            plan.GetProperty("plan").GetString());
+        Assert.Equal(50, plan.GetProperty("sample_percent").GetInt32());
+        Assert.Equal(3, plan.GetProperty("maximum_probes").GetInt32());
+        Assert.Equal(3, history.GetProperty("authorized_probe_count").GetInt32());
+        Assert.Equal(3, history.GetProperty("evaluations").GetArrayLength());
+        Assert.All(
+            history.GetProperty("probes").EnumerateArray(),
+            probe => Assert.Equal(
+                "RepresentativeSample",
+                probe.GetProperty("purpose").GetString()));
+        Assert.Equal(
+            "representativeSurveyCompleted",
+            history.GetProperty("terminal_outcome")
+                .GetProperty("outcome")
+                .GetString());
     }
 
     [Theory]

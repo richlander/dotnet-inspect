@@ -2,12 +2,6 @@
 
 ## Unreleased
 
-- **Breaking:** Replaces the separate `--json`, `--markdown`, `--plaintext`,
-  `--table`, `--tsv`, and `--jsonl` presentation switches with the single
-  long-only `--format <FORMAT>` option. Retains the familiar `-o` /
-  `--output <PATH>` destination spelling and removes `--out`. Standalone
-  Mermaid uses `--format mermaid`; `--mermaid` now embeds supported diagrams
-  in Markdown.
 - Makes `-n` adapt to the active command's available item sequence: declared
   semantic rows remain preferred, while commands and modes without semantic
   row adoption now select rendered lines instead of rejecting the count.
@@ -15,7 +9,7 @@
   `implements` and `extensions` is treated as type-filter input rather than a
   legacy count or migration diagnostic (#4677).
 - Adds complete service `--envelope` output to `package activity` with result
-  kind `ecosystem-change-report` and schema version `1`. Unprojected `--format json`
+  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
   emits the same owner-issued report Content without the service frame.
   Report request controls remain admitted while projection, Count, discovery,
   section selection, row shaping, and competing formats are rejected. Typed
@@ -112,7 +106,7 @@
   roots; add `-S Dependencies` for declaration evidence without traversal.
   The retired command token remains reserved and reports this replacement
   guidance instead of being interpreted as a package target (#5995).
-- **Breaking:** Positional `depends <type> --format json` now serializes the shared
+- **Breaking:** Positional `depends <type> --json` now serializes the shared
   camelCase `TypeDependencySectionResult` Content directly. The former
   presentation graph was `{nodes, edges, depth_boundaries,
   package_projections}`: node identities carried `kind`, nodes and edges
@@ -127,7 +121,7 @@
   Discover, Count JSON, and non-JSON output are unchanged (#6719).
 - Adds presence-only `--envelope` to positional `depends <type>`, implying JSON
   and emitting schema version `1`, result kind `type-dependencies`, the same
-  Content serializer used by `--format json`, Share, and ordered diagnostics.
+  Content serializer used by `--json`, Share, and ordered diagnostics.
   Framing uses lower snake case; Share preserves `available` and
   `nonProjectable`, diagnostic severity remains `Information`, `Warning`, or
   `Error`, absent correspondence remains `null`, and no `evidence` member is
@@ -144,7 +138,7 @@
   produce typed `nonProjectable` Share without changing successful Content.
   Asset mode, other commands, evidence capture, and
   `--evidence-envelope` have not adopted this transport (#6719, #7117, #7126).
-- **Breaking:** Unprojected `diff --format json` on the shared single-Library API
+- **Breaking:** Unprojected `diff --json` on the shared single-Library API
   route now emits complete `LibraryApiDiffOutcome` Content instead of the
   former `{changes: ...}` presentation view. Root `outcome` is `available`,
   `unavailable`, or `rejected`; Available includes `document`, while
@@ -154,7 +148,7 @@
   Explicitly filtered or sectioned JSON keeps its presentation schema.
 - Adds `diff --envelope` for ordinary API comparison with exactly one Library
   at each endpoint, using schema version `1`, result kind `library-api-diff`,
-  and the common buffered writer. Content matches unprojected `--format json`;
+  and the common buffered writer. Content matches unprojected `--json`;
   Share remains non-projectable at `comparison/endpoints`. Typed non-success
   is serialized before returning failure; acquisition failure fabricates no
   result. `--compact` formats either complete JSON boundary, rejects projected
@@ -226,9 +220,9 @@
 - **Breaking:** Renames `match --implementation` to `match --body`, with
   a `Method Body Diff` view. Body comparison now consumes the shared Queries
   designated-pair path and retains native endpoint and failure outcomes.
-  `--body --format json` uses a `match`/`body` envelope with typed native results
+  `--body --json` uses a `match`/`body` envelope with typed native results
   instead of the former `match`/`implementation` presentation envelope.
-  Plain `match --format json` is unchanged (#5925).
+  Plain `match --json` is unchanged (#5925).
 
 ## v0.22.0
 

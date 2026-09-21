@@ -1,16 +1,15 @@
 ---
 name: dotnet-inspect-relationships
 version: 0.1.0
-description: Map how code connects — implementors and subclasses, extension methods, dependency graphs, reverse callers, and ecosystem integrations. Many outputs are graph-shaped (use --format mermaid).
+description: Map how code connects — implementors and subclasses, extension methods, dependency graphs, reverse callers, and ecosystem integrations. Many outputs are graph-shaped (add --mermaid).
 ---
 
 # dotnet-inspect: relationships and dependency graphs
 
 Use this skill to map how code connects: what implements or extends a type, what
 it depends on, and who calls it. Dependency graphs and Member Call Graphs share
-the same graph gestures: add `--tree` for a standalone path view,
-`--format mermaid` for a standalone diagram, or `--mermaid` to embed one in
-Markdown.
+the same graph gestures: add `--tree` for a standalone path view, `--mermaid`
+for a standalone diagram, or `--markdown --mermaid` to embed one.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -85,21 +84,21 @@ omits the positional type and walks explicit package manifests, restored
 projects, and library references. `--depth 1` includes direct edges only;
 omitting it follows the complete authorized graph. Shared targets remain
 distinct incoming edges and appear as revisits in tree output. `-D`, `-S`,
-`--format table`, `--format tsv`, `--format jsonl`, `--format json`, `--count`, `--rows`, and `-n` address
+`--table`, `--tsv`, `--jsonl`, `--json`, `--count`, `--rows`, and `-n` address
 the existing section and logical-row contracts. For positional type mode only,
-unprojected `--format json` is now the complete camelCase
+unprojected `--json` is now the complete camelCase
 `TypeDependencySectionResult`, not the former flattened presentation graph.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
-dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --format mermaid
+dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
-dnx dotnet-inspect -y -- depends Int128 --format table --rows 1..10
+dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
 dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
 dnx dotnet-inspect -y -- depends Int128 \
   --where "Kind=Interface" \
   --order-by "Target desc" \
-  --top 5 --format table
+  --top 5 --table
 dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -107,7 +106,7 @@ dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
 dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
-  --format json
+  --json
 dnx dotnet-inspect -y -- depends \
   --project ./src/App/App.csproj \
   --depth 2 \
@@ -148,10 +147,10 @@ or Mermaid output.
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
 `schema_version: 1`, `result_kind: "type-dependencies"`, the same Content as
-the paired `--format json` command, Share, and ordered diagnostics. The Content keeps
+the paired `--json` command, Share, and ordered diagnostics. The Content keeps
 the complete dependency relationships plus the selected
 `rowSelection.relationships`; dependency enums remain numeric.
-The service constructs Share for both JSON modes, but `--format json` emits Content
+The service constructs Share for both JSON modes, but `--json` emits Content
 only; `--envelope` exposes Share.
 
 For one exact NuGet.org package version and TFM, `share.kind` is normally
@@ -164,7 +163,7 @@ user-drillable graph.
 
 With `--envelope`, use `--compact` for minified JSON. `--depth` remains
 traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
-selection. Do not combine it with `--format json`, another format, Discover or schema
+selection. Do not combine it with `--json`, another format, Discover or schema
 modes, `-S`, explicit `-v`, Count, fields/columns, decoration, projections, or
 rendered-line clipping. `--verbose`, `--info`, and `--tips` remain on stderr;
 explicit `--share` retains the existing final-line URL/packet policy. Asset
@@ -192,15 +191,15 @@ consume the same selected vector, and neighboring `@Calls`, mixed-section,
 discovery, and verbosity-implied modes retain rendered-line fallback.
 
 ```bash
-dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls -n 1 --tail --format json
+dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls -n 1 --tail --json
 dnx dotnet-inspect -y -- member string -m IndexOf~147d84bbd7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
 `Call Graph` is the bounded bidirectional view centered on one member: inbound
 callers toward entry points plus outbound calls. Its default Markdown view is
 an edge table. Select `--tree` for a standalone path-oriented view,
-`--format mermaid` for a standalone diagram, or `--mermaid` for a diagram
-inside the Markdown document. For scripts, `--format tsv` and `--format jsonl` expose the
+`--mermaid` for a standalone diagram, or `--markdown --mermaid` for a diagram
+inside the Markdown document. For scripts, `--tsv` and `--jsonl` expose the
 same ordered edges. Machine fields `from` and `to` are always present;
 `from_group`, `to_group`, and `label` appear only when the whole graph uses
 them. A row window does not change that schema. `--count` and `--rows` address
@@ -218,9 +217,9 @@ graph analysis.
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tree
-dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --format mermaid
-dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --format markdown --mermaid
-dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --format jsonl
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --markdown --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --jsonl
 dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
@@ -258,7 +257,7 @@ dnx dotnet-inspect -y -- library -Q Integrations
 dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 \
   --tfm net8.0 -S Integrations --where "ecosystem=ecosystem.aspire"
 dnx dotnet-inspect -y -- library MyLibrary.dll -S Integrations \
-  --where "integration=integration.aspire" --format jsonl
+  --where "integration=integration.aspire" --jsonl
 ```
 
 Omitting `-S` with either predicate selects `Integrations`. The two facets
@@ -272,9 +271,8 @@ to `library`, not `package --library` or `graph`.
 binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family
 should be narrowed. This is an induced set, not a traversal: it has no direction
-or depth. Markdown is an edge table by default; `--tree`, `--format mermaid`,
-`--format json`, `--format jsonl`, and `--count` project the same logical
-relationships. `--mermaid` embeds that diagram in Markdown. `-n`, bare
+or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
+`--jsonl`, and `--count` project the same logical relationships. `-n`, bare
 `-N`, `--tail`, and strict `--rows` select complete logical edges after the
 graph is built and before those formats; use `--lines` only for explicit
 rendered-line clipping. Row selection does not reduce package acquisition or
@@ -308,8 +306,8 @@ language/runtime integration signals like C# union types.
 
 ```bash
 dnx dotnet-inspect -y -- package Microsoft.Extensions.AI --library -S @Integrations
-dnx dotnet-inspect -y -- library MyLibrary.dll -S "Union Types" --format tsv
-dnx dotnet-inspect -y -- library --platform System.Text.Json -S "Union Types" --format tsv
+dnx dotnet-inspect -y -- library MyLibrary.dll -S "Union Types" --tsv
+dnx dotnet-inspect -y -- library --platform System.Text.Json -S "Union Types" --tsv
 ```
 
 Use `Union Types` when looking for C# union adoption in libraries. It reports

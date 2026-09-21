@@ -78,14 +78,14 @@ PDB acquisition may still use the network.
 
 ## Inspect or print authored member parts
 
-Focused member `-S "Source Locations" --format json` returns `member`, `document`,
+Focused member `-S "Source Locations" --json` returns `member`, `document`,
 and `pdb_span`, without acquiring source text. The PDB span is executable
 source, not a complete member boundary. Add `--source-parts` to acquire and
 verify source, then discover lexical `parts` separately from that span.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
-  Serialize:1 --source-parts --format json
+  Serialize:1 --source-parts --json
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
   Serialize:1 --print --part xml-docs
 ```
@@ -98,8 +98,8 @@ includes its delimiters. Unavailable parts fail rather than selecting a
 substitute. Multiple documentation or attribute fragments are joined with LF;
 selection uses exact character spans, not whole-line slicing.
 
-Discovery supports Markdown, plaintext, and `--format json`. Printing supports
-ordinary text and `--format json`, `--format jsonl`, or `--json-array`; JSON preserves the
+Discovery supports Markdown, plaintext, and `--json`. Printing supports
+ordinary text and `--json`, `--jsonl`, or `--json-array`; JSON preserves the
 selected source characters. Rendered CLI text restores each fragment's original
 first-line indentation and follows normal LF and text-containment rules.
 Unqualified `--print` still prints the whole file.
@@ -116,7 +116,7 @@ you want the referenced source body. `--bare` remains a raw selected-payload
 escape hatch.
 
 ```bash
-dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --format jsonl
+dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files" --urls --prefer-rendered-urls
 ```

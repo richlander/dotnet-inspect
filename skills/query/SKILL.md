@@ -10,10 +10,11 @@ The query system is like Go templates, without a DSL: inspection commands emit
 structured sections, with the broadest shared query surface on `type`, `member`,
 `package`, and `library`. `project` supports `-D` and `-S` but not general
 field/column projection. `find` supports `-D` discovery and field/column
-projection but not `-S` selection. `diff` supports `-D` and `-S` but not
-field/column projection. `timeline` supports section selection and projection
-but not `-D` discovery. `workspace` supports output formats, `--count`, and
-`--rows`, but not discovery, section selection, or field projection.
+projection but not `-S` selection. Pairwise `diff` supports `-D` and `-S` but
+not field/column projection. `diff --history` supports section selection and
+projection but not `-D` discovery. `workspace` supports output formats,
+`--count`, and `--rows`, but not discovery, section selection, or field
+projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
 projection across its dependency graph and evidence sections. Several commands
 also expose a separate complete-service `--envelope` path described below.
@@ -28,24 +29,24 @@ dnx dotnet-inspect -y -- <command>
 
 Default output is Markdown. Pick a machine or compact shape when you need one:
 
-- `--format table` — compact aligned rows.
-- `--format tsv` — stable snake_case headers, no embedded tabs/newlines.
-- `--format jsonl` — one JSON object per row.
+- `--table` — compact aligned rows.
+- `--tsv` — stable snake_case headers, no embedded tabs/newlines.
+- `--jsonl` — one JSON object per row.
 - `--json-array` — one JSON array for projected rows (`--urls`, `--paths`, `--value`, `--print`).
-- `--format json` — structured documents.
+- `--json` — structured documents.
 - `--bare` — one undecorated payload or URL list.
 - `--count` — a bare row count.
 - `--value` / `--urls` / `--paths` — project one selected section to scalar, URL, or path payloads.
 - `--print` — print one document behind a selected section row; use `--row N|first|last` when the section renders multiple rows.
 - `--tree` — a standalone tree for graph sections that support tree lowering.
-- `--format mermaid` — a standalone diagram.
-- `--mermaid` — embed supported diagrams in Markdown output.
+- `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
+  the diagram in a Markdown document.
 
 `--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
-Workspace coordinate replacement also uses `--envelope` alone. An envelope is
-not a presentation format: use it only when Share or service diagnostics are
-part of the answer.
+Workspace coordinate replacement is the exception: request
+`--json --envelope` together. An envelope is not a presentation format above
+`--json`: use it only when Share or service diagnostics are part of the answer.
 
 | Route | Why the envelope can matter |
 | ----- | --------------------------- |
@@ -57,9 +58,9 @@ part of the answer.
 | `library query` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
 | Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
-| Workspace coordinate replacement (`--envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
+| Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
 
-For adopted routes whose unprojected `--format json` is complete Content, that JSON is
+For adopted routes whose unprojected `--json` is complete Content, that JSON is
 semantically identical to `--envelope`'s `content`; whitespace and property
 order may differ. Package version JSON is the exception noted above.
 `--compact` minifies supported JSON boundaries. Post-service presentation
@@ -68,10 +69,10 @@ incompatible unless the route explicitly defines them as semantic inputs.
 Asset-mode `depends`, Member `Call Graph`, other command routes, internal
 sub-operations, and `--evidence-envelope` remain unadopted.
 
-On `find`, plain `--format json` retains the typed root result array. Adding
+On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
 JSON document containing the same selected rows and snake_case fields as the
-`--format tsv` and `--format jsonl` formats.
+`--tsv` and `--jsonl` formats.
 
 For `member -S "Call Graph"`, default Markdown is an edge table. Choose the
 view for the task without changing the graph or its ordered edge rows:
@@ -79,18 +80,18 @@ view for the task without changing the graph or its ordered edge rows:
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tree
-dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --format mermaid
-dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --format markdown --mermaid
-dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --format tsv
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --markdown --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tsv
 ```
 
 Use the Markdown table when edge evidence belongs in a document, `--tree` when
 call paths are the natural reading order, Mermaid for a diagram, and
-`--format tsv`/`--format jsonl` for one machine-readable edge row per relationship.
+`--tsv`/`--jsonl` for one machine-readable edge row per relationship.
 `from` and `to` are always present; `from_group`, `to_group`, and `label`
 appear only when the whole graph uses them. A row window can therefore retain
 an optional field even when its selected values are empty. `--tree` and
-`--format mermaid` do not mix with another explicitly selected output
+standalone `--mermaid` do not mix with another explicitly selected output
 format.
 
 ## Discover and select sections
@@ -103,9 +104,9 @@ On `library`, add `--details` to bare `-D` or one exact category or section to
 include supported presentation modes without acquiring the target.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --format tsv
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -D "Member Index" --format tsv
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --format tsv
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -D "Member Index" --tsv
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 dnx dotnet-inspect -y -- library System.Text.Json -D --details
 dnx dotnet-inspect -y -- library System.Text.Json -D @Dependencies --details
 dnx dotnet-inspect -y -- library System.Text.Json -D "Reference Hierarchy" --details
@@ -198,7 +199,7 @@ Use it before constructing filters; displayed columns do not imply support for
 ```bash
 dnx dotnet-inspect -y -- library -Q
 dnx dotnet-inspect -y -- type -Q "Body Shapes"
-dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --format json
+dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
 dnx dotnet-inspect -y -- library -Q @Performance
 dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
 dnx dotnet-inspect -y -- package -Q "Dependency Hierarchy"
@@ -223,11 +224,11 @@ as API-search predicates.
 operators, values, and examples admitted by the CLI:
 
 ```bash
-dnx dotnet-inspect -y -- package query -Q Packages --format json
+dnx dotnet-inspect -y -- package query -Q Packages --json
 dnx dotnet-inspect -y -- package query Azure.Mcp \
   --where "tool=true"
 dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
-  --where "tool-format=v2" --take 20 -n 5 --format jsonl
+  --where "tool-format=v2" --take 20 -n 5 --jsonl
 dnx dotnet-inspect -y -- package query wix \
   --where "license=OSMF" --nuspec-only
 dnx dotnet-inspect -y -- package query Newtonsoft.Json \
@@ -255,7 +256,7 @@ dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
 for an explicit top-level DLL directory or platform reference pack:
 
 ```bash
-dnx dotnet-inspect -y -- library query -Q Libraries --format json
+dnx dotnet-inspect -y -- library query -Q Libraries --json
 dnx dotnet-inspect -y -- library query ./bin \
   --where "references=System.Text.Json"
 dnx dotnet-inspect -y -- library query --platform runtime \
@@ -354,7 +355,7 @@ remain distinct.
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer \
   --package System.Text.Json Serialize:1 \
-  -S "Finding Census" --format json
+  -S "Finding Census" --json
 ```
 
 The section is explicit-only: categories, broad wildcards, and non-exact
@@ -371,16 +372,16 @@ the explicit-only `Body Shapes` section when no `-S` selection is present:
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
 dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=ObjectCreationExpression" --format jsonl
+  --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=InvocationExpression" \
   --where "Finding=analysis.call-site" \
   --where "Shape=sync-call-in-async" \
-  --where "Confidence>=medium" --format jsonl
+  --where "Confidence>=medium" --jsonl
 dnx dotnet-inspect -y -- member Widget Render:1 --library MyLib.dll \
-  --where "Kind=InvocationExpression" --format jsonl
+  --where "Kind=InvocationExpression" --jsonl
 dnx dotnet-inspect -y -- type Widget --library MyLib.dll \
-  --where "Kind=InvocationExpression" --format jsonl
+  --where "Kind=InvocationExpression" --jsonl
 ```
 
 At library scope, repeated Performance Triage predicates are ANDed before
@@ -418,7 +419,7 @@ applying output limits.
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Arrays" \
-  --where "Finding=analysis.allocation" --order-by "RootReach desc" --format jsonl
+  --where "Finding=analysis.allocation" --order-by "RootReach desc" --jsonl
 ```
 
 `Performance:*` orders within each `Kind` group before flattening, while
@@ -454,8 +455,8 @@ Member `Call Graph` is the current exception: its legacy command-owned
 an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `match --similar`, `package query`, `library query`, package activity, package
-`--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
+`diff --history`, `match --similar`, `package query`, `library query`, package
+activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
 selected Project document inventories, explicit-source Type catalogs, and
 exact Member `Calls` and `Callers` have semantic adoption in their supported

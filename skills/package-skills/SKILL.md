@@ -25,7 +25,7 @@ If the count is nonzero, ask for the inventory. It includes the resolved package
 version, package-relative path, skill name, and description:
 
 ```bash
-dnx dotnet-inspect -y -- project path/to/project -S Skills --format jsonl
+dnx dotnet-inspect -y -- project path/to/project -S Skills --jsonl
 ```
 
 Use this view first because its package versions match the code. Compare the

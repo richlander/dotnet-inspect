@@ -30,7 +30,8 @@ full zero-network evidence set:
 - `IL` — raw IL, the highest-fidelity view.
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
-calls matter. Use `--bare` for a whole-type listing.
+calls matter. One selected Type or Member source payload writes native source by
+default; add `--markdown` when document framing is useful.
 `-S @Source` is broader and may fetch network `PDB Source` content when
 SourceLink is available; the fetch follows host-permitted redirects and returns
 the body only when it matches the PDB checksum, without treating the final
@@ -42,7 +43,7 @@ changed.
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json \
   Serialize:1 -S "Decompiled Source,Annotated Source,IL" --offline
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Annotated Source"
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source" --bare
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source"
 dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled Source,Annotated Source,IL"
 ```
 
@@ -57,19 +58,19 @@ the IDs instead of guessing them:
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
 dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Kind=ObjectCreationExpression" --format jsonl
+  --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- library System.Text.Json \
   --where "Kind=TryStatement" --columns "Member;Token;Match" --rows 10
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=InvocationExpression" \
   --where "Finding=analysis.call-site" \
-  --where "Shape=sync-call-in-async" --format jsonl
+  --where "Shape=sync-call-in-async" --jsonl
 dnx dotnet-inspect -y -- type JsonDocument \
   --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --format jsonl
+  --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
   --platform System.Text.Json \
-  --where "Kind=ObjectCreationExpression" --format jsonl
+  --where "Kind=ObjectCreationExpression" --jsonl
 ```
 
 `Kind=...` auto-selects the explicit-only section when no `-S` selection is

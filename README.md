@@ -96,7 +96,7 @@ Discover the stable IDs accepted by body queries:
 
 ```bash
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
-  --columns "ID;Label" -n 5 --format table
+  --columns "ID;Label" -n 5 --table
 ```
 
 Then use one as a typed predicate. `Kind=...` auto-selects `Body Shapes`, while
@@ -136,7 +136,7 @@ Hiding columns never groups rows. Summary row limits select groups without
 reducing their occurrence counts; `--count` counts the selected view's rows.
 Both views are available on `library`, `type`, and `member`.
 
-Use `--format jsonl` for one machine-readable row per match or `--count` for the row
+Use `--jsonl` for one machine-readable row per match or `--count` for the row
 count. Bodies that cannot be reconstructed at full fidelity are reported on
 stderr rather than mixed into structured output.
 
@@ -164,7 +164,7 @@ stderr rather than mixed into structured output.
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
-| Agent-friendly output | global flags | Markdown by default, compact `--format table`, normalized `--format tsv`, `--format jsonl`, `--format json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
+| Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
 ## Command inventory
 
@@ -264,7 +264,7 @@ evidenced security releases:
 ```bash
 dotnet-inspect package activity --ecosystem aspire
 dotnet-inspect package activity --ecosystem aspnetcore --security-only
-dotnet-inspect package activity --ecosystem microsoft-extensions -n 25 --format json
+dotnet-inspect package activity --ecosystem microsoft-extensions -n 25 --json
 dotnet-inspect package activity --ecosystem aspire \
   --from 2026-02-01T00:00:00Z \
   --through 2026-03-01T00:00:00Z
@@ -274,7 +274,7 @@ dotnet-inspect package activity --ecosystem aspire \
 UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
 activity with positive current-advisory or exact security-release evidence.
 Unavailable evidence is not treated as a negative. Human output uses the shared
-report view; `--format json` emits the lossless schema-versioned report, while
+report view; `--json` emits the lossless schema-versioned report, while
 `--envelope` emits the same report as Content with Share and diagnostics.
 `--compact` minifies either JSON boundary. Use `--verbose` for bounded
 acquisition progress on stderr. Single-table formats and catalog-only section
@@ -294,7 +294,7 @@ dotnet-inspect library -Q Integrations
 dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
   -S Integrations --where "ecosystem=ecosystem.aspire"
 dotnet-inspect library ./MyLibrary.dll -S Integrations \
-  --where "integration=integration.aspire" --format jsonl
+  --where "integration=integration.aspire" --jsonl
 ```
 
 These facets filter Integration evidence and opportunities, not assembly-wide
@@ -328,8 +328,8 @@ workflow in more depth.
 ```bash
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S @Performance --count
-dotnet-inspect library System.Text.Json -S "Performance: Boxing" --format json -T q
-dotnet-inspect library System.Text.Json -S "Performance: Strings" --format json -T q
+dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
+dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
@@ -389,31 +389,18 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 
 ## Output and querying
 
-Default output is Markdown. For compact human scanning use `--format table`;
-for machine-friendly rows use `--format tsv` or `--format jsonl`; for
-structured documents use `--format json`; for plain text use
-`--format plaintext`; and for standalone diagrams use `--format mermaid`.
-Add `--mermaid` to Markdown output to embed supported diagrams. Use `-o` or
-`--output` to write the selected output to a file instead of stdout; destination
-does not select a format. `--format` is long-only; `-f` remains available for
-framework selection where supported. Use `-T q` to suppress tips in
-script-oriented commands. See
-[CLI Output Format and Destination](docs/design/cli-output-format.md) for the
-complete contract.
-
-```bash
-dotnet-inspect package System.Text.Json --format json
-dotnet-inspect package System.Text.Json --format json \
-  --output artifacts/system-text-json.json
-```
+Default output is Markdown. For compact human scanning use `--table`; for
+machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
+`--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
+Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, ordinary and `--library-literal` Package Query, and online package
 range-version population, and exact package-backed Type or Library API
 inspection support the presence-only `--envelope` service-output selector. It
 implies JSON. For `depends`, API Diff, Package Activity, Package Query, and
-exact Type or Library API inspection, unprojected `--format json` emits the same
-Content without the service frame. Package version `--format json` remains an explicit
+exact Type or Library API inspection, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
 row projection;
 `--envelope` instead exposes the complete directed population Document, Share,
 and diagnostics. Asset-mode `depends`, other Diff modes, Discover, Count outside
@@ -435,7 +422,7 @@ not adopted this transport.
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
 
-`--format table`, `--format tsv`, and `--format jsonl` render one section at a time, so pair them
+`--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
@@ -458,7 +445,7 @@ dotnet-inspect library System.Text.Json -D @Dependencies --details
 dotnet-inspect library System.Text.Json -D "Reference Hierarchy" --details
 dotnet-inspect library -Q
 dotnet-inspect type -Q "Body Shapes"
-dotnet-inspect library -Q "Performance: Arrays" --format json
+dotnet-inspect library -Q "Performance: Arrays" --json
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S @Decompiler
@@ -474,7 +461,7 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource \
   -S Integrations --where "integration=integration.opentelemetry"
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
-dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --format jsonl -T q
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 ```
 
 Library `-D --details` is structural and does not acquire the target. It adds a
@@ -482,7 +469,7 @@ Library `-D --details` is structural and does not acquire the target. It adds a
 section in detail. A category reports the formats supported by its complete
 expansion plus the formats of each member; it never selects or drops members to
 satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--format mermaid`.
+single-result projection such as `--tree` or `--mermaid`.
 
 ## Common examples
 
@@ -496,12 +483,12 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
 dotnet-inspect package Newtonsoft.Json@13.0.4 \
-  --tfms -n 1 --tail --format json
+  --tfms -n 1 --tail --json
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Newtonsoft.Json@13.0.4 \
-  --layout --tfm net6.0 -n 1 --tail --format json
+  --layout --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -517,7 +504,7 @@ packet=$(dotnet-inspect workspace \
 dotnet-inspect package System.Text.Json --workspace "$packet"
 dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
-dotnet-inspect package query 'Azure.AI*' --take 100 --format tsv
+dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
@@ -553,7 +540,7 @@ observe the same selected rows; add `--lines` only to clip rendered text.
 
 Online range-version population is metadata-only: it enumerates versions
 without acquiring a package payload. `--count` projects the version Count as a
-scalar, including with `--format json`; `--count --envelope` makes that same integer
+scalar, including with `--json`; `--count --envelope` makes that same integer
 the Content of `InspectionEnvelope<int>`. Without Count, `--envelope` retains
 the complete directed version Document. `--preview`, `--include-unlisted`,
 configured source options, and `--versions-with-feed` remain semantic
@@ -708,7 +695,7 @@ dotnet-inspect package query -Q Packages
 dotnet-inspect package query Azure.Mcp \
   --where "tool=true"
 dotnet-inspect package query 'Azure.Mcp*' \
-  --where "tool-format=v2" --take 20 -n 5 --format jsonl
+  --where "tool-format=v2" --take 20 -n 5 --jsonl
 ```
 
 Repeat `--where` to combine terms; the engine rejects incompatible selections.
@@ -791,7 +778,7 @@ and method-token/IL-offset previews are evidence on that package Result.
 Candidate failures remain visible and prevent an unqualified Count. Candidate
 packages are disposable: they are never added to the package cache.
 
-For both ordinary Package Query and `--library-literal`, unprojected `--format json`
+For both ordinary Package Query and `--library-literal`, unprojected `--json`
 emits the complete owner-issued Content. `--envelope` emits that same Content
 with Share and diagnostics, using result kind `package-query` or
 `package-assembly-semantic-query`. Query controls such as `--where`, `--take`,
@@ -874,11 +861,11 @@ dotnet-inspect workspace --packet "$w" \
 dotnet-inspect workspace --packet "$w" \
   --replace-package 1 --to-tfm net9.0 --share url
 dotnet-inspect workspace --packet "$w" \
-  --replace-package 1 --to-version 12.1.2 --envelope
+  --replace-package 1 --to-version 12.1.2 --json --envelope
 ```
 
 Use `--to-version`, `--to-tfm`, or both, and select either scalar `--share`
-output or `--envelope`. The envelope includes the derived Share,
+output or `--json --envelope`. The envelope includes the derived Share,
 actual Scope outcome, retention/fallback decision and diagnostics. Scalar
 output contains only the complete resulting packet/URL; fallback diagnostics
 go to stderr. No input packet is emitted as a successful failure fallback.
@@ -1020,18 +1007,18 @@ fallback.
 
 ```bash
 dotnet-inspect type string --tree
-dotnet-inspect type --platform System.Text.Json -n 1 --tail --format json
+dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --format json
-dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --format json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
+dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls -n 1 --tail --format json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls -n 1 --tail --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all \
-  -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --format json
-dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --format json
+  -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
@@ -1065,7 +1052,7 @@ Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
 mixed sections, discovery, and scope-implied Callers without the exact selector
 retain their existing row contracts or rendered-line fallback.
 
-Focused member `-S "Source Locations" --format json` reports `member`, `document`, and
+Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
 PDB spans describe executable source, not the entire declaration.
 Opt in with `--source-parts` to acquire checksum-verified source and discover
@@ -1129,7 +1116,7 @@ Use `--tfm` to select one API surface and optional `--library` to narrow the
 source Library. `--all` widens source selection to the existing IncludeAll API
 scope; destination declaration matching remains strict and does not apply a
 second accessibility filter. Plain text and Markdown render the typed result;
-`--format json` emits complete Content, and `--envelope` adds Share and diagnostics.
+`--json` emits complete Content, and `--envelope` adds Share and diagnostics.
 This is separate from root `match`, which compares implementation structure.
 
 Ordinary API diffs with one Library at each endpoint consume the shared
@@ -1139,7 +1126,7 @@ libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
 
-On this route, unprojected `--format json` serializes the complete
+On this route, unprojected `--json` serializes the complete
 `LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
 view. Use `--envelope` for that same Content plus Share and diagnostics;
 `--compact` controls whitespace for either complete JSON boundary, not projected
@@ -1151,7 +1138,7 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --enve
 
 Envelope output accepts `--all`, but rejects Type/classification filters,
 section selection, explicit verbosity, row/line windows, and non-API modes.
-Explicitly projected JSON, such as `-S Changes --format json`, retains its existing
+Explicitly projected JSON, such as `-S Changes --json`, retains its existing
 presentation schema. Share is explicitly non-projectable for comparison
 endpoints; it is not a replay URL.
 
@@ -1205,7 +1192,7 @@ dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
   --type Markout.MarkoutWriter \
   -S "Complexity Context" \
   --columns Member,State,Delta,PopulationSize,PercentileRank,Kind \
-  --format jsonl
+  --jsonl
 ```
 
 Select `Structural Context` directly to inspect signed instruction, complexity,
@@ -1222,7 +1209,7 @@ dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
   --type Markout.MarkoutWriter \
   -S "Structural Context" \
   --columns Member,InstructionDelta,ComplexityDelta,InstructionDirection,CohortSize,PopulationSize,Kind \
-  --format jsonl
+  --jsonl
 ```
 
 ### Structural matching
@@ -1259,10 +1246,10 @@ selected `rows` length.
 
 Rows are retrieval candidates, not checked clone relations. They retain rank,
 both exact method endpoints, the 0-10,000 total and component scores, and the
-optional type/member name-similarity evidence. Plain `--format json` also retains the
+optional type/member name-similarity evidence. Plain `--json` also retains the
 portable seed, participant identity and provenance, coverage, failures, limits,
-and work receipt. `--rows`, `--columns`, `--fields`, `--count`, `--format table`,
-`--format tsv`, and `--format jsonl` operate at the declared candidate-row output seam.
+and work receipt. `--rows`, `--columns`, `--fields`, `--count`, `--table`,
+`--tsv`, and `--jsonl` operate at the declared candidate-row output seam.
 
 Pairwise `match` remains the checked comparison path:
 
@@ -1276,12 +1263,12 @@ dotnet-inspect match Sample.Encode --similar --library ./app.dll --assembly-wide
 `--body` adds decompiled C# and IL body differences alongside the independent
 structural-match result. Both methods must resolve to the same physical
 assembly. A bodyless or unavailable endpoint stays visible rather than implying
-equal bodies. Use Markdown (the default) or `--format json`; body evidence is not
-supported with `--format table`, `--format tsv`, `--format jsonl`, or `--similar`.
-`--body --format json` returns a `match`/`body` envelope: the body document retains
+equal bodies. Use Markdown (the default) or `--json`; body evidence is not
+supported with `--table`, `--tsv`, `--jsonl`, or `--similar`.
+`--body --json` returns a `match`/`body` envelope: the body document retains
 per-producer native verdicts, physical endpoint addresses and availability,
 structured C#/IL differences, diagnostics, and cleanup outcomes. Plain
-`match --format json` keeps its existing flat structural document. `--body` returns
+`match --json` keeps its existing flat structural document. `--body` returns
 nonzero on query cancellation or failed body comparison while preserving the available output;
 a valid bodyless endpoint is reported as `NoApplicableInput`, not a body match.
 The [publication and CLI gates](docs/design/local-comparison-publication.md#demo-and-gates)
@@ -1300,8 +1287,8 @@ issued by Analysis. Markdown, table, TSV, JSONL, JSON, and `--count` consume the
 same selected candidate sequence. JSON retains the complete per-method
 outcomes, blockers, and query receipt, with `row_selection` counts that
 distinguish returned candidates from selected rows. `--max-results` and
-`--max-methods` move the product retrieval limits themselves. In `--format table`,
-`--format tsv`, and `--format jsonl`, the ranked candidates are the only row shape; the seed,
+`--max-methods` move the product retrieval limits themselves. In `--table`,
+`--tsv`, and `--jsonl`, the ranked candidates are the only row shape; the seed,
 scope, disposition, receipt, blockers, and disclosure are written to stderr so
 stdout stays single-shaped and parseable.
 
@@ -1343,12 +1330,12 @@ dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
   --columns "Ecosystem,Kind,Dependency,Declared By"
 dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
   -S "Dependency Hierarchy" --depth 2 --tree
-dotnet-inspect depends Stream --format markdown --mermaid
-dotnet-inspect depends Int128 --format table --rows 1..10
+dotnet-inspect depends Stream --markdown --mermaid
+dotnet-inspect depends Int128 --table --rows 1..10
 dotnet-inspect depends Int128 \
   --where "Kind=Interface" \
   --order-by "Target desc" \
-  --top 5 --format table
+  --top 5 --table
 dotnet-inspect depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -1356,7 +1343,7 @@ dotnet-inspect depends NpgsqlOptionsExtension \
 dotnet-inspect depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
-  --format json
+  --json
 dotnet-inspect depends \
   --project ./src/App/App.csproj \
   --depth 2 \
@@ -1390,7 +1377,7 @@ dotnet-inspect graph integrations \
   --package Microsoft.Extensions.Http@10.0.0 \
   --tfm net10.0 \
   --relationship integration.observed \
-  -n 10 --tail --format table
+  -n 10 --tail --table
 dotnet-inspect graph calls \
   Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
   AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
@@ -1409,7 +1396,7 @@ dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll \
   -S "Provider API Types" \
-  --format table
+  --table
 ```
 
 For asset roots, `Dependency Hierarchy` is the rooted explanatory result:
@@ -1458,11 +1445,11 @@ nine explanatory edges. Two local connectors retain the path from
 `SuppressInstrumentationScope.get_IsSuppressed` to
 `OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Calls into assemblies not
 declared by `--package` remain visible as `unclassified-boundary` edges with an
-incompleteness warning instead of being silently dropped. Use `--format table`,
-`--format jsonl`, or `--format json` for exact receipts; `-n`, `--tail`, and `--rows` select
+incompleteness warning instead of being silently dropped. Use `--table`,
+`--jsonl`, or `--json` for exact receipts; `-n`, `--tail`, and `--rows` select
 complete logical edges after graph construction.
 
-For positional type dependencies, `--format json` writes the complete
+For positional type dependencies, `--json` writes the complete
 `TypeDependencySectionResult` Content, and `--envelope` writes the identical
 camelCase value under `content` with `schema_version: 1`,
 `result_kind: "type-dependencies"`, `share`, and `diagnostics`. The motivating
@@ -1479,7 +1466,7 @@ the owner values `available` and `nonProjectable`; diagnostic severity remains
 
 With `--envelope`, `--depth` remains a traversal input and `--rows`,
 `-n`/`--head`/`--tail` remain semantic relationship selection. `--compact` is
-accepted. Competing formats, `--format json`, Discover/schema/effective modes, `-S`,
+accepted. Competing formats, `--json`, Discover/schema/effective modes, `-S`,
 explicit `-v`, Count, fields/columns, presentation projections or decoration,
 and rendered-line clipping are rejected before acquisition. `--verbose`,
 `--info`, and `--tips` remain on stderr. `--share` retains its existing policy
@@ -1599,12 +1586,12 @@ dotnet-inspect depends \
   --share
 dotnet-inspect skill list
 dotnet-inspect demo list
-dotnet-inspect demo list -n 3 --format json
+dotnet-inspect demo list -n 3 --json
 ```
 
 `workspace-state encode --url` emits `https://dotnet-inspect.net/?w=<packet>`
 for the existing share-packet JSON shape. Packet-only output remains the default.
-This is not an encoder for `workspace --format json` inventory output. The packet's
+This is not an encoder for `workspace --json` inventory output. The packet's
 existing limits and the browser's supported restoration shapes still apply.
 
 Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
@@ -1636,7 +1623,7 @@ local, floating, ranged, private-feed, multi-source, platform, and
 non-projectable requests fail visibly.
 
 The service constructs Share for positional type JSON regardless of whether
-stderr projection was requested. `--format json` emits Content only; `--envelope`
+stderr projection was requested. `--json` emits Content only; `--envelope`
 exposes Share alongside that Content. A `nonProjectable` Share does not change
 otherwise successful Content or its exit status. Mixed dependency sources and
 any explicit `--depth` are non-projectable because the published Browser

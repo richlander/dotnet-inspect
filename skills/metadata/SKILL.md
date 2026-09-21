@@ -40,9 +40,9 @@ Ranges are inclusive, so `100..199` selects 100 rows:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll \
-  -S "Metadata: MethodDef" --rows 100..199 --format tsv
+  -S "Metadata: MethodDef" --rows 100..199 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll \
-  -S "Metadata: TypeRef" --columns "Name,Namespace,ResolutionScope" --format jsonl
+  -S "Metadata: TypeRef" --columns "Name,Namespace,ResolutionScope" --jsonl
 ```
 
 Table indices are accepted as input aliases when following a token:

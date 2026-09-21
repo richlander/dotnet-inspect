@@ -34,7 +34,7 @@ the same assembly name, culture, and public-key token; assembly versions may
 differ. The CLI uses the portable Library comparison contract intended for
 website Compare. Type-definition or member changes without a compatibility
 assessment remain visible as **Other API Changes** (`unclassified` in
-`-S Changes --format json`/`--format jsonl`/`--format tsv`). Do not treat them as safe or breaking;
+`-S Changes --json`/`--jsonl`/`--tsv`). Do not treat them as safe or breaking;
 `--breaking` and `--additive` select only their assessed classifications.
 
 An incomplete or rejected comparison returns nonzero and reports **not
@@ -44,7 +44,7 @@ stderr. Do not interpret these outcomes as “no API changes.” Multi-Library
 packages, `-m` filtering, Analysis Diff, Implementation Diff, Finding
 Transitions, and mixed-section requests retain their existing routes.
 
-For a complete shared single-Library API result, use unprojected `--format json`.
+For a complete shared single-Library API result, use unprojected `--json`.
 It emits `LibraryApiDiffOutcome`: `outcome` is `available`, `unavailable`, or
 `rejected`, with the complete Document or typed non-success endpoint evidence.
 This replaces the former unprojected `{changes: ...}` view. Explicitly
@@ -81,7 +81,7 @@ An ordinal selecting among overloaded indexer declarations remains valid.
 `--tfm` selects one API surface, optional `--library` narrows only the source
 Library, and `--all` widens only source selection to the existing IncludeAll
 API scope. Destination declaration matching remains strict and independent of
-ordinary accessibility changes. Use `--format json` for complete Content or
+ordinary accessibility changes. Use `--json` for complete Content or
 `--envelope` for Content, Share, and diagnostics. Do not combine this mode with
 History, `--at`, row projections, projection filters, sections,
 body/source/Analysis requests, or non-package sources. Root `match` is
@@ -160,7 +160,7 @@ the default API compatibility view. Rows identify the member, producer (`C#`,
 decompiled text; `PDB Source` is Portable-PDB-selected, checksum-verified text
 acquired locally or through SourceLink. The lanes are peers: PDB-source absence
 or failure stays visible and never replaces the C# lane. Narrow with `-t` and
-`-m`; use `--format table`, `--format tsv`, or `--format jsonl` for columnar output.
+`-m`; use `--table`, `--tsv`, or `--jsonl` for columnar output.
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \
@@ -212,9 +212,9 @@ then probe only the cells you choose:
 dnx dotnet-inspect -y -- package Foo@1.0.0..2.0.0 --versions
 dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
 dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
-dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package Foo@1.0.0..2.0.0 \
   --type TargetType --members --at first --at last
-dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
+dnx dotnet-inspect -y -- diff --history --package Foo@1.0.0..2.0.0 \
   --type TargetType --member TargetMember \
   --finding analysis.unsafety --at first --at last
 ```
@@ -225,21 +225,21 @@ acquired. The agent owns the search policy and bound. For recurrence-safe
 current onset, walk backward from the bad version until the first successful
 absence; use binary search only for a predicate known to be monotonic.
 
-Online API/timeline ranges support configured folder and HTTP feeds. Discovery
+Online API/history ranges support configured folder and HTTP feeds. Discovery
 must be complete, and each probe can acquire only from a source that reported
 its coordinate. These vectors are listed-only; an `--include-unlisted`
 metadata listing can have different ordinals. Use an exact pin to inspect an
 unlisted coordinate. Local payload caches retain configured authority; HTTP
 payloads use temporary storage and are downloaded again on a later invocation.
 
-`timeline` renders `Evaluations` and `Transitions` over the same vector. Omit
-`--at` for a zero-payload address view and midpoint recommendation, repeat
-`--at` for sparse probes, or pass `--at all` for explicit dense traversal.
+Diff History renders `Evaluations` and `Transitions` over the same vector. Omit
+`--at` for full-population evaluation, repeat it for explicit checkpoints, or
+use `--max-probes` for adaptive bisection.
 Choose the type-focused census with `--type-presence`, `--members`, or
 `--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
 Add `--member` to `api.member` for one exact member identity track. The same
 member selector scopes `analysis.allocation`, `analysis.call-site`, and
-`analysis.unsafety` timelines to one method body.
+`analysis.unsafety` history to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
 about the exact introduction or removal version.
 Online recommendations retain source/configuration, TFM, prerelease, and

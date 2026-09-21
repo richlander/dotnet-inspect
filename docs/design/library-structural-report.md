@@ -4,7 +4,8 @@
 
 Focused Research design for [#7987](https://github.com/richlander/dotnet-inspect/issues/7987).
 Its Analysis coverage prerequisite is tracked by
-[#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
+[#7989](https://github.com/richlander/dotnet-inspect/issues/7989) and is
+consumed as an issued receipt by this report.
 
 The **Library Metrics** report is the single normative owner for a
 descriptive structural population report over one exact compiled library.
@@ -77,10 +78,12 @@ qualification.
 
 ## Report document
 
-The available result is one resource-free
-`LibraryStructuralReportDocument`, carried through an
-`InspectionEnvelope<LibraryStructuralReportDocument>` at its completed
-host-neutral boundary. It contains:
+The Research result is a typed `LibraryStructuralReportResult`. Its
+`Available` outcome carries one resource-free
+`LibraryStructuralReportDocument`; its `Unavailable` outcome preserves the
+Analysis receipt, coverage receipt, reason, and message. A later completed
+host-neutral boundary carries the document through an
+`InspectionEnvelope<LibraryStructuralReportDocument>`. The document contains:
 
 - the exact Analysis receipt and a report methodology version;
 - a `LibraryStructuralPopulationReceipt` that preserves the Analysis coverage
@@ -114,7 +117,10 @@ narrow denominator cannot masquerade as library-wide completeness.
 A physical evidence identity may occur once in the profile collection. A
 duplicate is an invalid owner input and cannot issue a document. The Report
 implementation must fail visibly rather than coalescing identities or counting
-an arbitrary copy. Analysis owns validation of its separate coverage receipt.
+an arbitrary copy. A profile collection whose physical evidence identities do
+not match the Analysis-issued `ProfiledEvidenceBodies` receipt is the same
+class of invalid owner input. Analysis owns validation of its separate
+coverage receipt.
 
 ### Measures
 
