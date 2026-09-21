@@ -3365,7 +3365,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_NormalShowsLocalImplementationSections()
+    public async Task Member_SelectedOverload_NormalShowsSignatureOnly()
     {
         var options = new MemberOptions
         {
@@ -3374,6 +3374,30 @@ public partial class CommandExecutionTests
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
             OverloadIndex = 1,
             Verbosity = Verbosity.Normal
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.DoesNotContain("## Custom Attributes", output);
+        Assert.DoesNotContain("## Decompiled Source", output);
+        Assert.DoesNotContain("## PDB Source", output);
+        Assert.DoesNotContain("## IL", output);
+        Assert.DoesNotContain("## Annotated Source", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DetailedShowsLocalImplementationSections()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
+            OverloadIndex = 1,
+            Verbosity = Verbosity.Detailed
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
