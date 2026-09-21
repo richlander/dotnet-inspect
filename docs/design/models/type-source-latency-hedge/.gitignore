@@ -1,6 +1,0 @@
-states/
-MC.out
-*_TTrace_*.bin
-*_TTrace_*.tla
-*.dot
-*.tmp
