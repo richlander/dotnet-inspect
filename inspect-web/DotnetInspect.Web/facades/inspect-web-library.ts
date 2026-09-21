@@ -277,3 +277,4 @@ export async function openUploadedLibrary(declaredName: string, content: number[
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserUploadedLibraryInspection;
 }
+
