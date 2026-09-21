@@ -179,6 +179,98 @@ internal static class BrowserSurfaceProjection
             truncation is not null);
     }
 
+    internal static Surface Project(
+        ApiSurface surface,
+        ImmutableArray<ApiAccessibilityBucket> accessibility,
+        AssemblyReferenceIdentity identity,
+        string assembly,
+        string assemblyId,
+        string asset,
+        ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assembly);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(asset);
+        if (accessibility.IsDefault)
+            throw new ArgumentException(
+                "Detached API accessibility buckets must be initialized.",
+                nameof(accessibility));
+        if (inspectionFailures.IsDefault)
+            throw new ArgumentException(
+                "Detached API inspection failures must be initialized.",
+                nameof(inspectionFailures));
+
+        var transportTextBudget = new BrowserSurfaceTextBudget(
+            BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        BrowserTypeSurfaceInfo[] types;
+        string? truncation = null;
+        transportTextBudget.BeginParticipant();
+        try
+        {
+            types =
+            [
+                .. surface.Types.Select(type => Type(
+                    type,
+                    assembly,
+                    assemblyId,
+                    identity.Name,
+                    transportTextBudget)),
+            ];
+            transportTextBudget.CommitParticipant();
+        }
+        catch (BrowserSurfaceTextBoundExceededException)
+        {
+            transportTextBudget.AbandonParticipant();
+            types = [];
+            truncation = BrowserApiSurfacePolicy.TransportTruncationNotice(
+                projectedParticipants: 0,
+                omittedParticipants: 1,
+                transportTextBudget.CommittedCharacters);
+        }
+
+        BrowserTypeSurfaceInfo[] identified =
+        [
+            .. types
+                .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+                .ThenBy(type => type.Name, StringComparer.Ordinal),
+        ];
+        BrowserTypeSurfaceInfo[] publicTypes =
+        [
+            .. identified.Where(type => IsDefaultBucket(accessibility, type)),
+        ];
+        string[] inspectionErrors = inspectionFailures.IsEmpty
+            ? []
+            : [PartialApiSurface(inspectionFailures.Length)];
+        string[] noticeEntries = truncation is null
+            ? inspectionErrors
+            : [.. inspectionErrors, truncation];
+        string? notice = Notice(noticeEntries);
+        return new(
+            truncation is null
+                ?
+                [
+                    new BrowserAssemblySurfaceInfo(
+                        assemblyId,
+                        identity.Name,
+                        identity.Version?.ToString() ?? "",
+                        identity.Culture,
+                        identity.PublicKeyToken,
+                        asset,
+                        publicTypes.Length,
+                        publicTypes.Sum(type => type.Members),
+                        PlatformPack: null),
+                ]
+                : [],
+            identified,
+            [.. accessibility.Select(Descriptor)],
+            publicTypes.Sum(type => type.Members),
+            noticeEntries,
+            notice,
+            truncation is not null);
+    }
+
     internal static BrowserTypeSurfaceInfo Type(
         ApiType type,
         string assembly,
@@ -297,13 +389,18 @@ internal static class BrowserSurfaceProjection
     }
 
     static bool IsDefaultBucket(
-        AssemblyContextApiSurfaceResult surfaces,
+        ImmutableArray<ApiAccessibilityBucket> accessibility,
         BrowserTypeSurfaceInfo type) =>
-        surfaces.Accessibility.Any(
+        accessibility.Any(
             bucket => bucket.IsDefault
                 && bucket.Id.Equals(
                     type.AccessibilityId,
                     StringComparison.Ordinal));
+
+    static bool IsDefaultBucket(
+        AssemblyContextApiSurfaceResult surfaces,
+        BrowserTypeSurfaceInfo type) =>
+        IsDefaultBucket(surfaces.Accessibility, type);
 
     readonly record struct TypeCollisionKey(
         MetadataTypeDefinitionName? DefinitionName,

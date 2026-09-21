@@ -409,7 +409,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalViewRestorationFailure\(\s*targetModel,\s*deep,\s*loc\.lens,\s*loc\.libraryLens,\s*loc\.atPackageRoot && !loc\.workspaceSubjectOpen\s*\? loc\.packageLens\s*: null\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     validateView,
-    /const aggregateLibrarySubject =\s*state\.rootKind !== "platform"\s*&& state\.libraryScope === null\s*&& aggregateLibrarySubjectIsAvailable\(\)/);
+    /const aggregateLibrarySubject =\s*state\.rootKind === "package"\s*&& state\.libraryScope === null\s*&& aggregateLibrarySubjectIsAvailable\(\)/);
   assert.match(
     restore,
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
@@ -485,7 +485,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /const revision = \+\+syncUrlRevision;[\s\S]*if \(revision !== syncUrlRevision\s*\|\| !navigationSequence\.isCurrent\(navigationSeq\)\) return(?: undefined)?;[\s\S]*activeWorkspaceUrl = destination/);
   assert.match(
     appSource,
-    /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
+    /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
   assert.match(
     stateUrl,
     /const snapshot = captureWorkspaceUrlState\(\);[\s\S]*await workspaceLocation\.build\(snapshot, base\)/);
@@ -1137,7 +1137,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(history\.state\)[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.libraryOpen = false;\s*state\.libraryOpenBusy = false;\s*state\.libraryOpenFileName = "";\s*state\.libraryOpenError = "";\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -1559,7 +1559,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.libraryOpen\s*\|\| state\.spotlightOpen\s*\|\| graphSourceIsOpen\(state\.graphSource\)\s*\|\| documentViewerIsOpen\(state\.docViewer\)\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);

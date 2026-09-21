@@ -14,6 +14,7 @@
     "paths": {
       "/inspect-web-host.js": ["./src/facades/inspect-web-host.d.ts"],
       "/inspect-web-package.js": ["./src/facades/inspect-web-package.d.ts"],
+      "/inspect-web-library.js": ["./src/facades/inspect-web-library.d.ts"],
       "/inspect-web-metadata.js": ["./src/facades/inspect-web-metadata.d.ts"],
       "/inspect-web-analysis.js": ["./src/facades/inspect-web-analysis.d.ts"],
       "/inspect-web-source.js": ["./src/facades/inspect-web-source.d.ts"],

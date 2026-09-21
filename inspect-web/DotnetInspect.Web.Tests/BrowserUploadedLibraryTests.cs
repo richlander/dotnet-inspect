@@ -1,0 +1,96 @@
+using System.Runtime.Versioning;
+using System.Text.Json;
+using DotnetInspect.Web.Interop.Library;
+
+namespace DotnetInspect.Web.Tests;
+
+[SupportedOSPlatform("browser")]
+public sealed class BrowserUploadedLibraryTests
+{
+    [Fact]
+    public async Task OpenUploadedLibrary_ProjectsBrowsableDetachedSurface()
+    {
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(BrowserUploadedLibraryTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+
+        BrowserUploadedLibraryInspection inspection = Deserialize(
+            await LibraryExports.OpenUploadedLibrary(
+                "DotnetInspect.Web.Tests.dll",
+                content));
+
+        Assert.Equal(
+            BrowserUploadedLibraryInspectionOutcome.Available,
+            inspection.Content.Outcome);
+        Assert.Equal(
+            "DotnetInspect.Web.Tests.dll",
+            inspection.Content.DeclaredName);
+        Assert.Equal(content.Length, inspection.Content.ByteLength);
+        Assert.Matches("^[0-9a-f]{64}$", inspection.Content.Digest);
+        BrowserEmbeddedLibraryProvenance provenance =
+            Assert.IsType<BrowserEmbeddedLibraryProvenance>(
+                inspection.Content.Provenance);
+        Assert.Equal("browser-upload", provenance.ContentRef);
+        Assert.Equal(
+            $"sha256:{inspection.Content.Digest}",
+            provenance.Digest);
+        Assert.Equal(inspection.Content.DeclaredName, provenance.DeclaredName);
+        Assert.Equal(
+            BrowserLibraryInspectionShareKind.NonProjectable,
+            inspection.Share.Kind);
+        Assert.Equal("embedded-library/share", inspection.Share.Path);
+        Assert.Null(inspection.Share.FullUrl);
+        Assert.Null(inspection.Share.Packet);
+
+        BrowserUploadedLibrarySurface surface =
+            Assert.IsType<BrowserUploadedLibrarySurface>(
+                inspection.Content.Surface);
+        BrowserLibraryAssemblySurface assembly =
+            Assert.Single(surface.Assemblies);
+        Assert.Equal(inspection.Content.DeclaredName, assembly.Asset);
+        Assert.Equal(
+            $"sha256:{inspection.Content.Digest}",
+            assembly.Id);
+        Assert.NotEmpty(surface.Types);
+        Assert.Contains(surface.Types, type => type.Api.Length > 0);
+        Assert.DoesNotContain(
+            typeof(BrowserUploadedLibraryResult).GetProperties(),
+            property => property.Name.Contains(
+                "Package",
+                StringComparison.Ordinal)
+                || property.Name.Contains(
+                    "Path",
+                    StringComparison.Ordinal)
+                || property.Name.Contains(
+                    "Platform",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task OpenUploadedLibrary_ReturnsVisibleTypedRejection()
+    {
+        BrowserUploadedLibraryInspection inspection = Deserialize(
+            await LibraryExports.OpenUploadedLibrary(
+                "broken.dll",
+                [0x4d, 0x5a, 0x00, 0x01]));
+
+        Assert.Equal(
+            BrowserUploadedLibraryInspectionOutcome.Rejected,
+            inspection.Content.Outcome);
+        Assert.False(inspection.Content.IsComplete);
+        Assert.Null(inspection.Content.Surface);
+        Assert.NotNull(inspection.Content.Failure);
+        Assert.NotEmpty(inspection.Content.Failure.Detail);
+        Assert.Contains(
+            inspection.Diagnostics,
+            diagnostic => diagnostic.Severity == "Error"
+                && diagnostic.Summary.Length > 0);
+    }
+
+    static BrowserUploadedLibraryInspection Deserialize(string json) =>
+        JsonSerializer.Deserialize(
+            json,
+            BrowserLibraryJsonContext.Default.BrowserUploadedLibraryInspection)
+        ?? throw new InvalidOperationException(
+            "The uploaded Library facade returned null JSON.");
+}

@@ -18,6 +18,7 @@ context_type="DotnetInspect.Web.InspectWebJsExportContext"
 context_artifacts=(
   "DotnetInspect.Web.ts"
   "DotnetInspect.Web.Interop.Package.ts"
+  "DotnetInspect.Web.Interop.Library.ts"
   "DotnetInspect.Web.Interop.Metadata.ts"
   "DotnetInspect.Web.Interop.Analysis.ts"
   "DotnetInspect.Web.Interop.Source.ts"
@@ -27,6 +28,7 @@ context_artifacts=(
 facade_modules=(
   "inspect-web-host"
   "inspect-web-package"
+  "inspect-web-library"
   "inspect-web-metadata"
   "inspect-web-analysis"
   "inspect-web-source"

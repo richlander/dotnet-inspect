@@ -1,0 +1,176 @@
+export const MAX_LIBRARY_UPLOAD_BYTES = 32 * 1024 * 1024;
+
+export type LibraryOpenInput = "picker" | "drop" | "paste";
+
+export interface LibraryOpenView {
+  open: boolean;
+  busy: boolean;
+  fileName: string;
+  error: string;
+}
+
+export interface LibraryOpenActions {
+  onDismiss(): void;
+  onReject(message: string, input: LibraryOpenInput): void;
+  onFile(file: File, input: LibraryOpenInput): void;
+}
+
+export interface LibraryUploadCandidate {
+  readonly name: string;
+  readonly size: number;
+}
+
+export type LibraryUploadAdmission<TFile extends LibraryUploadCandidate> =
+  | { kind: "accepted"; file: TFile }
+  | { kind: "rejected"; message: string };
+
+export function admitLibraryUpload<TFile extends LibraryUploadCandidate>(
+  files: ArrayLike<TFile>,
+  maximumBytes = MAX_LIBRARY_UPLOAD_BYTES,
+): LibraryUploadAdmission<TFile> {
+  if (files.length === 0) {
+    return {
+      kind: "rejected",
+      message: "Choose one managed .NET assembly.",
+    };
+  }
+  if (files.length !== 1) {
+    return {
+      kind: "rejected",
+      message: "Open one managed .NET assembly at a time.",
+    };
+  }
+
+  const file = files[0]!;
+  if (file.size > maximumBytes) {
+    return {
+      kind: "rejected",
+      message:
+        `The selected file exceeds the ${formatByteCount(maximumBytes)} upload limit.`,
+    };
+  }
+  return { kind: "accepted", file };
+}
+
+export function renderLibraryOpenDialog(
+  view: LibraryOpenView,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (!view.open) return "";
+  const status = view.busy
+    ? `<div class="library-open-status" role="status" aria-live="polite">
+        <span class="loader" aria-hidden="true"></span>
+        <span>Opening ${escapeHtml(view.fileName || "managed assembly")}…</span>
+      </div>`
+    : view.error
+      ? `<div class="library-open-error" role="alert">${escapeHtml(view.error)}</div>`
+      : `<p class="library-open-hint">The Library stays in this tab and is not uploaded to a server.</p>`;
+  return `<div id="library-open-backdrop" class="modal-backdrop">
+    <section id="library-open-dialog" class="application-dialog library-open-dialog"
+      role="dialog" aria-modal="true" aria-labelledby="library-open-title">
+      <header class="application-dialog-head">
+        <div>
+          <p class="section-eyebrow">Open</p>
+          <h2 id="library-open-title" tabindex="-1">Managed Library</h2>
+        </div>
+        <button id="library-open-close" type="button"
+          ${view.busy ? "disabled" : ""}>Close</button>
+      </header>
+      <div class="library-open-body">
+        <label id="library-open-dropzone" class="library-open-dropzone"
+          for="library-open-input">
+          <strong>Drop a .dll or .exe here</strong>
+          <span>or choose a managed assembly from this device</span>
+          <span class="library-open-button">Choose file</span>
+          <input id="library-open-input" type="file"
+            accept=".dll,.exe,.netmodule,application/octet-stream"
+            ${view.busy ? "disabled" : ""}>
+        </label>
+        ${status}
+      </div>
+    </section>
+  </div>`;
+}
+
+export function bindLibraryOpen(
+  root: Document,
+  view: LibraryOpenView,
+  actions: LibraryOpenActions,
+): () => void {
+  const dialog = root.querySelector<HTMLElement>("#library-open-dialog");
+  const backdrop =
+    root.querySelector<HTMLElement>("#library-open-backdrop");
+  const input =
+    root.querySelector<HTMLInputElement>("#library-open-input");
+  const dropzone =
+    root.querySelector<HTMLElement>("#library-open-dropzone");
+
+  const submit = (
+    files: ArrayLike<File>,
+    source: LibraryOpenInput,
+  ) => {
+    const admission = admitLibraryUpload(files);
+    if (admission.kind === "accepted") {
+      actions.onFile(admission.file, source);
+    } else {
+      actions.onReject(admission.message, source);
+    }
+  };
+  const hasFiles = (event: DragEvent) =>
+    [...(event.dataTransfer?.types ?? [])].includes("Files");
+  const dragover = (event: DragEvent) => {
+    if (!hasFiles(event) || view.busy) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    dropzone?.classList.add("is-dragging");
+  };
+  const dragleave = (event: DragEvent) => {
+    if (event.target === dropzone) dropzone?.classList.remove("is-dragging");
+  };
+  const drop = (event: DragEvent) => {
+    if (!hasFiles(event) || view.busy) return;
+    event.preventDefault();
+    dropzone?.classList.remove("is-dragging");
+    submit(event.dataTransfer?.files ?? [], "drop");
+  };
+  const paste = (event: ClipboardEvent) => {
+    if (!view.open || view.busy) return;
+    const files = event.clipboardData?.files;
+    if (!files?.length) return;
+    event.preventDefault();
+    submit(files, "paste");
+  };
+
+  input?.addEventListener("change", () =>
+    submit(input.files ?? [], "picker"));
+  root.querySelector("#library-open-close")
+    ?.addEventListener("click", () => actions.onDismiss());
+  backdrop?.addEventListener("click", event => {
+    if (event.target === backdrop && !view.busy) actions.onDismiss();
+  });
+  dialog?.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !view.busy) {
+      event.preventDefault();
+      actions.onDismiss();
+    } else if (event.key === "Tab") {
+      trapModalTab(dialog, event);
+    }
+  });
+  dropzone?.addEventListener("dragleave", dragleave);
+  root.addEventListener("dragover", dragover);
+  root.addEventListener("drop", drop);
+  root.addEventListener("paste", paste);
+
+  return () => {
+    root.removeEventListener("dragover", dragover);
+    root.removeEventListener("drop", drop);
+    root.removeEventListener("paste", paste);
+  };
+}
+
+function formatByteCount(bytes: number): string {
+  return bytes % (1024 * 1024) === 0
+    ? `${bytes / (1024 * 1024)} MiB`
+    : `${bytes.toLocaleString()} bytes`;
+}
+import { trapModalTab } from "./shell-controls.ts";

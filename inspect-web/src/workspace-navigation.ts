@@ -30,7 +30,7 @@ import type {
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.
 export interface WorkspaceView {
-  rootKind?: "package" | "platform";
+  rootKind?: "package" | "platform" | "library";
   platform?: PlatformNavigationState | null;
   package: string;
   packageKey: string;

@@ -407,6 +407,7 @@ test("no source directory reaches content through a symbolic link", () => {
 const facadeModules = [
   "inspect-web-host",
   "inspect-web-package",
+  "inspect-web-library",
   "inspect-web-metadata",
   "inspect-web-analysis",
   "inspect-web-source",
@@ -1211,6 +1212,7 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   for (const artifact of [
     "DotnetInspect.Web.ts",
     "DotnetInspect.Web.Interop.Package.ts",
+    "DotnetInspect.Web.Interop.Library.ts",
     "DotnetInspect.Web.Interop.Metadata.ts",
     "DotnetInspect.Web.Interop.Analysis.ts",
     "DotnetInspect.Web.Interop.Source.ts",

@@ -1,6 +1,6 @@
 // The application's one runtime composition point for the production facade set.
 //
-// Seven independently generated modules attach to one Browser/Wasm runtime through the one
+// Eight independently generated modules attach to one Browser/Wasm runtime through the one
 // shared `./runtime-loader.js` module. Startup is eager, ordered and serial: every facade
 // acquires its own managed export assembly before any application operation is published as
 // ready. Concurrent callers share one attempt, and the first failure is the failure every
@@ -23,6 +23,7 @@ async function initializeFacadeSet(): Promise<void> {
   const [
     host,
     packageFacade,
+    libraryFacade,
     metadataFacade,
     analysisFacade,
     sourceFacade,
@@ -31,6 +32,7 @@ async function initializeFacadeSet(): Promise<void> {
   ] = await Promise.all([
     hostFacade(),
     import("/inspect-web-package.js"),
+    import("/inspect-web-library.js"),
     import("/inspect-web-metadata.js"),
     import("/inspect-web-analysis.js"),
     import("/inspect-web-source.js"),
@@ -40,6 +42,7 @@ async function initializeFacadeSet(): Promise<void> {
   const runtime = host.createRuntime();
   await host.initializeRuntime(runtime);
   await packageFacade.initializeRuntime(runtime);
+  await libraryFacade.initializeRuntime(runtime);
   await metadataFacade.initializeRuntime(runtime);
   await analysisFacade.initializeRuntime(runtime);
   await sourceFacade.initializeRuntime(runtime);

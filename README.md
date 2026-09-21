@@ -56,6 +56,12 @@ and repository-specific guidance.
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
+Inspect Web can also open one standalone managed `.dll` or `.exe` with
+**Open Library** or by dropping the file onto the page. The image is inspected
+locally in the browser as a transient Library with API navigation; it is not
+treated as a filesystem path or package, uploaded to a server, persisted, or
+included in a share link. The initial upload limit is 32 MiB.
+
 Platform packs have distinct package, Platform, and direct-library views. For
 example, `package Microsoft.NETCore.App.Ref@10.0.0` inspects the targeting-pack
 container as an exact NuGet package, while

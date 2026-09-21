@@ -574,6 +574,7 @@ test("browser consumer explicitly sequences same-origin host configuration", () 
     [
       "host",
       "packageFacade",
+      "libraryFacade",
       "metadataFacade",
       "analysisFacade",
       "sourceFacade",

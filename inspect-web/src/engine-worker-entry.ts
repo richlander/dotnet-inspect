@@ -109,6 +109,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   await bootstrap.bootstrap(value);
   const [
     packageFacade,
+    libraryFacade,
     metadataFacade,
     analysisFacade,
     loadedSourceFacade,
@@ -116,6 +117,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
     catalogFacade,
   ] = await Promise.all([
     import("/inspect-web-package.js"),
+    import("/inspect-web-library.js"),
     import("/inspect-web-metadata.js"),
     import("/inspect-web-analysis.js"),
     import("/inspect-web-source.js"),
@@ -127,6 +129,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   packageChangesFacade = packageFacade;
   ordinaryFacades = {
     package: packageFacade,
+    library: libraryFacade,
     metadata: metadataFacade,
     analysis: analysisFacade,
     source: loadedSourceFacade,

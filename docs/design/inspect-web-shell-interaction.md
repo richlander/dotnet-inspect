@@ -371,6 +371,12 @@ descriptors and outcomes; it does not infer supported extensions,
 correspondence, or workspace composition. Arbitrary pasted text is not guessed
 to be binary or base64.
 
+The first production shape accepts exactly one file and applies the declared
+32 MiB browser preflight before reading it. The host-neutral operation remains
+the authoritative bound and format gate. An accepted managed assembly opens
+directly as a transient Library with Type and Member API navigation; the Open
+surface keeps rejection visible and retains focus for correction.
+
 ### Settings
 
 The Application menu's Settings action opens the one shared configuration

@@ -12,6 +12,7 @@ import { recording, resetRecording } from "./facade-fixtures/facade-state.ts";
 const facadeModules = [
   "inspect-web-host",
   "inspect-web-package",
+  "inspect-web-library",
   "inspect-web-metadata",
   "inspect-web-analysis",
   "inspect-web-source",
@@ -74,7 +75,7 @@ test("startup initializes every facade once, in order, serially", async () => {
     ...facadeModules.flatMap(module => [`begin:${module}`, `end:${module}`]),
     "configureHost:https://dotnet-inspect.test",
     "runEntryPoint:inspect-web-host",
-  ], "the seven facades initialize in order and serially, host policy is configured before "
+  ], "the eight facades initialize in order and serially, host policy is configured before "
     + "the entry point, and only the host facade runs it");
 });
 
@@ -135,6 +136,8 @@ test("the first initialization failure is the failure every caller observes", as
     "end:inspect-web-host",
     "begin:inspect-web-package",
     "end:inspect-web-package",
+    "begin:inspect-web-library",
+    "end:inspect-web-library",
     "begin:inspect-web-metadata",
     "fail:inspect-web-metadata",
   ]);
