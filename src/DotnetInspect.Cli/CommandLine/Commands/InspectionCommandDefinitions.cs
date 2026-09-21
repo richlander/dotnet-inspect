@@ -58,7 +58,11 @@ public static class InspectionCommandDefinitions
         };
         var maxProbesOption = new Option<int?>("--max-probes")
         {
-            Description = "History adaptive-bisection probe budget (minimum 2)",
+            Description = "History probe cap (minimum 2); selects adaptive bisection unless --sample-percent selects a survey",
+        };
+        var samplePercentOption = new Option<int?>("--sample-percent")
+        {
+            Description = "History representative positional sample (1-100 percent), optionally capped by --max-probes",
         };
         var prereleaseOption = new Option<bool>("--preview")
         {
@@ -104,6 +108,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
+        diffCommand.Options.Add(samplePercentOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -181,7 +186,7 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, prereleaseOption, opts.Count,
+            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>

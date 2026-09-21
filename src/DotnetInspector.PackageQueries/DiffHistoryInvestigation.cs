@@ -12,6 +12,7 @@ public enum DiffHistoryEvaluationPolicy
     FullPopulation,
     ExplicitCheckpoints,
     AdaptiveBisect,
+    RepresentativeSurvey,
 }
 
 /// <summary>One evaluation policy over a settled Diff History population.</summary>
@@ -25,6 +26,9 @@ public enum DiffHistoryEvaluationPolicy
 [JsonDerivedType(
     typeof(DiffHistoryEvaluationPlan.AdaptiveBisect),
     "adaptiveBisect")]
+[JsonDerivedType(
+    typeof(DiffHistoryEvaluationPlan.RepresentativeSurvey),
+    "representativeSurvey")]
 public abstract record DiffHistoryEvaluationPlan
 {
     private protected DiffHistoryEvaluationPlan()
@@ -32,6 +36,39 @@ public abstract record DiffHistoryEvaluationPlan
     }
 
     public abstract DiffHistoryEvaluationPolicy Policy { get; }
+
+    public ImmutableArray<PackageVersionAddress> ResolveInitialSelection(
+        PackageVersionVector population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        return this switch
+        {
+            FullPopulation => population.Addresses,
+            ExplicitCheckpoints explicitPlan =>
+            [
+                .. explicitPlan.Addresses.OrderBy(
+                    static address => address.Position),
+            ],
+            AdaptiveBisect when population.Addresses.Length >= 2 =>
+            [
+                population.Addresses[0],
+                population.Addresses[^1],
+            ],
+            AdaptiveBisect => throw new ArgumentException(
+                "Adaptive Diff History requires at least two population versions.",
+                nameof(population)),
+            RepresentativeSurvey survey =>
+                survey.ResolveSelection(population),
+            _ => throw new InvalidOperationException(
+                "Unknown Diff History evaluation plan."),
+        };
+    }
+
+    public int ResolveAuthorizedEvaluationCount(
+        PackageVersionVector population) =>
+        this is AdaptiveBisect adaptive
+            ? adaptive.MaximumProbes
+            : ResolveInitialSelection(population).Length;
 
     public sealed record FullPopulation : DiffHistoryEvaluationPlan
     {
@@ -84,6 +121,92 @@ public abstract record DiffHistoryEvaluationPlan
             DiffHistoryEvaluationPolicy.AdaptiveBisect;
 
         public int MaximumProbes { get; }
+    }
+
+    public sealed record RepresentativeSurvey : DiffHistoryEvaluationPlan
+    {
+        public RepresentativeSurvey(
+            int samplePercent,
+            int? maximumProbes = null)
+        {
+            if (samplePercent is < 1 or > 100)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(samplePercent),
+                    "A Diff History survey percentage must be from 1 through 100.");
+            }
+            if (maximumProbes is < 2)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(maximumProbes),
+                    "A Diff History survey probe cap must be at least two.");
+            }
+
+            SamplePercent = samplePercent;
+            MaximumProbes = maximumProbes;
+        }
+
+        public override DiffHistoryEvaluationPolicy Policy =>
+            DiffHistoryEvaluationPolicy.RepresentativeSurvey;
+
+        public int SamplePercent { get; }
+
+        public int? MaximumProbes { get; }
+
+        internal ImmutableArray<PackageVersionAddress> ResolveSelection(
+            PackageVersionVector population)
+        {
+            int populationCount = population.Addresses.Length;
+            int percentageCount = checked((int)(
+                ((long)populationCount * SamplePercent + 99) / 100));
+            int minimumCount = populationCount >= 2 ? 2 : 1;
+            int selectedCount = Math.Min(
+                populationCount,
+                Math.Max(minimumCount, percentageCount));
+            if (MaximumProbes is { } maximumProbes)
+                selectedCount = Math.Min(selectedCount, maximumProbes);
+            if (selectedCount == populationCount)
+                return population.Addresses;
+
+            var selectedPositions = new List<int>(selectedCount)
+            {
+                0,
+            };
+            if (selectedCount > 1)
+                selectedPositions.Add(populationCount - 1);
+
+            while (selectedPositions.Count < selectedCount)
+            {
+                int source = -1;
+                int destination = -1;
+                int largestDistance = 0;
+                int[] ordered = [.. selectedPositions.Order()];
+                for (int i = 1; i < ordered.Length; i++)
+                {
+                    int distance = ordered[i] - ordered[i - 1];
+                    if (distance > largestDistance)
+                    {
+                        source = ordered[i - 1];
+                        destination = ordered[i];
+                        largestDistance = distance;
+                    }
+                }
+
+                if (largestDistance <= 1)
+                {
+                    throw new InvalidOperationException(
+                        "A Diff History survey could not select its requested probe count.");
+                }
+                selectedPositions.Add(
+                    source + ((destination - source) / 2));
+            }
+
+            return
+            [
+                .. selectedPositions.Select(position =>
+                    population.Addresses[position]),
+            ];
+        }
     }
 }
 
@@ -181,6 +304,7 @@ public enum DiffHistoryProbePurpose
     AdaptiveMidpoint,
     ExplicitCheckpoint,
     DenseCensus,
+    RepresentativeSample,
 }
 
 public enum DiffHistoryProbeLearningKind
@@ -286,6 +410,9 @@ public sealed record DiffHistoryApiMemberProbe
     typeof(DiffHistoryTerminalOutcome.ExplicitCheckpointsCompleted),
     "explicitCheckpointsCompleted")]
 [JsonDerivedType(
+    typeof(DiffHistoryTerminalOutcome.RepresentativeSurveyCompleted),
+    "representativeSurveyCompleted")]
+[JsonDerivedType(
     typeof(DiffHistoryTerminalOutcome.BoundariesResolved),
     "boundariesResolved")]
 [JsonDerivedType(
@@ -307,6 +434,9 @@ public abstract record DiffHistoryTerminalOutcome
         DiffHistoryTerminalOutcome;
 
     public sealed record ExplicitCheckpointsCompleted :
+        DiffHistoryTerminalOutcome;
+
+    public sealed record RepresentativeSurveyCompleted :
         DiffHistoryTerminalOutcome;
 
     public sealed record BoundariesResolved : DiffHistoryTerminalOutcome

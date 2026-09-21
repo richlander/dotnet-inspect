@@ -84,9 +84,17 @@ static class DiffHistoryMethodology
         else
         {
             DiffHistoryProbePurpose purpose =
-                evaluationPlan is DiffHistoryEvaluationPlan.FullPopulation
-                    ? DiffHistoryProbePurpose.DenseCensus
-                    : DiffHistoryProbePurpose.ExplicitCheckpoint;
+                evaluationPlan switch
+                {
+                    DiffHistoryEvaluationPlan.FullPopulation =>
+                        DiffHistoryProbePurpose.DenseCensus,
+                    DiffHistoryEvaluationPlan.ExplicitCheckpoints =>
+                        DiffHistoryProbePurpose.ExplicitCheckpoint,
+                    DiffHistoryEvaluationPlan.RepresentativeSurvey =>
+                        DiffHistoryProbePurpose.RepresentativeSample,
+                    _ => throw new InvalidOperationException(
+                        "Unknown Diff History evaluation plan."),
+                };
             foreach (PackageVersionAddress address
                 in initialEvaluationSelection)
             {
@@ -408,6 +416,12 @@ static class DiffHistoryMethodology
             return new DiffHistoryTerminalOutcome
                 .ExplicitCheckpointsCompleted();
         }
+        if (evaluationPlan
+            is DiffHistoryEvaluationPlan.RepresentativeSurvey)
+        {
+            return new DiffHistoryTerminalOutcome
+                .RepresentativeSurveyCompleted();
+        }
         if (!unresolved.IsEmpty)
         {
             return new DiffHistoryTerminalOutcome.BudgetExhausted(
@@ -457,6 +471,17 @@ static class DiffHistoryMethodology
                         .Append(address)
                         .OrderBy(static value => value.Position)
                         .ToImmutableArray()),
+            ];
+        }
+        if (evaluationPlan
+            is DiffHistoryEvaluationPlan.RepresentativeSurvey)
+        {
+            return
+            [
+                .. ChangedIntervals(transitions)
+                    .Where(static interval => interval.IsAdjacent)
+                    .Select(interval =>
+                        (DiffHistoryNextAction)pairwiseAction(interval)),
             ];
         }
         if (evaluationPlan
