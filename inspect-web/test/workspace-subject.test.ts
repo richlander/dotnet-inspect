@@ -50,6 +50,50 @@ test("Workspace navigation lists retained Workspaces and marks one active", () =
   assert.match(html, /data-workspace-delete="workspace-1"/);
 });
 
+test("Workspace navigation exposes managed activation progress and failure", () => {
+  const html = renderWorkspaceSubject({
+    workspaces: [{
+      id: "workspace-pending",
+      label: "Pending Workspace",
+      packageCount: 1,
+      active: false,
+      status: "Activating",
+      deletionDisabled: true,
+    }, {
+      id: "workspace-failed",
+      label: "Failed Workspace",
+      packageCount: 0,
+      active: false,
+      status: "Activation failed",
+    }, {
+      id: "workspace-closing",
+      label: "Closing Workspace",
+      packageCount: 1,
+      active: true,
+      status: "Closing",
+      deletionDisabled: true,
+    }],
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /data-workspace-switch="workspace-pending"[\s\S]*disabled[\s\S]*Activating/,
+  );
+  assert.match(
+    html,
+    /data-workspace-delete="workspace-pending"[\s\S]*disabled/,
+  );
+  assert.match(
+    html,
+    /data-workspace-switch="workspace-failed"[\s\S]*Activation failed/,
+  );
+  assert.match(
+    html,
+    /data-workspace-select="workspace-closing"[\s\S]*disabled[\s\S]*Closing/,
+  );
+});
+
 test("Workspace occurrence actions are visible only in the rendered Workspace view", () => {
   const visible = {
     engineReady: true,

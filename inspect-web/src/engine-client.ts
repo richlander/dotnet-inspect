@@ -92,6 +92,7 @@ type CatalogOperations =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "cancelRetainedWorkspaceActivation"
+  | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
   | "commitRetainedWorkspaceActivation"
   | "completeRetainedWorkspaceActivation"

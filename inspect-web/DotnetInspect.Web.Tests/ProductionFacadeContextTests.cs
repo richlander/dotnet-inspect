@@ -144,6 +144,7 @@ public sealed class ProductionFacadeContextTests
             "AdmitRetainedWorkspacePackage",
             "AdmitRetainedWorkspacePlatform",
             "CancelRetainedWorkspaceActivation",
+            "CaptureCompleteWorkspaceShareState",
             "CanonicalizeWorkspaceSharePacket",
             "CommitRetainedWorkspaceActivation",
             "CompleteRetainedWorkspaceActivation",
@@ -203,10 +204,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 93 operations, and no operation name in two modules: a move that forgot to delete its
+        // 94 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(93, everyExport.Length);
+        Assert.Equal(94, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

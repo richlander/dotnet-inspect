@@ -34,6 +34,13 @@ export interface WorkspaceSubjectItem {
   label: string;
   packageCount: number;
   active: boolean;
+  status?:
+    | "Active"
+    | "Activate"
+    | "Activating"
+    | "Activation failed"
+    | "Closing";
+  deletionDisabled?: boolean;
 }
 
 export interface WorkspaceViewRenderOptions {
@@ -61,6 +68,7 @@ export interface WorkspaceSubjectBindingActions {
   onActivateWorkspace: (workspaceId: string) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
   onActivate: (action: string) => void;
+  onProductNavigationAction?: (token: string) => void;
   onDemo: (demo: ProductHomeDemoId) => void;
   onRetry: () => void;
   onRemove?: (key: string) => void;
@@ -116,20 +124,23 @@ export function renderWorkspaceSubject(
   const { workspaces, escapeHtml } = options;
   const rows = workspaces.map(workspace => {
     const count = workspace.packageCount;
+    const status = workspace.status
+      ?? (workspace.active ? "Active" : "Activate");
     const action = workspace.active
       ? `data-workspace-select="${escapeHtml(workspace.id)}"`
       : `data-workspace-switch="${escapeHtml(workspace.id)}"`;
     return `<div class="workspace-row">
-      <button class="workspace-card${workspace.active ? " active" : ""}" type="button" ${action} aria-current="${workspace.active ? "true" : "false"}">
+      <button class="workspace-card${workspace.active ? " active" : ""}" type="button" ${action} aria-current="${workspace.active ? "true" : "false"}"${status === "Activating" || status === "Closing" ? " disabled" : ""}>
         <strong>${escapeHtml(workspace.label)}</strong>
         <span>${escapeHtml(count)} loaded coordinate${count === 1 ? "" : "s"}</span>
-        <small>${workspace.active ? "Active" : "Activate"}</small>
+        <small>${status}</small>
       </button>
       ${packageRemoveButton(
         "data-workspace-delete",
         workspace.id,
         `Delete ${workspace.label}`,
-        escapeHtml)}
+        escapeHtml,
+        workspace.deletionDisabled)}
     </div>`;
   }).join("");
   return `<aside class="type-browser workspace-nav">
@@ -283,6 +294,12 @@ export function bindWorkspaceSubject(
       const action = button.dataset.workspaceActivate;
       if (action !== undefined) actions.onActivate(action);
     }));
+  root.querySelectorAll<HTMLElement>(
+    "[data-product-navigation-action]",
+  ).forEach(button => button.addEventListener("click", () => {
+    const token = button.dataset.productNavigationAction;
+    if (token !== undefined) actions.onProductNavigationAction?.(token);
+  }));
   root.querySelectorAll<HTMLElement>("[data-workspace-demo]").forEach(button =>
     button.addEventListener("click", () => {
       const demo = button.dataset.workspaceDemo;

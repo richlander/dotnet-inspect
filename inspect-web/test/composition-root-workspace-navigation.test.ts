@@ -1104,7 +1104,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
     /if \(!canPublishRetainedWorkspace\(\)\)[\s\S]*packageQueryController\.cancel\(\);\s*packageChangesController\.cancel\("disposed"\);\s*discardPackageQueryTermEditors\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*const \{ rollbackSnapshot, retainedSnapshot \} =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);\s*prepareUnpublishedWorkspace\(\);[\s\S]*await loadPackage\([\s\S]*deferWorkspacePublication: true,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*destination = \(await buildStateUrl\(\)\)\.toString\(\);[\s\S]*discardPendingWorkspaceConstruction\(\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(rollbackSnapshot\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*return;[\s\S]*publishCurrentWorkspace\(retainedSnapshot\);\s*workspaceLocation\.push\(destination\)/);
   assert.match(
     syncUrl,
-    /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(pendingWorkspaceConstruction[\s\S]*pendingWorkspaceConstruction\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
+    /function syncUrl\(\) \{\s*if \(activeRetainedWorkspacePosting !== null\) return;\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(pendingWorkspaceConstruction[\s\S]*pendingWorkspaceConstruction\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
     handoff,
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
@@ -1288,6 +1288,15 @@ test("browser history reuses available identities and publishes only unavailable
     /historyWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     history,
+    /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedWorkspacePosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
+  assert.match(
+    history,
+    /historyWorkspaceAvailable[\s\S]*activeDefinitionId !== null[\s\S]*activateCompatibilityRetainedWorkspace\(historyWorkspaceId, \{[\s\S]*declaration: locationIntent,[\s\S]*restoration:/);
+  assert.match(
+    history,
+    /issuedManagedRetainedDefinitionIds\.has\(historyWorkspaceId\)[\s\S]*realignRetainedLocationIntent\(locationIntent, "unavailable"\)/);
+  assert.match(
+    history,
     /const restoreHistoryWorkspace = \(\) => historyWorkspaceAvailable\s*\? restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)\s*: historyWorkspaceReferenced\s*\|\| retainedWorkspaces\.activeWorkspaceId === null\s*\? restoreFreshWorkspaceFromHistory\(loc, navigationSeq\)\s*: restoreRetainedWorkspaceFromHistory\(loc, navigationSeq\)[\s\S]*!workspaceCoordinatesMatch\(state\.packages, loc\.tabs\)[\s\S]*restoreHistoryWorkspace\(\)/);
   assert.match(
     history,
@@ -1310,6 +1319,9 @@ test("browser history reuses available identities and publishes only unavailable
   assert.match(
     appSource,
     /function rebindActiveWorkspaceHistory\(\): void \{\s*workspaceLocation\.replace\(\s*activeWorkspaceUrl \?\? \(state\.package \|\| state\.platformSelection \? location\.href : "\/demos"\),\s*history\.state\)/);
+  assert.match(
+    appSource,
+    /function syncUrl\(\) \{\s*if \(activeRetainedWorkspacePosting !== null\) return;/);
   assert.match(
     appSource,
     /function finishPackageRemoval\([\s\S]*if \(!state\.package && !state\.platformSelection\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);

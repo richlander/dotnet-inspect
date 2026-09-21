@@ -102,6 +102,7 @@ type CatalogOperationName =
   | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
   | "cancelRetainedWorkspaceActivation"
+  | "captureCompleteWorkspaceShareState"
   | "canonicalizeWorkspaceSharePacket"
   | "commitRetainedWorkspaceActivation"
   | "completeRetainedWorkspaceActivation"
@@ -1254,6 +1255,16 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.cancelRetainedWorkspaceActivation(...args),
     ),
+    captureCompleteWorkspaceShareState: valueOperation(
+      "ordinary-catalog-capture-complete-workspace-share-state",
+      1,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["captureCompleteWorkspaceShareState"]
+        >
+      ) => facades.catalog.captureCompleteWorkspaceShareState(...args),
+    ),
     canonicalizeWorkspaceSharePacket: valueOperation(
       "ordinary-catalog-canonicalize-workspace-share-packet",
       1,
@@ -1649,6 +1660,10 @@ export function bindEngineWorkerOrdinaryClient(
       cancelRetainedWorkspaceActivation: bind(
         engineWorkerOrdinaryOperations.catalog
           .cancelRetainedWorkspaceActivation,
+      ),
+      captureCompleteWorkspaceShareState: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .captureCompleteWorkspaceShareState,
       ),
       canonicalizeWorkspaceSharePacket: bind(
         engineWorkerOrdinaryOperations.catalog
