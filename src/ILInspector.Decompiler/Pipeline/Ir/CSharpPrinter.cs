@@ -1294,43 +1294,11 @@ public sealed partial class CSharpPrinter
                     && CanAssignTo(conditional.WhenTrue, target)
                     && CanAssignTo(conditional.WhenFalse, target))
                 || (conditional.ResultType is { } condType && CanAssignType(condType, target));
-        if (value is Coalesce coalesce)
-            return CanRenderCoalesceForTarget(coalesce, target)
-                || (coalesce.ResultType is { } coalesceType
-                    && CanAssignType(coalesceType, target)
-                    && !IsReferenceLike(coalesceType));
         if (value is Constant { Value: int or long } constant
             && target.DeclaredValueTypeHint == ValueTypeHint.ValueType
             && CoercionRendering.CanSpellUnknownEnumConstant(constant.ResultType, target, _function.TypeShapes))
             return true;
-        return value.ResultType is { } source && CanAssignType(source, target);
-    }
-
-    bool CanRenderCoalesceForTarget(Coalesce coalesce, TypeRef target)
-    {
-        if (!IsProvenReference(target))
-            return false;
-
-        bool leftNull = coalesce.Left is Constant { Value: null };
-        bool rightNull = coalesce.Right is Constant { Value: null };
-        var leftType = EffectiveType(coalesce.Left);
-        var rightType = EffectiveType(coalesce.Right);
-
-        if (leftNull && rightNull)
-            return false;
-        if (leftNull)
-            return rightType is { } right && IsProvenReference(right) && CanAssignType(right, target);
-        if (rightNull)
-            return leftType is { } left && IsProvenReference(left) && CanAssignType(left, target);
-        if (leftType is not { } leftNonNull || rightType is not { } rightNonNull)
-            return false;
-        if (!IsProvenReference(leftNonNull) || !IsProvenReference(rightNonNull))
-            return false;
-        if (CanAssignType(rightNonNull, leftNonNull))
-            return CanAssignType(leftNonNull, target);
-        if (CanAssignType(leftNonNull, rightNonNull))
-            return CanAssignType(rightNonNull, target);
-        return false;
+        return value.AssignmentType is { } source && CanAssignType(source, target);
     }
 
     /// <summary>
@@ -1344,10 +1312,7 @@ public sealed partial class CSharpPrinter
     /// null arm is provably assignable to.
     /// </summary>
     bool IsProvenReference(TypeRef type)
-        => type.Kind is not (TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
-            && (TypeFamilies.Of(type) == StackFamily.O
-                || type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
-                || _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference);
+        => CoercionRendering.IsProvenReference(type, _function.TypeShapes);
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
@@ -1361,20 +1326,7 @@ public sealed partial class CSharpPrinter
     }
 
     bool IsReferenceLike(TypeRef type)
-    {
-        if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
-            return false;
-        if (TypeFamilies.Of(type) == StackFamily.O)
-            return true;
-        if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
-            return true;
-        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
-            return true;
-        return type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
-            && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
-            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is not (TypeShape.ValueType or TypeShape.Enum)
-            && !TypeFamilies.IsNumericPrimitive(type);
-    }
+        => CoercionRendering.IsReferenceLike(type, _function.TypeShapes);
 
     bool IsKnownReferenceLike(TypeRef type)
     {

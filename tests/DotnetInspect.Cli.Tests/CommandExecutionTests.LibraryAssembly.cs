@@ -191,6 +191,7 @@ public partial class CommandExecutionTests
         Assert.Contains("--history", output);
         Assert.Contains("--at", output);
         Assert.Contains("--max-probes", output);
+        Assert.Contains("--sample-percent", output);
         Assert.Contains("--count", output);
         Assert.DoesNotContain("--authored-source", output);
     }
@@ -1244,10 +1245,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --markdown, --plaintext |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | library/sections/references "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1271,13 +1275,19 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --markdown, --plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --markdown, --plaintext |",
             output);
         Assert.Contains(
-            "| Reference Hierarchy | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree, --mermaid |",
+            "| Reference Hierarchy | section "
+            + "| library/sections/reference-hierarchy "
+            + "| --markdown, --plaintext, --json, --table, --tsv, "
+            + "--jsonl, --tree, --mermaid |",
             output);
         Assert.Contains(
-            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            "| References | section | library/sections/references "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1311,6 +1321,9 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "section",
             row.GetProperty("kind").GetString());
+        Assert.Equal(
+            "library/sections/reference-hierarchy",
+            row.GetProperty("path").GetString());
         Assert.Equal(
             [
                 "--markdown",

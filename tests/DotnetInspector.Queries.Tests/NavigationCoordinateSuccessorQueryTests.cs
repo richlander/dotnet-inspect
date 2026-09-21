@@ -87,6 +87,10 @@ public sealed class NavigationCoordinateSuccessorQueryTests
 
         NavigationCoordinateRetentionResult retention =
             succeeded.Retention;
+        Assert.Same(sourceWorkspace.Identity, retention.SourceWorkspace);
+        Assert.Same(
+            destinationWorkspace.Identity,
+            retention.DestinationWorkspace);
         Assert.Equal(
             NavigationCoordinateRetentionDisposition.ExactPath,
             retention.Disposition);
