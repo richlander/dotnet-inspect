@@ -450,9 +450,13 @@ substrates, and inspection producers that will extend that space.
   [Ecosystem Population Loading](design/ecosystem-population-loading.md) owner
   defines one explicit host-neutral operation over a statically selected
   Ecosystem loader binding. It preserves exact Workspace, registration,
-  capability, source-result, and admission correspondence while keeping loader
-  execution out of catalog discovery, registration, construction, and
-  restoration. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
+  capability, source-result, and per-child Workspace admission correspondence
+  while keeping loader execution out of catalog discovery, registration,
+  construction, and restoration. Its admission composer atomically transfers
+  each session-backed child through ordinary Workspace admission, reports
+  unsupported owner shapes, and issues historical contribution witnesses only
+  for accepted Focus Libraries. Navigation remains responsible for current
+  route validity. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
   consumers; each composes its exact PlatformHouse family without exposing a
   user-facing Platform component or merging focus and binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
@@ -887,8 +891,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   Platform/ASP.NET Core/Microsoft.Extensions Workspace.
 - [Ecosystem Population Loading](design/ecosystem-population-loading.md):
   explicit execution of one statically selected special loader for one exact
-  Workspace Ecosystem registration, with typed outcomes and owner-preserving
-  handoff to ordinary Workspace admission.
+  Workspace Ecosystem registration, with typed outcomes, per-child
+  owner-preserving handoff to ordinary Workspace admission, exact accepted
+  Library correspondence, and Focus-only historical contribution witnesses.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
