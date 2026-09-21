@@ -15,6 +15,8 @@
 
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
+    <PackageDownload Include="System.Text.Json"
+                     Version="[10.0.0]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,7 +27,14 @@
   <ItemGroup>
     <ProjectReference Include="../../src/DotnetInspector.Sections.Installed/DotnetInspector.Sections.Installed.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../src/QuerySpace/QuerySpace.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
+          Link="RealAssets/LibraryOverview/System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
