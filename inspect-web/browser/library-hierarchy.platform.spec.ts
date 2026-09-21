@@ -47,6 +47,34 @@ test("platform-only Workspace preserves Query as its Back predecessor", async ({
     .toHaveText("Package query");
 });
 
+test("pending platform Workspace projection keeps Query current", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPlatform(page);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+  const queryLocation = page.url();
+
+  await releaseFacade(page, "hold-workspace-encode");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-workspace-encode-pending", "true");
+  await expect(page).toHaveURL(queryLocation);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+
+  await page.locator("[data-product-navigation-button]").click();
+  await expect(page.locator('[data-product-destination="query"]'))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.locator('[data-product-destination="workspace"]'))
+    .not.toHaveAttribute("aria-current", "page");
+
+  await releaseFacade(page, "finish-workspace-encode");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(queryLocation);
+});
+
 test("Platform opens its catalog before warm-up, with reference membership and role labels", async ({ page }) => {
   await openPlatform(page, { warmup: "pending" });
   await expect(page.locator(".platform-library-row")).toHaveCount(3);

@@ -12911,6 +12911,44 @@ async function openWorkspaceProductDestination() {
 
   dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
+  const routeState = {
+    packageQueryOpen: state.packageQueryOpen,
+    packageActivityOpen: state.packageActivityOpen,
+    credits: state.credits,
+    home: state.home,
+    workspaceSubjectOpen: state.workspaceSubjectOpen,
+    atPackageRoot: state.atPackageRoot,
+    atLibraryRoot: state.atLibraryRoot,
+    selectedMemberKey: state.selectedMemberKey,
+    memberBrowseTypeId: state.memberBrowseTypeId,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+  };
+  state.packageQueryOpen = false;
+  state.packageActivityOpen = false;
+  state.credits = false;
+  state.home = false;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.atLibraryRoot = false;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  const projection = buildStateUrl();
+  Object.assign(state, routeState);
+
+  let projected: URL | null = null;
+  let projectionError: unknown = null;
+  try {
+    projected = await projection;
+  } catch (error) {
+    projectionError = error;
+  }
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!pkg && projectionError !== null) {
+    reportAsyncFailure("Opening Workspace", projectionError);
+    return;
+  }
+
   discardPackageQueryTermEditors();
   state.packageQueryOpen = false;
   state.packageActivityOpen = false;
@@ -12924,21 +12962,22 @@ async function openWorkspaceProductDestination() {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
-  if (!pkg) {
-    const successor = await buildStateUrl();
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
-    workspaceLocation.push(successor.toString());
-    render();
-    return;
-  }
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const projected = await buildStateUrl();
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const successor = resolvePackageQueryWorkspaceSuccessor(
-    () => projected,
     () => {
+      if (projectionError !== null) {
+        throw projectionError instanceof Error
+          ? projectionError
+          : new Error(
+            errorMessage(projectionError) || "Workspace URL encoding failed.");
+      }
+      if (!projected) throw new Error("Workspace URL projection did not complete.");
+      return projected;
+    },
+    () => {
+      if (!pkg) throw new Error("Package Workspace fallback is unavailable.");
       const fallback = buildPackageRootStateUrl(location.href, {
         package: pkg.id,
         version: pkg.version,

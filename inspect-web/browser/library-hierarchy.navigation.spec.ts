@@ -246,6 +246,29 @@ test("Workspace product navigation exits every routed product surface", async ({
   await openWorkspace();
 });
 
+test("Workspace projection failure pushes a degraded package successor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installFacades(page);
+  await page.goto(root);
+  await openProductDestination(page, "query");
+  await expect(page).toHaveURL(/\/query$/);
+
+  await releaseFacade(page, "fail-workspace-encode");
+  await openProductDestination(page, "workspace");
+
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Workspace");
+  await expect(page).not.toHaveURL(/\/query$/);
+  await expect(page.locator(".query-notice"))
+    .toContainText("Fixture workspace projection failure.");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/query$/);
+  await expect(page.locator("#package-query-heading"))
+    .toHaveText("Package query");
+});
+
 for (const width of [1440, 800, 390]) {
   test(`production Package Overview fills its frame and opens Library at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
