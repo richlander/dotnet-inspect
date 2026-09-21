@@ -15,8 +15,8 @@ public sealed class InspectionWorkspaceIdentity
 }
 
 /// <summary>
-/// Opaque process-local identity for one coordinate occurrence issued by an
-/// inspection Workspace.
+/// Opaque process-local identity for one occurrence issued by an inspection
+/// Workspace.
 /// </summary>
 /// <remarks>
 /// Equality is reference identity. Each issuance identifies a distinct
