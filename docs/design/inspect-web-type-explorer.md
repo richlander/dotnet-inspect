@@ -307,10 +307,16 @@ XML documentation and attributes are independent inclusion controls. Hiding
 them removes only the owner-issued regions and does not change declaration or
 member identity.
 
-Compiler-generated or synthesized declarations are hidden by default only
+Compiler-generated or synthesized C# declarations are hidden by default only
 when the document owner positively classifies them. An unknown origin remains
 visible. Type Explorer does not infer generated code from names such as
 angle-bracketed metadata identifiers.
+
+The control applies to independently projectable C# declaration rows. Physical
+metadata artifacts that valid C# absorbs into a Type frame, logical
+declaration, or implementation remain identity and provenance in the document;
+the Browser neither fabricates standalone syntax for them nor treats them as
+filterable declarations.
 
 ### Contract provenance
 

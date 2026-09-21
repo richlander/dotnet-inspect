@@ -7,11 +7,12 @@ This proposed design establishes the **Structured C# Type Document** owner for
 
 Its normative claim is:
 
-> For one exact metadata Type, preserve a complete owner-issued declaration
-> inventory, exact Type, Member, and physical body identity, and validated C#
-> render variants in one immutable document. A shared projector turns that
-> document into complete source text and exact structural ranges without any
-> host parsing or C# reconstruction.
+> For one exact metadata Type, preserve complete accounting of its direct
+> metadata artifacts, a complete owner-issued C# declaration population, exact
+> Type, Member, and physical body identity, and validated C# render variants in
+> one immutable document. A shared projector turns that document into complete
+> source text and exact structural ranges without any host parsing or C#
+> reconstruction.
 
 The implementation home is `ILInspector.Decompiler`, the
 `CSharp.Decompiler` layer that already owns assembling CSharp Type shells with
@@ -67,8 +68,10 @@ implementation population, not an alias for the API Declarations source
 choice. In particular:
 
 - API Declarations may omit compiler-generated implementation artifacts by
-  contract; this document retains positively identified generated declarations
-  so Type Explorer can hide or reveal them.
+  contract; this document retains positively identified generated C#
+  declarations so Type Explorer can hide or reveal them and separately
+  accounts for generated metadata artifacts that valid C# absorbs into a Type
+  frame, logical declaration, or implementation.
 - API Declarations includes a selected nested declaration subtree; this
   document keeps each nested TypeDef as an independent exact implementation
   subject with its own body budget and route.
@@ -105,6 +108,7 @@ bounded body-production failure.
 The Structured C# Type Document owner defines:
 
 - the immutable complete-Type document shape;
+- complete direct metadata-artifact accounting and contribution associations;
 - document-local declaration identity and ordering;
 - exact Metadata-owned Type, Member, and physical body references carried by
   the document;
@@ -140,25 +144,39 @@ One document describes one exact `TypeDef` in one physical module. The selected
 Type may itself be nested; its exact nested metadata name and enclosing generic
 context remain part of its Metadata-owned identity.
 
-For this contract, a **complete declaration inventory** accounts for every
-non-`TypeDef` declaration directly owned by the selected Type:
+Completeness has two correlated parts:
 
-- fields and enum values;
-- constructors and finalizers;
-- methods and operators;
-- properties and their accessors; and
-- events and their accessors.
+- A **complete physical artifact inventory** accounts exactly once for every
+  `FieldDef`, `MethodDef`, `PropertyDef`, and `EventDef` directly owned by the
+  selected Type.
+- A **complete C# declaration population** contains every logical member that
+  contributes an independent owner-issued C# declaration fragment.
 
-The inventory includes non-public declarations and declarations positively
-classified as compiler generated. Projection policy may hide them, but
-construction does not omit them to imitate a default API listing.
+The physical inventory includes non-public and compiler-generated artifacts.
+Each artifact has an exact identity and one typed contribution association:
 
-Property and event accessors are represented by their owning logical
-declaration rather than duplicated as ordinary method declarations. Other
-MethodDefs, including special-name methods that do not have an owner-issued
-property or event association, remain explicit declarations. A declaration
-that CSharp cannot represent makes the document non-available; "unsupported"
-is not permission to drop a row from an Available document.
+- an independent C# declaration;
+- an accessor or other physical body of a logical declaration;
+- Type-frame syntax or a Type fact represented by that frame; or
+- implementation evidence already represented by an exact declaration or
+  physical body.
+
+This separation reflects valid C#. An auto-property backing field belongs to
+the property implementation, an event backing field belongs to the event, an
+enum's `value__` slot supplies the enum's underlying-Type fact, and delegate
+methods are represented by the delegate Type declaration. None is fabricated
+as an independent C# member merely to expose its metadata row.
+
+Property and event accessors remain under their owning logical declaration
+rather than becoming duplicate method declarations. Other MethodDefs remain
+independent declarations unless the producing owners issue an exact
+contribution association proving that valid C# already represents them in a
+Type frame, declaration, or implementation. A rendering failure is not such an
+association: an unsupported independent logical declaration makes the document
+non-available rather than disappearing behind an absorbed-artifact label.
+
+Projection filters only the C# declaration population. They never remove
+physical artifacts from the document, its validation, or its revision.
 
 A nested `TypeDef` is another exact implementation subject, not a recursively
 embedded document. This differs deliberately from API Declarations' selected
@@ -204,17 +222,22 @@ The name is the logical lookup identity. The address proves which physical
 definition supplied the document. Neither is reconstructed from the rendered
 Type declaration.
 
-### Declaration identity
+### Physical artifact and declaration identity
+
+Every physical artifact records its complete Metadata-issued `MemberAnchor`,
+validated metadata token, artifact kind, and typed contribution association.
+Consumers compare the full canonical identity, not only the anchor's truncated
+display fingerprint. The same-reader producer proves that the anchor, token,
+selected Type, and association refer to the same physical row.
 
 Every declaration receives a contiguous document-local integer ID for compact
 joins inside one document. That ID is not portable identity and is never
 stored in a route.
 
-Every member declaration also carries its complete Metadata-issued
-`MemberAnchor`. Consumers compare the full canonical identity, not only the
-anchor's truncated display fingerprint. The declaration's validated metadata
-token remains attached so a same-reader producer can prove that the anchor and
-rendered declaration refer to the same row.
+Every member declaration carries the complete `MemberAnchor` and token of its
+primary logical declaration. One declaration may have several associated
+physical artifacts, but each artifact has exactly one contribution association
+and each projected declaration retains one exact logical identity.
 
 Property and event declarations remain one logical member even when they own
 several physical accessors. They are never duplicated into independent logical
@@ -251,6 +274,7 @@ The digest covers the canonical compact serialization of the document excluding
 the revision field itself, including:
 
 - exact Type and Member identities;
+- physical artifact order and contribution associations;
 - declaration order and structural classifications;
 - every render variant and region;
 - physical body addresses, fingerprints, outcomes, and fidelity;
@@ -264,11 +288,29 @@ or short member fingerprint alone is insufficient.
 
 ## Declaration model
 
-The document contains one Type frame and one ordered declaration population.
-The frame owns the compilation-unit prefix, namespace and Type declaration,
-opening and closing syntax, and Type-level documentation and attributes.
-Each declaration owns its complete source contribution between those frame
-parts.
+The document contains one complete physical artifact inventory, one Type frame,
+and one ordered C# declaration population. The frame owns the compilation-unit
+prefix, namespace and Type declaration, opening and closing syntax, and
+Type-level documentation and attributes. Each declaration owns its complete
+source contribution between those frame parts.
+
+A physical artifact records:
+
+- complete `MemberAnchor`, validated token, table kind, and canonical physical
+  order;
+- its owner-issued generated-origin classification;
+- its contribution kind and exact target: Type frame, declaration ID, or
+  physical body row; and
+- a semantic contribution role such as enum storage, delegate signature,
+  getter, setter, backing storage, or lowered implementation helper.
+
+An artifact associated with a Type frame, declaration, or body has no
+independent source fragment or projection range. The association says where
+valid C# already represents its contribution; it does not erase the artifact's
+identity or make it subject to declaration visibility filters.
+
+Canonical physical order is ascending metadata token value and exists only for
+deterministic validation and serialization. It is not C# source order.
 
 A declaration records:
 
@@ -349,7 +391,7 @@ The same projection request may select:
 
 - all, static, or instance declarations;
 - any set of owner-issued accessibility classes;
-- inclusion of positively generated declarations;
+- inclusion of positively generated C# declarations;
 - inclusion of available documentation regions;
 - inclusion of available attribute regions; and
 - an exact contract relationship when that capability is present.
@@ -358,7 +400,9 @@ Selection removes only complete owner-issued declaration or region
 contributions and preserves syntactically valid framing. It never reorders
 declarations. A declaration with unknown static/instance or generated
 classification remains visible in the unfiltered view and is not guessed into
-a narrower category.
+a narrower category. Physical artifacts associated with a Type frame,
+declaration, or body are not projection rows; generated-declaration filtering
+does not fabricate or reveal standalone syntax for them.
 
 An invalid member, unsupported contract selector, or impossible combination is
 a typed rejected projection. It does not fall back to Bodies, All members, or a
@@ -393,18 +437,24 @@ CSharp.
 
 ## Construction and validation
 
-Construction is atomic over the declaration inventory. An available document
-must prove that every supported declaration directly owned by the selected
-Type was considered exactly once. A filtered `ApiType.Members` collection is
-not sufficient input.
+Construction is atomic over both populations. An available document must prove
+that every direct physical artifact was inventoried exactly once, every
+independently representable logical member has one declaration row, and every
+artifact has one valid contribution association. A filtered
+`ApiType.Members` collection is not sufficient input.
 
 The constructor validates at least:
 
 - non-empty and internally consistent Type identity;
+- unique physical artifact identities in canonical physical order;
+- artifact tokens from the expected metadata tables and selected Type;
+- exactly one valid contribution association per physical artifact;
+- association targets and roles consistent with the Type frame, declaration,
+  or physical body they name;
 - contiguous declaration IDs and strictly increasing source order;
 - unique complete Member identities, without trusting the short fingerprint
   as a unique key;
-- declaration tokens of the expected metadata table and selected Type;
+- a primary logical artifact for every declaration;
 - physical MethodDef addresses that share the selected module and belong to
   the declared member or one of its accessors;
 - valid 64-character physical-body fingerprints;
@@ -440,10 +490,11 @@ The completed content uses an owner-specific outcome:
 Unexpected exceptions and cancellation remain operation failures rather than
 semantic outcomes. Cancellation publishes no replacement document.
 
-Incomplete is useful content, not success-shaped fallback. Its declaration
-inventory and skeleton projection are complete, while every missing body is
-identified explicitly. If declaration enumeration, identity, or rendering
-cannot establish completeness, no document is published.
+Incomplete is useful content, not success-shaped fallback. Its physical
+artifact inventory, C# declaration population, and skeleton projection are
+complete, while every missing body is identified explicitly. If artifact
+enumeration or association, declaration identity, or rendering cannot establish
+completeness, no document is published.
 
 ## Layered production
 
@@ -475,8 +526,8 @@ split by owner:
 
 1. **Structured document owner** - add the document, validator, serializer,
    revision, and projector; refactor whole-Type composition through
-   CSharp-owned declaration variants; and retain exact logical declarations
-   and physical body provenance.
+   CSharp-owned declaration variants; and retain exact physical artifact
+   associations, logical declarations, and physical body provenance.
 2. **SourceHouse and Queries/Sections** - preserve the document and native
    outcome through exact-Type decompiled settlement, then expose one completed
    `InspectionEnvelope<CSharpTypeDocumentOutcome>`.
@@ -502,10 +553,10 @@ Planned Release gates:
 
 | Gate | Claim |
 | --- | --- |
-| `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, duplicate or non-contiguous rows, malformed UTF-16, invalid fingerprints, inconsistent variants, and overflowing or out-of-bounds ranges. |
+| `CSharpTypeDocumentTests` | Constructor rejects broken Type/Member/body identity, missing or duplicate physical artifacts, invalid contribution associations, duplicate or non-contiguous declaration rows, malformed UTF-16, invalid fingerprints, inconsistent variants, and overflowing or out-of-bounds ranges. |
 | `CSharpTypeDocumentProjectionTests` | Bodies, Skeleton, and Selected body use owner-issued variants; structural filters preserve order, identities, valid C#, and projection-local absolute ranges without parsing source. |
-| `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, classification, source, render policy, body address, or physical fingerprint changes the revision; short-anchor collisions cannot merge declarations. |
-| `CSharpDecompilerTypeDocumentTests` | Complete same-reader declaration inventory, non-public and generated members, properties/events with multiple accessors, bodyless and empty Types, delegates, field initializers, visible body failures, and one-load exact body association. |
+| `CSharpTypeDocumentRevisionTests` | Canonical replay is stable; changing identity, physical-artifact association, classification, source, render policy, body address, or physical fingerprint changes the revision; short-anchor collisions cannot merge artifacts or declarations. |
+| `CSharpDecompilerTypeDocumentTests` | Complete same-reader physical artifact accounting and C# declaration population, non-public and generated members, absorbed backing/enum/delegate artifacts, properties/events with multiple accessors, bodyless and empty Types, field initializers, visible body failures, and one-load exact body association. |
 | `TypeDocumentInspectionTests` | Exact-Type SourceHouse settlement preserves provenance, typed outcomes, bounds, diagnostics, detached serialization, and `InspectionEnvelope` content across supplied and absent PDB paths. |
 | CLI whole-Type Decompiled Source tests | The existing command text, diagnostics, and failure behavior come from the shared Bodies projection for the real System.Text.Json witnesses and focused fixtures. |
 | Browser Type Explorer production test | Type Source Explore opens the routed viewer; Bodies/Skeleton/Selected body and structural filters consume product projections and exact identities without Browser C# parsing. |
@@ -527,8 +578,13 @@ The implementation must demonstrate:
 - a property with getter and setter keeps one logical declaration and two
   exact physical body rows;
 - an explicit interface implementation is not matched by display name;
-- a generated backing field is hidden only from a projection that excludes
-  positively generated declarations and remains present in the document;
+- generated auto-property and field-like-event backing fields remain exact
+  physical artifacts associated with their logical declaration and never
+  become fabricated standalone C# rows;
+- an enum's `value__` slot remains associated with the Type frame while enum
+  values remain independently projectable declarations;
+- delegate runtime methods remain exact physical artifacts associated with the
+  delegate Type frame rather than making a valid delegate unavailable;
 - a field initializer records contributing body provenance without becoming a
   fabricated MethodDef destination;
 - an empty class, bodyless interface, enum, and delegate produce valid
