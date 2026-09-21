@@ -1890,8 +1890,10 @@ These properties are represented by
 `LocalPathAdmission_ExpectedKindsAndLinksAreShared`,
 `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
-`LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
-`LocalPathAdmission_PlatformClassifiersRemainPortable`. The Windows-specific
+and `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`. The
+NativeAOT host-policy and Browser/Wasm platform-probe jobs execute
+`eng/run-local-path-admission-platform-probe.sh` and require its exact
+successful verdict. The Windows-specific
 `LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
 `LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
 `LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` gates run in Deep
