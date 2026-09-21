@@ -183,6 +183,15 @@ Printing a source payload also honors explicit Markdown. Multiple candidate
 documents still require the existing explicit row selection; this policy does
 not introduce concatenation or a multi-document framing contract.
 
+Authored `member --print --part` follows the same native/Markdown choice.
+Markdown frames only the selected part in a C# code block and identifies the
+member and part in its title. It preserves the display indentation supplied by
+the [authored-parts projection](authored-member-parts-presentation.md);
+`--row` still selects the member before part selection. The existing part-record
+JSON shapes remain separate from generic printable-document JSON.
+`LocalRepoSourceProjectionTests.MemberParts_*` gates this behavior in Release
+against this repository's compiled, XML-documented `MemberTextSlicer` source.
+
 API Declarations, Decompiled Source, Annotated Source, PDB Source, Source Diff,
 IL, Cost Overlay, and Semantics Overlay support unary `--print` through the same
 payload projection. Printing preserves the selected content; explicit JSON

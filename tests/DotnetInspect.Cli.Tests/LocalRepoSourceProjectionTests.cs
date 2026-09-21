@@ -366,11 +366,17 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     }
 
     [Theory]
-    [InlineData("member")]
-    [InlineData("xml-docs")]
-    [InlineData("signature")]
-    [InlineData("body")]
-    public async Task MemberParts_PrintPreservesOriginalTextAndInitialIndentation(string partName)
+    [InlineData("member", false)]
+    [InlineData("member", true)]
+    [InlineData("xml-docs", false)]
+    [InlineData("xml-docs", true)]
+    [InlineData("signature", false)]
+    [InlineData("signature", true)]
+    [InlineData("body", false)]
+    [InlineData("body", true)]
+    public async Task MemberParts_PrintPreservesOriginalTextAndInitialIndentation(
+        string partName,
+        bool markdown)
     {
         string source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSharpText.MemberSlicing", "MemberTextSlicer.cs"));
@@ -386,26 +392,151 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             _ => throw new InvalidOperationException(),
         };
         var result = await RunCliAsync(
+        [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--repo", FindRepositoryRoot(), "--print", "--part", partName, "--tips", "q");
+            "--repo", FindRepositoryRoot(), "--print", "--part", partName, "--tips", "q",
+            .. markdown ? new[] { "--markdown" } : [],
+        ]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
-        Assert.Equal("    " + source.Substring(part.Start, part.Length), result.Output);
+        string expected = "    " + source.Substring(part.Start, part.Length);
+        if (markdown)
+        {
+            string output = result.Output.ReplaceLineEndings("\n");
+            Assert.StartsWith("# ", output);
+            Assert.Contains($"({partName})", output);
+            const string openingFence = "```csharp\n";
+            int start = output.IndexOf(openingFence, StringComparison.Ordinal);
+            Assert.True(start >= 0, output);
+            Assert.EndsWith("\n```\n", output);
+            string content = output[(start + openingFence.Length)..^5];
+            Assert.Equal(
+                expected.ReplaceLineEndings("\n").TrimEnd('\n'),
+                content.TrimEnd('\n'));
+        }
+        else
+        {
+            Assert.Equal(expected, result.Output);
+        }
     }
 
-    [Fact]
-    public async Task MemberParts_AbsentPartFailsWithoutSubstituteText()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberParts_AbsentPartFailsWithoutSubstituteText(bool markdown)
     {
         var result = await RunCliAsync(
+        [
             "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
             "--library", typeof(MemberTextSlicer).Assembly.Location,
-            "--repo", FindRepositoryRoot(), "--print", "--part", "attributes", "--tips", "q");
+            "--repo", FindRepositoryRoot(), "--print", "--part", "attributes", "--tips", "q",
+            .. markdown ? new[] { "--markdown" } : [],
+        ]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("no 'attributes' part", result.Error);
+    }
+
+    // PR-fast: one offline part request; explicit flags override the environment format.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--plaintext")]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--json-array")]
+    public async Task MemberParts_EnvironmentMarkdownRespectsExplicitFormats(string? format)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "markdown");
+            var result = await RunCliAsync(
+            [
+                "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+                "--library", typeof(MemberTextSlicer).Assembly.Location,
+                "--repo", FindRepositoryRoot(),
+                "--print", "--part", "signature", "--tips", "q",
+                .. format is not null ? new[] { format } : [],
+            ]);
+
+            Assert.True(result.Exit == 0, result.Error);
+            Assert.Empty(result.Error);
+            if (format is null)
+            {
+                Assert.StartsWith("# ", result.Output);
+                Assert.Contains("```csharp", result.Output);
+                Assert.Contains("    public static string? ExtractMemberText(", result.Output);
+            }
+            else if (format == "--plaintext")
+            {
+                Assert.StartsWith("    public static string? ExtractMemberText(", result.Output);
+                Assert.DoesNotContain("```", result.Output);
+            }
+            else
+            {
+                using var json = JsonDocument.Parse(result.Output);
+                var item = format == "--json-array"
+                    ? Assert.Single(json.RootElement.EnumerateArray())
+                    : json.RootElement;
+                Assert.Equal("signature", item.GetProperty("part").GetString());
+                Assert.StartsWith("public static string? ExtractMemberText(",
+                    item.GetProperty("content").GetString());
+                Assert.True(item.TryGetProperty("document", out _));
+                Assert.True(item.TryGetProperty("pdb_span", out _));
+                Assert.False(item.TryGetProperty("row", out _));
+                Assert.False(item.TryGetProperty("section", out _));
+                if (format == "--jsonl")
+                    Assert.Single(result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task MemberParts_MarkdownUsesTheAlreadySelectedMemberRow()
+    {
+        string[] arguments =
+        [
+            "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
+            "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
+            "-m", "Get*", "--repo", FindRepositoryRoot(),
+            "--print", "--part", "signature", "--row", "2", "--tips", "q",
+        ];
+        var structured = await RunCliAsync([.. arguments, "--json"]);
+        var markdown = await RunCliAsync([.. arguments, "--markdown"]);
+
+        Assert.True(structured.Exit == 0, structured.Error);
+        Assert.True(markdown.Exit == 0, markdown.Error);
+        Assert.Empty(structured.Error);
+        Assert.Empty(markdown.Error);
+        using var json = JsonDocument.Parse(structured.Output);
+        Assert.StartsWith("# ", markdown.Output);
+        Assert.Contains("```csharp", markdown.Output);
+        Assert.Contains(json.RootElement.GetProperty("member").GetString()!, markdown.Output);
+        Assert.Contains(json.RootElement.GetProperty("content").GetString()!, markdown.Output);
+    }
+
+    // PR-fast: one bounded rendered output, not a semantic row limit.
+    [Fact]
+    public async Task MemberParts_MarkdownHonorsTheRenderedLineLimit()
+    {
+        var result = await RunCliAsync(
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--repo", FindRepositoryRoot(), "--print", "--part", "member",
+            "--markdown", "--lines", "-n", "3", "--tips", "q");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.StartsWith("# ", result.Output);
+        Assert.Equal(3, result.Output.TrimEnd('\r', '\n').Split('\n').Length);
     }
 
     [Fact]
@@ -425,8 +556,10 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         Assert.False(root.TryGetProperty("section", out _));
     }
 
-    [Fact]
-    public async Task MemberParts_RouterRetainsThePartAndRepositoryOptions()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberParts_RouterRetainsThePartAndRepositoryOptions(bool markdown)
     {
         string[] arguments =
         [
@@ -434,12 +567,15 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "--library", typeof(MemberTextSlicer).Assembly.Location,
             "-m", "ExtractMemberText:1", "--repo", FindRepositoryRoot(),
             "--print", "--part", "signature", "--tips", "q",
+            .. markdown ? new[] { "--markdown" } : [],
         ];
         var direct = await RunCliAsync(["member", .. arguments]);
         var deferred = await RunCliAsync(arguments);
 
         Assert.True(direct.Exit == 0, direct.Error);
         Assert.Equal(direct, deferred);
+        if (markdown)
+            Assert.Contains("```csharp", direct.Output);
     }
 
     [Theory]
