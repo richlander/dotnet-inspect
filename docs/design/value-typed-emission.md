@@ -95,6 +95,37 @@ nested lambda and local-function cases retain their measured generated-identity
 limits rather than claiming exact fidelity. Fixed-input residual/unifier
 censuses and Render A/B measure the population effect separately.
 
+### Reference-conditional assignment testimony
+
+Reference/null conditional arm compatibility is decided before printing
+(#8181). This is a set of accepted reference targets, not one C# natural type:
+all-null arms admit any proven reference, and a nested conditional can retain
+both its arm evidence and its existing merged-result fallback. Binding
+intersects the arms' accepted targets without inferring class hierarchies.
+Unknown targets do not acquire reference proof.
+
+The final emission boundary binds after reconstruction and materialization,
+with coalesce assignment testimony already available. Raised, lowered, and
+nested bodies share that path; detached reconstruction bodies wait for their
+host's final binding. Cloning retains issued testimony, and final binding
+refreshes it after operand rewrites. Printing queries the issued evidence
+rather than walking conditional arms to recover the reference decision.
+
+This retirement preserves existing numeric, char, and enum rendering,
+merged-result fallback, and exact-storage admission. It neither changes
+`Conditional.ResultType` nor substitutes a narrower assignment type for it.
+General reference conversions and conditional overload-binding repair remain
+separate work; target compatibility alone does not authorize either.
+
+Newtonsoft.Json 13.0.4's `IsoDateTimeConverter.set_DateTimeFormat` is the
+published witness (#1767): the null/string producer and string field consumer
+must continue to share one assigned local. `ReferenceConditionalBindingTests`
+pins that assembly and gates raised/lowered binding, nested alternatives,
+null/unknown/value boundaries, clone/refresh, and storage non-actions in
+Release. Its Slow native family belongs to Deep Inspect and the focused
+pre-merge gate. Fixed-input censuses and Render A/B measure population effects;
+the retirement does not promise fewer residual slots.
+
 ## Instance 1 — coercion: the missing member of the type system
 
 The decompiler has a rich vocabulary for **what a value is**: `TypeRef`

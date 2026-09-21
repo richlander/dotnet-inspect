@@ -3040,9 +3040,7 @@ public sealed partial class CSharpPrinter
                 && IsIntegerArm(conditional.WhenTrue)
                 && IsIntegerArm(conditional.WhenFalse))
             || CanRenderPrimitiveConditionalForTarget(conditional, target)
-            || (IsKnownReferenceLike(target)
-                && CanAssignTo(conditional.WhenTrue, target)
-                && CanAssignTo(conditional.WhenFalse, target));
+            || conditional.CanAssignReferenceArmsTo(target, _function.TypeShapes);
 
     static bool IsIntegerArm(IrExpression arm)
         => arm.ResultType is { } type && TypeFamilies.IsIntegerLike(type);
