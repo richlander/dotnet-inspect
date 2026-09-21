@@ -267,6 +267,36 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             library.Reference.ApiAssembly);
     }
 
+    [Fact]
+    public async Task ApiAssemblyBinding_IsRejectedForDistinctImplementation()
+    {
+        SourceHouseBuildAttestation attestation =
+            s_authoredBuildAttestation.Value;
+        var capability = new CountingAttestationCapability(attestation);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateDistinctSourceAsync(
+                attestation.PeImage.ToArray(),
+                attestation.PortablePdbImage.ToArray());
+        AuthoredScenario scenario =
+            AuthoredScenario.Create(library, capability);
+
+        Assert.NotSame(
+            library.Reference.ApiAssembly,
+            library.Reference.ImplementationAssembly);
+        ArgumentException exception = Assert.Throws<ArgumentException>(
+            () => new DocumentationAuthoredProviderBinding(
+                DocumentationHouseRequestIdentity.Create(
+                    "api-content-documentation-request"),
+                scenario.Binding.OperationPlan,
+                scenario.Binding.PolicyGeneration,
+                scenario.Binding.Subject,
+                library.Reference.ApiAssembly));
+
+        Assert.Equal("implementationContent", exception.ParamName);
+        Assert.Equal(0, capability.SourceReads);
+        Assert.Equal(0, capability.AttestationReads);
+    }
+
     private static SourceHouseBuildAttestation BuildAuthoredAttestation()
     {
         CSharpBuildAttestationOutcome outcome =
@@ -384,7 +414,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 SourceHouseRequestIdentity.Create(
                     "documentation-authored-source"),
                 library.Reference,
-                library.Reference.ApiAssembly,
+                library.Reference.ImplementationAssembly!,
                 new SourceHouseTarget.MemberTarget(
                     type.DefinitionName!,
                     ApiMemberIdentity.GetMemberAnchor(type, member),
@@ -406,7 +436,7 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                 DocumentationHousePolicyGeneration.Create(
                     "documentation-policy"),
                 subject,
-                library.Reference.ApiAssembly);
+                library.Reference.ImplementationAssembly!);
             var invocation =
                 new DocumentationAuthoredProviderInvocation(
                     binding,

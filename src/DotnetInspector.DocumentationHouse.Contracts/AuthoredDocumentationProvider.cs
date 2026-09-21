@@ -18,20 +18,11 @@ public sealed class DocumentationAuthoredProviderBinding
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(implementationContent);
         if (!ReferenceEquals(
-                implementationContent.Library,
-                subject.Library))
+                implementationContent,
+                subject.Library.ImplementationAssembly))
         {
             throw new ArgumentException(
-                "The implementation content must belong to the subject Library.",
-                nameof(implementationContent));
-        }
-        if (!implementationContent.HasRole(
-                LibraryContentRole.ApiAssembly)
-            && !implementationContent.HasRole(
-                LibraryContentRole.ImplementationAssembly))
-        {
-            throw new ArgumentException(
-                "Authored documentation requires API or implementation assembly content.",
+                "The implementation content must be the subject Library's exact implementation assembly.",
                 nameof(implementationContent));
         }
 

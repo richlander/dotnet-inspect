@@ -1325,6 +1325,45 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             }
         }
 
+        public static async Task<LibraryFixture> CreateDistinctSourceAsync(
+            byte[] assembly,
+            byte[] portablePdb)
+        {
+            ArtifactFixture artifacts =
+                await ArtifactFixture.CreateAsync(
+                    [assembly, assembly, portablePdb]);
+            try
+            {
+                ManagedMetadataIdentity.Assembly identity =
+                    AssemblyIdentity(assembly);
+                LibraryReference reference =
+                    LibraryReference.CreateDirect(
+                        new LibraryAssemblyCorrespondence(
+                            artifacts[0],
+                            identity,
+                            artifacts[1],
+                            identity),
+                        [
+                            new LibraryCompanionCorrespondence(
+                                artifacts[2],
+                                LibraryContentRole.PortablePdb,
+                                artifacts[1]),
+                        ]);
+                var owner = new LibraryContentOwner(
+                    reference,
+                    artifacts.IssueContentLeases());
+                return new LibraryFixture(
+                    artifacts,
+                    reference,
+                    owner);
+            }
+            catch
+            {
+                await artifacts.DisposeAsync();
+                throw;
+            }
+        }
+
         private LibraryApiSurfaceCorrespondence InspectApiSurface()
         {
             using LibraryOperationLease operation = IssueOperation();

@@ -1062,17 +1062,19 @@ the exact physical declaration for `MemberTextSlicer.ExtractMemberText`
 produces parsed authored documentation, provider construction starts no source
 work, and SourceHouse is the sole final lease consumer after transfer.
 Neighboring gates prove that a foreign DocumentationHouse binding and an
-insufficient remaining source-byte budget reject before source work and settle
-the lease locally, pre-transfer cancellation settles without source work, a
-second invocation performs no additional work and settles its newly supplied
-lease, and checksum-valid PDB source without the #6584 physical-input identity
-remains unavailable without reaching CSharpText. The existing public-outcome
-closure gate includes the authored provider contracts and proves that
-completed outcomes retain no lease, content owner, stream, delegate, or
-disposable authority. Per the operator's issue #8017 evidence choice, this
-slice adds no repository-wide source-dependency absence rule; project
-references establish the intended direction, while Release behavior and
-adversarial design review provide the slice evidence.
+API-only content from a Library with distinct API and implementation
+assemblies reject before source work; an insufficient remaining source-byte
+budget rejects before source work and settles the lease locally; pre-transfer
+cancellation settles without source work; a second invocation performs no
+additional work and settles its newly supplied lease; and checksum-valid PDB
+source without the #6584 physical-input identity remains unavailable without
+reaching CSharpText. The existing public-outcome closure gate includes the
+authored provider contracts and proves that completed outcomes retain no lease,
+content owner, stream, delegate, or disposable authority. Per the operator's
+issue #8017 evidence choice, this slice adds no repository-wide
+source-dependency absence rule; project references establish the intended
+direction, while Release behavior and adversarial design review provide the
+slice evidence.
 
 `PackageHouseExecutionTests` gates the PackageHouse adapter over real
 `System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
