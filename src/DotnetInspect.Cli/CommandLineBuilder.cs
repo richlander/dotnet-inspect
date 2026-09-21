@@ -1139,6 +1139,10 @@ public static class CommandLineBuilder
         // Product-owned query vocabulary
         rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
 
+        // Product resource explanation
+        rootCommand.Subcommands.Add(
+            ResourceExplanationCommandDefinitions.CreateExplainCommand(opts));
+
         // Product-owned ecosystem catalog
         rootCommand.Subcommands.Add(EcosystemCommandDefinitions.CreateEcosystemCommand(opts));
 

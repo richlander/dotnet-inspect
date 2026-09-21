@@ -3782,7 +3782,9 @@ public partial class LibraryCommand
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors());
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            resourceCatalog: "library",
+            resourceCapabilities: LibraryOutputCapabilities.Catalog);
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -3969,7 +3971,9 @@ public partial class LibraryCommand
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors());
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+            resourceCatalog: "library",
+            resourceCapabilities: LibraryOutputCapabilities.Catalog);
     }
 
     /// <summary>

@@ -1244,10 +1244,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --format markdown, --format plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --format markdown, --format plaintext |",
             output);
         Assert.Contains(
-            "| References | section | --format markdown, --format plaintext, --format json, --format table, --format tsv, --format jsonl |",
+            "| References | section | library/sections/references "
+            + "| --format markdown, --format plaintext, --format json, "
+            + "--format table, --format tsv, --format jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1271,13 +1275,21 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "| @Dependencies | category | --format markdown, --format plaintext |",
+            "| @Dependencies | category "
+            + "| library/categories/dependencies "
+            + "| --format markdown, --format plaintext |",
             output);
         Assert.Contains(
-            "| Reference Hierarchy | section | --format markdown, --format plaintext, --format json, --format table, --format tsv, --format jsonl, --tree, --format mermaid |",
+            "| Reference Hierarchy | section "
+            + "| library/sections/reference-hierarchy "
+            + "| --format markdown, --format plaintext, --format json, "
+            + "--format table, --format tsv, --format jsonl, --tree, "
+            + "--format mermaid |",
             output);
         Assert.Contains(
-            "| References | section | --format markdown, --format plaintext, --format json, --format table, --format tsv, --format jsonl |",
+            "| References | section | library/sections/references "
+            + "| --format markdown, --format plaintext, --format json, "
+            + "--format table, --format tsv, --format jsonl |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1311,6 +1323,9 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "section",
             row.GetProperty("kind").GetString());
+        Assert.Equal(
+            "library/sections/reference-hierarchy",
+            row.GetProperty("path").GetString());
         Assert.Equal(
             [
                 "--format markdown",

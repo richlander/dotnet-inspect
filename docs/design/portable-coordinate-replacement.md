@@ -15,8 +15,11 @@ The shared transformation, completed envelope and definition-first CLI route
 are implemented. `WorkspacePortableCoordinateReplacementTests` and
 `WorkspaceCommandTests` own their Release gates below. Browser coordinate
 controls and capture/install adoption remain **unverified**, tracked by
-issues #5510 and #5511. The shared source-retiring Navigation producer landed in
-[#7404](https://github.com/richlander/dotnet-inspect/pull/7404).
+issues #5510 and #5511. Fresh Navigation preparation across explicitly supplied
+source and destination Workspaces landed in
+[#8094](https://github.com/richlander/dotnet-inspect/pull/8094); production
+adoption of that boundary is tracked by
+[#8128](https://github.com/richlander/dotnet-inspect/issues/8128).
 
 The conventional basis is an immutable document transformation: evaluated facts
 may justify a derived declaration, but evaluation state is not the declaration.
@@ -81,9 +84,11 @@ descendant as Package.
 ## Immediate boundary
 
 Inputs are one validated committed scenario, one selected direct Package
-navigation row, explicit destination intent, and the owner-issued complete
-Navigation outcome associated with that exact replacement. The selection must
-resolve to one unique direct Package member position in one
+navigation row, and explicit destination intent. The operation restores the
+source scenario, then realizes one separate destination Workspace and obtains
+the complete Navigation successor outcome associated with those exact
+endpoints. The selection must resolve to one unique direct Package member
+position in one
 `WorkspaceContextAddress` of that input composition. Equal Package names,
 coordinates, context labels from another composition, or the scenario's
 selected query context do not establish that association. Multiple matching
@@ -96,19 +101,21 @@ query-bearing scenarios, and batch replacement are outside this operation and
 receive typed refusals rather than implicit expansion or normalization.
 
 The process-local association must connect the exact input composition and
-selected row/member position to the source Navigation basis, the Scope-issued
-request/result association, and the completed destination Navigation state.
-Equal coordinate strings or an unrelated successful correspondence result do
-not substitute for that chain. Definitions consumes these owner-issued
-associations; it does not create another Scope receipt, retained intent, or
-publication epoch.
+selected row/member position to the source Navigation basis, the successor
+Workspace's Add settlement, and the successor query's fresh destination
+Navigation state plus detached retention evidence. Source and destination
+Workspace identities must differ even for a same-coordinate request. Equal
+coordinate strings or an unrelated successful correspondence result do not
+substitute for that chain. Definitions consumes each owner-issued association;
+it does not relabel either Workspace's occurrence, content generation,
+selection, retained intent, or publication epoch.
 
 Supporting owners keep their contracts:
 
 | Owner | Consumed responsibility |
 | --- | --- |
-| [Workspace Scope](workspace-scope-and-expansion.md) | Exact operation association, actual terminal membership, requested occurrence |
-| [Navigation Scope consumption](navigation-scope-operation-consumption.md) | Correlated completion, retention, fallback, inspector request and native outcome |
+| [Workspace Scope](workspace-scope-and-expansion.md) | Append-only destination admission, exact operation association and actual terminal membership |
+| [Navigation successor preparation](navigation-coordinate-successor-preparation.md) | Exact source/destination association, fresh destination lineage, retention, fallback and inspector outcome |
 | [Forwarded correspondence](forwarded-api-coordinate-correspondence.md) | Exact Library/Type/Member evidence, supplied through Navigation |
 | [Definitions](workspace-definitions.md#complete-committed-views) | Existing committed-view, target, schema, validation and projection contracts |
 | [Acquisition](artifact-acquisition-and-workspaces.md) | Source authorization, realization, admission and drainage |
@@ -176,17 +183,17 @@ incomplete derivation by the existing typed non-projectable result.
 Acquisition failure, historical-only membership, incomplete destination
 preparation, an unassociated outcome, or a state the portable grammar cannot
 represent produces no derived-success packet. Do not attach the input packet
-as the replacement result's successful Share. A genuine same-coordinate
-`NoEffect` with complete associated state may yield the same canonical packet;
-that is not a failure fallback. The current Scope producer can instead settle
-same-coordinate replacement as `Committed`; Definitions reports that actual
-settlement while retaining the same complete canonical scenario.
+as the replacement result's successful Share. A same-coordinate request still
+constructs a fresh destination Workspace and Navigation lineage; it may yield
+the same canonical packet only after that complete successor preparation.
 
-Projection refusal does not undo Scope. A replacement may have committed while
-portable derivation failed. The completed result preserves the actual
-Navigation outcome and diagnostics separately from the derivation refusal.
-It does not imply rollback or authorize a Browser consumer to reinstall a
-retired source snapshot. Installation remains with its existing owner.
+The finite operation never publishes either Workspace. Destination admission,
+Navigation preparation and projection complete while both exact Workspaces are
+alive, then both Workspaces close before detached Content, Share and diagnostics
+return. A projection refusal does not claim rollback; it reports the actual
+destination Add and Navigation evidence retained before close. It does not
+authorize a Browser consumer to reinstall a retired source snapshot.
+Installation remains with its existing owner.
 
 Correspondence evidence, explanations and runtime outcomes belong in detached
 Content/diagnostics, not in the packet. The final host-neutral boundary is
@@ -230,6 +237,10 @@ InspectionEnvelope<WorkspacePortableCoordinateReplacementOutcome> result =
         restorationOptions,
         cancellationToken);
 ```
+
+The implemented CLI path now uses the fresh-successor boundary above.
+The remaining #6751 step removes the protected same-Workspace Navigation Scope
+producer and `ReplaceScope` API after their last production consumer is gone.
 
 Browser adoption remains planned; this TypeScript call site is a **mockup**,
 not a shipped export or parser:
@@ -278,6 +289,7 @@ coordinates, formats 2/3, unrelated intent and inactive-row focus, target/RID
 preservation, Workspace-active rows with omitted Package-only context or
 preserved deeper context, early refusals and acquisition failure. Its envelope
 cases cover
+separate source/destination Workspace identity, destination Add settlement,
 typed retention, canonical Share, fallback diagnostics and source-generated
 serialization. The CLI gate adds option admission, packet/URL output, complete
 JSON envelope and restoration of the returned packet. Real-Avalonia cases
@@ -285,9 +297,11 @@ measured above the two-second threshold are `Speed=Slow`; this focused
 pre-merge gate and daily Deep Inspect own them. Early refusal and option cases
 remain PR-fast.
 
-`NavigationCoordinateReplacementTests` continues to gate the consumed
-association, retirement and non-success policy. Dedicated portable
-after-commit projection/cleanup-failure injection and equivalent Browser
+`NavigationCoordinateSuccessorQueryTests` gates the consumed source/destination
+association and non-preparation policy. The protected same-Workspace
+`NavigationCoordinateReplacementTests` remains a neighboring regression gate
+until #6751 step 5 removes that path. Dedicated portable
+after-admission projection/cleanup-failure injection and equivalent Browser
 requests remain **unverified**; no alternate lifecycle or trusted-caller
 hardening is introduced to manufacture those cases.
 
