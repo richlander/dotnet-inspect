@@ -203,9 +203,7 @@ public sealed class PackageSectionGrowthTests
 
             Assert.True(result.ExitCode == 0, result.Error);
             Assert.True(int.TryParse(result.Output.Trim(), out int count));
-            Assert.True(
-                count > 24,
-                $"Expected Dependency Hierarchy to exceed 24 rows; observed {count}.");
+            Assert.Equal(DependencyCount, count);
         }
         finally
         {
@@ -239,8 +237,9 @@ public sealed class PackageSectionGrowthTests
             ],
         };
 
-        Assert.True(
-            new InspectionResultView(result).IdentifierConfusion.Count > 24);
+        Assert.Equal(
+            31,
+            new InspectionResultView(result).IdentifierConfusion.Count);
     }
 
     [Fact]
@@ -268,8 +267,9 @@ public sealed class PackageSectionGrowthTests
                 FailedLibraries: null),
         };
 
-        Assert.True(
-            new InspectionResultView(result).MissingSourceFiles?.Count > 24);
+        Assert.Equal(
+            31,
+            new InspectionResultView(result).MissingSourceFiles?.Count);
     }
 
     static async Task AssertCountAsync(
