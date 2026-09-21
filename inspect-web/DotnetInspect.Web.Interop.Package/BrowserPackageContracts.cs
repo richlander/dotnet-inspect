@@ -1047,26 +1047,31 @@ public sealed record BrowserLibraryQueryDocument(
     BrowserLibraryQuerySummary Summary);
 
 public sealed record BrowserLibraryQueryRow(
-    int Occurrence,
     string AssetId,
     string Library,
-    string Version,
-    string[] Answers);
+    string Path,
+    string Source,
+    string? Version,
+    string SourceKind,
+    string? TargetFramework,
+    string[] MatchedReferences);
 
 public sealed record BrowserLibraryQueryFailure(
-    int Occurrence,
-    string Source,
+    string? AssetId,
+    string? Library,
+    string? Path,
+    string? Source,
     string Kind,
     string Message);
 
 public sealed record BrowserLibraryQuerySummary(
-    int Population,
-    int Evaluated,
+    int PopulationCandidates,
+    int CandidateLimit,
+    int Candidates,
     int Matches,
     int Failures,
-    int CandidateLimit,
-    string Completion,
-    bool IsExact);
+    string IncompleteReasons,
+    bool IsComplete);
 
 public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
 

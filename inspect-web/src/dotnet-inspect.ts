@@ -7309,19 +7309,19 @@ function libraryQueryStatusHtml() {
   const inspection = currentLibraryQueryInspection();
   if (!inspection) return "";
   const summary = inspection.content.summary;
-  const completion = summary.isExact
+  const completion = summary.isComplete
     ? ""
-    : ` Results are incomplete (${escapeHtml(summary.completion)}).`;
+    : ` Results are incomplete (${escapeHtml(summary.incompleteReasons)}).`;
   const failures = inspection.content.failures.length
     ? `<div class="library-query-failures">
         <strong>${inspection.content.failures.length} librar${inspection.content.failures.length === 1 ? "y" : "ies"} could not be evaluated.</strong>
         <ul>${inspection.content.failures.map(failure =>
-          `<li><code>${escapeHtml(failure.source)}</code>: ${escapeHtml(failure.message)}</li>`).join("")}</ul>
+          `<li><code>${escapeHtml(failure.path ?? failure.source ?? failure.library ?? "unknown Library")}</code>: ${escapeHtml(failure.message)}</li>`).join("")}</ul>
       </div>`
     : "";
   const result = summary.matches === 0
     ? `No admitted libraries directly reference <code>${escapeHtml(reference)}</code>`
-    : `<strong>${summary.matches}</strong> of ${summary.population} librar${summary.population === 1 ? "y" : "ies"} directly reference <code>${escapeHtml(reference)}</code>`;
+    : `<strong>${summary.matches}</strong> of ${summary.populationCandidates} librar${summary.populationCandidates === 1 ? "y" : "ies"} directly reference <code>${escapeHtml(reference)}</code>`;
   return `<div class="library-query-status" role="status">
     <p>${result}.${completion}</p>
     ${failures}

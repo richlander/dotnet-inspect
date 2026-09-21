@@ -248,8 +248,10 @@ export interface BrowserLibraryQueryDocument {
 }
 
 export interface BrowserLibraryQueryFailure {
-  readonly occurrence: number;
-  readonly source: string;
+  readonly assetId: string | null;
+  readonly library: string | null;
+  readonly path: string | null;
+  readonly source: string | null;
   readonly kind: string;
   readonly message: string;
 }
@@ -261,21 +263,24 @@ export interface BrowserLibraryQueryInspection {
 }
 
 export interface BrowserLibraryQueryRow {
-  readonly occurrence: number;
   readonly assetId: string;
   readonly library: string;
-  readonly version: string;
-  readonly answers: ReadonlyArray<string>;
+  readonly path: string;
+  readonly source: string;
+  readonly version: string | null;
+  readonly sourceKind: string;
+  readonly targetFramework: string | null;
+  readonly matchedReferences: ReadonlyArray<string>;
 }
 
 export interface BrowserLibraryQuerySummary {
-  readonly population: number;
-  readonly evaluated: number;
+  readonly populationCandidates: number;
+  readonly candidateLimit: number;
+  readonly candidates: number;
   readonly matches: number;
   readonly failures: number;
-  readonly candidateLimit: number;
-  readonly completion: string;
-  readonly isExact: boolean;
+  readonly incompleteReasons: string;
+  readonly isComplete: boolean;
 }
 
 export interface BrowserMemberBodySelector {

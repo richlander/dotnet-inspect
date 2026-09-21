@@ -1,5 +1,9 @@
-using System.Collections.Immutable;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.Queries.EmbeddedFixtures;
+using DotnetInspector.QueryOperations;
+using DotnetInspector.RowSelection;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -7,209 +11,322 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class LibraryQueryTests
 {
     [Fact]
-    public void OperationRoute_ProjectsReferencesCapability()
+    public void Route_ExposesReferenceQualificationAndResultSelection()
     {
-        LibraryQueryRegisteredTerm term =
-            Assert.Single(LibraryQuery.RegisteredTerms);
+        IQueryOperationRoute route = LibraryQuery.OperationRoute;
 
-        Assert.Equal(LibraryQuery.ReferencesTermKey, term.Descriptor.Key);
+        Assert.Equal(LibraryQuery.OperationRouteIdentity, route.Identity);
         Assert.Equal(
-            [PortableQueryOperator.Equal],
-            term.Operators);
+            LibraryQuery.OperationIdentity,
+            route.OperationIdentity);
         Assert.Equal(
-            LibraryQuery.OperationLibrariesRowSet,
-            Assert.Single(LibraryQuery.OperationRoute.RowSets));
-    }
-
-    [Fact]
-    public void ResolveIntent_RejectsInvalidOperandAtomically()
-    {
-        PortableQueryIntent intent = PortableQueryIntent.Create(
+            LibraryQuery.OperationSubjectRole,
+            route.SubjectRole);
+        Assert.Equal(
+            LibraryQuery.OperationResultGrain,
+            route.ResultGrain);
+        Assert.Equal(
+            [LibraryQuery.OperationLibrariesRowSet],
+            route.RowSets);
+        Assert.Equal(
+            LibraryQuery.OperationProfileIdentity,
+            route.ProfileIdentity);
+        Assert.Equal(
+            [LibraryQuery.CandidatesDimension],
+            route.Capabilities.Dimensions);
+        Assert.Equal(
             [
-                new(
-                    LibraryQuery.ReferencesTermKey,
-                    PortableQueryOperator.Equal,
-                    "System.Runtime"),
-                new(
-                    LibraryQuery.ReferencesTermKey,
-                    PortableQueryOperator.Equal,
-                    "System.Runtime, Version=11.0.0.0"),
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Tail,
+                RowSelectionStageKind.Window,
             ],
-            [],
-            [],
-            []);
-
-        Assert.IsType<LibraryQueryPlanResult.Rejected>(
-            LibraryQuery.ResolveIntent(
-                intent,
-                cancellationToken: TestContext.Current.CancellationToken));
+            route.Capabilities.Stages);
+        Assert.Empty(route.Capabilities.Orders);
+        Assert.Collection(
+            route.Capabilities.Terms,
+            term =>
+            {
+                Assert.Equal(
+                    LibraryQuery.ReferencesTermKey,
+                    term.Binding.Key);
+                Assert.Equal(
+                    QueryOperationTermRole.SubjectQualification,
+                    term.Binding.Role);
+                Assert.Equal(
+                    [PortableQueryOperator.Equal],
+                    term.Operators);
+            });
     }
 
     [Fact]
-    public void ResolveIntent_CollapsesCaseVariants()
+    public void Plan_PreservesRepeatedReferencesAndOrderedRows()
     {
         LibraryQueryPlan plan = Accepted(
-            LibraryQuery.CreateIntent(
-                ["System.Runtime", "system.runtime"]));
+            LibraryQuery.Plan(
+                new(
+                    [
+                        Reference("System.Runtime"),
+                        Reference("System.Collections"),
+                    ],
+                    MaximumCandidates: 12,
+                    RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Window(2, 5),
+                        RowSelectionIntentOperation<string>.Tail(2),
+                    ]))));
 
-        Assert.Equal(["System.Runtime"], plan.RequiredReferences);
-    }
-
-    [Fact]
-    public async Task Execute_MatchesDirectReferencesWithAndSemantics()
-    {
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup group = Group(
-            workspace,
-            typeof(LibraryQueryTests).Assembly.Location);
-        string[] names = DirectReferences(group);
-        Assert.True(names.Length >= 2);
-
-        LibraryQueryDocument matching = LibraryQuery.Execute(
-            LibraryQueryPopulation.FromGroup(group),
-            Accepted(LibraryQuery.CreateIntent(names.Take(2))));
-        LibraryQueryDocument nonmatching = LibraryQuery.Execute(
-            LibraryQueryPopulation.FromGroup(group),
-            Accepted(LibraryQuery.CreateIntent(
-                [names[0], "No.Such.Direct.Reference"])));
-
-        LibraryQueryMatch match = Assert.Single(matching.Results);
-        Assert.Equal(0, match.Occurrence);
-        Assert.Equal(names.Take(2), match.Answers);
-        Assert.Empty(nonmatching.Results);
+        Assert.Equal(12, plan.MaximumCandidates);
         Assert.Equal(
-            LibraryQueryCompletionKind.Complete,
-            nonmatching.Summary.Completion);
+            ["System.Collections", "System.Runtime"],
+            plan.References.Select(reference =>
+                reference.DisplayName));
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Window,
+                RowSelectionStageKind.Tail,
+            ],
+            plan.RowSelection.Operations.Select(operation =>
+                operation.Kind));
     }
 
     [Fact]
-    public async Task Execute_PreservesDuplicateOccurrencesInOrder()
+    public void Plan_CollapsesEquivalentReferenceSpellings()
     {
-        string path = typeof(LibraryQueryTests).Assembly.Location;
-        ResolvedAssemblyReference first =
-            ResolvedAssemblyReference.CreateFromPath(
-                path,
-                AssemblyResolutionProvenance.Local("first"));
-        ResolvedAssemblyReference second =
-            ResolvedAssemblyReference.CreateFromPath(
-                path,
-                AssemblyResolutionProvenance.Local("second"));
-        var policy = new TestBindingPolicy();
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(
+                new(
+                    [
+                        Reference("System.Runtime"),
+                        Reference("system.runtime"),
+                    ])));
+
+        LibraryQueryReferencePredicate reference =
+            Assert.Single(plan.References);
+        Assert.Equal("System.Runtime", reference.DisplayName);
+    }
+
+    [Fact]
+    public void Execute_ReturnsLibraryGrainReferenceMatch()
+    {
+        string path = typeof(EmbeddedSourceFixture).Assembly.Location;
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(
+                new([Reference("system.runtime")])));
+
+        LibraryQueryDocument document = LibraryQuery.Execute(
+            [
+                new(
+                    path,
+                    "fixture",
+                    "1.0.0",
+                    AssemblySetSourceKind.Directory,
+                    "net11.0"),
+            ],
+            [],
+            plan,
+            TestContext.Current.CancellationToken);
+
+        LibraryQueryMatch match = Assert.Single(document.Results);
+        Assert.Equal(
+            "DotnetInspector.Queries.EmbeddedFixtures",
+            match.Library.ToString());
+        Assert.Equal("System.Runtime", Assert.Single(
+            match.MatchedReferences).ToString());
+        Assert.Empty(document.Failures);
+        Assert.True(document.Summary.IsComplete);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipants_PreservesProductIssuedMetadata()
+    {
+        string assemblyPath = typeof(LibraryQueryTests).Assembly.Location;
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
-                new(first, policy),
-                new(second, policy),
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        assemblyPath,
+                        AssemblyResolutionProvenance.Local(
+                            "Library Query participant tests")),
+                    new TestBindingPolicy()),
             ]);
-        string reference = DirectReferences(group)[0];
-
-        LibraryQueryDocument document = LibraryQuery.Execute(
-            LibraryQueryPopulation.FromGroup(group),
-            Accepted(LibraryQuery.CreateIntent([reference])));
-
-        Assert.Equal([0, 1], document.Results.Select(row => row.Occurrence));
-        Assert.Equal(2, document.Summary.Population);
-        Assert.True(document.Summary.IsExact);
-    }
-
-    [Fact]
-    public async Task Execute_PreservesTypedAcquisitionFailure()
-    {
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup group = Group(
-            workspace,
-            typeof(LibraryQueryTests).Assembly.Location);
-        var failure = new CandidateOpenFailure(
-            CandidateOpenFailureKind.Unreadable,
-            "Access was denied.");
-        var population = new LibraryQueryPopulation(
-            group,
-            [
-                new LibraryQueryPopulationOccurrence.Unavailable(
-                    0,
-                    "/private/Denied.dll",
-                    failure),
-            ]);
-
-        LibraryQueryDocument document = LibraryQuery.Execute(
-            population,
-            Accepted(LibraryQuery.CreateIntent(["System.Runtime"])));
-
-        LibraryQueryFailure actual = Assert.Single(document.Failures);
-        Assert.Equal(CandidateOpenFailureKind.Unreadable, actual.Kind);
-        Assert.Equal(
-            LibraryQueryCompletionKind.EvaluationFailures,
-            document.Summary.Completion);
-        Assert.False(document.Summary.IsExact);
-    }
-
-    [Fact]
-    public async Task Execute_ReportsCandidateLimit()
-    {
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup group = Group(
-            workspace,
-            typeof(LibraryQueryTests).Assembly.Location);
-        ImmutableArray<LibraryQueryPopulationOccurrence> occurrences =
-        [
-            .. Enumerable.Range(0, LibraryQuery.DefaultMaximumCandidates + 1)
-                .Select(index =>
-                    (LibraryQueryPopulationOccurrence)new
-                        LibraryQueryPopulationOccurrence.Unavailable(
-                            index,
-                            $"candidate-{index}.dll",
-                            new(
-                                CandidateOpenFailureKind.InvalidImage,
-                                "Not a managed assembly."))),
-        ];
-
-        LibraryQueryDocument document = LibraryQuery.Execute(
-            new(group, occurrences),
-            Accepted(LibraryQuery.CreateIntent(["System.Runtime"])));
-
-        Assert.Equal(
-            LibraryQuery.DefaultMaximumCandidates,
-            document.Summary.Evaluated);
-        Assert.Equal(
-            LibraryQueryCompletionKind
-                .CandidateLimitReachedWithEvaluationFailures,
-            document.Summary.Completion);
-    }
-
-    private static LibraryQueryPlan Accepted(PortableQueryIntent intent) =>
-        Assert.IsType<LibraryQueryPlanResult.Accepted>(
-            LibraryQuery.ResolveIntent(
-                intent,
-                cancellationToken: TestContext.Current.CancellationToken)).Plan;
-
-    private static string[] DirectReferences(AssemblyContextGroup group)
-    {
-        var available = Assert.IsType<
-            AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Available>(
+        var references = Assert.IsType<AssemblyContextEntry<
+            System.Collections.Immutable.ImmutableArray<
+                AssemblyReferenceIdentity>>.Available>(
                     AssemblyContextReferencesQuery.ExecuteParticipant(
                         group,
                         group.Participants[0]));
-        return
-        [
-            .. available.Value
-                .Select(reference => reference.Name)
-                .Distinct(StringComparer.OrdinalIgnoreCase),
-        ];
+        string reference = Assert.Single(
+            references.Value,
+            candidate => candidate.Name == "System.Runtime").Name;
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(new([Reference(reference)])));
+
+        LibraryQueryDocument document = LibraryQuery.ExecuteParticipants(
+            group,
+            [
+                new(
+                    group.Participants[0],
+                    "ref/net11.0/LibraryQuery.Tests.dll",
+                    "LibraryQuery.Package",
+                    "1.2.3",
+                    AssemblySetSourceKind.Package,
+                    "net11.0"),
+            ],
+            plan,
+            TestContext.Current.CancellationToken);
+
+        LibraryQueryMatch match = Assert.Single(document.Results);
+        Assert.Equal(
+            "DotnetInspector.Queries.Tests",
+            match.Library.ToString());
+        Assert.Equal(
+            "ref/net11.0/LibraryQuery.Tests.dll",
+            match.Path.ToString());
+        Assert.Equal("LibraryQuery.Package", match.Source.ToString());
+        Assert.Equal("1.2.3", match.Version?.ToString());
+        Assert.Equal(AssemblySetSourceKind.Package, match.SourceKind);
+        Assert.Equal("net11.0", match.TargetFramework?.ToString());
+        Assert.Equal(reference, Assert.Single(match.MatchedReferences).ToString());
+        Assert.Equal(1, document.Summary.PopulationCandidates);
+        Assert.Equal(1, document.Summary.Candidates);
+        Assert.True(document.Summary.IsComplete);
     }
 
-    private static AssemblyContextGroup Group(
-        InspectionWorkspace workspace,
-        string path) =>
-        workspace.CreateAssemblyContextGroup(
+    [Fact]
+    public void Execute_SeparatesCandidateBoundFromResultRows()
+    {
+        string path = typeof(EmbeddedSourceFixture).Assembly.Location;
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(
+                new(
+                    MaximumCandidates: 1,
+                    RowSelection: RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Head(1),
+                    ]))));
+
+        LibraryQueryDocument document = LibraryQuery.Execute(
             [
-                new AssemblyContextParticipant(
-                    ResolvedAssemblyReference.CreateFromPath(
-                        path,
-                        AssemblyResolutionProvenance.Local(
-                            "Library Query tests")),
-                    new TestBindingPolicy()),
-            ]);
+                new(
+                    path,
+                    "z-source",
+                    null,
+                    AssemblySetSourceKind.Directory),
+                new(
+                    path,
+                    "a-source",
+                    null,
+                    AssemblySetSourceKind.Directory),
+            ],
+            [],
+            plan,
+            TestContext.Current.CancellationToken);
+
+        Assert.Single(document.Results);
+        Assert.Equal("a-source", document.Results[0].Source.ToString());
+        Assert.Equal(2, document.Summary.PopulationCandidates);
+        Assert.Equal(1, document.Summary.Candidates);
+        Assert.Equal(
+            LibraryQueryIncompleteReason.CandidateLimit,
+            document.Summary.IncompleteReasons);
+        Assert.Equal(
+            RowSelectionStageKind.Head,
+            Assert.Single(plan.RowSelection.Operations).Kind);
+    }
+
+    [Fact]
+    public async Task ExecuteToEnvelope_PreservesPopulationFailure()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-library-query-{Guid.NewGuid():N}");
+        using var httpClient = new HttpClient();
+        using AssemblySet population =
+            await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Directories = [missingDirectory],
+                    SourceOrder = [AssemblySetSourceKind.Directory],
+                    CancellationToken =
+                        TestContext.Current.CancellationToken,
+                });
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(new()));
+
+        InspectionEnvelope<LibraryQueryDocument> envelope =
+            LibraryQueryInspection.Execute(
+                population,
+                plan,
+                TestContext.Current.CancellationToken);
+
+        Assert.Empty(envelope.Content.Results);
+        LibraryQueryFailure failure =
+            Assert.Single(envelope.Content.Failures);
+        Assert.Equal(LibraryQueryFailureKind.Population, failure.Kind);
+        Assert.Equal(
+            LibraryQueryIncompleteReason.PopulationFailure,
+            envelope.Content.Summary.IncompleteReasons);
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                envelope.Share);
+        Assert.Equal("library-query/share", share.Path);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public void Plan_RejectsUnsupportedOperatorAndTop()
+    {
+        LibraryQueryPlanResult operatorResult =
+            LibraryQuery.ResolveIntent(
+                PortableQueryIntent.Create(
+                    [
+                        new(
+                            LibraryQuery.ReferencesTermKey,
+                            PortableQueryOperator.NotEqual,
+                            "System.Runtime"),
+                    ],
+                    [
+                        new(
+                            LibraryQuery.CandidatesDimension,
+                            1),
+                    ],
+                    [],
+                    []),
+                TestContext.Current.CancellationToken);
+        LibraryQueryPlanResult topResult =
+            LibraryQuery.ResolveIntent(
+                PortableQueryIntent.Create(
+                    [],
+                    [
+                        new(
+                            LibraryQuery.CandidatesDimension,
+                            1),
+                    ],
+                    [PortableQueryStage.Top(1)],
+                    []),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PortableQueryFailureReason.OperatorNotAdmitted,
+            Assert.IsType<LibraryQueryPlanResult.Rejected>(
+                operatorResult).Failure.Reason);
+        Assert.Equal(
+            PortableQueryFailureReason.StageNotAdmitted,
+            Assert.IsType<LibraryQueryPlanResult.Rejected>(
+                topResult).Failure.Reason);
+    }
+
+    private static PortableQueryTerm Reference(string name) =>
+        new(
+            LibraryQuery.ReferencesTermKey,
+            PortableQueryOperator.Equal,
+            name);
+
+    private static LibraryQueryPlan Accepted(
+        LibraryQueryPlanResult result) =>
+        Assert.IsType<LibraryQueryPlanResult.Accepted>(result).Plan;
 
     private sealed class TestBindingPolicy : IAssemblyBindingPolicy
     {

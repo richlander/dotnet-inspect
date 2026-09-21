@@ -1,21 +1,44 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspect.Cli.Options;
 
+public abstract record LibraryQueryPopulation
+{
+    private LibraryQueryPopulation()
+    {
+    }
+
+    public abstract string DisplayName { get; }
+
+    public sealed record Directory(string Path) : LibraryQueryPopulation
+    {
+        public override string DisplayName => Path;
+    }
+
+    public sealed record PlatformFramework(string Framework)
+        : LibraryQueryPopulation
+    {
+        public override string DisplayName => Framework;
+    }
+}
+
 public sealed record LibraryQueryOptions : IProjectionOptions
 {
-    public required string[] Sources { get; init; }
     public required LibraryQueryPlan Plan { get; init; }
-    public RowSelectionIntent<string>? RowSelection { get; init; }
+    public LibraryQueryPopulation? Population { get; init; }
+    public NuGetSourceOptions? SourceOptions { get; init; }
     public bool Count { get; init; }
     public bool JsonOutput { get; init; }
     public bool EnvelopeOutput { get; init; }
+    public bool CompactJson { get; init; }
     public bool Tabular { get; init; }
     public bool Tsv { get; init; }
     public bool Jsonl { get; init; }
@@ -23,7 +46,19 @@ public sealed record LibraryQueryOptions : IProjectionOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public string[]? Discover { get; init; }
+    public HashSet<string>? IncludeSections { get; init; }
+    public bool SelectDefault { get; init; }
     public bool Tree { get; init; }
+
+    internal bool IsContentJson =>
+        JsonOutput
+        && Plan.RowSelection.Operations.Count == 0
+        && !Count
+        && Columns is null
+        && Fields is null
+        && !Tree
+        && IncludeSections is null
+        && !SelectDefault;
 
     public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
     [
@@ -31,33 +66,36 @@ public sealed record LibraryQueryOptions : IProjectionOptions
             new SectionQueryKey(
                 term.Descriptor.Key,
                 ["--where"],
-                [
-                    .. term.Operators.Select(@operator =>
-                        @operator == PortableQueryOperator.Equal
-                            ? "="
-                            : @operator.ToString()),
-                ],
+                [.. term.Operators.Select(Comparison)],
                 term.Descriptor.ValueKind,
                 [],
-                $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"")),
+                $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
+                "metadata")),
     ];
 
     public static string DiscoverySummary =>
-        "Use library query with repeated --where references=<assembly-simple-name> terms. "
-        + "Terms are ANDed at Library grain. Explicit files and top-level .dll files "
-        + "from explicit directories form the ordered population. --take bounds "
-        + $"candidate evaluation to at most {LibraryQuery.DefaultMaximumCandidates}.";
+        "Use library query with repeated --where terms. "
+        + "references=<assembly simple name> matches a direct AssemblyRef; "
+        + "repeated reference terms are ANDed. "
+        + "--take bounds candidate Libraries; -n and --rows select final "
+        + "matching Library rows. Ordering and --top are not supported.";
 
     public static bool TryCreate(
-        string[] sources,
         IReadOnlyList<string> expressions,
-        int maximumCandidates,
-        out LibraryQueryOptions? options,
+        int? take,
+        RowSelectionIntent<string>? rowSelection,
+        out LibraryQueryPlan? plan,
         out OptionError error)
     {
-        ArgumentNullException.ThrowIfNull(sources);
-        ArgumentNullException.ThrowIfNull(expressions);
-        options = null;
+        if (expressions.Count
+            > PortableQueryPayloadCodec.MaxTerms)
+        {
+            plan = null;
+            error =
+                "Library Query accepts at most "
+                + $"{PortableQueryPayloadCodec.MaxTerms} --where terms.";
+            return false;
+        }
 
         var terms = ImmutableArray.CreateBuilder<PortableQueryTerm>();
         foreach (string expression in expressions)
@@ -67,14 +105,15 @@ public sealed record LibraryQueryOptions : IProjectionOptions
                     out RowPredicateSyntax syntax,
                     out error))
             {
+                plan = null;
                 return false;
             }
-
             if (syntax.Operator != RowPredicateOperator.Equals)
             {
+                plan = null;
                 error =
-                    "Library Query terms support equality only; run "
-                    + "'library query -Q Libraries' for the current vocabulary.";
+                    "Library Query terms currently support equality; run "
+                    + "'library query -Q Libraries' for keys and values.";
                 return false;
             }
 
@@ -85,9 +124,10 @@ public sealed record LibraryQueryOptions : IProjectionOptions
                         StringComparison.OrdinalIgnoreCase));
             if (registered is null)
             {
+                plan = null;
                 error =
-                    $"Library Query does not define term '{syntax.Field}'; run "
-                    + "'library query -Q Libraries' for the current vocabulary.";
+                    $"Library Query does not define term '{syntax.Field}'; "
+                    + "run 'library query -Q Libraries' for the current vocabulary.";
                 return false;
             }
 
@@ -98,42 +138,69 @@ public sealed record LibraryQueryOptions : IProjectionOptions
                     syntax.Value));
         }
 
-        PortableQueryIntent intent = PortableQueryIntent.Create(
-            terms.ToImmutable(),
-            [],
-            [],
-            []);
-        LibraryQueryPlanResult result;
-        try
+        int maximumCandidates =
+            take ?? LibraryQuery.DefaultMaximumCandidates;
+        if (maximumCandidates is <= 0
+            or > LibraryQuery.MaximumCandidates)
         {
-            result = LibraryQuery.ResolveIntent(
-                intent,
-                maximumCandidates);
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            error = ex.Message;
+            plan = null;
+            error =
+                "Library Query --take must be between 1 and "
+                + $"{LibraryQuery.MaximumCandidates}.";
             return false;
         }
 
+        LibraryQueryPlanResult result = LibraryQuery.Plan(
+            new(
+                terms.ToImmutable(),
+                maximumCandidates,
+                rowSelection));
         if (result is LibraryQueryPlanResult.Rejected rejected)
         {
+            plan = null;
             error =
-                $"Library Query intent was rejected: "
-                + $"{rejected.Failure.Reason} at "
-                + $"{rejected.Failure.Location}"
-                + (rejected.Failure.Offender is { } offender
-                    ? $" ('{offender}')."
-                    : ".");
+                "Library Query could not resolve its registered capabilities "
+                + $"({rejected.Failure.Reason}).";
             return false;
         }
 
-        options = new()
-        {
-            Sources = sources,
-            Plan = ((LibraryQueryPlanResult.Accepted)result).Plan,
-        };
+        plan = ((LibraryQueryPlanResult.Accepted)result).Plan;
         error = "";
         return true;
     }
+
+    internal AssemblySetRequest CreateAssemblySetRequest(
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(Population);
+        return Population switch
+        {
+            LibraryQueryPopulation.Directory directory =>
+                new()
+                {
+                    Directories = [directory.Path],
+                    SourceOptions = SourceOptions,
+                    SourceOrder = [AssemblySetSourceKind.Directory],
+                    CancellationToken = cancellationToken,
+                },
+            LibraryQueryPopulation.PlatformFramework platform =>
+                new()
+                {
+                    PlatformFrameworks = [platform.Framework],
+                    SourceOptions = SourceOptions,
+                    SourceOrder =
+                        [AssemblySetSourceKind.PlatformFramework],
+                    CancellationToken = cancellationToken,
+                },
+            _ => throw new InvalidOperationException(
+                "Unknown Library Query population."),
+        };
+    }
+
+    private static string Comparison(
+        PortableQueryOperator @operator) =>
+        @operator == PortableQueryOperator.Equal
+            ? "="
+            : throw new InvalidOperationException(
+                "Library Query registered an unsupported CLI comparison.");
 }

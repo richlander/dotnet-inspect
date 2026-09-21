@@ -15,7 +15,7 @@ public sealed class BrowserLibraryQueryOperationTests
     const string Framework = "net11.0";
 
     [Fact]
-    public async Task QueryLibrariesProjectsMatchingOccurrenceToExactAsset()
+    public async Task QueryLibrariesProjectsLandedResultToExactAsset()
     {
         (BrowserPackage package, PackageCompileAsset packageAsset) =
             await RegisterAsync();
@@ -33,16 +33,24 @@ public sealed class BrowserLibraryQueryOperationTests
         Assert.Equal(
             "DotnetInspect.Web.Interop.Package",
             result.Library);
+        Assert.Equal(packageAsset.Path, result.Path);
+        Assert.Equal(package.PackageId, result.Source);
+        Assert.Equal(package.Version, result.Version);
+        Assert.Equal("Package", result.SourceKind);
+        Assert.Equal(Framework, result.TargetFramework);
         Assert.Contains(
             "DotnetInspect.Web.Core",
-            result.Answers);
+            result.MatchedReferences);
         Assert.Empty(inspection.Content.Failures);
         Assert.Equal(
-            inspection.Content.Summary.Population,
-            inspection.Content.Summary.Evaluated);
+            inspection.Content.Summary.PopulationCandidates,
+            inspection.Content.Summary.Candidates);
         Assert.Equal(1, inspection.Content.Summary.Matches);
-        Assert.Equal("Complete", inspection.Content.Summary.Completion);
-        Assert.True(inspection.Content.Summary.IsExact);
+        Assert.Equal("None", inspection.Content.Summary.IncompleteReasons);
+        Assert.True(inspection.Content.Summary.IsComplete);
+        Assert.Equal(
+            BrowserInspectionShareKind.NonProjectable,
+            inspection.Share.Kind);
     }
 
     [Fact]
@@ -67,11 +75,11 @@ public sealed class BrowserLibraryQueryOperationTests
 
         Assert.Empty(inspection.Content.Results);
         Assert.Empty(inspection.Content.Failures);
-        Assert.Equal(0, inspection.Content.Summary.Population);
-        Assert.Equal(0, inspection.Content.Summary.Evaluated);
+        Assert.Equal(0, inspection.Content.Summary.PopulationCandidates);
+        Assert.Equal(0, inspection.Content.Summary.Candidates);
         Assert.Equal(0, inspection.Content.Summary.Matches);
-        Assert.Equal("Complete", inspection.Content.Summary.Completion);
-        Assert.True(inspection.Content.Summary.IsExact);
+        Assert.Equal("None", inspection.Content.Summary.IncompleteReasons);
+        Assert.True(inspection.Content.Summary.IsComplete);
     }
 
     static BrowserLibraryQueryInspection Read(string json) =>

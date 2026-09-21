@@ -4,8 +4,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 using DotnetInspect.Web;
@@ -243,8 +245,15 @@ public static partial class PackageExports
             ?? throw new ArgumentException(
                 "Library Query references are required.",
                 nameof(requiredReferencesJson));
-        LibraryQueryPlanResult planResult = LibraryQuery.ResolveIntent(
-            LibraryQuery.CreateIntent(requiredReferences));
+        LibraryQueryPlanResult planResult = LibraryQuery.Plan(
+            new(
+                [
+                    .. requiredReferences.Select(reference =>
+                        new PortableQueryTerm(
+                            LibraryQuery.ReferencesTermKey,
+                            PortableQueryOperator.Equal,
+                            reference)),
+                ]));
         if (planResult is LibraryQueryPlanResult.Rejected rejected)
         {
             throw new ArgumentException(
@@ -264,9 +273,10 @@ public static partial class PackageExports
         BrowserInspectionScope scope = scopeLease.Scope;
         InspectionEnvelope<LibraryQueryDocument> envelope =
             scope.SurfaceParticipants.IsEmpty
-                ? LibraryQueryInspection.Execute(
-                    new LibraryQueryPopulation(null, []),
-                    plan)
+                ? LibraryQueryInspection.ExecuteParticipants(
+                    group: null,
+                    population: [],
+                    plan: plan)
                 : scope.UseSurface(group =>
                 {
                     if (group.Participants.Length
@@ -282,8 +292,18 @@ public static partial class PackageExports
                             + "match the Library Query population.");
                     }
 
-                    return LibraryQueryInspection.Execute(
-                        LibraryQueryPopulation.FromGroup(group),
+                    return LibraryQueryInspection.ExecuteParticipants(
+                        group,
+                        [
+                            .. scope.SurfaceParticipants.Select(participant =>
+                                new LibraryQueryParticipant(
+                                    participant.Participant,
+                                    participant.Asset.Path,
+                                    participant.Coordinate.PackageId,
+                                    participant.Coordinate.Version,
+                                    AssemblySetSourceKind.Package,
+                                    participant.Asset.TargetFramework)),
+                        ],
                         plan);
                 });
         BrowserLibraryQueryInspection inspection =
@@ -295,17 +315,23 @@ public static partial class PackageExports
         BrowserInspectionScope scope,
         InspectionEnvelope<LibraryQueryDocument> envelope)
     {
-        BrowserWorkspaceParticipant Participant(int occurrence)
+        Dictionary<string, BrowserWorkspaceParticipant> participantsByPath =
+            scope.SurfaceParticipants.ToDictionary(
+                participant => participant.Asset.Path,
+                StringComparer.Ordinal);
+
+        BrowserWorkspaceParticipant Participant(string path)
         {
-            if ((uint)occurrence
-                >= (uint)scope.SurfaceParticipants.Length)
+            if (!participantsByPath.TryGetValue(
+                    path,
+                    out BrowserWorkspaceParticipant? participant))
             {
                 throw new InvalidOperationException(
-                    "Library Query returned an occurrence outside the "
-                    + "current surface population.");
+                    "Library Query returned a path outside the current "
+                    + "package surface population.");
             }
 
-            return scope.SurfaceParticipants[occurrence];
+            return participant;
         }
 
         LibraryQueryDocument content = envelope.Content;
@@ -315,31 +341,41 @@ public static partial class PackageExports
                     .. content.Results.Select(result =>
                     {
                         BrowserWorkspaceParticipant participant =
-                            Participant(result.Occurrence);
+                            Participant(result.Path.ToString());
                         return new BrowserLibraryQueryRow(
-                            result.Occurrence,
                             participant.Asset.Id,
-                            result.Library.Name,
-                            result.Library.Version?.ToString() ?? "",
-                            [.. result.Answers]);
+                            result.Library.ToString(),
+                            result.Path.ToString(),
+                            result.Source.ToString(),
+                            result.Version?.ToString(),
+                            result.SourceKind.ToString(),
+                            result.TargetFramework?.ToString(),
+                            [
+                                .. result.MatchedReferences.Select(
+                                    reference => reference.ToString()),
+                            ]);
                     }),
                 ],
                 [
                     .. content.Failures.Select(failure =>
                         new BrowserLibraryQueryFailure(
-                            failure.Occurrence,
-                            failure.Source,
+                            failure.Path is not { } path
+                                ? null
+                                : Participant(path.ToString()).Asset.Id,
+                            failure.Library?.ToString(),
+                            failure.Path?.ToString(),
+                            failure.Source?.ToString(),
                             failure.Kind.ToString(),
-                            failure.Message)),
+                            failure.Message.ToString())),
                 ],
                 new(
-                    content.Summary.Population,
-                    content.Summary.Evaluated,
+                    content.Summary.PopulationCandidates,
+                    content.Summary.CandidateLimit,
+                    content.Summary.Candidates,
                     content.Summary.Matches,
                     content.Summary.Failures,
-                    content.Summary.CandidateLimit,
-                    content.Summary.Completion.ToString(),
-                    content.Summary.IsExact)),
+                    content.Summary.IncompleteReasons.ToString(),
+                    content.Summary.IsComplete)),
             BrowserPackageQueryOperations.Project(envelope.Share),
             [
                 .. envelope.Diagnostics.Select(diagnostic =>

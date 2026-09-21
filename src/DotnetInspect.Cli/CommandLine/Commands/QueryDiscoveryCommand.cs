@@ -69,11 +69,11 @@ internal static class QueryDiscoveryCommand
         string command = CommandIdentity(result);
         if (command is not (
                 "library"
+                or "library query"
                 or "type"
                 or "member"
                 or "package"
                 or "package query"
-                or "library query"
                 or "find"
                 or "depends"
                 or "graph libraries"))
@@ -132,7 +132,7 @@ internal static class QueryDiscoveryCommand
         if (command is "package query" or "library query")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>
-                option.Name is "--take" or "--nuspec-only"))
+                option.Name is "--take" or "--nuspec-only" or "--platform"))
             {
                 if (result.GetResult(option) is { Implicit: false })
                 {

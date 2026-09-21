@@ -16,9 +16,12 @@ the typed resource-free Document through `InspectionEnvelope<DiffHistoryOutcome>
 The second shared terminal slice is tracked by
 [#7229](https://github.com/richlander/dotnet-inspect/issues/7229): it makes
 Changed Versions an evidence-bearing row cohort and binds optional exact Count
-success or typed Count non-success into that same available Outcome. Population
-discovery, exact-Member Analysis, serializer/output lowering, and host adoption
-remain later slices.
+success or typed Count non-success into that same available Outcome. Producer
+completion is tracked by
+[#7882](https://github.com/richlander/dotnet-inspect/issues/7882): it composes
+exact API Member focus and exact-Member Analysis through that shared Document
+and envelope. Population discovery, serializer/output lowering, and host
+adoption remain later slices.
 The bounded investigation revision is tracked by
 [#7805](https://github.com/richlander/dotnet-inspect/issues/7805): it adds an
 adaptive bisection evaluation policy, a settled chronological methodology

@@ -163,7 +163,6 @@ stderr rather than mixed into structured output.
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
-| Library Queries | `library query FILE_OR_DIRECTORY --where "references=NAME"` | Qualify an explicit ordered Library population by direct assembly-reference simple name while preserving occurrence grain, typed failures, and bounded completion. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -175,7 +174,7 @@ stderr rather than mixed into structured output.
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
-| `library query X...` | Query explicit Library files and top-level directory assemblies by direct assembly-reference simple name. |
+| `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
@@ -228,6 +227,26 @@ dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem runtime -S Pruning
 ```
+
+Package Info and Library Info summarize ecosystems recognized from direct
+dependencies. Select `Ecosystem Dependencies` to see the dependency/ecosystem
+pairs, including one row per ecosystem when a dependency intentionally
+overlaps multiple packs:
+
+```bash
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Package Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Library Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Ecosystem Dependencies" \
+  --columns "Ecosystem,Kind,Dependency,Declared By"
+```
+
+Library recognition classifies the selected Library's declared assembly
+references. It does not resolve or traverse those references. Unrecognized
+references do not become ecosystem rows, while JSON still reports the
+recognition status as complete.
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
@@ -478,8 +497,23 @@ dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+dotnet-inspect package System.Text.Json --workspace "$packet"
+dotnet-inspect package System.Text.Json \
+  --workspace "$packet" --share packet
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+`package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
+in the packet's selected context, independently of its focused tab, and reuses
+the exact Package Root and target admitted during Workspace restoration.
+Appending `--share` preserves ordinary stdout and writes a derived Package
+packet or URL as the final stderr line. An exact selector can inspect a
+currently resolved floating Package member, but Share refuses rather than
+silently pinning that preserved definition.
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
@@ -589,20 +623,22 @@ This package-content term matches simple names case-insensitively and reports
 the matching framework and archive path. It does not resolve or traverse the
 reference.
 
-Use `library query` when the candidate population is already a set of local
-assemblies rather than packages:
+Use the same key at Library grain to query top-level `*.dll` files in one
+directory, or one installed or explicitly acquired platform reference pack:
 
 ```bash
-dotnet-inspect library query ./bin \
+dotnet-inspect library query ./artifacts/bin \
   --where "references=System.Text.Json"
+dotnet-inspect library query --platform runtime \
+  --where "references=System.Text.Json" --take 256 -n 10
 ```
 
-Explicit files and top-level `.dll` files from explicit directories form one
-ordered Library population. Each matching occurrence stays distinct, including
-duplicate paths or assembly identities. The query matches direct `AssemblyRef`
-simple names case-insensitively without resolving or traversing them. `--take`
-bounds evaluation to at most 256 candidates; candidate failures and incomplete
-completion remain visible beside successful rows.
+Library Query tests each candidate Library's direct `AssemblyRef` table;
+repeated `references` terms are ANDed. `--take` bounds candidates scanned,
+while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
+afterward. Use `library query -Q Libraries` to discover the current vocabulary.
+Missing or malformed Metadata remains visible and makes unbounded Count
+inexact rather than silently becoming a nonmatch.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata

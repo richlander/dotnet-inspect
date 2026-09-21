@@ -343,8 +343,8 @@ commit.
 - **Reach validation fails:** fix the package shape rather than bypassing the
   guard.
 - **The release tag targets another commit:** move it to the resolved CI commit
-  and fix the workflow before the next release. The
-  `ReleaseWorkflow_TagsResolvedCiCommit` test gates this wiring.
+  before treating the release as complete. Verify the release version and
+  commit as part of the post-publish checks above.
 - **A package version already exists:** advance `VersionPrefix`; published
   package versions are immutable.
 - **A partially published release is retried:** the workflow uses

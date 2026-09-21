@@ -32,6 +32,14 @@ is the fifth adopter: one explicit-population route supplies its reference plan,
 CLI discovery, and Browser gesture. The remaining operations still bind their
 syntax through separate paths.
 
+[Query Space Composition](query-space-composition.md) now owns the target
+composition of one operation route with explicit row spaces, terminal
+requirements, structural plan descriptions, and optional source continuation.
+The current `ResultPredicate` operation-term role and route-local projection of
+row capabilities are transitional implementation surfaces. Their retirement is
+a focused adoption of that pattern; this document continues to own operation
+definition, route binding, and operation-plan resolution.
+
 ## Authority and exact claim
 
 **Query Operation Infrastructure** is the single normative owner established
@@ -120,6 +128,9 @@ infer them.
 
 This pattern composes existing focused owners:
 
+- [Query Space Composition](query-space-composition.md) owns the effective
+  composition of this operation route with row spaces, terminal requirements,
+  structural plan descriptions, and adjacent continuation capability.
 - [Portable query intent](portable-query-intent.md) owns the canonical
   serializable vocabulary, terms, execution bounds, ordered selection stages,
   and order operations.
@@ -253,7 +264,7 @@ Its supported semantic roles are:
 | --- | --- |
 | Subject qualification | Determines whether a candidate subject belongs in the operation result. |
 | Operation selector | Selects an owner-defined mode, occurrence population, traversal projection, or other pre-result plan input. |
-| Result predicate | Filters one declared typed result-row set. |
+| Result predicate | Transitional current role that filters one declared typed result-row set; Query Space adoption moves this binding to the corresponding explicit row space. |
 
 An **order binding** instead records:
 
@@ -647,14 +658,17 @@ owner-issued plan after the complete Type or Member search result is available.
 The existing pattern grammars, scope authorization, operation limit,
 completion, Count, diagnostics, result shapes, and rendering remain unchanged.
 
-Library Query is the fifth adopter and the second CLI-plus-Browser adopter.
-Its operation definition registers explicit ordered Library populations,
-occurrence-grain results, direct-reference qualification, and the bounded
-candidate dimension. The CLI and current-package Browser gesture resolve the
-same portable intent and execute one shared
-`InspectionEnvelope<LibraryQueryDocument>` completion boundary. Browser rows
-map owner-issued occurrence ordinals back to exact package asset IDs rather
-than matching display names.
+Library Query is the fifth adopter. Its operation registers one explicit
+Library-population role, Library result grain, Libraries row set, candidate
+dimension, direct `references` qualification, and Head, Tail, and Window
+stages. The CLI binds either one top-level DLL directory or one platform
+reference pack through `AssemblySetResolver`; the host-neutral inspection owns
+Metadata evaluation, Library-grain results, visible failures, and completion.
+Inspect Web supplies its already-realized package surface as exact typed
+participants, evaluates them through the same plan and envelope, and projects
+matches to product-issued asset IDs without matching display names.
+The focused [Library Query](library-query.md) design owns its population,
+evidence, work-bound, result, and Count contracts.
 
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
@@ -692,13 +706,12 @@ automatic `-Q` inheritance, separation of Depth work from result-row stages,
 pre-acquisition rejection, and the existing visible acquisition, decode,
 traversal, and row-resolution failures.
 
-Library Query's Release gates cover exact route and CLI discovery projection,
-atomic intent rejection, occurrence preservation, direct-reference AND
-semantics, typed candidate failures, bounded completion, exact Browser asset
-mapping, and equivalent CLI and Browser use of the shared envelope.
-
-Remaining adopter slices must add Release gates for Package reference
-qualification remaining distinct from Library Query's occurrence grain.
+Library Query's Release gates cover route-derived discovery without
+acquisition, portable reference qualification, repeated-term conjunction,
+candidate-bound separation from result rows, directory and platform
+populations, Count completeness, visible malformed-reference failures,
+participant-backed Browser execution, exact asset-ID projection, and Library
+navigation filtering.
 
 Adopter-specific owners name the authentic package, assembly, or repository
 fixtures that establish their behavior. This pattern does not manufacture a

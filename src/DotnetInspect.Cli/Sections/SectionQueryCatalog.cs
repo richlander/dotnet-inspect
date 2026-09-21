@@ -31,6 +31,7 @@ public sealed record SectionQueryCatalog(
         StructuralSchemaProjection[] projections = command switch
         {
             "library" => [Project(StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library)],
+            "library query" => [],
             "type" =>
             [
                 Project(StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
@@ -44,7 +45,6 @@ public sealed record SectionQueryCatalog(
             ],
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
             "package query" => [],
-            "library query" => [],
             "find" => [],
             "depends" => [],
             "graph libraries" => [],
@@ -174,6 +174,7 @@ public sealed record SectionQueryCatalog(
                     FindQueryRouteKind.MemberResults),
             ],
             "package query" => [PackageProfileSections.Packages],
+            "library query" => [LibraryQuerySections.LibrariesName],
             "depends" =>
             [
                 DependsTypeSections.DependencyGraph,

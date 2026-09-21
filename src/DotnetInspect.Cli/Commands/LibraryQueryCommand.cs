@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -7,7 +6,6 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
-using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -22,8 +20,9 @@ internal static class LibraryQueryCommand
                 1,
                 LibraryQueryJsonContext.Default.LibraryQueryDocument);
 
-    internal static int Execute(
+    internal static async Task<int> ExecuteAsync(
         LibraryQueryOptions options,
+        CommandContext context,
         CancellationToken cancellationToken)
     {
         if (options.Discover is not null)
@@ -32,11 +31,15 @@ internal static class LibraryQueryCommand
                 options.Discover,
                 LibraryQuerySections.CreateSchema(),
                 DiscoveryOutputRequest.Create(
-                    options.JsonOutput ? OutputFormat.Json
-                        : options.Jsonl ? OutputFormat.Jsonl
-                        : options.Tsv ? OutputFormat.Tsv
-                        : options.Tabular ? OutputFormat.Table
-                        : OutputFormat.Markdown,
+                    options.JsonOutput
+                        ? OutputFormat.Json
+                        : options.Jsonl
+                            ? OutputFormat.Jsonl
+                            : options.Tsv
+                                ? OutputFormat.Tsv
+                                : options.Tabular
+                                    ? OutputFormat.Table
+                                    : OutputFormat.Markdown,
                     options.Tree,
                     options.Tabular,
                     options.NoHeader,
@@ -52,90 +55,156 @@ internal static class LibraryQueryCommand
                 listedCategoryDoors:
                     LibraryQuerySections.Catalog.Pipeline
                         .GetListedCategoryDoors(),
-                semanticRowSelection: options.RowSelection,
+                semanticRowSelection: options.Plan.RowSelection,
                 semanticSelectionName: "Library Query");
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        using LibraryQueryExecution execution =
-            LibraryQueryExecution.Create(
-                options.Sources,
-                options.Plan.MaximumCandidates,
-                cancellationToken);
-        InspectionEnvelope<LibraryQueryDocument> envelope =
-            LibraryQueryInspection.Execute(
-                execution.Population,
-                options.Plan);
-        LibraryQueryDocument document = envelope.Content;
+        if (options.Population is null)
+        {
+            CommandError.Write(
+                "Library Query requires one directory or --platform framework.");
+            return 1;
+        }
 
-        if (options.EnvelopeOutput)
+        AssemblySet population;
+        try
+        {
+            population = await AssemblySetResolver.CollectAsync(
+                context.HttpClient,
+                options.CreateAssemblySetRequest(cancellationToken),
+                context.Logger.Log).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            CommandError.Write(
+                $"Library Query could not form its population: {ex.Message}");
+            return 1;
+        }
+
+        using (population)
+        {
+            InspectionEnvelope<LibraryQueryDocument> envelope =
+                LibraryQueryInspection.Execute(
+                    population,
+                    options.Plan,
+                    cancellationToken);
+            return CompleteExecution(options, envelope);
+        }
+    }
+
+    internal static int CompleteExecution(
+        LibraryQueryOptions options,
+        InspectionEnvelope<LibraryQueryDocument> envelope)
+    {
+        LibraryQueryDocument document = envelope.Content;
+        if (options.EnvelopeOutput || options.IsContentJson)
         {
             bool wrote = InspectionEnvelopeOutput.TryWrite(
                 envelope,
                 JsonContract,
-                includeEnvelope: true,
-                compactJson: false);
+                options.EnvelopeOutput,
+                options.CompactJson);
             WriteDiagnostics(document);
-            return wrote && document.Summary.IsExact ? 0 : 1;
-        }
-
-        if (options.Count && !document.Summary.IsExact)
-        {
-            CommandError.Write(
-                "Library Query cannot produce an exact count because "
-                + $"completion is {document.Summary.Completion}.");
-            WriteDiagnostics(document);
-            return 1;
+            return wrote && HasSuccessfulEvaluation(document) ? 0 : 1;
         }
 
         if (!CliSemanticRowSelection.TrySelect(
-                options.RowSelection,
+                options.Plan.RowSelection,
                 document.Results,
-                LibraryQuerySections.LibrariesName,
-                FormatRowSelectionFailure,
-                out IReadOnlyList<LibraryQueryMatch> selected))
+                "library",
+                failure =>
+                    $"Library Query row selection stage "
+                    + $"{failure.Failure.StageNumber} requires Library row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} Library rows are available.",
+                out IReadOnlyList<LibraryQueryMatch> displayResults))
         {
+            WriteDiagnostics(document);
             return 1;
         }
 
-        if (options.Count)
+        bool complete = document.Summary.IsComplete;
+        if (options.Count
+            && !CliSemanticRowSelection.ProvidesExactCount(
+                options.Plan.RowSelection,
+                document.Results.Length,
+                sourceComplete: complete))
         {
-            CountOutput.WriteCount(selected.Count);
-            return 0;
+            WriteDiagnostics(document);
+            CommandError.Write(
+                "Cannot count Library Query rows because population formation "
+                + "or candidate evaluation is incomplete; use -n or a closed "
+                + "--rows range that is satisfied by the observed rows.");
+            return 1;
         }
 
         LibraryQueryView view = LibraryQuerySections.CreateDocument(
-            selected,
+            options.Population?.DisplayName ?? "population",
+            displayResults,
             document.Summary);
-        WriteOutput(view, options);
+        HashSet<string> includeSections =
+            options.IncludeSections
+            ?? (options.SelectDefault
+                ? [.. LibraryQuerySections.BareSelectSectionNames]
+                :
+                [
+                    document.HasLibraries
+                        ? LibraryQuerySections.LibrariesName
+                        : LibraryQuerySections.QuerySummaryName,
+                ]);
+        WriteOutput(view, options, includeSections);
         WriteDiagnostics(document);
-        return document.Summary.IsExact ? 0 : 1;
+        return HasSuccessfulEvaluation(document) ? 0 : 1;
+    }
+
+    private static bool HasSuccessfulEvaluation(
+        LibraryQueryDocument document) =>
+        (document.Summary.IncompleteReasons
+            & (LibraryQueryIncompleteReason.PopulationFailure
+                | LibraryQueryIncompleteReason.EvaluationFailure))
+        == LibraryQueryIncompleteReason.None;
+
+    private static void WriteDiagnostics(
+        LibraryQueryDocument document)
+    {
+        foreach (LibraryQueryFailure failure in document.Failures)
+        {
+            string subject =
+                failure.Library?.ToString()
+                ?? failure.Path?.ToString()
+                ?? failure.Source?.ToString()
+                ?? "Library Query";
+            CommandError.WriteWarning(
+                $"{subject}: {failure.Kind}: {failure.Message}");
+        }
+
+        if ((document.Summary.IncompleteReasons
+                & LibraryQueryIncompleteReason.CandidateLimit)
+            != 0)
+        {
+            CommandError.WriteWarning(
+                "Library Query completion: candidate limit reached; "
+                + $"scanned {document.Summary.Candidates}/"
+                + $"{document.Summary.PopulationCandidates} Libraries. "
+                + "These results do not exhaust the explicit population.");
+        }
     }
 
     private static void WriteOutput(
         LibraryQueryView view,
-        LibraryQueryOptions options)
+        LibraryQueryOptions options,
+        HashSet<string> includeSections)
     {
-        HashSet<string> includeSections =
-        [
-            LibraryQuerySections.LibrariesName,
-        ];
-        EmptyLibraryQueryView? empty =
+        EmptyLibraryQueryView? emptyView =
             view.Results.Count == 0
-                ? new()
-                {
-                    QuerySummary = view.QuerySummary,
-                }
+            && includeSections.Contains(
+                LibraryQuerySections.LibrariesName)
+                ? EmptyLibraryQueryView.From(view)
                 : null;
-        EmptyLibraryQueryStructuredView? emptyStructured =
-            view.Results.Count == 0
-                ? new()
-                {
-                    QuerySummary = view.QuerySummary,
-                }
-                : null;
-        LibraryQueryStructuredView structured =
-            LibraryQueryStructuredView.From(view);
 
         void Serialize(
             TextWriter writer,
@@ -143,7 +212,9 @@ internal static class LibraryQueryCommand
             MarkoutWriterOptions writerOptions)
         {
             writerOptions.IncludeSections = includeSections;
-            if (empty is null)
+            writerOptions.SectionOrder =
+                LibraryQuerySections.Catalog.AlphabeticalSectionOrder;
+            if (emptyView is null)
             {
                 MarkoutSerializer.Serialize(
                     view,
@@ -155,7 +226,7 @@ internal static class LibraryQueryCommand
             else
             {
                 MarkoutSerializer.Serialize(
-                    empty,
+                    emptyView,
                     writer,
                     formatter,
                     SearchViewContext.Default,
@@ -163,41 +234,21 @@ internal static class LibraryQueryCommand
             }
         }
 
-        void SerializeStructured(
-            TextWriter writer,
-            IMarkoutFormatter formatter,
-            MarkoutWriterOptions writerOptions)
+        if (options.Count)
         {
-            writerOptions.IncludeSections = includeSections;
-            if (emptyStructured is null)
-            {
-                MarkoutSerializer.Serialize(
-                    structured,
-                    writer,
-                    formatter,
-                    SearchViewContext.Default,
-                    writerOptions);
-            }
-            else
-            {
-                MarkoutSerializer.Serialize(
-                    emptyStructured,
-                    writer,
-                    formatter,
-                    SearchViewContext.Default,
-                    writerOptions);
-            }
+            CountOutput.WriteCount(view.Results.Count);
         }
-
-        if (options.JsonOutput)
+        else if (options.JsonOutput)
         {
             OutputFormatter.WriteProjectedJson(
                 Console.Out,
                 options.Columns,
                 options.Fields,
-                SerializeStructured,
-                indented: true,
-                maxRows: null);
+                Serialize,
+                !options.CompactJson,
+                maxRows: null,
+                sectionOrder:
+                    LibraryQuerySections.Catalog.AlphabeticalSectionOrder);
         }
         else if (options.Tabular)
         {
@@ -208,7 +259,7 @@ internal static class LibraryQueryCommand
                 options.Jsonl,
                 options.Columns,
                 options.Fields,
-                options.Jsonl ? SerializeStructured : Serialize,
+                Serialize,
                 maxRows: null);
         }
         else
@@ -219,238 +270,18 @@ internal static class LibraryQueryCommand
                 writerOptions =>
                 {
                     writerOptions.IncludeSections = includeSections;
-                    return empty is null
+                    return emptyView is null
                         ? MarkoutSerializer.Serialize(
                             view,
                             SearchViewContext.Default,
                             writerOptions)
                         : MarkoutSerializer.Serialize(
-                            empty,
+                            emptyView,
                             SearchViewContext.Default,
                             writerOptions);
                 },
                 options.Columns,
                 options.Fields);
-        }
-    }
-
-    private static void WriteDiagnostics(LibraryQueryDocument document)
-    {
-        foreach (LibraryQueryFailure failure in document.Failures)
-        {
-            CommandError.WriteWarning(
-                $"{failure.Source}: {failure.Kind}: {failure.Message}");
-        }
-
-        if (!document.Summary.IsExact)
-        {
-            CommandError.WriteWarning(
-                $"Library Query completion: {document.Summary.Completion}; "
-                + $"{document.Summary.Evaluated}/"
-                + $"{document.Summary.Population} occurrences evaluated, "
-                + $"{document.Summary.Matches} matches, "
-                + $"{document.Summary.Failures} failures.");
-        }
-    }
-
-    private static string FormatRowSelectionFailure(
-        RowsCohortSemanticFailure<string> failure) =>
-        $"Library Query row selection stage "
-        + $"{failure.Failure.StageNumber} for '{failure.Identity}' "
-        + $"requires row {failure.Failure.RequiredPosition}, but only "
-        + $"{failure.Failure.AvailableCount} rows are available.";
-
-    private sealed class LibraryQueryExecution : IDisposable
-    {
-        private readonly InspectionWorkspace _workspace;
-        private readonly AssemblyContextGroup? _group;
-
-        private LibraryQueryExecution(
-            InspectionWorkspace workspace,
-            AssemblyContextGroup? group,
-            LibraryQueryPopulation population)
-        {
-            _workspace = workspace;
-            _group = group;
-            Population = population;
-        }
-
-        internal LibraryQueryPopulation Population { get; }
-
-        internal static LibraryQueryExecution Create(
-            IReadOnlyList<string> sources,
-            int maximumCandidates,
-            CancellationToken cancellationToken)
-        {
-            var workspace = new InspectionWorkspace();
-            try
-            {
-                string[] paths = ExpandSources(
-                    sources,
-                    cancellationToken);
-                var available = new List<(
-                    int Ordinal,
-                    string Source,
-                    ResolvedAssemblyReference Assembly)>();
-                var unavailable = new Dictionary<
-                    int,
-                    LibraryQueryPopulationOccurrence.Unavailable>();
-
-                for (int ordinal = 0; ordinal < paths.Length; ordinal++)
-                {
-                    string path = paths[ordinal];
-                    if (ordinal >= maximumCandidates)
-                    {
-                        unavailable[ordinal] = new(
-                            ordinal,
-                            path,
-                            new(
-                                CandidateOpenFailureKind.ResourceBudget,
-                                "The candidate was not opened because the "
-                                + "Library Query candidate limit was reached."));
-                        continue;
-                    }
-
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (TryCreateAssembly(
-                            path,
-                            out ResolvedAssemblyReference? assembly,
-                            out CandidateOpenFailure? failure))
-                    {
-                        available.Add((ordinal, path, assembly!));
-                    }
-                    else
-                    {
-                        unavailable[ordinal] =
-                            new(ordinal, path, failure!);
-                    }
-                }
-
-                AssemblyContextGroup? group = null;
-                var byOrdinal =
-                    new Dictionary<int, AssemblyContextParticipant>();
-                if (available.Count > 0)
-                {
-                    var sourcePolicies = available.Select(candidate => (
-                        candidate.Assembly,
-                        Policy: (IAssemblyBindingPolicy)
-                            new AssemblyDependencyResolver(
-                                new(candidate.Source))))
-                        .ToArray();
-                    var groupPolicy =
-                        new SourceRelativeAssemblyGroupBindingPolicy(
-                            sourcePolicies);
-                    foreach (var candidate in available)
-                    {
-                        byOrdinal.Add(
-                            candidate.Ordinal,
-                            new(candidate.Assembly, groupPolicy));
-                    }
-
-                    group = workspace.CreateAssemblyContextGroup(
-                        [.. byOrdinal.Values]);
-                }
-                ImmutableArray<LibraryQueryPopulationOccurrence> occurrences =
-                [
-                    .. Enumerable.Range(0, paths.Length).Select(ordinal =>
-                        unavailable.TryGetValue(ordinal, out var failed)
-                            ? (LibraryQueryPopulationOccurrence)failed
-                            : new LibraryQueryPopulationOccurrence.Available(
-                                ordinal,
-                                byOrdinal[ordinal])),
-                ];
-                return new(
-                    workspace,
-                    group,
-                    new(group, occurrences));
-            }
-            catch
-            {
-                workspace.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                throw;
-            }
-        }
-
-        private static string[] ExpandSources(
-            IReadOnlyList<string> sources,
-            CancellationToken cancellationToken)
-        {
-            var paths = new List<string>();
-            foreach (string source in sources)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (Directory.Exists(source))
-                {
-                    foreach (string path in Directory
-                        .EnumerateFiles(
-                            source,
-                            "*",
-                            SearchOption.TopDirectoryOnly)
-                        .Where(path => path.EndsWith(
-                            ".dll",
-                            StringComparison.OrdinalIgnoreCase))
-                        .Order(StringComparer.Ordinal))
-                    {
-                        paths.Add(Path.GetFullPath(path));
-                    }
-                }
-                else
-                {
-                    paths.Add(Path.GetFullPath(source));
-                }
-            }
-
-            return [.. paths];
-        }
-
-        private static bool TryCreateAssembly(
-            string path,
-            out ResolvedAssemblyReference? assembly,
-            out CandidateOpenFailure? failure)
-        {
-            assembly = null;
-            try
-            {
-                AssemblyDescriptorSelectionResult selected =
-                    ResolvedAssemblyReference.SelectFromPath(
-                        path,
-                        AssemblyResolutionProvenance.Designated(
-                            "library query"));
-                switch (selected)
-                {
-                    case AssemblyDescriptorSelectionResult.Ready ready:
-                        assembly = ready.Reference;
-                        failure = null;
-                        return true;
-                    case AssemblyDescriptorSelectionResult.Rejected rejected:
-                        failure = rejected.Failure;
-                        return false;
-                    case AssemblyDescriptorSelectionResult.Descriptorless:
-                        failure = new(
-                            CandidateOpenFailureKind.InvalidImage,
-                            "The selected file does not contain managed metadata.");
-                        return false;
-                    default:
-                        throw new InvalidOperationException(
-                            "Unknown assembly descriptor selection result.");
-                }
-            }
-            catch (Exception ex) when (
-                ex is IOException
-                    or UnauthorizedAccessException
-                    or System.Security.SecurityException)
-            {
-                failure = new(
-                    CandidateOpenFailureKind.Unreadable,
-                    ex.Message);
-                return false;
-            }
-        }
-
-        public void Dispose()
-        {
-            _group?.Dispose();
-            _workspace.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
     }
 }

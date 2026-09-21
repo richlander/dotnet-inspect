@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries;
+using InertText;
 using Markout;
 
 namespace DotnetInspect.Cli.Sections;
@@ -10,11 +11,16 @@ public static class LibraryQuerySections
     public const string LibrariesName = "Libraries";
     public const string QuerySummaryName = "Query Summary";
 
+    public static string[] BareSelectSectionNames { get; } =
+    [
+        LibrariesName,
+    ];
+
     public static SectionCatalog<LibraryQueryView> Catalog { get; } =
         new SectionPipeline<LibraryQueryView>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
-            .Add<Libraries>()
+            .Add<LibraryRows>()
             .Add<QuerySummary>()
             .AddBaseCategory(
                 SectionCategoryNames.Query,
@@ -23,11 +29,11 @@ public static class LibraryQuerySections
             .Compile();
 
     public static DocumentSchema CreateSchema() =>
-        SearchViewContext.Default
-            .GetSchemaInfo<LibraryQueryView>()!
+        SearchViewContext.Default.GetSchemaInfo<LibraryQueryView>()!
             .ToDocumentSchema();
 
     public static LibraryQueryView CreateDocument(
+        string population,
         IReadOnlyList<LibraryQueryMatch> results,
         LibraryQuerySummary summary)
     {
@@ -35,44 +41,52 @@ public static class LibraryQuerySections
         ArgumentNullException.ThrowIfNull(summary);
         return new()
         {
+            TitleText = new(
+                TextPolicy.Field,
+                $"Library Query: {population}"),
             Results =
             [
-                .. results.Select(match => new LibraryQueryRow(
-                    match.Occurrence,
-                    match.Library.Name,
-                    match.Library.Version?.ToString() ?? "",
-                    match.Source ?? match.Provenance,
-                    string.Join("; ", match.Answers))),
+                .. results.Select(match => new LibraryQueryRow(match)),
             ],
             QuerySummary =
             [
                 new(
-                    summary.Population,
-                    summary.Evaluated,
+                    summary.PopulationCandidates,
+                    summary.Candidates,
                     summary.Matches,
                     summary.Failures,
-                    summary.CandidateLimit,
-                    summary.Completion),
+                    Completion(summary)),
             ],
         };
     }
 
-    public sealed class Libraries : ISectionDescriptor<LibraryQueryView>
+    private static string Completion(
+        LibraryQuerySummary summary) =>
+        summary.IncompleteReasons
+            == LibraryQueryIncompleteReason.None
+                ? "Complete"
+                : summary.IncompleteReasons.ToString();
+
+    public sealed class LibraryRows
+        : ISectionDescriptor<LibraryQueryView>
     {
         public static string Name => LibrariesName;
         public static bool IsExpensive => false;
-        public static bool ExplicitOnly => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.NetworkFree;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
         public static bool CanRender(LibraryQueryView model) => true;
     }
 
-    public sealed class QuerySummary : ISectionDescriptor<LibraryQueryView>
+    public sealed class QuerySummary
+        : ISectionDescriptor<LibraryQueryView>
     {
         public static string Name => QuerySummaryName;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Fixed;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(LibraryQueryView model) => true;
     }

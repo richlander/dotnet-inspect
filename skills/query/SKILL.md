@@ -54,7 +54,7 @@ Workspace coordinate replacement is the exception: request
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
 | `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
-| `library query` | Carries complete occurrence-grain Library Query Content, completion, failures, and diagnostics. |
+| `library query` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
 | Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
 | Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
@@ -166,6 +166,8 @@ composes the pair-wide call-site, summary, and direct-use cluster projections;
 coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
 section. Package Query `@Query` composes `Packages` and `Query Summary`;
 ordinary output remains adaptive and bare `-S` retains `Packages`.
+Library Query `@Query` composes `Libraries` and `Query Summary`; ordinary
+output remains adaptive and bare `-S` retains `Libraries`.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
@@ -246,6 +248,22 @@ dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
   --where "dependency-depth=2" --take 1
 ```
 
+`library query -Q Libraries` exposes direct assembly-reference qualification
+for an explicit top-level DLL directory or platform reference pack:
+
+```bash
+dnx dotnet-inspect -y -- library query -Q Libraries --json
+dnx dotnet-inspect -y -- library query ./bin \
+  --where "references=System.Text.Json"
+dnx dotnet-inspect -y -- library query --platform runtime \
+  --where "references=System.Text.Json" --take 256 -n 10
+```
+
+Repeated `references` terms are ANDed at Library grain. `--take` bounds
+candidate Metadata inspection; `-n` and `--rows` select matching Library rows
+afterward. Missing or malformed Metadata remains visible and can prevent an
+exact Count.
+
 The positional-Type Dependency route exposes Source, Target, and Kind
 predicates, field and Traversal ordering, Top ranking, row stages, and Depth:
 
@@ -306,22 +324,6 @@ explicit `Packages` preserves its empty schema. Select `@Query` to compose both
 sections in Markdown or JSON.
 Package Query does not accept API-search scopes, source overrides, or ranking.
 Query-execution flags cannot be combined with `-Q`.
-
-`library query -Q Libraries` exposes the route-derived `references` facet
-without opening any candidate:
-
-```bash
-dnx dotnet-inspect -y -- library query -Q Libraries --json
-dnx dotnet-inspect -y -- library query ./bin \
-  --where "references=System.Text.Json"
-```
-
-The explicit files and top-level directory `.dll` files form one ordered
-occurrence population. Repeated paths and duplicate assembly identities remain
-separate rows. `references` matches direct `AssemblyRef` simple names
-case-insensitively and never resolves or traverses them. `--take` bounds
-candidate evaluation to 1–256; reached bounds and candidate failures make
-completion inexact and remain visible beside successful matches.
 
 `library -Q Integrations` describes the concept and ecosystem facets for the
 whole Integration family. All integrations are enabled by default; use
@@ -445,7 +447,7 @@ Member `Call Graph` is the current exception: its legacy command-owned
 an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `match --similar`, `package query`, package activity, package
+`timeline`, `match --similar`, `package query`, `library query`, package activity, package
 `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
 selected Project document inventories, explicit-source Type catalogs, and
@@ -465,7 +467,7 @@ Missing payloads fail rather than sliding to another row.
 
 Keep work bounds and ranking separate: Package Query `--take N` bounds
 candidate work before final row selection, and Library Query `--take N` bounds
-its explicit occurrence population before final row selection, while `--top N`
+its explicit Library population before final row selection, while `--top N`
 requires a ranking order. None is another spelling of `-n`.
 
 ## Use a URL as part of the answer
