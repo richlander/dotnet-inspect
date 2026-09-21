@@ -692,6 +692,60 @@ public sealed class QueryOperationInfrastructureGateTests
                 [ResultsRowSet],
                 [association, association],
                 QuerySpaceTerminalRequirement.Rows));
+
+        QueryOperationRoute<TestPredicate, TestPlan> multiRowRoute =
+            QueryOperationRoute<TestPredicate, TestPlan>.Create(
+                "route.multi-row",
+                route.Operation,
+                PopulationRole,
+                PackageGrain,
+                [ResultsRowSet, DetailsRowSet],
+                FullProfile,
+                route.Capabilities.Dimensions,
+                route.Capabilities.Stages);
+        var detailsScope =
+            new QuerySpaceRowScopeDescriptor(
+                "row.details",
+                "row.details.vocabulary",
+                [DetailsRowSet],
+                [],
+                [],
+                []);
+        QuerySpaceDescriptor multiRowDescriptor =
+            QuerySpaceDescriptor.Create(
+                "test.multi-row-space",
+                multiRowRoute,
+                [rowScope, detailsScope],
+                [QuerySpaceTerminalRequirement.Rows],
+                acceptsContinuation: false,
+                []);
+
+        ArgumentException incompatibleScope =
+            Assert.Throws<ArgumentException>(
+                () => QuerySpaceRequest.Create(
+                    multiRowDescriptor,
+                    PortableQueryIntent.Empty,
+                    [ResultsRowSet],
+                    [
+                        new(
+                            detailsScope.Identity,
+                            PortableQueryIntent.Empty,
+                            [ResultsRowSet]),
+                    ],
+                    QuerySpaceTerminalRequirement.Rows));
+        Assert.Contains("is incompatible", incompatibleScope.Message);
+
+        ArgumentException incompleteCoverage =
+            Assert.Throws<ArgumentException>(
+                () => QuerySpaceRequest.Create(
+                    multiRowDescriptor,
+                    PortableQueryIntent.Empty,
+                    [ResultsRowSet, DetailsRowSet],
+                    [association],
+                    QuerySpaceTerminalRequirement.Rows));
+        Assert.Contains(
+            "has no explicit row-intent association",
+            incompleteCoverage.Message);
     }
 
     private static QueryOperationDefinition<TestPredicate, TestPlan>
