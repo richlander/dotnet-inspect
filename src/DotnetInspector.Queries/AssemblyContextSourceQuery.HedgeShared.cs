@@ -12,245 +12,6 @@ namespace DotnetInspector.Queries;
 
 public static partial class AssemblyContextSourceQuery
 {
-    internal static async Task<AssemblyTypeSourceEntry>
-        InspectTypeWithLatencyHedgeAsync(
-            AssemblyContextGroup group,
-            AssemblyContextSubject subject,
-            AssemblyContextParticipant participant,
-            AssemblyTypeSourceRequest request,
-            AssemblyContextSourceQueryContext context,
-            ResolvedAssemblyReference retained,
-            AssemblyBindingPolicyVersion bindingPolicyVersion,
-            TypeSourceLatencyHedge latencyHedge,
-            CancellationToken cancellationToken)
-    {
-        using var hedgeCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken);
-        Task<PreparedTypePdb> preparation =
-            PrepareTypePdbAsync(
-                participant,
-                retained,
-                context,
-                bindingPolicyVersion,
-                hedgeCancellation.Token);
-        Task<TypePdbInspection>? authored = null;
-        Exception? primaryFailure = null;
-        try
-        {
-            PreparedTypePdb? prepared = null;
-            Task initialWindow = Task.Delay(
-                latencyHedge.PortablePdbPreferenceWindow,
-                latencyHedge.TimeProvider,
-                hedgeCancellation.Token);
-            if (await Task.WhenAny(
-                    preparation,
-                    initialWindow)
-                    .ConfigureAwait(false)
-                == preparation)
-            {
-                prepared =
-                    await preparation.ConfigureAwait(false);
-                authored = StartAuthoredInspection(
-                    prepared,
-                    group,
-                    participant,
-                    request,
-                    context,
-                    retained,
-                    bindingPolicyVersion,
-                    hedgeCancellation.Token);
-                if (authored is not null
-                    && !authored.IsCompleted)
-                {
-                    // Let authored I/O start before synchronous Wasm decompilation.
-                    await Task.Yield();
-                }
-                if (authored?.IsCompleted == true)
-                {
-                    TypePdbInspection immediate =
-                        await authored.ConfigureAwait(false);
-                    if (immediate.Inspection.IsComplete)
-                    {
-                        return PdbSourceEntry(
-                            subject,
-                            request,
-                            immediate,
-                            new(
-                                PdbReadyBeforeDecompilation:
-                                    prepared.IsAvailable,
-                                DecompilationStarted: false,
-                                DecompilationUsedPdb: false,
-                                TypeSourceLatencyHedgeSelection
-                                    .AuthoredBeforeDecompilation));
-                    }
-                }
-            }
-            else
-            {
-                await initialWindow.ConfigureAwait(false);
-            }
-
-            bool portablePdbReadyBeforeDecompilation =
-                prepared?.IsAvailable == true;
-            DecompilationOperationResult decompilation =
-                await ExecuteDecompilationOperationAsync(
-                        group,
-                        participant,
-                        new SourceHouseTarget.TypeTarget(
-                            request.Type),
-                        request.PrinterOptions,
-                        context,
-                        context.TypeDecompilationLimits,
-                        prepared?.PortablePdb,
-                        bindingPolicyVersion,
-                        "type-decompilation",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-            bool decompilationAvailable =
-                decompilation
-                    is DecompilationOperationResult.Settled
-                {
-                    Attempt.IsAvailable: true,
-                    Attempt.Text: not null,
-                };
-            TypePdbInspection pdb;
-            if (authored is not null)
-            {
-                pdb = await SettleAuthoredAsync(
-                        authored,
-                        decompilationAvailable,
-                        request,
-                        latencyHedge,
-                        hedgeCancellation.Token)
-                    .ConfigureAwait(false);
-            }
-            else if (prepared is not null)
-            {
-                pdb = PreparedFailureInspection(
-                    prepared,
-                    request);
-            }
-            else
-            {
-                Task preferenceWindow = Task.Delay(
-                    latencyHedge.AuthoredSourcePreferenceWindow,
-                    latencyHedge.TimeProvider,
-                    hedgeCancellation.Token);
-                if (!decompilationAvailable
-                    || await Task.WhenAny(
-                            preparation,
-                            preferenceWindow)
-                            .ConfigureAwait(false)
-                        == preparation)
-                {
-                    prepared =
-                        await preparation.ConfigureAwait(false);
-                    authored = StartAuthoredInspection(
-                        prepared,
-                        group,
-                        participant,
-                        request,
-                        context,
-                        retained,
-                        bindingPolicyVersion,
-                        hedgeCancellation.Token);
-                    pdb = authored is null
-                        ? PreparedFailureInspection(
-                            prepared,
-                            request)
-                        : await SettleAuthoredAsync(
-                                authored,
-                                decompilationAvailable,
-                                request,
-                                latencyHedge,
-                                hedgeCancellation.Token,
-                                preferenceWindow)
-                            .ConfigureAwait(false);
-                }
-                else
-                {
-                    await preferenceWindow.ConfigureAwait(false);
-                    pdb = PreferenceWindowElapsed(
-                        request);
-                }
-            }
-
-            if (pdb.Inspection.IsComplete)
-            {
-                return PdbSourceEntry(
-                    subject,
-                    request,
-                    pdb,
-                    HedgeEvidence(
-                        portablePdbReadyBeforeDecompilation,
-                        decompilation,
-                        pdb.LibraryFailure,
-                        TypeSourceLatencyHedgeSelection
-                            .AuthoredAfterDecompilation));
-            }
-
-            return DecompiledSourceEntry(
-                subject,
-                request,
-                pdb,
-                decompilation,
-                HedgeEvidence(
-                    portablePdbReadyBeforeDecompilation,
-                    decompilation,
-                    pdb.LibraryFailure,
-                    pdb.Inspection.Outcome
-                        == PdbTypeSourceOutcome
-                            .AuthoredSourcePreferenceWindowElapsed
-                        ? TypeSourceLatencyHedgeSelection
-                            .DecompiledAfterPreferenceWindow
-                        : decompilationAvailable
-                            ? TypeSourceLatencyHedgeSelection
-                                .DecompiledAfterAuthoredUnavailable
-                            : TypeSourceLatencyHedgeSelection
-                                .Unavailable));
-        }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            hedgeCancellation.Cancel();
-            List<Exception> failures = [];
-            await SettleHedgeTaskAsync(
-                    preparation,
-                    hedgeCancellation.Token,
-                    failures)
-                .ConfigureAwait(false);
-            if (authored is not null)
-            {
-                await SettleHedgeTaskAsync(
-                        authored,
-                        hedgeCancellation.Token,
-                        failures)
-                    .ConfigureAwait(false);
-            }
-
-            if (primaryFailure is not null)
-            {
-                ArtifactSetSession.AttachCleanupFailures(
-                    primaryFailure,
-                    failures);
-            }
-            else
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                ThrowCleanupFailures(failures);
-            }
-        }
-    }
-
     static Task<TypePdbInspection>? StartAuthoredInspection(
         PreparedTypePdb prepared,
         AssemblyContextGroup group,
@@ -273,36 +34,6 @@ public static partial class AssemblyContextSourceQuery
                 cancellationToken,
                 retainLibrary: false)
             : null;
-
-    static async Task<TypePdbInspection> SettleAuthoredAsync(
-        Task<TypePdbInspection> authored,
-        bool decompilationAvailable,
-        AssemblyTypeSourceRequest request,
-        TypeSourceLatencyHedge latencyHedge,
-        CancellationToken cancellationToken,
-        Task? preferenceWindow = null)
-    {
-        if (!decompilationAvailable)
-        {
-            return await authored.ConfigureAwait(false);
-        }
-
-        preferenceWindow ??= Task.Delay(
-            latencyHedge.AuthoredSourcePreferenceWindow,
-            latencyHedge.TimeProvider,
-            cancellationToken);
-        if (await Task.WhenAny(
-                authored,
-                preferenceWindow)
-                .ConfigureAwait(false)
-            == authored)
-        {
-            return await authored.ConfigureAwait(false);
-        }
-
-        await preferenceWindow.ConfigureAwait(false);
-        return PreferenceWindowElapsed(request);
-    }
 
     static AssemblyTypeSourceEntry PdbSourceEntry(
         AssemblyContextSubject subject,
@@ -462,14 +193,14 @@ public static partial class AssemblyContextSourceQuery
             Provenance: null);
     }
 
-    static TypePdbInspection PreferenceWindowElapsed(
+    static TypePdbInspection PdbPreferenceWindowElapsed(
         AssemblyTypeSourceRequest request) =>
         new(
             new PdbTypeSourceInspection(
                 new FindingInspection<string>.Absent(
                     FindingInspectionAbsenceKind.NoApplicableInput,
-                    $"Authored source for {request.Type.ToMetadataFullName()} "
-                    + "did not settle within the configured latency preference windows."),
+                    $"The Portable PDB for {request.Type.ToMetadataFullName()} "
+                    + "did not settle within the configured preference window."),
                 Text: null,
                 Mapping: null,
                 Document: null,
@@ -477,7 +208,7 @@ public static partial class AssemblyContextSourceQuery
             {
                 Outcome =
                     PdbTypeSourceOutcome
-                        .AuthoredSourcePreferenceWindowElapsed,
+                        .PortablePdbPreferenceWindowElapsed,
             },
             Provenance: null);
 

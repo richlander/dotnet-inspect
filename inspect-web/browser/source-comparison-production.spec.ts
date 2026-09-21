@@ -122,7 +122,7 @@ test.describe("published authored Source comparison transport", () => {
         expect(evidence.result.value?.text)
           .toContain("enum HexConverter.Casing");
         expect(evidence.result.value?.pdbSourceLimitation)
-          .toContain("configured latency preference windows");
+          .toContain("Portable PDB");
         expect(evidence.result.value?.url).toBeNull();
       } finally {
         clearTimeout(releaseTimer);

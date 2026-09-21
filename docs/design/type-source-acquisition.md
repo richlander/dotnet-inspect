@@ -63,65 +63,72 @@ independently bounds the fallback's detached assembly/PDB snapshots and exact
 target surface; `MaxDecompilerBodyProjections` bounds its native body work.
 These are not upstream transport or process-memory bounds.
 
-## Latency hedge
+## Latency hedge implementations
 
-`TypeSourceInspection.ExecuteWithLatencyHedgeAsync` is the completed
-host-neutral opt-in operation for #8016. It composes existing PDB acquisition,
-authored SourceHouse, and decompiled SourceHouse contracts without changing
-their internal policies:
+The serial `TypeSourceInspection.ExecuteAsync` operation and latency-sensitive
+operations remain separate rather than sharing one algorithm that infers
+execution capability from host identity or processor count. Each composes
+existing PDB acquisition, authored SourceHouse, and decompiled SourceHouse
+contracts without changing their internal policies. Explicit authored-document
+requests remain serial.
+
+`TypeSourceInspection.ExecuteWithPdbLatencyHedgeAsync` is the conservative
+single-thread-compatible operation:
 
 1. Start Portable PDB acquisition immediately. Completion means any successful
    external PDB has been published to the operation-scoped `IPdbStore`; it does
    not mean authored source is available.
 2. Wait the configured Portable PDB preference window. If the PDB settles
-   successfully, start authored settlement from the warmed store, yield once
-   so an already-completed authored operation can publish, then start
-   decompilation with the prepared companion. If the window elapses first,
-   start decompilation without a supplied companion while PDB acquisition
-   remains live.
-3. After decompilation settles, prefer completed verified authored source.
-   When decompilation is available, wait only the configured authored-source
-   preference window for remaining PDB/authored work. When decompilation is
-   unavailable, do not truncate the only remaining source path: await authored
-   settlement under its existing independent timeout and limits.
-4. Publish verified authored source when it settles inside those rules.
-   Otherwise publish available decompilation. An elapsed preference window is
-   represented by
-   `PdbTypeSourceOutcome.AuthoredSourcePreferenceWindowElapsed`; it is not
-   reported as PDB, mapping, checksum, or source unavailability.
-5. Cancel and await unfinished PDB/authored work before publication. Cleanup,
-   caller cancellation, and binding-policy invalidation retain terminal
-   precedence. The operation does not leave a producer running for a later
-   request and therefore makes no cross-operation cache-lifetime claim.
+   successfully, complete the existing serial authored-first path: await
+   authored source under its independent timeout and limits, then decompile
+   with the prepared companion only when authored source is unavailable.
+3. If the PDB is unavailable inside the window, decompile immediately without
+   a supplied companion. If the window elapses first, decompile without a
+   supplied companion while PDB acquisition remains live.
+4. After a PDB-window expiry, publish available decompilation without an
+   additional authored-source grace period. If decompilation is unavailable,
+   preserve the only remaining source path by awaiting PDB and authored
+   settlement under their existing independent bounds.
+5. Cancel and await unfinished PDB work before publication. Cleanup, caller
+   cancellation, and binding-policy invalidation retain terminal precedence.
 
-The operation returns `TypeSourceLatencyHedgeEvidence`: whether the PDB was
-ready when decompilation began, whether decompilation ran and observed a PDB,
-and which authored/decompiled selection path published. It also distinguishes
-terminal authored and decompilation Library admissions when the independent
-hedged operations both fail before reaching their Houses. This is execution
-evidence for deterministic gates and Browser timing work, not a rendering
-section or a claim that one timing sample establishes a universal policy.
+The PDB-only operation returns `TypeSourceLatencyHedgeEvidence`: whether the
+PDB was ready when decompilation began, whether decompilation ran and observed
+a PDB, and which authored/decompiled selection path published. It also
+distinguishes terminal authored and decompilation Library admissions. A
+PDB-only timeout is represented by
+`PdbTypeSourceOutcome.PortablePdbPreferenceWindowElapsed`, not as PDB
+acquisition failure or authored-source unavailability. This is execution
+evidence for deterministic gates and host timing work, not a rendering section
+or a claim that one timing sample establishes a universal policy.
 
-The hedge does not use `Task.Run` and does not require managed parallelism.
-Network transport may progress while synchronous decompilation owns a
-single-threaded Browser/Wasm worker, but managed continuations are observed
-only when decompilation yields or returns. Consequently the contract promises
-bounded preference and overlap, not preemption or literal first-completion
-publication on every host.
+The PDB-only operation does not use `Task.Run`. Network transport may progress
+while synchronous decompilation owns a single-threaded Browser/Wasm worker, but
+managed continuations are observed only when decompilation yields or returns.
+The earlier staged authored/decompilation hedge was retired because it did not
+provide literal first-completion publication and materially regressed prompt
+authored source on Browser/Wasm. A distinct multi-core first-completion
+implementation may schedule decompilation independently only when the host
+explicitly supplies that capability; it must include loser cancellation and
+retirement in the completed-operation contract. That follow-up, including
+possible cooperatively asynchronous type decompilation, is tracked with the
+cross-host measurements in #8082.
 
-The first delivery kept existing CLI and Browser product behavior unchanged
-while proving the completed operation in the desktop query-test executable.
-Browser Type Source now adopts the same operation with one-second PDB and
-250-millisecond authored preference windows. The published single-threaded
-Browser/Wasm gate measures the motivating package while deliberately
-withholding its exact MSDL PDB response; the request must publish decompilation
-before that response is released. A representative local Firefox run published
-in 12.9 seconds while the response remained withheld for a 60-second boundary,
-with synchronous Wasm decompilation dominating the elapsed time. This is
-evidence that the initial policy bounds the additional upstream wait, not a
-universal duration or transport-performance guarantee. CLI Type Source remains
-serial. Browser cache lifetime remains separately owned by the Browser host and
-PDB acquisition design.
+The earlier exploratory delivery kept existing CLI and Browser product
+behavior unchanged while proving the staged operation in the desktop
+query-test executable. Controlled before/after measurements then showed that
+the staged operation substantially regressed prompt authored-source paths on
+single-threaded Wasm,
+while the PDB-only operation preserved them and still removed long stalled-PDB
+waits. Browser Type Source therefore adopts the PDB-only operation with a
+one-second PDB preference window. The published single-threaded Browser/Wasm
+gate measures the motivating package while deliberately withholding its exact
+MSDL PDB response; the request must publish decompilation before that response
+is released. The full CLI and Wasm matrices, exact commits, harness method, and
+cancellation observations are recorded in #8082. CLI Type Source remains
+serial until a separate multi-core implementation and production consumer are
+defined. Browser cache lifetime remains separately owned by the Browser host
+and PDB acquisition design.
 
 The motivating production asset is
 `System.Text.Json@11.0.0-preview.7.26381.103`,
@@ -176,7 +183,7 @@ shared lifetime rather than a CLI-owned House composition.
 `TypeSourceInspection.ExecuteAsync` is the completed serial host-neutral facade,
 returning `InspectionEnvelope<AssemblyTypeSourceEntry>` with explicit
 non-projectable Share. Browser Type Source instead consumes
-`ExecuteWithLatencyHedgeAsync` through the existing browser projection and
+`ExecuteWithPdbLatencyHedgeAsync` through the existing browser projection and
 operation/cancellation bridge. Its wire shape, source policy, viewer, and
 rendering substrate remain unchanged.
 `TypeSourceInspection.DecompileAsync` is the adjacent completed
@@ -231,7 +238,7 @@ The following PR-fast Release gates define the delivery:
 | Gate | Claim |
 | --- | --- |
 | `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Authored preference, native authored/decompilation House and Library evidence, one retained Library with fresh leases, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
-| `TypeSourceLatencyHedge_*` | Deterministic desktop scheduling with an injected clock: PDB-ready decompilation receives symbols, a source stall selects decompilation after the authored grace and cancels the loser, and PDB acquisition that exceeds the initial window overlaps no-PDB decompilation while authored source can still win the grace window. |
+| `TypeSourcePdbLatencyHedge_*` | Deterministic scheduling with an injected clock: the PDB-only operation preserves the serial authored path after prompt PDB settlement, publishes no-PDB decompilation after PDB-window expiry, and preserves late authored source when decompilation is unavailable. |
 | `TypeDecompilationInspection_*` | Decompiled-only exact type identity, complete-type behavior despite a filtered request model, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
 | `TypeSourceInspection_Explicit*` | Exact primary/additional selection, ordinal membership, selected checksums, detached evidence, package/Platform authority and fallback coordinates, and unavailable/checksum/deadline results without decompiler substitution. |
 | CLI `Type_DecompiledSource_*`, `TypeWholeTypeDecompilerAcquisition_*`, and bodyless memory-safety cases | Ordinary whole-type SourceHouse adoption preserves complete source across default and `--all`, selected suppliers, symbol names, exact diagnostics, enum/bodyless distinctions, Markout/bare rendering, and lazy non-source paths; neighboring listing and exact-member cases retain their independent accessibility and target boundaries. |
@@ -239,7 +246,7 @@ The following PR-fast Release gates define the delivery:
 | `LocalRepoSourceProjectionTests.MemberSourceLocationsPrint_SelectsExactRepositoryDocument` | A member in either real partial-type document prints that exact whole file offline, under both URL preferences. |
 | `SourceForwarderResolutionTests.SourceDocumentAcquisition_UsesSelectedOpener` | Type/member document printing consumes the resolved descriptor through forwarding; listing performs no source-text transport, and unavailable printing fails visibly. |
 | `RenderedUrlPreferenceCommandTests.SourcePrint_EmitsPreferredUrlAndUnchangedContent` | Type/member JSON, JSONL, and JSON-array printing retain the selected URL, row/section identity, and full-file text. |
-| `BrowserSourceComparisonOperationTests.TypeSourceEnvelope_PreservesBrowserPreferenceAndFallback` | The production browser projection preserves authored source, SourceHouse missing-source/deadline fallback, provenance, and visible limitations without changing the wire shape. |
+| `BrowserSourceComparisonOperationTests.TypeSourcePdbHedgeEnvelope_PreservesBrowserPreferenceAndFallback` | The production browser selects PDB-only scheduling and preserves authored source, SourceHouse missing-source/deadline fallback, provenance, and visible limitations without changing the wire shape. |
 | `BrowserTypeSourceOperationTests` | The existing keyed operation, cancellation, expected failure, and scope-release contract remains intact. |
 | Published `source-comparison-production.spec.ts` fixture scenario | Generated `queryTypeSource` consumes product-discovered type identity and returns authored source or visible decompiler fallback; member and pair neighbors remain intact. |
 

@@ -21,10 +21,9 @@ namespace DotnetInspect.Web.Interop.Source;
 public static partial class SourceExports
 {
     static readonly BrowserManagedOperationBridge TypeSourceOperations = new();
-    internal static TypeSourceLatencyHedge BrowserTypeSourceLatencyHedge { get; } =
+    internal static TypeSourcePdbLatencyHedge BrowserTypeSourcePdbLatencyHedge { get; } =
         new(
-            portablePdbPreferenceWindow: TimeSpan.FromSeconds(1),
-            authoredSourcePreferenceWindow: TimeSpan.FromMilliseconds(250));
+            portablePdbPreferenceWindow: TimeSpan.FromSeconds(1));
     const long MiB = 1024L * 1024;
     static readonly SymbolAcquisitionLimits SourceSymbolLimits =
         new(
@@ -145,12 +144,12 @@ public static partial class SourceExports
                 BrowserStyleOptions.Resolve(styleOptionsJson));
             InspectionEnvelope<AssemblyTypeSourceEntry> inspection = await scope.UseImplementationParticipant(
                 participant,
-                (group, member) => TypeSourceInspection.ExecuteWithLatencyHedgeAsync(
+                (group, member) => TypeSourceInspection.ExecuteWithPdbLatencyHedgeAsync(
                     group,
                     member,
                     request,
                     CreateSourceContext(),
-                    BrowserTypeSourceLatencyHedge,
+                    BrowserTypeSourcePdbLatencyHedge,
                     cancellationToken));
 
             return Adapt(inspection.Content, participant);
