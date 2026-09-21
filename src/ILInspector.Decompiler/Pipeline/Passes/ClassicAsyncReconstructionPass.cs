@@ -168,7 +168,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         function.ResetLocals(plan.Locals, plan.LocalNames,
             synthesizedNames: plan.SynthesizedLocalNames,
             declaredInNestedScope: plan.LocalDeclaredInNestedScope,
-            declarationBindings: plan.LocalDeclarationBindings);
+            declarationBindings: plan.LocalDeclarationBindings,
+            pdbLocalNameCandidates: plan.PdbLocalNameCandidates);
         function.LocalNameImportCauses =
             function.LocalNameImportCauses.AddRange(localNameImportCauses);
         function.RequiresAsyncBodyModifier = true;

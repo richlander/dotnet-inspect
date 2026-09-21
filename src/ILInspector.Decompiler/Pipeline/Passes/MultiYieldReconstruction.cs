@@ -117,6 +117,22 @@ internal static class MultiYieldReconstruction
             }
             target.LocalDeclarationBindings = bindings;
         }
+        if (!source.PdbLocalNameCandidates.IsDefaultOrEmpty)
+        {
+            var candidates = target.PdbLocalNameCandidates;
+            while (candidates.Length < target.Locals.Length)
+                candidates = candidates.Add(null);
+            for (int i = 0; i < source.Locals.Length; i++)
+            {
+                if (i < source.PdbLocalNameCandidates.Length)
+                {
+                    candidates = candidates.SetItem(
+                        targetOffset + i,
+                        source.PdbLocalNameCandidates[i]);
+                }
+            }
+            target.PdbLocalNameCandidates = candidates;
+        }
     }
 
     static void Reanchor(IrNode node, int offset)

@@ -51,6 +51,13 @@ public sealed record DecompilerOptions
     public bool ReadableLocalNames { get; init; }
 
     /// <summary>
+    /// Locals whose exact Portable PDB identity cannot be emitted may use a
+    /// deterministic, collision-resolved name associated with their physical
+    /// slot. This is display-only and does not upgrade fidelity.
+    /// </summary>
+    public bool ApproximatePdbLocalNames { get; init; }
+
+    /// <summary>
     /// Framework type names may render in imported/simple form when the C# file
     /// shape supplies the namespace. This is the shipped taste choice.
     /// </summary>
@@ -121,6 +128,7 @@ public sealed record DecompilerOptions
         => options is null ? Default : new()
         {
             ReadableLocalNames = options.ReadableLocalNames,
+            ApproximatePdbLocalNames = options.ApproximatePdbLocalNames,
             PreferFrameworkTypeImports = true,
             WrapExpressionBodyArrow = options.WrapExpressionBodyArrow,
             WrapSplittableExpressions = options.WrapSplittableExpressions,

@@ -27,6 +27,15 @@ public sealed record PrinterOptions
     public bool ReadableLocalNames { get; init; }
 
     /// <summary>
+    /// When set, a retained local whose exact Portable PDB row/scope identity
+    /// cannot be emitted may use a deterministic, collision-resolved name from
+    /// that physical slot's PDB declarations. The underlying fidelity loss
+    /// remains visible; this option changes only the displayed identifier.
+    /// Off by default.
+    /// </summary>
+    public bool ApproximatePdbLocalNames { get; init; }
+
+    /// <summary>
     /// When set, an expression-bodied member or accessor wraps the <c>=&gt;</c>
     /// arrow onto the next line (indented one level deeper than the declaration
     /// head) instead of keeping <c>head =&gt; expr;</c> on one line. Off by

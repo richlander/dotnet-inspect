@@ -53,6 +53,68 @@ public class ReadableLocalNamesTests
         Assert.DoesNotContain("V_0", output);
     }
 
+    [Fact]
+    public void ApproximatePdbMode_ResolvesCollisionWithoutDisplacingParameter()
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, String, new Constant("hi", String)));
+        block.Add(new Return(new LoadLocal(0, String)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                String,
+                [new Parameter("value", String)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [String],
+            body)
+        {
+            PdbLocalNameCandidates = ["value"],
+            LocalNameImportCauses =
+            [
+                ScopedNameUnavailable(DecompilerFidelityLocation.AtLocal(0)),
+            ],
+        };
+
+        DecompilerResult result = CSharpPrinter.Print(
+            function,
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+
+        Assert.Contains("string value_1 = \"hi\";", result.Output);
+        Assert.Contains("return value_1;", result.Output);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        DecompilerDecision decision = Assert.Single(
+            result.Metadata.Decisions,
+            decision => decision.RuleId == "approximate-pdb-local-name");
+        Assert.Equal("value_1", decision.NewValue);
+    }
+
+    [Fact]
+    public void ApproximatePdbMode_DeclinesHiddenAndUnusableCandidates()
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, String, new Constant("hi", String)));
+        block.Add(new Return(new LoadLocal(0, String)));
+        IrFunction function = Function(String, [String], block);
+        function.LocalNames = ["class"];
+        function.LocalNameImportCauses =
+        [
+            ScopedNameUnavailable(DecompilerFidelityLocation.AtLocal(0)),
+        ];
+
+        DecompilerResult result = CSharpPrinter.Print(
+            function,
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+
+        Assert.Contains("V_0", result.Output);
+        Assert.DoesNotContain(
+            result.Metadata.Decisions,
+            decision => decision.RuleId == "approximate-pdb-local-name");
+    }
+
     // for (int V_0 = 0; true; V_0 = V_0 + 1) { }
     static IrFunction CounterFunction()
     {
@@ -94,4 +156,14 @@ public class ReadableLocalNamesTests
         body.Add(block);
         return new IrFunction("M", Holder, new MethodSignature(returnType, [], HasThis: false, GenericParameterCount: 0), [.. locals], body);
     }
+
+    static DecompilerFidelityCause ScopedNameUnavailable(
+        DecompilerFidelityLocation location)
+        => new(
+            DiagnosticIds.UnrepresentableMetadataName,
+            location,
+            nameof(PdbLocalDeclaration),
+            "test PDB local",
+            "test scoped local name is unavailable",
+            DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable);
 }

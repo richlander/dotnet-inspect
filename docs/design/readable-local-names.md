@@ -79,6 +79,13 @@ it leaves the Annotated view's interleaved IL intact. For a persistent form the 
 mode is byte-preserving (names do not affect IL) it is **not** oracle-endorsed,
 so the `--taste` / `dotnet_inspect_style_full_taste` aggregate never changes it.
 
+The separate `approximate-pdb-local-names` catalog choice applies before this
+synthesizer. It may use a disclosed, collision-resolved PDB slot label when an
+exact scoped identity is available but cannot be emitted. If that opt-in finds
+no eligible PDB label, this design's readable-name or `V_index` fallback
+continues unchanged. Approximate display never removes the exact-name fidelity
+cause.
+
 ## Open fork (historical — resolved above)
 
 Where the opt-in lives:

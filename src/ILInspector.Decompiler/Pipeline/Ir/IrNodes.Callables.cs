@@ -189,6 +189,7 @@ public sealed class Lambda : IrExpression
     public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
     public ImmutableArray<bool> LocalDeclaredInNestedScope { get; init; } = [];
     public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; init; } = [];
+    public ImmutableArray<string?> PdbLocalNameCandidates { get; init; } = [];
     public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; init; } = [];
     /// <summary>
     /// Enclosing binders that the final raised body references after
@@ -335,6 +336,7 @@ public sealed class LocalFunctionStatement : IrNode
     public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
     public ImmutableArray<bool> LocalDeclaredInNestedScope { get; init; } = [];
     public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; init; } = [];
+    public ImmutableArray<string?> PdbLocalNameCandidates { get; init; } = [];
     public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; init; } = [];
     /// <summary>
     /// Enclosing binders that the final raised body references after

@@ -15,6 +15,8 @@ internal static class ScopedLocalImport
         if (body.LocalDeclarations.IsDefaultOrEmpty && body.LocalDeclarationsAreComplete)
             return;
 
+        function.PdbLocalNameCandidates =
+            [.. Enumerable.Repeat<string?>(null, function.Locals.Length)];
         function.LocalDeclarationBindings =
             [.. Enumerable.Repeat<PdbLocalDeclaration?>(null, function.Locals.Length)];
         if (!body.LocalDeclarationsAreComplete)
@@ -52,6 +54,23 @@ internal static class ScopedLocalImport
                 function.LocalNames = function.LocalNames.SetItem(slot, null);
             if ((uint)slot < (uint)function.LocalDeclaredInNestedScope.Length)
                 function.LocalDeclaredInNestedScope = function.LocalDeclaredInNestedScope.SetItem(slot, false);
+            if ((uint)slot < (uint)function.PdbLocalNameCandidates.Length)
+            {
+                function.PdbLocalNameCandidates =
+                    function.PdbLocalNameCandidates.SetItem(
+                        slot,
+                        declarations
+                            .Where(declaration =>
+                                declaration.Scope.StartOffset >= 0
+                                && declaration.Scope.EndOffset
+                                    <= body.IL.Length
+                                && declaration.Scope.EndOffset
+                                    > declaration.Scope.StartOffset
+                                && CSharpNaming.IsUsableIdentifier(
+                                    declaration.Name))
+                            .Select(declaration => declaration.Name)
+                            .FirstOrDefault());
+            }
             foreach (var declaration in declarations)
                 AddLoss(function, declaration, failure);
         }

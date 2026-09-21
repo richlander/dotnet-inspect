@@ -99,6 +99,46 @@ public sealed class PdbLocalNameScopeTests
     }
 
     [Fact]
+    public void ApproximatePdbNames_FlattenAmbiguousRowsWithoutChangingFidelity()
+    {
+        using var fixture = new Fixture(rows:
+        [
+            new("first", 3, 17),
+            new("second", 14, 13),
+        ]);
+        var function = fixture.Import();
+        Assert.Equal(2, function.LocalNameImportCauses.Length);
+        IrPasses.Run(function);
+
+        DecompilerResult strict = CSharpPrinter.Print(function);
+        DecompilerResult approximate = CSharpPrinter.Print(
+            function,
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+
+        Assert.Contains("V_0", strict.Output);
+        Assert.DoesNotContain("first", strict.Output);
+        Assert.Contains("first", approximate.Output);
+        Assert.DoesNotContain("second", approximate.Output);
+        Assert.Equal(DecompilationFidelity.Partial, strict.Fidelity);
+        Assert.Equal(DecompilationFidelity.Partial, approximate.Fidelity);
+        Assert.Equal(
+            function.LocalNameImportCauses,
+            FidelityRemarks.CollectCauses(function)
+                .Where(cause =>
+                    cause.Discriminator
+                        == DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable)
+                .ToArray());
+        Assert.True(approximate.Metadata.EffectiveOptions.ApproximatePdbLocalNames);
+        DecompilerDecision decision = Assert.Single(
+            approximate.Metadata.Decisions,
+            decision => decision.RuleId == "approximate-pdb-local-name");
+        Assert.Equal(DecompilerDecisionCategories.Taste, decision.Category);
+        Assert.Equal("V_0", decision.Subject);
+        Assert.Equal("first", decision.NewValue);
+        Assert.Contains("fidelity is unchanged", decision.Detail);
+    }
+
+    [Fact]
     public void DisjointEqualTextRows_RemainSeparateIdentities()
     {
         using var fixture = new Fixture(rows: [new("same", 3, 11), new("same", 14, 13)]);
@@ -268,6 +308,42 @@ public sealed class PdbLocalNameScopeTests
     }
 
     [Fact]
+    public void ApproximatePdbNames_DeclineHiddenAndMalformedRows()
+    {
+        using var hidden = new Fixture(rows:
+        [
+            new(
+                "hidden",
+                3,
+                11,
+                Attributes: LocalVariableAttributes.DebuggerHidden),
+        ]);
+        var hiddenFunction = hidden.Import();
+        IrPasses.Run(hiddenFunction);
+        DecompilerResult hiddenResult = CSharpPrinter.Print(
+            hiddenFunction,
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+        Assert.Contains("V_0", hiddenResult.Output);
+        Assert.DoesNotContain("hidden", hiddenResult.Output);
+
+        using var malformed = new Fixture(rows:
+        [
+            new("outside", 3, 100),
+        ]);
+        var malformedFunction = malformed.Import();
+        Assert.Null(Assert.Single(malformedFunction.PdbLocalNameCandidates));
+        IrPasses.Run(malformedFunction);
+        DecompilerResult malformedResult = CSharpPrinter.Print(
+            malformedFunction,
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+        Assert.Contains("V_0", malformedResult.Output);
+        Assert.DoesNotContain("outside", malformedResult.Output);
+        Assert.DoesNotContain(
+            malformedResult.Metadata.Decisions,
+            decision => decision.RuleId == "approximate-pdb-local-name");
+    }
+
+    [Fact]
     public void IncompleteScopeEvidence_IsRetainedAndReportedWithoutSplitting()
     {
         using var fixture = new Fixture();
@@ -289,6 +365,15 @@ public sealed class PdbLocalNameScopeTests
         Assert.Single(function.LocalNameImportCauses);
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         function.CheckInvariant(true);
+
+        DecompilerResult approximate = CSharpPrinter.Print(
+            function,
+            new PrinterOptions { ApproximatePdbLocalNames = true });
+        Assert.Contains("V_0", approximate.Output);
+        Assert.DoesNotContain("first", approximate.Output);
+        Assert.DoesNotContain(
+            approximate.Metadata.Decisions,
+            decision => decision.RuleId == "approximate-pdb-local-name");
     }
 
     [Fact]
@@ -410,11 +495,11 @@ public sealed class PdbLocalNameScopeTests
         function.CheckInvariant(true);
     }
 
-    sealed record ScopeRow(
+    internal sealed record ScopeRow(
         string Name, int Start, int Length, int Slot = 0,
         LocalVariableAttributes Attributes = LocalVariableAttributes.None);
 
-    sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         readonly string _directory = Path.Combine("artifacts", $"scoped-import-{Guid.NewGuid():N}");
         public string AssemblyPath { get; }

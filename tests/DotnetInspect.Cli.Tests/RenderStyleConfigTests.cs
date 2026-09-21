@@ -100,6 +100,26 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void Parse_ApproximatePdbLocalNames_IsExplicitAndDefaultsOff()
+    {
+        Assert.False(RenderStyleConfig.Parse(
+            "",
+            origin: null).Options.ApproximatePdbLocalNames);
+
+        var enabled = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_approximate_pdb_local_names = true:suggestion",
+            origin: "cfg");
+        Assert.True(enabled.Options.ApproximatePdbLocalNames);
+        Assert.Empty(enabled.Warnings);
+
+        var disabled = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_approximate_pdb_local_names = false",
+            origin: "cfg");
+        Assert.False(disabled.Options.ApproximatePdbLocalNames);
+        Assert.Empty(disabled.Warnings);
+    }
+
+    [Fact]
     public void Parse_LongLiteralSuffix_DefaultsOn_AndFalseSelectsExplicitCasts()
     {
         Assert.True(RenderStyleConfig.Parse("", origin: null).Options.PreferLongLiteralSuffix);

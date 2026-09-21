@@ -428,6 +428,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
                 LocalDeclarationBindings = body.LocalDeclarationBindings,
+                PdbLocalNameCandidates = body.PdbLocalNameCandidates,
                 LocalNameImportCauses = body.LocalNameImportCauses,
                 CapturedBinderNames = candidate.CapturedBinderNames,
             };

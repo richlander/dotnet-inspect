@@ -204,10 +204,20 @@ internal sealed partial class ClassicInverseAccountant
         var localBindings = _request.ExecutionBody.LocalDeclarationBindings.IsDefaultOrEmpty
             ? null
             : ImmutableArray.CreateBuilder<PdbLocalDeclaration?>(locals.Length);
-        for (int i = 0; i < locals.Length && (nestedScopes is not null || localBindings is not null); i++)
+        var pdbLocalNameCandidates =
+            _request.ExecutionBody.PdbLocalNameCandidates.IsDefaultOrEmpty
+                ? null
+                : ImmutableArray.CreateBuilder<string?>(locals.Length);
+        for (int i = 0;
+            i < locals.Length
+                && (nestedScopes is not null
+                    || localBindings is not null
+                    || pdbLocalNameCandidates is not null);
+            i++)
         {
             nestedScopes?.Add(false);
             localBindings?.Add(null);
+            pdbLocalNameCandidates?.Add(null);
         }
         foreach ((int source, int target) in _candidate.LocalRemap)
         {
@@ -219,6 +229,13 @@ internal sealed partial class ClassicInverseAccountant
             if (localBindings is not null
                 && (uint)source < (uint)_request.ExecutionBody.LocalDeclarationBindings.Length)
                 localBindings[target] = _request.ExecutionBody.LocalDeclarationBindings[source];
+            if (pdbLocalNameCandidates is not null
+                && (uint)source
+                    < (uint)_request.ExecutionBody.PdbLocalNameCandidates.Length)
+            {
+                pdbLocalNameCandidates[target] =
+                    _request.ExecutionBody.PdbLocalNameCandidates[source];
+            }
         }
         var plan = new ClassicInversePlan(
             _candidate.Recipe,
@@ -233,7 +250,8 @@ internal sealed partial class ClassicInverseAccountant
             [.. _ancestors],
             _planning.TypeBinding.Arguments,
             nestedScopes?.MoveToImmutable() ?? [],
-            localBindings?.MoveToImmutable() ?? []);
+            localBindings?.MoveToImmutable() ?? [],
+            pdbLocalNameCandidates?.MoveToImmutable() ?? []);
         return new ClassicInverseDecision.Reconstruct(plan);
     }
 

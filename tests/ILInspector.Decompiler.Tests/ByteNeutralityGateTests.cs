@@ -44,10 +44,11 @@ namespace ILInspector.Decompiler.Tests;
 /// compile-back proves neutrality at the IL level a mis-tiered token change cannot pass.
 /// </description></item>
 /// <item><description>
-/// The one <see cref="StyleOptionTier.Synthesis"/> byte-neutral knob replaces a
-/// synthesized readable local name with its V_index slot name. The gate opens the
-/// fixture without symbols so the two renders differ, then compiles both back and
-/// proves the local-name-only change leaves the method IL identical.
+/// The <see cref="StyleOptionTier.Synthesis"/> byte-neutral knobs change only local
+/// identifiers. The gate opens one fixture without symbols to exercise synthesized
+/// slot names and uses an ambiguous Portable-PDB fixture to exercise approximate
+/// names, then compiles both forms back and proves the naming-only changes leave the
+/// method IL identical.
 /// </description></item>
 /// </list>
 ///
@@ -99,7 +100,9 @@ public sealed class ByteNeutralityGateTests
         string Signature,
         bool Emits = true,
         bool WithoutSymbols = false,
-        FidelityCheck.CompileBackStatus ExpectedBaseline = FidelityCheck.CompileBackStatus.Exact);
+        FidelityCheck.CompileBackStatus ExpectedBaseline = FidelityCheck.CompileBackStatus.Exact,
+        Func<PrinterOptions?, string>? RenderOverride = null,
+        Func<PrinterOptions?, FidelityCheck.CompileBackResult>? CompileBackOverride = null);
 
     static readonly IReadOnlyList<ValueSpecimen> Specimens =
     [
@@ -140,6 +143,11 @@ public sealed class ByteNeutralityGateTests
         new("slot-local-names", "true",
             typeof(FormattingSynthesisSpecimen), nameof(FormattingSynthesisSpecimen.ReadableLocal),
             "() -> corelib:System.Int32", WithoutSymbols: true),
+        new("approximate-pdb-local-names", "true",
+            typeof(PdbLocalNameScopeTests), "M",
+            "(corelib:System.Boolean, corelib:System.Int32) -> corelib:System.Int32",
+            RenderOverride: RenderApproximatePdbLocalNameSpecimen,
+            CompileBackOverride: CompileBackApproximatePdbLocalNameSpecimen),
         // Formatting: whitespace-only knobs, each on a specimen it wraps or flattens.
         // Compiled back like every other byte-neutral value — layout never reaches the IL,
         // so the on/off renders recompile identically.
@@ -172,6 +180,9 @@ public sealed class ByteNeutralityGateTests
 
     static string Render(ValueSpecimen specimen, PrinterOptions? options)
     {
+        if (specimen.RenderOverride is not null)
+            return specimen.RenderOverride(options);
+
         if (specimen.WithoutSymbols)
         {
             using var source = MetadataSource.OpenWithoutSymbols(AssemblyPath);
@@ -193,6 +204,44 @@ public sealed class ByteNeutralityGateTests
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
         Assert.NotNull(rendered.Text);
         return rendered.Text!;
+    }
+
+    static string RenderApproximatePdbLocalNameSpecimen(PrinterOptions? options)
+    {
+        using var fixture = new PdbLocalNameScopeTests.Fixture(rows:
+        [
+            new("first", 3, 17),
+            new("second", 14, 13),
+        ]);
+        using var source = MetadataSource.Open(fixture.AssemblyPath, fixture.PdbPath);
+        var function = IrImporter.Import(source, "Probe.SlotReuse", "M")
+            ?? throw new InvalidOperationException("Probe.SlotReuse::M has no IL body");
+        IrPasses.Run(function);
+        return CSharpPrinter.Print(function, options).Output
+            ?? throw new InvalidOperationException("Probe.SlotReuse::M did not render");
+    }
+
+    static FidelityCheck.CompileBackResult CompileBackApproximatePdbLocalNameSpecimen(
+        PrinterOptions? options)
+    {
+        using var fixture = new PdbLocalNameScopeTests.Fixture(rows:
+        [
+            new("first", 3, 17),
+            new("second", 14, 13),
+        ]);
+        return Assert.Single(FidelityCheck.EvaluateTargets(
+            [fixture.AssemblyPath],
+            [
+                new FidelityCheck.CompileBackTarget(
+                    fixture.AssemblyPath,
+                    "Probe.SlotReuse",
+                    "M",
+                    Overload: 0,
+                    Signature: "(corelib:System.Boolean, corelib:System.Int32) -> corelib:System.Int32"),
+            ],
+            lowered: false,
+            options,
+            readSymbols: true));
     }
 
     static FidelityCheck.CompileBackTarget Target(ValueSpecimen specimen) =>
@@ -301,13 +350,17 @@ public sealed class ByteNeutralityGateTests
         // single-select, so aggregating sibling values would silently leave only the
         // final value enabled and make earlier comparisons knob-off versus knob-off.
         var emitting = Specimens.Where(s => s.Emits).ToArray();
-        var off = CompileBackAll(emitting, StyleOptionCatalog.DefaultOptions);
+        var batchable = emitting.Where(s => s.CompileBackOverride is null).ToArray();
+        var off = CompileBackAll(batchable, StyleOptionCatalog.DefaultOptions);
 
         foreach (var specimen in emitting)
         {
-            var on = CompileBackAll([specimen], On(specimen));
-            var offResult = off[Key(specimen)];
-            var onResult = on[Key(specimen)];
+            var offResult = specimen.CompileBackOverride is null
+                ? off[Key(specimen)]
+                : specimen.CompileBackOverride(StyleOptionCatalog.DefaultOptions);
+            var onResult = specimen.CompileBackOverride is null
+                ? CompileBackAll([specimen], On(specimen))[Key(specimen)]
+                : specimen.CompileBackOverride(On(specimen));
             var label = $"{specimen.KnobId}={specimen.ValueToken}";
 
             Assert.False(IsUncheckable(offResult.Status),

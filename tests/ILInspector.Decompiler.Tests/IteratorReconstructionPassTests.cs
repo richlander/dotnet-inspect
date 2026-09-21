@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using Microsoft.CodeAnalysis;
@@ -254,6 +255,43 @@ public class IteratorReconstructionPassTests
         Assert.DoesNotContain("y__InlineArray", result.Output);
         Assert.DoesNotContain("PrivateImplementationDetails", result.Output);
         Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+    }
+
+    [Fact]
+    public void MultiYieldReconstruction_CarriesApproximatePdbNameCandidates()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var kickoff = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.YieldIf));
+        Assert.NotNull(kickoff);
+        bool planted = false;
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method =>
+            {
+                var imported = IrImporter.Import(source, method);
+                if (!planted && imported is { Locals.Length: > 0 })
+                {
+                    imported.PdbLocalNameCandidates =
+                        Enumerable.Repeat<string?>(null, imported.Locals.Length)
+                            .ToImmutableArray()
+                            .SetItem(0, "pdbCandidate");
+                    planted = true;
+                }
+                return imported;
+            });
+
+        IrPasses.Run(kickoff!, IrPasses.Default, context);
+
+        Assert.True(planted);
+        Assert.Contains("pdbCandidate", kickoff!.PdbLocalNameCandidates);
+        Assert.DoesNotContain(
+            "not reconstructed",
+            CSharpPrinter.Print(
+                kickoff,
+                new PrinterOptions { ApproximatePdbLocalNames = true }).Output);
     }
 
     [Fact]
