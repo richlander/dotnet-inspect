@@ -24,6 +24,7 @@
     <ProjectReference Include="../DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
     <ProjectReference Include="../DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="../ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
   </ItemGroup>
 

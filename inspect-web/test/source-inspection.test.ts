@@ -14,6 +14,7 @@ import {
 import type {
   BrowserMemberSource,
   BrowserSource,
+  BrowserTypeCodeView,
   BrowserTypeSourceResult,
 } from "../src/facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
@@ -34,7 +35,7 @@ function typeSource(text: string): BrowserTypeSourceResult {
   return {
     version: 1,
     kind: "Succeeded",
-    value: source(text),
+    value: { kind: "source", value: source(text) },
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -72,9 +73,14 @@ function focusSnapshot(selector = "#member-filter"): MemberFocusSnapshot {
 }
 
 function sourceText(
-  value: SourceResultState<BrowserSource | BrowserMemberSource>,
+  value: SourceResultState<BrowserSource | BrowserMemberSource | BrowserTypeCodeView>,
 ): string | undefined {
   if (value.status !== "ready") return undefined;
+  if ("kind" in value.source) {
+    return value.source.kind === "source"
+      ? value.source.value.text
+      : value.source.inspection.content.text ?? undefined;
+  }
   return "source" in value.source
     ? value.source.source.text
     : value.source.text;
@@ -470,6 +476,7 @@ test("type source caches an owned result without repainting a hidden surface", a
     type: "Example.Widget",
     taste: "[]",
     isVisible: () => false,
+    view: "source" as const,
   };
 
   await coordinator.loadTypeSource(request);
@@ -505,6 +512,7 @@ test("type source replacement suppresses stale publication without cancelling th
     assembly: "Example.Package",
     taste: "[]",
     isVisible: () => true,
+    view: "source" as const,
   };
 
   const firstLoad = coordinator.loadTypeSource({
@@ -556,6 +564,7 @@ test("synchronous type source failure cannot cancel a reentrant replacement", as
             type: "Example.Second",
             taste: "[]",
             isVisible: () => true,
+            view: "source",
           });
           throw new Error("first activation failed");
         }
@@ -573,6 +582,7 @@ test("synchronous type source failure cannot cancel a reentrant replacement", as
     type: "Example.First",
     taste: "[]",
     isVisible: () => true,
+    view: "source",
   });
 
   assert.equal(cancellations, 1);
@@ -611,6 +621,7 @@ test("synchronous type source failure does not repeat reentrant cancellation", a
     type: "Example.First",
     taste: "[]",
     isVisible: () => true,
+    view: "source",
   });
 
   assert.equal(cancellations, 1);
@@ -639,6 +650,7 @@ test("legacy member source takeover cancels the authoritative type operation fir
     type: "Example.Widget",
     taste: "[]",
     isVisible: () => false,
+    view: "source",
   });
 
   await coordinator.loadMemberSource({
@@ -690,6 +702,7 @@ test("current type source failures remain visible and restore focus", async () =
     type: "Example.Widget",
     taste: "[]",
     isVisible: () => true,
+    view: "source",
   });
 
   assert.deepEqual(state.typeSource, {
@@ -722,6 +735,7 @@ test("type cancellation completes logically before the query quiesces", async ()
     type: "Example.Widget",
     taste: "[]",
     isVisible: () => true,
+    view: "source",
   });
 
   assert.equal(coordinator.cancelCurrentRequest(), true);
