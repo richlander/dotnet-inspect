@@ -45,7 +45,8 @@ public sealed partial class InspectionWorkspace
 
             _registrationRevision = new(
                 _identity,
-                _registrationRevision.Plan.WithRegistrations(registrations));
+                _registrationRevision.Plan.WithRegistrations(registrations),
+                _registrationRevision);
             return new WorkspaceRegistrationOperationResult.Committed(_registrationRevision);
         }
     }

@@ -20,10 +20,10 @@ rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
   `docs/README.md` provides immediate acquisition and curates broader routes,
   but does not catalog every focused document. Do not grow a second TOC inside
   AGENTS.md.
-- **Protect operator templates.** The theme/status reminder, round report, and
-  their invocation rules must remain directly in `AGENTS.md`. Never remove,
-  shorten to a pointer, or move them to meet the line cap; extract another
-  whole section instead.
+- **Protect operator templates.** The theme/status reminder, tmux command and
+  state block, round report, and their invocation rules must remain directly
+  in `AGENTS.md`. Never remove, shorten to a pointer, or move them to meet the
+  line cap; extract another whole section instead.
 
 ## What belongs in AGENTS.md vs. a doc
 
@@ -46,9 +46,9 @@ agent is deep in a specific task, it belongs in that task's owning doc instead.
 3. Put any accompanying detail (steps, tables, worked cases) in the owning doc
    and link to it. Prefer creating a new focused doc over inflating an
    unrelated one or leaving the detail in AGENTS.md.
-4. Confirm the protected theme/status and round-report templates and their
-   invocation rules are still present verbatim enough to use without opening
-   another file.
+4. Confirm the protected theme/status, tmux, and round-report templates and
+   their invocation rules are still present verbatim enough to use without
+   opening another file.
 5. Re-run `wc -l AGENTS.md`. If still over 600, migrate another whole section
    or subsection to its owning doc — see the extraction checklist below.
    Repeat with a full section each time; do not switch to shaving individual
