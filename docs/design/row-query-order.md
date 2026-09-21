@@ -35,9 +35,11 @@ Related designs:
 ## Authority and scope
 
 This L2 design is the authority for resolving typed row-query intent against
-one declared section-row vocabulary. The generic implementation is carried by
-the dependency-free `DotnetInspector.QueryEngine` assembly; concrete
-vocabularies and declared-row-set binding remain with their subject owners.
+one declared section-row vocabulary. The generic implementation is currently
+carried by the dependency-free `DotnetInspector.QueryEngine` assembly;
+[QuerySpace Library Boundary](query-space-library.md) owns its target physical
+and namespace migration without changing this contract. Concrete vocabularies
+and declared-row-set binding remain with their subject owners.
 
 This design owns:
 

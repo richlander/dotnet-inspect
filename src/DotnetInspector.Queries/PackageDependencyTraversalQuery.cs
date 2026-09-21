@@ -61,18 +61,19 @@ public static class PackageDependencyTraversalQuery
     /// <summary>
     /// Projects <see cref="PackageSourceManifest"/> bytes through
     /// <see cref="PackageManifestFactsQuery"/> and
-    /// <see cref="PackageDependencyEvidenceQuery"/> under the typed traversal
-    /// framework mode. This is the Queries-owned manifest-bytes adapter the design
-    /// requires: it never acquires network evidence itself.
+    /// <see cref="PackageDependencyEvidenceQuery"/> under the traversal target.
+    /// This is the Queries-owned manifest-bytes adapter the design requires: it
+    /// never acquires network evidence itself.
     /// </summary>
     internal static (PackageDependencyEvidenceRoot? Root, PackageManifestFailure? Failure)
         ProjectManifestBytes(
             PackageSourceManifest manifest,
             PackageSourceCoordinate expectedCoordinate,
-            string? requestedFramework)
+            TraversalTargetFrameworkPolicy traversalTargetPolicy)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         byte[] manifestBytes = manifest.Content.ToArray();
         PackageManifestFactsResult factsResult = PackageManifestFactsQuery.Execute(
             manifestBytes,
@@ -86,9 +87,10 @@ public static class PackageDependencyTraversalQuery
             PackageDependencyEvidenceQuery.CreatePackageInput(
                 facts,
                 PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
-                requestedFramework,
+                traversalTargetPolicy.TargetFramework,
                 sourceLabel: null,
-                source: manifest.Source);
+                source: manifest.Source,
+                allowCompatibleFallbackForRequestedTfm: true);
         PackageDependencyEvidenceOutcome outcome =
             PackageDependencyEvidenceQuery.Execute(
                 new PackageDependencyEvidenceRequest([input]));
@@ -406,7 +408,7 @@ public static class PackageDependencyTraversalQuery
                         ProjectManifestBytes(
                             acquired.Manifest,
                             projection.Candidate!.Coordinate,
-                            request.FrameworkMode.RequestedFramework);
+                            request.TraversalTargetPolicy);
                     token.ThrowIfCancellationRequested();
                     if (manifestFailure is not null)
                     {
@@ -487,6 +489,19 @@ public static class PackageDependencyTraversalQuery
                     continue;
                 }
 
+                if (TryGetExactRootProjection(
+                        declaration,
+                        out int rootProjectionIndex))
+                {
+                    AddRootSuppliedEdge(
+                        projection,
+                        projectionIndex,
+                        sourceCoordinate,
+                        declaration,
+                        rootProjectionIndex);
+                    continue;
+                }
+
                 if (_declarationResolutionsUsed
                     >= request.WorkBudget.MaxDeclarationResolutions)
                 {
@@ -534,6 +549,28 @@ public static class PackageDependencyTraversalQuery
                 new PackageDependencyTraversalEdgeTarget.DeclarationBoundary(
                     boundaryIndex),
                 PackageDependencyTraversalEdgeEmissionAuthority.DirectBoundary,
+                []));
+            projection.OutgoingEdgeIndexes.Add(edgeIndex);
+        }
+
+        private void AddRootSuppliedEdge(
+            MutableProjection projection,
+            int projectionIndex,
+            PackageSourceCoordinate sourceCoordinate,
+            PackageDependencyEvidenceDeclaration declaration,
+            int targetProjectionIndex)
+        {
+            int edgeIndex = _edges.Count;
+            int targetNodeIndex =
+                _projections[targetProjectionIndex].NodeIndex;
+            _edges.Add(new PackageDependencyTraversalEdge(
+                projectionIndex,
+                sourceCoordinate,
+                declaration,
+                new PackageDependencyTraversalEdgeTarget.Node(
+                    targetNodeIndex,
+                    targetProjectionIndex),
+                PackageDependencyTraversalEdgeEmissionAuthority.SuppliedRoot,
                 []));
             projection.OutgoingEdgeIndexes.Add(edgeIndex);
         }
@@ -661,6 +698,54 @@ public static class PackageDependencyTraversalQuery
             _nodeProjections[nodeIndex].Add(index);
             _projectionIndexByCorrespondence[candidate.Correspondence] = index;
             return index;
+        }
+
+        private bool TryGetExactRootProjection(
+            PackageDependencyEvidenceDeclaration declaration,
+            out int projectionIndex)
+        {
+            projectionIndex = -1;
+            if (!PackageDependencyEvidenceQuery.TryGetExactVersionConstraint(
+                    declaration.CanonicalVersionConstraint,
+                    out string exactVersion))
+            {
+                return false;
+            }
+
+            foreach ((MutableProjection projection, int index) in
+                _projections.Select(
+                    static (projection, index) => (projection, index)))
+            {
+                if (projection.RootOccurrenceIndex is not int occurrenceIndex
+                    || request.Roots[occurrenceIndex].RecurrenceAuthority
+                        != PackageDependencyTraversalRootRecurrenceAuthority
+                            .ExactCoordinate)
+                {
+                    continue;
+                }
+
+                PackageSourceCoordinate coordinate =
+                    _nodeCoordinates[projection.NodeIndex];
+                if (!coordinate.PackageId.Equals(
+                        declaration.CanonicalPackageId,
+                        StringComparison.Ordinal)
+                    || !coordinate.Version.Equals(
+                        exactVersion,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (projectionIndex >= 0)
+                {
+                    projectionIndex = -1;
+                    return false;
+                }
+
+                projectionIndex = index;
+            }
+
+            return projectionIndex >= 0;
         }
 
         private void RecordFailure(
@@ -921,6 +1006,7 @@ public static class PackageDependencyTraversalQuery
             }
 
             return new PackageDependencyTraversalOutcome(
+                request.TraversalTargetPolicy,
                 rootResults.MoveToImmutable(),
                 reachability.MoveToImmutable(),
                 nodes,

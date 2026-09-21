@@ -54,6 +54,25 @@ substrates, and inspection producers that will extend that space.
   bind one operation role and query profile; shared infrastructure then
   derives query discovery and host lowering without inferring facets from
   schemas or rendered fields.
+  [Query Space Composition](design/query-space-composition.md) owns the target
+  host-neutral composition of one operation route with explicit row spaces,
+  Rows or exact Count, structural plan descriptions, and preservation of an
+  adjacent source owner's continuation. It keeps semantic selection, work
+  bounds, source batching, consumer paging, and rendering distinct while
+  exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
+  consumers, and other hosts.
+  [QuerySpace Library Boundary](design/query-space-library.md) separately owns
+  the target independent `QuerySpace` assembly, package, public namespace,
+  dependency and lifetime boundaries, and optional execution-witness seams.
+  It composes the existing query owners physically without taking their
+  semantics; `DotnetInspector.QueryEngine` remains the transitional carrier
+  until the focused migration under #7976 retires it.
+  [Resource Explanation](design/resource-explanation.md) owns exact,
+  shell-safe product-resource paths and a bounded host-neutral explanation
+  Document over owner-issued structural, query, and value-vocabulary
+  descriptors. It preserves typed owner identities and relationships without
+  acquiring a subject, executing a plan, parsing presentation, or moving those
+  facts into one universal catalog.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,
@@ -119,14 +138,18 @@ substrates, and inspection producers that will extend that space.
   reachability.   The
   [realized package dependency context](design/realized-package-dependency-context.md)
   query binds one physical Package Root selection to dependency evidence
-  projected from that exact retained content and selection intent, producing
-  detached source evidence for realized-package traversal without moving asset,
-  group, or traversal policy. The
+  projected from that exact retained content and selection intent. Package
+  Dependency Traversal retains that complete context as a typed root source
+  without moving its package-local asset or group selection, retains one
+  traversal target for compatible candidate-manifest selection, and leaves
+  Platform-pruned route composition to the Workspace operation that selected
+  the relevant ecosystem. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
   package dependency routes without mutating a sealed assembly-context group.
-  The source query owns a Decompiler fallback over retained assembly content;
+  The source query delegates exact member and type decompilation to SourceHouse
+  over retained Library content while it still owns authored-first ordering;
   the
   [authored project dependency facts](design/authored-project-dependency-facts.md)
   owner projects bounded exact project XML into literal target observations,

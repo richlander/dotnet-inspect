@@ -258,7 +258,7 @@ public abstract record CompleteRestorationFailure
     public sealed record ScopeMutationFailed : CompleteRestorationFailure
     {
         internal ScopeMutationFailed(WorkspaceScopeOperationResult outcome)
-            : base("Workspace Scope replacement did not commit.")
+            : base("Workspace Scope admission did not commit.")
         {
             Outcome = outcome
                 ?? throw new ArgumentNullException(nameof(outcome));

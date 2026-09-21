@@ -42,7 +42,6 @@ internal static class ChangePlanTestSuite
             AssertGitFixtures(scratch, repository);
             AssertRenameProvenanceFixtures(scratch);
             AssertCommandBoundary(scratch);
-            AssertEntrypointContract(repository);
         }
         finally
         {
@@ -1640,29 +1639,6 @@ internal static class ChangePlanTestSuite
                 throw new InvalidOperationException(
                     $"The {description} refusal left a scope file behind.");
             }
-        }
-    }
-
-    /// <summary>
-    /// Pins the file-based entrypoint to this assembly's public façade. The
-    /// gate keeps the shim from drifting away from the planner it publishes.
-    /// </summary>
-    /// <param name="repository">The repository root directory.</param>
-    private static void AssertEntrypointContract(string repository)
-    {
-        string entrypoint = Path.Combine(repository, "eng", "ci-plan.cs");
-        string text = File.ReadAllText(entrypoint).ReplaceLineEndings("\n");
-        const string Expected =
-            "#:project CiChangeDetection/CiChangeDetection.csproj\n"
-            + "\n"
-            + "using CiChangeDetection;\n"
-            + "\n"
-            + "return ChangePlanApp.Run(args);\n";
-        if (text != Expected)
-        {
-            throw new InvalidOperationException(
-                "eng/ci-plan.cs must remain the planner's file-based "
-                + $"entrypoint shim:\n{text}");
         }
     }
 

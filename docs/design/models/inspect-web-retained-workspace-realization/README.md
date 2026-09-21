@@ -8,6 +8,13 @@ The Browser model adds retained-definition identity, activation intent,
 selection, active deletion, settlement presentation, and aggregate admission
 without copying the coordinator transitions.
 
+This prerequisite binds the coordinator owner's `coordinatorState` and
+`closeTargets` variables explicitly. The retained-realization model remains an
+`Open`-only consumer: it does not invoke `CloseCoordinator` or emulate terminal
+retirement locally. Every imported action preserves the bound lifecycle state,
+and `Coordinator!Safety` is rechecked over that behavior. A later completion
+composition may consume the owner-issued close actions directly.
+
 Two retained definitions, the coordinator's three realization identities, and
 a two-charged-realization model bound are sufficient to exercise A, B, then A
 reactivation, successor replacement, candidate failure, backpressure, and
