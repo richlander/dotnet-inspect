@@ -6,6 +6,7 @@ internal enum RowPredicateOperator
 {
     Equals,
     NotEquals,
+    StartsWith,
     GreaterOrEqual,
     LessOrEqual,
 }
@@ -35,7 +36,8 @@ internal static class RowPredicateSyntaxParser
             error =
                 $"Invalid --where predicate '{Contain(expression)}'. "
                 + "Use forms like 'Field=value', 'Field!=value', "
-                + "'RootReach>=10', or 'Confidence>=medium'.";
+                + "'Field starts-with value', 'RootReach>=10', "
+                + "or 'Confidence>=medium'.";
             return false;
         }
 
@@ -68,6 +70,7 @@ internal static class RowPredicateSyntaxParser
         (int Index, string Token, RowPredicateOperator Operator)? best = null;
         foreach (var candidate in new[]
         {
+            (Token: " starts-with ", Operator: RowPredicateOperator.StartsWith),
             (Token: ">=", Operator: RowPredicateOperator.GreaterOrEqual),
             (Token: "<=", Operator: RowPredicateOperator.LessOrEqual),
             (Token: "!=", Operator: RowPredicateOperator.NotEquals),

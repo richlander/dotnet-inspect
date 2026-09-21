@@ -67,6 +67,8 @@ public sealed record PackageQueryOptions : IProjectionOptions
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
+        + "depends starts-with <package ID prefix> matches a direct declared "
+        + "dependency by literal prefix; "
         + "depends-transitive=<package ID> requires dependency-target=<TFM> "
         + "and dependency-depth=2|3|4; "
         + "dependencies=cross-prefix matches a dependency from another first ID segment; "
@@ -195,11 +197,19 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            if (syntax.Operator != RowPredicateOperator.Equals)
+            PortableQueryOperator? @operator = syntax.Operator switch
+            {
+                RowPredicateOperator.Equals => PortableQueryOperator.Equal,
+                RowPredicateOperator.StartsWith =>
+                    PortableQueryOperator.StartsWith,
+                _ => null,
+            };
+            if (@operator is null)
             {
                 error =
-                    "Package Query terms currently support equality; run "
-                    + "'package query -Q Packages' for keys and values.";
+                    "Package Query terms currently support equality and "
+                    + "starts-with; run 'package query -Q Packages' for "
+                    + "admitted operators and values.";
                 return false;
             }
 
@@ -211,7 +221,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
             {
                 terms.Add(new PortableQueryTerm(
                     registeredTerm.Descriptor.Key,
-                    PortableQueryOperator.Equal,
+                    @operator.Value,
                     syntax.Value));
                 continue;
             }
@@ -305,6 +315,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
         {
             PortableQueryOperator.Equal => "=",
             PortableQueryOperator.NotEqual => "!=",
+            PortableQueryOperator.StartsWith => "starts-with",
             PortableQueryOperator.AtLeast => ">=",
             PortableQueryOperator.AtMost => "<=",
             _ => throw new InvalidOperationException(
