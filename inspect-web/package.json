@@ -26,22 +26,22 @@
     "analyze": "npm run lint && knip"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
-    "@types/node": "^26.5.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.1",
     "@types/prismjs": "^1.26.6",
-    "html-validate": "^11.15.0",
-    "knip": "^6.35.1",
-    "oxc-parser": "^0.149.0",
-    "oxlint": "^1.82.0",
-    "oxlint-tsgolint": "7.0.2001",
-    "type-fest": "5.8.0",
+    "html-validate": "^11.16.0",
+    "knip": "^6.36.0",
+    "oxc-parser": "^0.150.0",
+    "oxlint": "^1.83.0",
+    "oxlint-tsgolint": "7.0.2002",
+    "type-fest": "5.10.0",
     "typescript": "7.0.2",
     "vite": "^8.3.0"
   },
   "dependencies": {
     "dompurify": "3.4.15",
-    "marked": "18.0.12",
-    "mermaid": "11.17.2",
+    "marked": "18.0.13",
+    "mermaid": "12.0.0",
     "prismjs": "1.30.0"
   }
 }

@@ -2,7 +2,9 @@
 
 ## Status
 
-Status: **proposed**.
+Status: **implemented** by
+[#8112](https://github.com/richlander/dotnet-inspect/issues/8112);
+production-host adoption remains tracked by #8088.
 
 This design owns
 [issue #8089](https://github.com/richlander/dotnet-inspect/issues/8089).
@@ -342,7 +344,8 @@ operation owns no renderer.
 
 ## Evidence
 
-The design remains **unverified** until Release gates prove:
+`DotnetInspector.Sections.Tests.LibraryOverviewInspectionOperationTests`
+provides Release gates for:
 
 - real `System.Text.Json` produces the expected managed identity, non-empty
   MVID, public API counts, measured work, and finite bounds;
@@ -357,9 +360,19 @@ The design remains **unverified** until Release gates prove:
 - malformed Metadata, Windows Metadata, managed modules, identity mismatch,
   and empty MVID remain typed;
 - every returned shape is resource-free and source-generated JSON
-  serialization succeeds under NativeAOT;
-- direct, package, and Platform sources initially return the same truthful
-  non-projectable Share outcome;
+  serialization succeeds;
+- the initial operation returns its stable truthful non-projectable Share
+  outcome; and
+- cancellation and validation failure settle transferred authority before
+  propagating.
+
+The production-adoption claims remain **unverified** until their later Release
+gates prove:
+
+- the consuming NativeAOT and Browser/Wasm hosts preserve the serialized
+  contract;
+- direct, package, and Platform routes preserve the same non-projectable Share
+  outcome;
 - package and Platform adoption preserve the same overview Content for the
   same Library bytes; and
 - CLI and Inspect Web consume equal baseline envelopes for an equivalent

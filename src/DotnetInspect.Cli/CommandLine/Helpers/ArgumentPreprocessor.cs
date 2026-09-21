@@ -138,7 +138,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
-        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "explain", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     internal static bool TryGetRemovedCommandError(
@@ -153,6 +153,15 @@ public static class ArgumentPreprocessor
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
                 + "with the same root options; add '-S Dependencies' for "
                 + "declaration evidence without traversal.";
+            return true;
+        }
+        if (command >= 0
+            && args[command].Equals(
+                "workspace-state",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'workspace-state' has been removed. Use "
+                + "'workspace packet decode' or 'workspace packet encode'.";
             return true;
         }
         if (command >= 0
