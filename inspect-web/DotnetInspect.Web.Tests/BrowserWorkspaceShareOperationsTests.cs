@@ -123,7 +123,7 @@ public sealed class BrowserWorkspaceShareOperationsTests
     public void Format5Packet_RoundTripsThroughManagedBrowserBoundary()
     {
         const string json =
-            """{"f":5,"s":[["github","https://nuget.pkg.github.com/example/index.json","p","example"]],"t":[["Private.Package","1.2.3","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
+            """{"f":5,"s":[["https://nuget.pkg.github.com/example/index.json","a"]],"t":[["Private.Package","1.2.3","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
         string packet = WorkspaceSharePacketCodec.Encode(
             WorkspaceSharePacketCodec.ParseJson(
                 json,

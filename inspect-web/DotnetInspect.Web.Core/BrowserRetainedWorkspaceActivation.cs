@@ -13,7 +13,7 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
     string Label,
     string CanonicalLocation,
     CompleteRestorationRequestBasis RestorationRequest,
-    IReadOnlyDictionary<string, string> PackageSourcePats)
+    IReadOnlyDictionary<string, PackageSourceCredential> PackageSourceCredentials)
 {
     internal BrowserRetainedWorkspaceActivationRequest(
         string retainedDefinitionId,
@@ -26,8 +26,9 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
             canonicalLocation,
             new CompleteRestorationRequestBasis.PacketInput(
                 RequireText(canonicalPacket, nameof(canonicalPacket))),
-            new ReadOnlyDictionary<string, string>(
-                new Dictionary<string, string>(StringComparer.Ordinal)))
+            new ReadOnlyDictionary<string, PackageSourceCredential>(
+                new Dictionary<string, PackageSourceCredential>(
+                    StringComparer.Ordinal)))
     {
     }
 
@@ -41,8 +42,9 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
             label,
             canonicalLocation,
             restorationRequest,
-            new ReadOnlyDictionary<string, string>(
-                new Dictionary<string, string>(StringComparer.Ordinal)))
+            new ReadOnlyDictionary<string, PackageSourceCredential>(
+                new Dictionary<string, PackageSourceCredential>(
+                    StringComparer.Ordinal)))
     {
     }
 
@@ -51,14 +53,15 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
         string label,
         string canonicalLocation,
         string canonicalPacket,
-        IReadOnlyDictionary<string, string> packageSourcePats)
+        IReadOnlyDictionary<string, PackageSourceCredential>
+            packageSourceCredentials)
         : this(
             retainedDefinitionId,
             label,
             canonicalLocation,
             new CompleteRestorationRequestBasis.PacketInput(
                 RequireText(canonicalPacket, nameof(canonicalPacket))),
-            FreezeCredentials(packageSourcePats))
+            FreezeCredentials(packageSourceCredentials))
     {
     }
 
@@ -74,8 +77,9 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
         RestorationRequest
         ?? throw new ArgumentNullException(nameof(RestorationRequest));
 
-    internal IReadOnlyDictionary<string, string> PackageSourcePats { get; } =
-        FreezeCredentials(PackageSourcePats);
+    internal IReadOnlyDictionary<string, PackageSourceCredential>
+        PackageSourceCredentials { get; } =
+        FreezeCredentials(PackageSourceCredentials);
 
     public override string ToString() =>
         $"{nameof(BrowserRetainedWorkspaceActivationRequest)} {{ "
@@ -83,7 +87,7 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
         + $"{nameof(Label)} = {Label}, "
         + $"{nameof(CanonicalLocation)} = {CanonicalLocation}, "
         + $"{nameof(RestorationRequest)} = {RestorationRequest}, "
-        + $"{nameof(PackageSourcePats)} = <redacted> }}";
+        + $"{nameof(PackageSourceCredentials)} = <redacted> }}";
 
     static string RequireText(string value, string paramName)
     {
@@ -91,23 +95,34 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
         return value;
     }
 
-    static IReadOnlyDictionary<string, string> FreezeCredentials(
-        IReadOnlyDictionary<string, string> credentials)
+    static IReadOnlyDictionary<string, PackageSourceCredential>
+        FreezeCredentials(
+        IReadOnlyDictionary<string, PackageSourceCredential> credentials)
     {
         ArgumentNullException.ThrowIfNull(credentials);
-        var snapshot = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach ((string sourceId, string pat) in credentials)
+        var snapshot = new Dictionary<
+            string,
+            PackageSourceCredential>(StringComparer.Ordinal);
+        foreach ((string endpoint, PackageSourceCredential credential)
+            in credentials)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
-            if (string.IsNullOrEmpty(pat))
+            ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+            ArgumentNullException.ThrowIfNull(credential);
+            ArgumentException.ThrowIfNullOrWhiteSpace(credential.Username);
+            if (string.IsNullOrEmpty(credential.Password))
             {
                 throw new ArgumentException(
-                    $"The PAT for Workspace source '{sourceId}' must not be empty.",
+                    $"The PAT for Workspace source '{endpoint}' must not be empty.",
                     nameof(credentials));
             }
-            snapshot.Add(sourceId, pat);
+            snapshot.Add(
+                endpoint,
+                new PackageSourceCredential(
+                    credential.Username,
+                    credential.Password));
         }
-        return new ReadOnlyDictionary<string, string>(snapshot);
+        return new ReadOnlyDictionary<string, PackageSourceCredential>(
+            snapshot);
     }
 }
 
@@ -1589,7 +1604,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             options = BrowserCompleteRestorationOptions.BindPackageSources(
                 options,
                 ready.Plan.ConfiguredPackageSources,
-                intent.Request.PackageSourcePats);
+                intent.Request.PackageSourceCredentials);
         }
         return await CompleteRestorationCoordinator.RestoreWithProjectionAsync(
                     preparation,
@@ -2178,67 +2193,57 @@ internal static class BrowserCompleteRestorationOptions
     internal static CompleteRestorationExecutionOptions BindPackageSources(
         CompleteRestorationExecutionOptions options,
         IReadOnlyList<WorkspacePackageSourceDefinition> definitions,
-        IReadOnlyDictionary<string, string> pats)
+        IReadOnlyDictionary<string, PackageSourceCredential> credentials)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(definitions);
-        ArgumentNullException.ThrowIfNull(pats);
+        ArgumentNullException.ThrowIfNull(credentials);
         if (definitions.Count == 0)
         {
-            if (pats.Count != 0)
+            if (credentials.Count != 0)
             {
                 return Deny(
                     options,
-                    "This Workspace does not declare a PAT source.");
+                    "This Workspace does not declare an authenticated source.");
             }
             return options;
-        }
-
-        WorkspacePackageSourceDefinition? credentialProviderSource =
-            definitions.FirstOrDefault(static source =>
-                source.Authentication
-                    == WorkspacePackageSourceAuthentication.CredentialProvider);
-        if (credentialProviderSource is not null)
-        {
-            return Deny(
-                options,
-                $"Workspace source '{credentialProviderSource.Id}' requires a "
-                    + "NuGet credential provider, which is unavailable in Browser/Wasm.");
         }
 
         var required = definitions
             .Where(static source =>
                 source.Authentication
-                    == WorkspacePackageSourceAuthentication.BasicPat)
-            .ToDictionary(static source => source.Id, StringComparer.Ordinal);
-        string? unexpected = pats.Keys.FirstOrDefault(
-            id => !required.ContainsKey(id));
+                    == WorkspacePackageSourceAuthentication.AuthenticationRequired)
+            .ToDictionary(
+                static source => source.Endpoint,
+                StringComparer.Ordinal);
+        string? unexpected = credentials.Keys.FirstOrDefault(
+            endpoint => !required.ContainsKey(endpoint));
         if (unexpected is not null)
         {
             return Deny(
                 options,
-                $"PAT binding source '{unexpected}' is not required by this Workspace.");
+                $"PAT binding endpoint '{unexpected}' is not required by this Workspace.");
         }
         string? missing = required.Keys.FirstOrDefault(
-            id => !pats.ContainsKey(id));
+            endpoint => !credentials.ContainsKey(endpoint));
         if (missing is not null)
         {
             return Deny(
                 options,
-                $"Workspace source '{missing}' requires a PAT for this page session.");
+                $"Workspace source '{missing}' requires an explicit Basic "
+                    + "credential for this page session; credential providers "
+                    + "are unavailable in Browser/Wasm.");
         }
 
         PackageSource[] sources =
         [
             .. definitions.Select(source =>
                 new PackageSource(
-                    source.Id,
+                    source.Endpoint,
                     source.Endpoint,
                     source.Authentication
-                        == WorkspacePackageSourceAuthentication.BasicPat
-                            ? new PackageSourceCredential(
-                                source.Username!,
-                                pats[source.Id])
+                        == WorkspacePackageSourceAuthentication.AuthenticationRequired
+                            ? credentials[source.Endpoint]
                             : null)),
         ];
         return options with

@@ -167,7 +167,7 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
-  readonly packageSourcePatPayloads: string[] = [];
+  readonly packageSourceCredentialPayloads: string[] = [];
   readonly activations: Array<{
     promise: Promise<BrowserRetainedWorkspaceActivationResult>;
     resolve(value: BrowserRetainedWorkspaceActivationResult): void;
@@ -283,9 +283,11 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     _label: string,
     _canonicalLocation: string,
     _canonicalPacket: string,
-    packageSourcePatsJson: string,
+    packageSourceCredentialsJson: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult> {
-    this.packageSourcePatPayloads.push(packageSourcePatsJson);
+    this.packageSourceCredentialPayloads.push(
+      packageSourceCredentialsJson,
+    );
     return this.prepareRetainedWorkspaceDefinition();
   }
 
@@ -483,7 +485,7 @@ test("posting records and acknowledges exact authority in order", async () => {
   ]);
 });
 
-test("activation passes PAT bindings without retaining them in controller state", async () => {
+test("activation passes endpoint credentials without retaining them in controller state", async () => {
   const fixture = createFixture();
   const definition = fixture.controller.retain({
     label: "Private",
@@ -497,7 +499,12 @@ test("activation passes PAT bindings without retaining them in controller state"
     undefined,
     undefined,
     undefined,
-    { github: secret },
+    {
+      "https://nuget.pkg.github.com/example/index.json": {
+        username: "example-user",
+        pat: secret,
+      },
+    },
   );
   fixture.client.activations[0]!.resolve({
     status: "activated",
@@ -507,8 +514,15 @@ test("activation passes PAT bindings without retaining them in controller state"
   await activation;
 
   assert.deepEqual(
-    fixture.client.packageSourcePatPayloads,
-    [JSON.stringify({ github: secret })],
+    fixture.client.packageSourceCredentialPayloads,
+    [
+      JSON.stringify({
+        "https://nuget.pkg.github.com/example/index.json": {
+          username: "example-user",
+          pat: secret,
+        },
+      }),
+    ],
   );
   assert.doesNotMatch(JSON.stringify(fixture.controller.state), /session-only-secret/);
 });

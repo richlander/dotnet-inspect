@@ -218,8 +218,7 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
 public enum WorkspacePackageSourceAuthentication
 {
     Anonymous = 0,
-    BasicPat = 1,
-    CredentialProvider = 2,
+    AuthenticationRequired = 1,
 }
 
 /// <summary>
@@ -228,19 +227,10 @@ public enum WorkspacePackageSourceAuthentication
 public sealed record WorkspacePackageSourceDefinition
 {
     public WorkspacePackageSourceDefinition(
-        string id,
         string endpoint,
         WorkspacePackageSourceAuthentication authentication =
-            WorkspacePackageSourceAuthentication.Anonymous,
-        string? username = null)
+            WorkspacePackageSourceAuthentication.Anonymous)
     {
-        if (!IsValidId(id))
-        {
-            throw new ArgumentException(
-                "A Workspace package source id must start with an ASCII letter "
-                    + "and contain only ASCII letters, digits, '.', '_', or '-'.",
-                nameof(id));
-        }
         ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? parsed)
             || parsed.Scheme != Uri.UriSchemeHttps
@@ -255,54 +245,30 @@ public sealed record WorkspacePackageSourceDefinition
         }
         if (authentication is not (
                 WorkspacePackageSourceAuthentication.Anonymous
-                or WorkspacePackageSourceAuthentication.BasicPat
-                or WorkspacePackageSourceAuthentication.CredentialProvider))
+                or WorkspacePackageSourceAuthentication.AuthenticationRequired))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(authentication),
                 authentication,
                 "Unsupported Workspace package source authentication.");
         }
-        if (authentication == WorkspacePackageSourceAuthentication.BasicPat)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(username);
-        }
-        else if (username is not null)
-        {
-            throw new ArgumentException(
-                "A Workspace package source username requires Basic PAT authentication.",
-                nameof(username));
-        }
 
-        Id = id;
         Endpoint = parsed.AbsoluteUri;
         Authentication = authentication;
-        Username = username;
     }
-
-    public string Id { get; }
 
     public string Endpoint { get; }
 
     public WorkspacePackageSourceAuthentication Authentication { get; }
 
-    public string? Username { get; }
-
     public static void ValidateSet(
         IReadOnlyList<WorkspacePackageSourceDefinition> sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
-        var ids = new HashSet<string>(StringComparer.Ordinal);
         var endpoints = new HashSet<string>(StringComparer.Ordinal);
         var originModes = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (WorkspacePackageSourceDefinition source in sources)
         {
-            if (!ids.Add(source.Id))
-            {
-                throw new ArgumentException(
-                    $"Workspace package source id '{source.Id}' is duplicated.",
-                    nameof(sources));
-            }
             if (!endpoints.Add(source.Endpoint))
             {
                 throw new ArgumentException(
@@ -312,42 +278,21 @@ public sealed record WorkspacePackageSourceDefinition
 
             string origin = new Uri(source.Endpoint)
                 .GetLeftPart(UriPartial.Authority);
-            bool usesCredentialProvider =
+            bool requiresAuthentication =
                 source.Authentication
-                    == WorkspacePackageSourceAuthentication.CredentialProvider;
+                    == WorkspacePackageSourceAuthentication.AuthenticationRequired;
             if (originModes.TryGetValue(
                     origin,
-                    out bool existingUsesCredentialProvider)
-                && existingUsesCredentialProvider != usesCredentialProvider)
+                    out bool existingRequiresAuthentication)
+                && existingRequiresAuthentication != requiresAuthentication)
             {
                 throw new ArgumentException(
                     $"Workspace package source origin '{origin}' mixes "
-                        + "credential-provider and non-provider authentication.",
+                        + "anonymous and authenticated sources.",
                     nameof(sources));
             }
-            originModes[origin] = usesCredentialProvider;
+            originModes[origin] = requiresAuthentication;
         }
-    }
-
-    private static bool IsValidId(string value)
-    {
-        if (string.IsNullOrEmpty(value)
-            || value.Length > 64
-            || !char.IsAsciiLetter(value[0]))
-        {
-            return false;
-        }
-
-        foreach (char character in value.AsSpan(1))
-        {
-            if (!char.IsAsciiLetterOrDigit(character)
-                && character is not ('.' or '_' or '-'))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }
 

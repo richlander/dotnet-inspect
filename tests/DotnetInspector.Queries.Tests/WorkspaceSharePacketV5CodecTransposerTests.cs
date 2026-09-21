@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspector.Queries.Tests;
@@ -5,7 +7,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class WorkspaceSharePacketV5CodecTransposerTests
 {
     private const string PacketJson =
-        """{"f":5,"s":[["github","https://nuget.pkg.github.com/example/index.json","p","example"],["nuget","https://api.nuget.org/v3/index.json"],["ado","https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json","c"]],"t":[["Private.Package","1.2.3","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
+        """{"f":5,"s":[["https://nuget.pkg.github.com/example/index.json","a"],["https://api.nuget.org/v3/index.json"],["https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json","a"]],"t":[["Private.Package","1.2.3","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
 
     [Fact]
     public void PackageSources_PacketRecordsPacket_IsByteIdenticalAndCredentialFree()
@@ -19,30 +21,24 @@ public sealed class WorkspaceSharePacketV5CodecTransposerTests
             packet.PackageSources,
             source =>
             {
-                Assert.Equal("github", source.Id);
                 Assert.Equal(
                     "https://nuget.pkg.github.com/example/index.json",
                     source.Endpoint);
                 Assert.Equal(
-                    WorkspacePackageSourceAuthentication.BasicPat,
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired,
                     source.Authentication);
-                Assert.Equal("example", source.Username);
             },
             source =>
             {
-                Assert.Equal("nuget", source.Id);
                 Assert.Equal(
                     WorkspacePackageSourceAuthentication.Anonymous,
                     source.Authentication);
-                Assert.Null(source.Username);
             },
             source =>
             {
-                Assert.Equal("ado", source.Id);
                 Assert.Equal(
-                    WorkspacePackageSourceAuthentication.CredentialProvider,
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired,
                     source.Authentication);
-                Assert.Null(source.Username);
             });
 
         CommittedScenarioDefinitionSet definitions =
@@ -98,14 +94,11 @@ public sealed class WorkspaceSharePacketV5CodecTransposerTests
             packageSources:
             [
                 new WorkspacePackageSourceDefinition(
-                    "github",
                     "https://nuget.pkg.github.com/example/index.json",
-                    WorkspacePackageSourceAuthentication.BasicPat,
-                    "example"),
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired),
                 new WorkspacePackageSourceDefinition(
-                    "ado",
                     "https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
-                    WorkspacePackageSourceAuthentication.CredentialProvider),
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired),
             ]);
 
         string json = InspectionDefinitionJson.Serialize(workspace);
@@ -114,31 +107,35 @@ public sealed class WorkspaceSharePacketV5CodecTransposerTests
         WorkspacePackageSourceDefinition source =
             roundTripped.PackageSources[0];
 
-        Assert.Equal("github", source.Id);
-        Assert.Equal("example", source.Username);
         Assert.Equal(
-            WorkspacePackageSourceAuthentication.BasicPat,
+            WorkspacePackageSourceAuthentication.AuthenticationRequired,
             source.Authentication);
         Assert.Equal(
-            WorkspacePackageSourceAuthentication.CredentialProvider,
+            WorkspacePackageSourceAuthentication.AuthenticationRequired,
             roundTripped.PackageSources[1].Authentication);
         Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            ["endpoint", "authentication"],
+            document.RootElement.GetProperty("packageSources")[0]
+                .EnumerateObject()
+                .Select(static property => property.Name));
         Assert.Equal(json, InspectionDefinitionJson.Serialize(roundTripped));
     }
 
     [Theory]
     [InlineData(
-        """{"f":5,"s":[["github","http://example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":5,"s":[["http://example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     [InlineData(
-        """{"f":5,"s":[["github","https://user@example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":5,"s":[["https://user@example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     [InlineData(
-        """{"f":5,"s":[["github","https://example.invalid/v3/index.json?token=x"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":5,"s":[["https://example.invalid/v3/index.json?token=x"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     [InlineData(
-        """{"f":5,"s":[["github","https://example.invalid/v3/index.json","p",""]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":5,"s":[["https://example.invalid/v3/index.json","p"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     [InlineData(
-        """{"f":5,"s":[["github","https://example.invalid/a"],["github","https://example.invalid/b"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":5,"s":[["https://example.invalid/a"],["https://example.invalid/a","a"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     [InlineData(
-        """{"f":5,"s":[["public","https://example.invalid/public"],["private","https://example.invalid/private","c"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":5,"s":[["https://example.invalid/public"],["https://example.invalid/private","a"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     public void InvalidSourceDeclarations_AreRejected(string json)
     {
         WorkspaceSharePacketException exception =
@@ -154,9 +151,9 @@ public sealed class WorkspaceSharePacketV5CodecTransposerTests
 
     [Theory]
     [InlineData(
-        """{"f":3,"s":[["github","https://example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":3,"s":[["https://example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     [InlineData(
-        """{"f":4,"s":[["github","https://example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+        """{"f":4,"s":[["https://example.invalid/v3/index.json"]],"t":[["P","1.0.0","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
     public void OlderPacketFormats_RejectPackageSources(string json)
     {
         WorkspaceSharePacketException exception =

@@ -382,18 +382,15 @@ public sealed record BrowserWorkspaceShareEncodeResult(
     BrowserWorkspaceShareFailure? Failure);
 
 public sealed record BrowserWorkspacePackageSourceRequirement(
-    string Id,
     string Endpoint,
-    BrowserWorkspacePackageSourceAuthentication Authentication,
-    string? Username);
+    BrowserWorkspacePackageSourceAuthentication Authentication);
 
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserWorkspacePackageSourceAuthentication>))]
 public enum BrowserWorkspacePackageSourceAuthentication
 {
     Anonymous,
-    Pat,
-    CredentialProvider,
+    AuthenticationRequired,
 }
 
 public sealed record BrowserWorkspacePackageSourceRequirementsResult(

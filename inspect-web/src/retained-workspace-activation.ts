@@ -36,6 +36,11 @@ interface SoleDeactivationIntent {
   readonly retainedDefinitionId: string;
 }
 
+interface RetainedWorkspacePackageSourceCredential {
+  readonly username: string;
+  readonly pat: string;
+}
+
 export interface RetainedWorkspaceActivationClient {
   describeWorkspacePackageSources?(
     canonicalPacket: string,
@@ -52,7 +57,7 @@ export interface RetainedWorkspaceActivationClient {
     label: string,
     canonicalLocation: string,
     canonicalPacket: string,
-    packageSourcePatsJson: string,
+    packageSourceCredentialsJson: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   commitRetainedWorkspaceActivation(
     receipt: string,
@@ -144,7 +149,9 @@ export interface RetainedWorkspaceActivationController {
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void>,
     committed?: () => void,
-    packageSourcePats?: Readonly<Record<string, string>>,
+    packageSourceCredentials?: Readonly<
+      Record<string, RetainedWorkspacePackageSourceCredential>
+    >,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
   cancelPending(): boolean;
   waitForPendingCommit(): Promise<void> | null;
@@ -490,7 +497,9 @@ export function createRetainedWorkspaceActivationController(
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void> = () => {},
     committed: () => void = () => {},
-    packageSourcePats: Readonly<Record<string, string>> = {},
+    packageSourceCredentials: Readonly<
+      Record<string, RetainedWorkspacePackageSourceCredential>
+    > = {},
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -523,9 +532,9 @@ export function createRetainedWorkspaceActivationController(
     try {
       let result: BrowserRetainedWorkspaceActivationResult;
       try {
-        const credentialIds = Object.keys(packageSourcePats);
+        const credentialEndpoints = Object.keys(packageSourceCredentials);
         let preparation: BrowserRetainedWorkspacePreparationResult;
-        if (credentialIds.length === 0) {
+        if (credentialEndpoints.length === 0) {
           preparation = await client.prepareRetainedWorkspaceDefinition(
             definition.id,
             definition.label,
@@ -538,7 +547,7 @@ export function createRetainedWorkspaceActivationController(
               === undefined
           ) {
             throw new Error(
-              "This engine does not support Workspace PAT bindings.",
+              "This engine does not support Workspace credential bindings.",
             );
           }
           preparation =
@@ -547,7 +556,7 @@ export function createRetainedWorkspaceActivationController(
             definition.label,
             definition.canonicalLocation,
             definition.canonicalPacket,
-            JSON.stringify(packageSourcePats),
+            JSON.stringify(packageSourceCredentials),
           );
         }
         switch (preparation.status) {

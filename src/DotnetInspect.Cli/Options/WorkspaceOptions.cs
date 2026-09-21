@@ -77,7 +77,8 @@ internal enum WorkspacePatInputKind
 }
 
 internal sealed record WorkspacePatBindingInput(
-    string SourceId,
+    string Endpoint,
+    string Username,
     WorkspacePatInputKind Kind,
     string? Value);
 

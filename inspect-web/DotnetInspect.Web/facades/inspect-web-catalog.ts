@@ -2,7 +2,7 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
-export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "Pat" | "CredentialProvider" | number;
+export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
 
 export type JsonValueKind = number;
 
@@ -653,10 +653,8 @@ export interface BrowserVocabularySection {
 }
 
 export interface BrowserWorkspacePackageSourceRequirement {
-  readonly id: string;
   readonly endpoint: string;
   readonly authentication: BrowserWorkspacePackageSourceAuthentication;
-  readonly username: string | null;
 }
 
 export interface BrowserWorkspacePackageSourceRequirementsResult {
@@ -723,7 +721,7 @@ type $ManagedExports = {
             readonly "AbandonRetainedWorkspaceNavigation.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
             readonly "AcknowledgeRetainedWorkspaceNavigation.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
             readonly "ActivateRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
-            readonly "ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourcePatsJson: string) => Promise<string>;
+            readonly "ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
             readonly "AdmitRetainedWorkspacePackage.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "AdmitRetainedWorkspacePlatform.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "CancelRetainedWorkspaceActivation.976702342": (receipt: string) => Promise<string>;
@@ -739,7 +737,7 @@ type $ManagedExports = {
             readonly "ListVocabulary.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
             readonly "PrepareRetainedWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string) => Promise<string>;
-            readonly "PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourcePatsJson: string) => Promise<string>;
+            readonly "PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314": (retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string) => Promise<string>;
             readonly "RecordRetainedWorkspaceNavigationPosting.1618630472": (realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string) => string;
             readonly "ResolveHomeDemo.304094707": (scenarioId: string) => string;
             readonly "RunHomeDemo.976702342": (scenarioId: string) => Promise<string>;
@@ -1146,8 +1144,8 @@ export async function activateRetainedWorkspaceDefinition(retainedDefinitionId: 
   return $parsed as BrowserRetainedWorkspaceActivationResult;
 }
 
-export async function activateRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourcePatsJson: string): Promise<BrowserRetainedWorkspaceActivationResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, packageSourcePatsJson);
+export async function activateRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string): Promise<BrowserRetainedWorkspaceActivationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ActivateRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, packageSourceCredentialsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspaceActivationResult;
 }
@@ -1242,8 +1240,8 @@ export async function prepareRetainedWorkspaceDefinition(retainedDefinitionId: s
   return $parsed as BrowserRetainedWorkspacePreparationResult;
 }
 
-export async function prepareRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourcePatsJson: string): Promise<BrowserRetainedWorkspacePreparationResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, packageSourcePatsJson);
+export async function prepareRetainedWorkspaceDefinitionWithCredentials(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string, packageSourceCredentialsJson: string): Promise<BrowserRetainedWorkspacePreparationResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["PrepareRetainedWorkspaceDefinitionWithCredentials.1330709314"](retainedDefinitionId, label, canonicalLocation, canonicalPacket, packageSourceCredentialsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserRetainedWorkspacePreparationResult;
 }

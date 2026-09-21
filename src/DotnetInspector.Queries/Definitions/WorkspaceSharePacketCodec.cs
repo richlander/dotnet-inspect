@@ -830,76 +830,44 @@ public static class WorkspaceSharePacketCodec
 
         var sources =
             new WorkspacePackageSourceDefinition[element.GetArrayLength()];
-        var ids = new HashSet<string>(StringComparer.Ordinal);
         int index = 0;
         foreach (JsonElement tuple in element.EnumerateArray())
         {
             if (tuple.ValueKind != JsonValueKind.Array
-                || tuple.GetArrayLength() is not (2 or 3 or 4))
+                || tuple.GetArrayLength() is not (1 or 2))
             {
                 throw InvalidShape(
-                    "Every Workspace package source must be [id, endpoint] "
-                        + "[id, endpoint, \"c\"], or "
-                        + "[id, endpoint, \"p\", username].");
+                    "Every Workspace package source must be [endpoint] or "
+                        + "[endpoint, \"a\"].");
             }
 
             JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
-            string id = RequiredString(
-                Next(ref values),
-                $"package source {index} id");
             string endpoint = RequiredString(
                 Next(ref values),
                 $"package source {index} endpoint");
             WorkspacePackageSourceAuthentication authentication =
                 WorkspacePackageSourceAuthentication.Anonymous;
-            string? username = null;
-            if (tuple.GetArrayLength() == 3)
+            if (tuple.GetArrayLength() == 2)
             {
                 if (!string.Equals(
                         RequiredString(
                             Next(ref values),
                             $"package source {index} authentication"),
-                        "c",
+                        "a",
                         StringComparison.Ordinal))
                 {
                     throw InvalidShape(
                         $"Workspace package source {index} has an unknown authentication kind.");
                 }
                 authentication =
-                    WorkspacePackageSourceAuthentication.CredentialProvider;
-            }
-            else if (tuple.GetArrayLength() == 4)
-            {
-                if (!string.Equals(
-                        RequiredString(
-                            Next(ref values),
-                            $"package source {index} authentication"),
-                        "p",
-                        StringComparison.Ordinal))
-                {
-                    throw InvalidShape(
-                        $"Workspace package source {index} has an unknown authentication kind.");
-                }
-                authentication =
-                    WorkspacePackageSourceAuthentication.BasicPat;
-                username = RequiredString(
-                    Next(ref values),
-                    $"package source {index} username");
-            }
-
-            if (!ids.Add(id))
-            {
-                throw InvalidShape(
-                    $"Workspace package source id '{id}' is duplicated.");
+                    WorkspacePackageSourceAuthentication.AuthenticationRequired;
             }
 
             try
             {
                 sources[index] = new WorkspacePackageSourceDefinition(
-                    id,
                     endpoint,
-                    authentication,
-                    username);
+                    authentication);
             }
             catch (ArgumentException ex)
             {
@@ -2150,22 +2118,11 @@ public static class WorkspaceSharePacketCodec
         WorkspacePackageSourceDefinition source)
     {
         writer.WriteByte((byte)'[');
-        writer.WriteString(source.Id);
-        writer.WriteByte((byte)',');
         writer.WriteString(source.Endpoint);
         if (source.Authentication
-            == WorkspacePackageSourceAuthentication.BasicPat)
+            == WorkspacePackageSourceAuthentication.AuthenticationRequired)
         {
-            writer.WriteAscii(",\"p\","u8);
-            writer.WriteString(
-                source.Username
-                    ?? throw InvalidShape(
-                        "A Basic PAT package source requires a username."));
-        }
-        else if (source.Authentication
-            == WorkspacePackageSourceAuthentication.CredentialProvider)
-        {
-            writer.WriteAscii(",\"c\""u8);
+            writer.WriteAscii(",\"a\""u8);
         }
         else if (source.Authentication
             != WorkspacePackageSourceAuthentication.Anonymous)

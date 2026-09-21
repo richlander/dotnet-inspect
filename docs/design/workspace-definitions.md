@@ -58,9 +58,9 @@ of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
 Schema-version-5 Workspace package-source declarations and packet format 5
 carry exact credential-free HTTPS NuGet source registrations. Construction
-selects one closed authentication policy: anonymous, ephemeral PAT, or host
-credential provider. CLI and Browser hosts lower only supported policies while
-realizing that definition; no credential is a definition or packet field.
+selects one closed requirement: anonymous or authentication required. CLI and
+Browser hosts choose a supported authentication mechanism while realizing that
+definition; no credential or host mechanism is a definition or packet field.
 The definition-first role of the `workspace` command, portable
 Workspace-to-Workspace transformations, and noun-command packet consumption are
 specified by
@@ -203,12 +203,12 @@ Navigation effect authority remain separate owner-issued currencies.
    and projects the same complete state into the packet.
 8. **Portable package-source declarations begin at definition schema version 5
    and packet format 5.** Versions 1 through 4 remain immutable source
-   contracts. Each source carries a stable ID, an HTTPS service-index endpoint,
-   one authentication policy, and, for Basic PAT authentication, a username.
+   contracts. Each source is identified by one exact HTTPS service-index
+   endpoint and carries either an anonymous or authentication-required policy.
    Credentials are never part of the definition, packet, canonical URL,
-   projection, or diagnostic. A host binds required source IDs to ephemeral
-   credentials or an explicitly declared credential-provider flow before
-   acquisition and refuses unsupported policies, missing, duplicate, or
+   projection, or diagnostic. A host binds authentication-required endpoints
+   to ephemeral credentials or, where supported, a noninteractive credential
+   provider before acquisition. It refuses unsupported, duplicate, or
    unexpected bindings rather than widening to ambient source configuration.
 9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
@@ -1428,33 +1428,38 @@ focused document names the Release gates and remaining CLI/Browser adoption.
 ### Credential-free package-source declarations
 
 Schema version 5 and packet format 5 add the Workspace-owned
-`packageSources` vector. Each entry contains only a stable source ID, an
-absolute HTTPS service-index endpoint without user information, query, or
-fragment, one authentication policy (`Anonymous`, `BasicPat`, or
-`CredentialProvider`), and the Basic-auth username only for `BasicPat`. Source
-IDs use a bounded ASCII identifier grammar and are unique under ordinal
-comparison.
+`packageSources` vector. Each entry contains only an absolute HTTPS
+service-index endpoint without user information, query, or fragment and one
+authentication requirement (`Anonymous` or `AuthenticationRequired`). The
+exact endpoint is the source identity and is unique under ordinal comparison.
+Packet format 5 lowers anonymous sources to `[endpoint]` and
+authentication-required sources to `[endpoint, "a"]`.
 
 Each record is safe by construction: no separate annotation can promote a
 generic source after creation. Exact endpoints are unique. Sources on one
-origin cannot mix credential-provider and non-provider policy, preventing an
+origin cannot mix anonymous and authentication-required policy, preventing an
 anonymous registration from acquiring authority through another declaration's
-provider.
+credential provider.
 
-The PAT and provider result are host execution authority, not portable state.
-They are absent from definition JSON, packets, URLs, retained postings, and all
-output. Complete restoration carries the credential-free declarations to the
-host. Before any package acquisition, the host must lower every policy, bind
-every required PAT source ID, reject unsupported policies and missing or
-unexpected bindings, and install exactly the packet-declared source set. It
-must not fall back to ambient NuGet configuration when a version-5 source set
-exists.
+The username, PAT, and credential-provider result are host execution authority,
+not portable state. They are absent from definition JSON, packets, URLs,
+retained postings, and all output. Complete restoration carries the
+credential-free declarations to the host. Before package acquisition, the host
+must validate any explicit bindings and install exactly the packet-declared
+source set. It must not import ambient `nuget.config` sources or persisted
+credentials when a version-5 source set exists.
 
-The CLI lowers anonymous sources through a credential-free client, PAT sources
-through noninteractive environment, redirected-standard-input, or caller-owned
-file bindings, and credential-provider sources through the host's
-noninteractive NuGet plugin flow. Inspect Web accepts PATs only as page-session
-activation input and rejects credential-provider sources before network work.
+For an authentication-required endpoint, one complete explicit Basic
+credential wins. If none is supplied, a host that supports noninteractive
+NuGet credential providers may query one for that declared origin. An explicit
+credential rejection is final and must not fall back to a provider. Because
+provider authority is origin-scoped, explicit bindings must cover every
+authentication-required endpoint on the same origin or none. A host without a
+usable provider fails visibly. The CLI accepts explicit PATs through
+environment, redirected-standard-input, or caller-owned file bindings. Inspect
+Web has no provider capability and therefore requires an endpoint-bound
+username and PAT in page-session memory before network work.
+
 Those host mechanisms may retain a credential in process memory for the active
 operation or realization, but must not write it to a packet, browser storage,
 generated file, log, diagnostic, or telemetry event. Host-specific input and

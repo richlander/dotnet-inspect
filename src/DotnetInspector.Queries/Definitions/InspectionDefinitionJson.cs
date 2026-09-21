@@ -256,9 +256,7 @@ public static class InspectionDefinitionJson
                 foreach (WorkspacePackageSourceDefinition source
                     in workspace.PackageSources)
                 {
-                    EnsureUtf16(source.Id, "packageSources.id");
                     EnsureUtf16(source.Endpoint, "packageSources.endpoint");
-                    EnsureUtf16(source.Username, "packageSources.username");
                 }
                 EnsureGroupUtf16(workspace.Groups);
                 break;
@@ -830,9 +828,8 @@ public static class InspectionDefinitionJson
             }
             RejectUnknownProperties(
                 source,
-                ["id", "endpoint", "authentication", "username"],
+                ["endpoint", "authentication"],
                 "Workspace package source");
-            RequireStringProperty(source, "id", "Workspace package source");
             RequireStringProperty(
                 source,
                 "endpoint",
@@ -2200,19 +2197,16 @@ public static class InspectionDefinitionJson
         WorkspacePackageSourceDefinition source) =>
         new()
         {
-            Id = source.Id,
             Endpoint = source.Endpoint,
             Authentication = source.Authentication switch
             {
                 WorkspacePackageSourceAuthentication.Anonymous => "anonymous",
-                WorkspacePackageSourceAuthentication.BasicPat => "basicPat",
-                WorkspacePackageSourceAuthentication.CredentialProvider =>
-                    "credentialProvider",
+                WorkspacePackageSourceAuthentication.AuthenticationRequired =>
+                    "authenticationRequired",
                 _ => throw new InspectionDefinitionException(
                     $"Unsupported Workspace package source authentication "
                         + $"{source.Authentication}."),
             },
-            Username = source.Username,
         };
 
     private static ExactLibrarySourceCoordinateDto
@@ -2417,23 +2411,17 @@ public static class InspectionDefinitionJson
                 {
                     "anonymous" =>
                         WorkspacePackageSourceAuthentication.Anonymous,
-                    "basicPat" =>
-                        WorkspacePackageSourceAuthentication.BasicPat,
-                    "credentialProvider" =>
-                        WorkspacePackageSourceAuthentication.CredentialProvider,
+                    "authenticationRequired" =>
+                        WorkspacePackageSourceAuthentication.AuthenticationRequired,
                     _ => throw new InspectionDefinitionException(
                         $"Unknown Workspace package source authentication "
                             + $"'{source.Authentication}'."),
                 };
             mapped.Add(new WorkspacePackageSourceDefinition(
-                source.Id
-                    ?? throw new InspectionDefinitionException(
-                        "Workspace package source requires id."),
                 source.Endpoint
                     ?? throw new InspectionDefinitionException(
                         "Workspace package source requires endpoint."),
-                authentication,
-                source.Username));
+                authentication));
         }
 
         return mapped;
@@ -2979,13 +2967,9 @@ internal sealed class WorkspaceRegistrationDto
 
 internal sealed class WorkspacePackageSourceDto
 {
-    public string? Id { get; set; }
-
     public string? Endpoint { get; set; }
 
     public string? Authentication { get; set; }
-
-    public string? Username { get; set; }
 }
 
 internal sealed class ExactLibrarySourceCoordinateDto

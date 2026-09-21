@@ -1152,24 +1152,24 @@ registry.
 
 A schema-version-5 Workspace may carry an exact credential-free source set
 independently of the browser-local registry. Each declaration contains its
-stable Workspace source ID, HTTPS service-index endpoint, authentication
-policy, and Basic-auth username only for a PAT source. Construction selects
-anonymous, PAT, or credential-provider policy directly; a later annotation
-cannot promote a generic source.
+exact HTTPS service-index endpoint and either an anonymous or
+authentication-required policy. The endpoint is the source identity; the
+portable declaration contains no alias, username, credential, or host
+mechanism. A later annotation cannot promote a generic source.
 
 Before activating such a Workspace, Inspect Web describes the required source
-IDs so the page can collect each PAT in a password input. The page passes an
-in-memory source-ID-to-PAT map with that activation only. The map is not added
-to the retained definition, URL, canonical packet, posting, local storage,
-session storage, IndexedDB, cache storage, diagnostics, logs, or telemetry.
-Refreshing or reopening the URL therefore requires the PAT again. The active
-managed realization may retain the bound credential in process memory until it
+endpoints so the page can collect each Basic username and PAT. The page passes
+an in-memory endpoint-to-credential map with that activation only. The map is
+not added to the retained definition, URL, canonical packet, posting, local
+storage, session storage, IndexedDB, cache storage, diagnostics, logs, or
+telemetry. Refreshing or reopening the URL therefore requires the credential
+again. The active managed realization may retain it in process memory until it
 is replaced or disposed.
 
-Browser/Wasm supports anonymous and page-session PAT declarations. It rejects
-a credential-provider declaration before network work because a page cannot
-launch a NuGet credential-provider plugin. The browser does not reinterpret
-that policy as anonymous or PAT authentication.
+Browser/Wasm supports anonymous sources and explicit page-session credentials.
+It cannot launch a NuGet credential-provider plugin, so an
+authentication-required source without an explicit credential is rejected
+before network work rather than reinterpreted as anonymous.
 
 Activation validates the complete binding set before package acquisition.
 Missing and unexpected bindings deny all source authorization rather than
@@ -1733,8 +1733,8 @@ sent to the replacement endpoint.
 ## Browser credentials
 
 Package-source configuration may accept a short-lived packaging-read PAT for a
-source that declares Basic PAT authentication. The session credential contains
-both the configured username and the secret; the wire form is
+source that declares authentication required. The session credential contains
+both a runtime username and the secret; the wire form is
 `Authorization: Basic base64(username:PAT)`. A source-specific UI may suggest a
 documented placeholder username, but the common client does not invent one.
 

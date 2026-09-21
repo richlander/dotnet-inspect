@@ -6,8 +6,9 @@ This document explains how to give `dotnet-inspect` access to a private NuGet fe
 `dotnet restore` uses — so a feed that already works for `dotnet restore` usually works here too.
 A private feed needs credentials. Ordinary package commands can use a
 credential provider or `nuget.config`, and a credential provider is the one to
-prefer. Portable Workspaces register each source as anonymous, PAT-required, or
-credential-provider-required without storing a credential.
+prefer. Portable Workspaces register each source as anonymous or
+authentication-required without storing a credential or choosing a host
+authentication mechanism.
 
 Examples below run `dotnet-inspect` directly. With `dnx`, prefix each command with
 `dnx dotnet-inspect -y --`.
@@ -99,67 +100,78 @@ are identical on every platform.
 
 ## Portable Workspace source registrations
 
-Choose the source's authentication policy while registering it. For GitHub
-Packages, use the GitHub username as the source ID and Basic username:
+Register the exact source endpoint and whether it requires authentication:
 
 ```bash
 packet=$(dotnet-inspect workspace \
   --package MyCompany.Widgets@1.2.3 \
   --tfm net10.0 \
-  --nuget-source-pat-required \
-    OWNER=https://nuget.pkg.github.com/OWNER/index.json \
+  --nuget-source-auth-required \
+    https://nuget.pkg.github.com/dotnet/index.json \
   --share packet)
 ```
 
-The packet contains the source ID, HTTPS endpoint, authentication requirement,
-and Basic-auth username. It never contains the PAT. Resource-free `--share`
-therefore needs no credential.
+The packet contains the exact HTTPS endpoint and authentication requirement. It
+never contains a source alias, username, PAT, or provider choice. Resource-free
+`--share` therefore needs no credential.
 
-Supply the PAT again whenever the Workspace is executed:
+Supply the Basic username and PAT whenever the Workspace is executed. The feed
+owner in the endpoint and the authenticating user are intentionally separate:
 
 ```bash
 GITHUB_TOKEN=... \
   dotnet-inspect workspace --packet "$packet" \
-  --pat OWNER=env:GITHUB_TOKEN
+  --pat-for https://nuget.pkg.github.com/dotnet/index.json \
+  richlander env:GITHUB_TOKEN
 
 printf '%s\n' "$GITHUB_TOKEN" |
-  dotnet-inspect workspace --packet "$packet" --pat OWNER=stdin
+  dotnet-inspect workspace --packet "$packet" \
+  --pat-for https://nuget.pkg.github.com/dotnet/index.json \
+  richlander stdin
 
 dotnet-inspect workspace --packet "$packet" \
-  --pat OWNER=file:/run/secrets/github-pat
+  --pat-for https://nuget.pkg.github.com/dotnet/index.json \
+  richlander file:/run/secrets/github-pat
 ```
 
-`--pat` accepts only `env:NAME`, `stdin`, or `file:PATH`; it rejects literal
-credentials. Standard input must be redirected, so an unattended caller never
-hangs on a prompt. The command does not modify or delete a credential file.
-All required source IDs must be bound before any package request starts.
-Credentials can remain in process memory for the execution but are never
-written to the Workspace packet, generated files, logs, diagnostics, or
-telemetry.
+`--pat-for` accepts only `env:NAME`, `stdin`, or `file:PATH` for the secret; it
+rejects literal credentials. Standard input must be redirected, so an
+unattended caller never hangs on a prompt. The command does not modify or delete
+a credential file. Credentials can remain in process memory for the execution
+but are never written to the Workspace packet, generated files, logs,
+diagnostics, or telemetry.
+
+If no explicit credential is supplied, the desktop CLI falls back to an
+installed noninteractive NuGet credential provider scoped to the exact declared
+source origin. If no provider is available, realization fails visibly. An
+explicit credential always wins; if the feed rejects it, the CLI does not
+silently try a provider with another identity.
 
 Inspect Web reads the same credential-free requirement from a Workspace link
-and accepts the PAT for that activation in page-session memory. It does not
-write the PAT to the URL, packet, local storage, session storage, or IndexedDB;
-refreshing or reopening the link requires it again.
+and accepts an endpoint-bound username and PAT for that activation in
+page-session memory. Browser/Wasm cannot launch a credential provider, so an
+authentication-required source without that explicit credential fails before
+network work. Inspect Web does not write the credential to the URL, packet,
+local storage, session storage, or IndexedDB; refreshing or reopening the link
+requires it again.
 
-Public and credential-provider-backed feeds use their own constructors:
+Register public and authentication-required feeds with their corresponding
+constructors:
 
 ```bash
 dotnet-inspect workspace \
   --package MyCompany.Widgets@1.2.3 \
   --tfm net10.0 \
   --nuget-source-anonymous https://api.nuget.org/v3/index.json \
-  --nuget-source-credential-required \
-    ado=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json \
+  --nuget-source-auth-required \
+    https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json \
   --share packet
 ```
 
-`[source-id=]` is optional. Omitted IDs become `source1`, `source2`, and so on
-in declaration order. Anonymous sources never invoke a credential provider.
-Credential-required sources use the CLI's noninteractive NuGet plugin flow and
-need no `--pat` binding. Browser/Wasm rejects credential-provider-required
-Workspace sources before making a package request because it cannot launch
-NuGet plugins.
+The source endpoint itself is the portable identity; aliases and placeholder
+substitution are not part of the model. Anonymous sources never invoke a
+credential provider. Authentication-required sources use explicit credentials
+when supplied and otherwise use the CLI's noninteractive NuGet plugin flow.
 
 ## Alternative: a credential in `nuget.config`
 

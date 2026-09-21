@@ -40,46 +40,16 @@ internal static class WorkspacePatCredentialResolver
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(openStandardInput);
 
-        var requirements = sourceDefinitions
-            .Where(static source =>
-                source.Authentication
-                    == WorkspacePackageSourceAuthentication.BasicPat)
-            .ToDictionary(static source => source.Id, StringComparer.Ordinal);
-        var suppliedBindings = new Dictionary<
-            string,
-            WorkspacePatBindingInput>(StringComparer.Ordinal);
-        foreach (WorkspacePatBindingInput binding in bindings)
-        {
-            if (!suppliedBindings.TryAdd(binding.SourceId, binding))
-            {
-                throw new WorkspacePatBindingException(
-                    $"A PAT binding for source '{binding.SourceId}' was supplied more than once.");
-            }
-            if (!requirements.ContainsKey(binding.SourceId))
-            {
-                throw new WorkspacePatBindingException(
-                    $"PAT binding source '{binding.SourceId}' is not a required "
-                        + "PAT source in this Workspace.");
-            }
-        }
-
-        string? missing = requirements.Keys.FirstOrDefault(
-            id => !suppliedBindings.ContainsKey(id));
-        if (missing is not null)
-        {
-            throw new WorkspacePatBindingException(
-                $"Workspace source '{missing}' requires a PAT. Supply "
-                    + $"--pat {missing}=env:NAME, --pat {missing}=stdin, or "
-                    + $"--pat {missing}=file:PATH.");
-        }
+        Dictionary<string, WorkspacePatBindingInput> suppliedBindings =
+            ValidateBindingsCore(sourceDefinitions, bindings);
 
         var secrets = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach ((string id, WorkspacePatBindingInput binding)
+        foreach ((string endpoint, WorkspacePatBindingInput binding)
             in suppliedBindings)
         {
             cancellationToken.ThrowIfCancellationRequested();
             secrets.Add(
-                id,
+                endpoint,
                 await ReadSecretAsync(
                         binding,
                         isInputRedirected,
@@ -92,14 +62,15 @@ internal static class WorkspacePatCredentialResolver
         [
             .. sourceDefinitions.Select(source =>
                 new PackageSource(
-                    source.Id,
                     source.Endpoint,
-                    source.Authentication
-                        == WorkspacePackageSourceAuthentication.BasicPat
-                            ? new PackageSourceCredential(
-                                source.Username!,
-                                secrets[source.Id])
-                            : null)),
+                    source.Endpoint,
+                    suppliedBindings.TryGetValue(
+                        source.Endpoint,
+                        out WorkspacePatBindingInput? binding)
+                        ? new PackageSourceCredential(
+                            binding.Username,
+                            secrets[source.Endpoint])
+                        : null)),
         ];
     }
 
@@ -112,9 +83,18 @@ internal static class WorkspacePatCredentialResolver
             sourceDefinitions,
             bindings,
             cancellationToken).ConfigureAwait(false);
-        if (!sourceDefinitions.Any(static source =>
+        HashSet<string> explicitlyBoundEndpoints =
+        [
+            .. bindings.Select(static binding => binding.Endpoint),
+        ];
+        WorkspacePackageSourceDefinition[] providerSources =
+        [
+            .. sourceDefinitions.Where(source =>
                 source.Authentication
-                    == WorkspacePackageSourceAuthentication.CredentialProvider))
+                    == WorkspacePackageSourceAuthentication.AuthenticationRequired
+                && !explicitlyBoundEndpoints.Contains(source.Endpoint)),
+        ];
+        if (providerSources.Length == 0)
         {
             return new WorkspacePackageSourceRuntime(
                 sources,
@@ -132,11 +112,8 @@ internal static class WorkspacePatCredentialResolver
         {
             var scopedProvider = new WorkspaceCredentialSource(
                 provider,
-                sourceDefinitions
-                    .Where(static source =>
-                        source.Authentication
-                            == WorkspacePackageSourceAuthentication.CredentialProvider)
-                    .Select(static source => new Uri(source.Endpoint)));
+                providerSources.Select(
+                    static source => new Uri(source.Endpoint)));
             HttpClient client =
                 DotnetInspector.Networking.HttpClientFactory
                     .CreateClientWithAuthentication(
@@ -162,31 +139,65 @@ internal static class WorkspacePatCredentialResolver
     {
         ArgumentNullException.ThrowIfNull(sourceDefinitions);
         ArgumentNullException.ThrowIfNull(bindings);
+        _ = ValidateBindingsCore(sourceDefinitions, bindings);
+    }
 
-        HashSet<string> requirements =
-        [
-            .. sourceDefinitions
-                .Where(static source =>
-                    source.Authentication
-                        == WorkspacePackageSourceAuthentication.BasicPat)
-                .Select(static source => source.Id),
-        ];
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+    private static Dictionary<string, WorkspacePatBindingInput>
+        ValidateBindingsCore(
+        IReadOnlyList<WorkspacePackageSourceDefinition> sourceDefinitions,
+        IReadOnlyList<WorkspacePatBindingInput> bindings)
+    {
+        WorkspacePackageSourceDefinition.ValidateSet(sourceDefinitions);
+        var requirements = sourceDefinitions
+            .Where(static source =>
+                source.Authentication
+                    == WorkspacePackageSourceAuthentication.AuthenticationRequired)
+            .ToDictionary(
+                static source => source.Endpoint,
+                StringComparer.Ordinal);
+        var suppliedBindings = new Dictionary<
+            string,
+            WorkspacePatBindingInput>(StringComparer.Ordinal);
         foreach (WorkspacePatBindingInput binding in bindings)
         {
-            if (!seen.Add(binding.SourceId))
+            if (string.IsNullOrWhiteSpace(binding.Username))
             {
                 throw new WorkspacePatBindingException(
-                    $"A PAT binding for source '{binding.SourceId}' was supplied more than once.");
+                    $"PAT binding username for endpoint '{binding.Endpoint}' "
+                        + "must not be empty.");
             }
-            if (!requirements.Contains(binding.SourceId))
+            if (!suppliedBindings.TryAdd(binding.Endpoint, binding))
             {
                 throw new WorkspacePatBindingException(
-                    $"PAT binding source '{binding.SourceId}' is not a required "
-                        + "PAT source in this Workspace.");
+                    $"A PAT binding for endpoint '{binding.Endpoint}' was "
+                        + "supplied more than once.");
+            }
+            if (!requirements.ContainsKey(binding.Endpoint))
+            {
+                throw new WorkspacePatBindingException(
+                    $"PAT binding endpoint '{binding.Endpoint}' is not an "
+                        + "authentication-required source in this Workspace.");
             }
         }
 
+        foreach (IGrouping<string, WorkspacePackageSourceDefinition> origin
+            in requirements.Values.GroupBy(
+                static source => new Uri(source.Endpoint)
+                    .GetLeftPart(UriPartial.Authority),
+                StringComparer.Ordinal))
+        {
+            int explicitCount = origin.Count(
+                source => suppliedBindings.ContainsKey(source.Endpoint));
+            if (explicitCount != 0 && explicitCount != origin.Count())
+            {
+                throw new WorkspacePatBindingException(
+                    $"Authenticated Workspace source origin '{origin.Key}' "
+                        + "mixes explicit PAT bindings with credential-provider "
+                        + "fallback. Bind every endpoint on that origin or none.");
+            }
+        }
+
+        return suppliedBindings;
     }
 
     internal static HttpMessageHandler CreatePackageRequestHandler(
@@ -214,45 +225,45 @@ internal static class WorkspacePatCredentialResolver
         string value = binding.Kind switch
         {
             WorkspacePatInputKind.Environment =>
-                ReadEnvironment(binding.SourceId, binding.Value!),
+                ReadEnvironment(binding.Endpoint, binding.Value!),
             WorkspacePatInputKind.StandardInput =>
                 await ReadStandardInputAsync(
-                    binding.SourceId,
+                    binding.Endpoint,
                     isInputRedirected,
                     openStandardInput,
                     cancellationToken).ConfigureAwait(false),
             WorkspacePatInputKind.File =>
                 await ReadFileAsync(
-                    binding.SourceId,
+                    binding.Endpoint,
                     binding.Value!,
                     cancellationToken).ConfigureAwait(false),
             _ => throw new InvalidOperationException(
                 "Unknown Workspace PAT input kind."),
         };
         return Validate(
-            binding.SourceId,
+            binding.Endpoint,
             value,
             trimTrailingLineEnding:
                 binding.Kind is WorkspacePatInputKind.StandardInput
                     or WorkspacePatInputKind.File);
     }
 
-    private static string ReadEnvironment(string sourceId, string variable)
+    private static string ReadEnvironment(string endpoint, string variable)
     {
         if (variable.Contains('=') || variable.Contains('\0'))
         {
             throw new WorkspacePatBindingException(
-                $"The environment variable name for source '{sourceId}' is invalid.");
+                $"The environment variable name for endpoint '{endpoint}' is invalid.");
         }
 
         return Environment.GetEnvironmentVariable(variable)
             ?? throw new WorkspacePatBindingException(
                 $"Environment variable '{variable}' for Workspace source "
-                    + $"'{sourceId}' is not set.");
+                    + $"'{endpoint}' is not set.");
     }
 
     private static async Task<string> ReadStandardInputAsync(
-        string sourceId,
+        string endpoint,
         bool isInputRedirected,
         Func<Stream> openStandardInput,
         CancellationToken cancellationToken)
@@ -260,19 +271,19 @@ internal static class WorkspacePatCredentialResolver
         if (!isInputRedirected)
         {
             throw new WorkspacePatBindingException(
-                $"PAT input for Workspace source '{sourceId}' selected stdin, "
+                $"PAT input for Workspace source '{endpoint}' selected stdin, "
                     + "but stdin is a terminal. Pipe the credential instead.");
         }
 
         return await ReadUtf8Async(
             openStandardInput(),
-            sourceId,
+            endpoint,
             "stdin",
             cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<string> ReadFileAsync(
-        string sourceId,
+        string endpoint,
         string path,
         CancellationToken cancellationToken)
     {
@@ -287,7 +298,7 @@ internal static class WorkspacePatCredentialResolver
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             return await ReadUtf8Async(
                 stream,
-                sourceId,
+                endpoint,
                 "file",
                 cancellationToken).ConfigureAwait(false);
         }
@@ -302,13 +313,13 @@ internal static class WorkspacePatCredentialResolver
             or UnauthorizedAccessException)
         {
             throw new WorkspacePatBindingException(
-                $"The PAT file for Workspace source '{sourceId}' could not be read.");
+                $"The PAT file for Workspace source '{endpoint}' could not be read.");
         }
     }
 
     private static async Task<string> ReadUtf8Async(
         Stream stream,
-        string sourceId,
+        string endpoint,
         string provider,
         CancellationToken cancellationToken)
     {
@@ -327,7 +338,7 @@ internal static class WorkspacePatCredentialResolver
                 {
                     throw new WorkspacePatBindingException(
                         $"PAT input from {provider} for Workspace source "
-                            + $"'{sourceId}' exceeds the "
+                            + $"'{endpoint}' exceeds the "
                             + $"{MaxSecretUtf8Bytes}-byte limit.");
                 }
                 payload.Write(buffer, 0, read);
@@ -342,7 +353,7 @@ internal static class WorkspacePatCredentialResolver
             {
                 throw new WorkspacePatBindingException(
                     $"PAT input from {provider} for Workspace source "
-                        + $"'{sourceId}' is not valid UTF-8.");
+                        + $"'{endpoint}' is not valid UTF-8.");
             }
         }
         finally
@@ -354,7 +365,7 @@ internal static class WorkspacePatCredentialResolver
     }
 
     private static string Validate(
-        string sourceId,
+        string endpoint,
         string value,
         bool trimTrailingLineEnding)
     {
@@ -363,14 +374,14 @@ internal static class WorkspacePatCredentialResolver
             if (s_strictUtf8.GetByteCount(value) > MaxSecretUtf8Bytes)
             {
                 throw new WorkspacePatBindingException(
-                    $"PAT input for Workspace source '{sourceId}' exceeds the "
+                    $"PAT input for Workspace source '{endpoint}' exceeds the "
                         + $"{MaxSecretUtf8Bytes}-byte limit.");
             }
         }
         catch (EncoderFallbackException)
         {
             throw new WorkspacePatBindingException(
-                $"PAT input for Workspace source '{sourceId}' contains invalid Unicode.");
+                $"PAT input for Workspace source '{endpoint}' contains invalid Unicode.");
         }
 
         string validated = trimTrailingLineEnding
@@ -383,7 +394,7 @@ internal static class WorkspacePatCredentialResolver
         if (validated.Length == 0)
         {
             throw new WorkspacePatBindingException(
-                $"PAT input for Workspace source '{sourceId}' is empty.");
+                $"PAT input for Workspace source '{endpoint}' is empty.");
         }
         return validated;
     }

@@ -113,7 +113,7 @@ public static partial class WorkspaceCommand
         catch (WorkspacePatBindingException ex)
         {
             CommandError.Write(
-                "The Workspace PAT bindings are invalid.",
+                "The Workspace package credentials are invalid.",
                 [ex.Message]);
             return 1;
         }

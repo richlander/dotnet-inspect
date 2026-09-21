@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using DotnetInspect.Web.Interop.Catalog;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -18,28 +19,30 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     [Fact]
     public void PackageSourcePatBindings_AreRequiredBeforeSourceAuthorization()
     {
+        const string endpoint =
+            "https://nuget.pkg.github.com/example/index.json";
         CompleteRestorationExecutionOptions options =
             BrowserCompleteRestorationOptions.Create();
         WorkspacePackageSourceDefinition[] definitions =
         [
             new(
-                "github",
-                "https://nuget.pkg.github.com/example/index.json",
-                WorkspacePackageSourceAuthentication.BasicPat,
-                "example"),
+                endpoint,
+                WorkspacePackageSourceAuthentication.AuthenticationRequired),
         ];
 
         CompleteRestorationExecutionOptions denied =
             BrowserCompleteRestorationOptions.BindPackageSources(
                 options,
                 definitions,
-                new Dictionary<string, string>(StringComparer.Ordinal));
+                new Dictionary<
+                    string,
+                    PackageSourceCredential>(StringComparer.Ordinal));
         PackageSourceAuthorization deniedAuthorization =
             denied.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
                 "Private.Package");
         Assert.Empty(deniedAuthorization.Sources);
         Assert.Contains(
-            "requires a PAT",
+            "requires an explicit Basic credential",
             deniedAuthorization.DenialReason,
             StringComparison.Ordinal);
 
@@ -48,22 +51,25 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             BrowserCompleteRestorationOptions.BindPackageSources(
                 options,
                 definitions,
-                new Dictionary<string, string>(StringComparer.Ordinal)
+                new Dictionary<
+                    string,
+                    PackageSourceCredential>(StringComparer.Ordinal)
                 {
-                    ["github"] = secret,
+                    [endpoint] = new("example-user", secret),
                 });
         PackageSource source = Assert.Single(
             bound.ContextLoad.SourceAuthorization
                 .AuthorizeSourcesFor("Private.Package")
                 .Sources);
 
-        Assert.Equal("github", source.Name);
+        Assert.Equal(endpoint, source.Name);
+        Assert.Equal("example-user", source.Credential?.Username);
         Assert.Equal(secret, source.Credential?.Password);
         Assert.DoesNotContain(secret, source.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void CredentialProviderSource_IsDeniedBeforeBrowserNetworkWork()
+    public void AuthenticationRequiredSourceWithoutCredential_IsDeniedBeforeBrowserNetworkWork()
     {
         CompleteRestorationExecutionOptions options =
             BrowserCompleteRestorationOptions.Create();
@@ -72,11 +78,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 options,
                 [
                     new(
-                        "ado",
                         "https://pkgs.dev.azure.com/example/_packaging/feed/nuget/v3/index.json",
-                        WorkspacePackageSourceAuthentication.CredentialProvider),
+                        WorkspacePackageSourceAuthentication.AuthenticationRequired),
                 ],
-                new Dictionary<string, string>(StringComparer.Ordinal));
+                new Dictionary<
+                    string,
+                    PackageSourceCredential>(StringComparer.Ordinal));
 
         PackageSourceAuthorization authorization =
             denied.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
@@ -90,7 +97,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
-    public void ActivationRequest_ToStringRedactsPackageSourcePats()
+    public void ActivationRequest_ToStringRedactsPackageSourceCredentials()
     {
         const string secret = "session-only-secret";
         var request = new BrowserRetainedWorkspaceActivationRequest(
@@ -98,13 +105,38 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             "Private",
             "/private",
             "packet",
-            new Dictionary<string, string>(StringComparer.Ordinal)
+            new Dictionary<
+                string,
+                PackageSourceCredential>(StringComparer.Ordinal)
             {
-                ["github"] = secret,
+                ["https://nuget.pkg.github.com/example/index.json"] =
+                    new("example-user", secret),
             });
 
         Assert.DoesNotContain(secret, request.ToString(), StringComparison.Ordinal);
         Assert.Contains("<redacted>", request.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageSourceCredentialJson_BindsEndpointUsernameAndPat()
+    {
+        const string secret = "session-only-secret";
+        IReadOnlyDictionary<string, PackageSourceCredential> credentials =
+            BrowserRetainedWorkspaceActivationService
+                .ParsePackageSourceCredentials(
+                    $$"""
+                    {
+                      "https://nuget.pkg.github.com/example/index.json": {
+                        "username": "example-user",
+                        "pat": "{{secret}}"
+                      }
+                    }
+                    """);
+
+        PackageSourceCredential credential = Assert.Single(credentials).Value;
+        Assert.Equal("example-user", credential.Username);
+        Assert.Equal(secret, credential.Password);
+        Assert.DoesNotContain(secret, credential.ToString());
     }
 
     [Fact]

@@ -11,13 +11,16 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class WorkspacePatCredentialResolverTests
 {
+    private const string PrivateEndpoint =
+        "https://nuget.pkg.github.com/example/index.json";
+
     [Fact]
     public async Task CredentialInputsAndBoundaries_AreEnforced()
     {
         await EnvironmentBinding_ProducesEphemeralCredential();
         await EnvironmentBinding_PreservesExactValue();
         await FileBinding_RemovesOneLineEndingAndLeavesFileUntouched();
-        await RequiredPatWithoutBinding_FailsBeforeSourceConstruction();
+        await AuthenticationRequiredWithoutBinding_UsesProviderFallback();
         await BindingForUnrequiredSource_IsRejected();
         await InvalidUtf8File_IsRejectedWithoutEchoingPayload();
         await RedirectedStandardInput_ProducesEphemeralCredential();
@@ -25,6 +28,7 @@ public sealed class WorkspacePatCredentialResolverTests
         await OversizedFile_IsRejectedWithoutEchoingPayload();
         await MissingEnvironmentVariable_DoesNotEchoASecret();
         await DuplicateBindings_AreRejectedBeforeReadingSecrets();
+        await SameOriginCannotMixExplicitCredentialAndProviderFallback();
         await CredentialProviderScope_DoesNotUpgradeAnonymousOrigin();
         await WorkspacePackageRequests_FollowBoundedRedirects();
     }
@@ -41,15 +45,14 @@ public sealed class WorkspacePatCredentialResolverTests
                 await WorkspacePatCredentialResolver.ResolveAsync(
                     [PatSource()],
                     [
-                        new WorkspacePatBindingInput(
-                            "github",
+                        Binding(
                             WorkspacePatInputKind.Environment,
                             variable),
                     ],
                     TestContext.Current.CancellationToken);
 
             PackageSource source = Assert.Single(sources);
-            Assert.Equal("example", source.Credential!.Username);
+            Assert.Equal("example-user", source.Credential!.Username);
             Assert.Equal(secret, source.Credential.Password);
             Assert.DoesNotContain(secret, source.Credential.ToString());
         }
@@ -72,8 +75,7 @@ public sealed class WorkspacePatCredentialResolverTests
                 await WorkspacePatCredentialResolver.ResolveAsync(
                     [PatSource()],
                     [
-                        new WorkspacePatBindingInput(
-                            "github",
+                        Binding(
                             WorkspacePatInputKind.Environment,
                             variable),
                     ],
@@ -103,8 +105,7 @@ public sealed class WorkspacePatCredentialResolverTests
                 await WorkspacePatCredentialResolver.ResolveAsync(
                     [PatSource()],
                     [
-                        new WorkspacePatBindingInput(
-                            "github",
+                        Binding(
                             WorkspacePatInputKind.File,
                             path),
                     ],
@@ -125,16 +126,15 @@ public sealed class WorkspacePatCredentialResolverTests
         }
     }
 
-    private static async Task RequiredPatWithoutBinding_FailsBeforeSourceConstruction()
+    private static async Task AuthenticationRequiredWithoutBinding_UsesProviderFallback()
     {
-        WorkspacePatBindingException exception =
-            await Assert.ThrowsAsync<WorkspacePatBindingException>(
-                () => WorkspacePatCredentialResolver.ResolveAsync(
-                    [PatSource()],
-                    [],
-                    TestContext.Current.CancellationToken));
+        PackageSource[] sources =
+            await WorkspacePatCredentialResolver.ResolveAsync(
+                [PatSource()],
+                [],
+                TestContext.Current.CancellationToken);
 
-        Assert.Contains("requires a PAT", exception.Message);
+        Assert.Null(Assert.Single(sources).Credential);
     }
 
     private static async Task BindingForUnrequiredSource_IsRejected()
@@ -144,18 +144,18 @@ public sealed class WorkspacePatCredentialResolverTests
                 () => WorkspacePatCredentialResolver.ResolveAsync(
                     [
                         new WorkspacePackageSourceDefinition(
-                            "nuget",
                             "https://api.nuget.org/v3/index.json"),
                     ],
                     [
                         new WorkspacePatBindingInput(
-                            "github",
+                            PrivateEndpoint,
+                            "example-user",
                             WorkspacePatInputKind.Environment,
                             "IGNORED"),
                     ],
                     TestContext.Current.CancellationToken));
 
-        Assert.Contains("not a required PAT source", exception.Message);
+        Assert.Contains("not an authentication-required source", exception.Message);
     }
 
     private static async Task InvalidUtf8File_IsRejectedWithoutEchoingPayload()
@@ -174,8 +174,7 @@ public sealed class WorkspacePatCredentialResolverTests
                     () => WorkspacePatCredentialResolver.ResolveAsync(
                         [PatSource()],
                         [
-                            new WorkspacePatBindingInput(
-                                "github",
+                            Binding(
                                 WorkspacePatInputKind.File,
                                 path),
                         ],
@@ -199,10 +198,9 @@ public sealed class WorkspacePatCredentialResolverTests
             await WorkspacePatCredentialResolver.ResolveAsync(
                 [PatSource()],
                 [
-                    new WorkspacePatBindingInput(
-                        "github",
+                    Binding(
                         WorkspacePatInputKind.StandardInput,
-                        Value: null),
+                        value: null),
                 ],
                 isInputRedirected: true,
                 () => input,
@@ -222,10 +220,9 @@ public sealed class WorkspacePatCredentialResolverTests
                 () => WorkspacePatCredentialResolver.ResolveAsync(
                     [PatSource()],
                     [
-                        new WorkspacePatBindingInput(
-                            "github",
+                        Binding(
                             WorkspacePatInputKind.StandardInput,
-                            Value: null),
+                            value: null),
                     ],
                     isInputRedirected: false,
                     () =>
@@ -259,8 +256,7 @@ public sealed class WorkspacePatCredentialResolverTests
                     () => WorkspacePatCredentialResolver.ResolveAsync(
                         [PatSource()],
                         [
-                            new WorkspacePatBindingInput(
-                                "github",
+                            Binding(
                                 WorkspacePatInputKind.File,
                                 path),
                         ],
@@ -288,8 +284,7 @@ public sealed class WorkspacePatCredentialResolverTests
                 () => WorkspacePatCredentialResolver.ResolveAsync(
                     [PatSource()],
                     [
-                        new WorkspacePatBindingInput(
-                            "github",
+                        Binding(
                             WorkspacePatInputKind.Environment,
                             variable),
                     ],
@@ -307,12 +302,46 @@ public sealed class WorkspacePatCredentialResolverTests
                 () => WorkspacePatCredentialResolver.ResolveAsync(
                     [PatSource()],
                     [
-                        new WorkspacePatBindingInput(
-                            "github",
+                        Binding(
                             WorkspacePatInputKind.StandardInput,
-                            Value: null),
+                            value: null),
+                        Binding(
+                            WorkspacePatInputKind.StandardInput,
+                            value: null),
+                    ],
+                    isInputRedirected: true,
+                    () =>
+                    {
+                        opened = true;
+                        return Stream.Null;
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("supplied more than once", exception.Message);
+        Assert.False(opened);
+    }
+
+    private static async Task
+        SameOriginCannotMixExplicitCredentialAndProviderFallback()
+    {
+        bool opened = false;
+        WorkspacePatBindingException exception =
+            await Assert.ThrowsAsync<WorkspacePatBindingException>(
+                () => WorkspacePatCredentialResolver.ResolveAsync(
+                    [
+                        new WorkspacePackageSourceDefinition(
+                            "https://private.example/first/index.json",
+                            WorkspacePackageSourceAuthentication
+                                .AuthenticationRequired),
+                        new WorkspacePackageSourceDefinition(
+                            "https://private.example/second/index.json",
+                            WorkspacePackageSourceAuthentication
+                                .AuthenticationRequired),
+                    ],
+                    [
                         new WorkspacePatBindingInput(
-                            "github",
+                            "https://private.example/first/index.json",
+                            "example-user",
                             WorkspacePatInputKind.StandardInput,
                             Value: null),
                     ],
@@ -324,7 +353,7 @@ public sealed class WorkspacePatCredentialResolverTests
                     },
                     TestContext.Current.CancellationToken));
 
-        Assert.Contains("supplied more than once", exception.Message);
+        Assert.Contains("mixes explicit PAT bindings", exception.Message);
         Assert.False(opened);
     }
 
@@ -379,10 +408,17 @@ public sealed class WorkspacePatCredentialResolverTests
 
     private static WorkspacePackageSourceDefinition PatSource() =>
         new(
-            "github",
-            "https://nuget.pkg.github.com/example/index.json",
-            WorkspacePackageSourceAuthentication.BasicPat,
-            "example");
+            PrivateEndpoint,
+            WorkspacePackageSourceAuthentication.AuthenticationRequired);
+
+    private static WorkspacePatBindingInput Binding(
+        WorkspacePatInputKind kind,
+        string? value) =>
+        new(
+            PrivateEndpoint,
+            "example-user",
+            kind,
+            value);
 
     private sealed class RecordingCredentialSource : ICredentialSource
     {
