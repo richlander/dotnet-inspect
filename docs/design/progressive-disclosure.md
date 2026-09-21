@@ -74,9 +74,19 @@ longer adds Custom Attributes, Decompiled Source, or IL, and `-v:d` restores
 those sections plus applicable PDB Source. Explicit selection retains each
 complete section.
 
-This focused audit changes only the broad, named-overload, and exact-member
-base `@Member` behavior. Domain and uncategorized member catalogs remain later
-issue #3284 work.
+Member domain categories remain explicit lenses rather than automatic
+verbosity scope. Their row sets, graphs, and documents are `Verbose`, so exact
+category or section selection promotes the request to Detailed and retains
+the complete evidence. The same rule applies to the exact-name `Member Index`,
+`Finding Census`, `Clone Candidates`, and `Implementation Profiles` sections.
+Exact-member `Source Locations` is `Fixed`: it emits one logical-member row
+and exact selection requires Normal. Broad and named-overload Source Locations
+remain `Verbose` because they emit one row per selected member.
+
+These declarations do not add any domain section to bare `-v:n` or `-v:d`.
+Automatic verbosity still uses only the route's base `@Member` union; selecting
+an exact domain category or exact section name is the gesture that enters the
+additional evidence.
 
 ## Categories
 

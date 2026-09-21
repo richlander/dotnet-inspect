@@ -949,7 +949,7 @@ public class LibraryInspection
                 is ImplementationProfilesResult.Failed profileFailure)
             {
                 failures.Add(new LibraryInspectionFailureJson(
-                    SectionNames.ImplementationProfiles,
+                    SectionNames.MemberMetrics,
                     ImplementationProfilesQuery.Definition.Name,
                     profileFailure.Error.Message));
             }

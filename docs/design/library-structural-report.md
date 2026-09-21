@@ -1,4 +1,4 @@
-# Library structural report
+# Library metrics report
 
 ## Status and authority
 
@@ -6,7 +6,7 @@ Focused Research design for [#7987](https://github.com/richlander/dotnet-inspect
 Its required Analysis prerequisite is
 [#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
 
-The **Library Structural Report** is the single normative owner for a
+The **Library Metrics** report is the single normative owner for a
 descriptive structural population report over one exact compiled library.
 Its claim is:
 
@@ -17,6 +17,10 @@ Its claim is:
 The report is compiled implementation evidence. It is not authored-source C#
 complexity, decompiled-source evidence, a quality score, a defect prediction,
 or a comparison between releases or packages.
+
+Metric labels name the command grain, not a source-language or binary
+distinction: this report aggregates compiled IL evidence, while `Type Metrics`
+and `Member Metrics` expose its selected body rows at narrower command scopes.
 
 Analysis retains per-body metrics, method identities, body-scope execution,
 and diagnostics. Research owns the report's population meaning, aggregation,
@@ -203,7 +207,7 @@ through the ordinary package-to-library path:
 
 ```text
 dotnet run --project src/DotnetInspect.Cli -c Release -- \
-  library --package Markout@0.35.2 -S "Implementation Profiles" --jsonl
+  library --package Markout@0.35.2 -S "Member Metrics" --jsonl
 ```
 
 The Release probe emitted 1,345 complete profile rows for 1,345 distinct
@@ -251,9 +255,9 @@ hosts:
 2. Research publishes the document and typed unavailable outcome.
 3. A Research-backed L1 query carries that completed document without rendering
    it.
-4. The CLI adopts an explicit `Library Structural Report` section. It is
+4. The CLI adopts an explicit `Library Metrics` section. It is
    exact-name-only and outside default `-v:m` output; the existing
-   `Implementation Profiles` inventory remains the detail surface.
+   `Member Metrics` inventory remains the detail surface.
 5. Browser/Wasm adopts the same document through its settled Library detail
    path after shared Navigation and terminal-result prerequisites land. It
    presents the library summary at the Library boundary and preserves
