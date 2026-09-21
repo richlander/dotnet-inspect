@@ -681,6 +681,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
               role: "Both",
               before: identity("digest-before", "void Run(int)", "Run(int)"),
               after: identity("digest-run", "void Run(long)", "Run(long)"),
+              match: null,
               changes: [
                 {
                   kind: "MemberSignatureChanged",
@@ -706,6 +707,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
               role: "After",
               before: null,
               after: identity("digest-new", "void New()", "New()"),
+              match: null,
               changes: [{
                 kind: "MemberAdded",
                 classification: "Additive",
@@ -721,6 +723,7 @@ function withMembers(): BrowserLibraryApiDiffResult {
               role: "Before",
               before: identity("digest-gone", "void Gone()", "Gone()"),
               after: null,
+              match: null,
               changes: [],
             },
           ],
@@ -991,4 +994,154 @@ test("row bindings dispatch owner-issued identities and ignore inert rows", () =
   });
   for (const button of [...typeButtons, ...memberButtons]) button.click();
   assert.deepEqual(activated, ["type:after-widget", "member:digest-run"]);
+});
+
+function withMovedMember(): BrowserLibraryApiDiffResult {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget, options] = result.value.types;
+  if (widget === undefined || options === undefined)
+    throw new Error("Expected two Types.");
+  const moved = (declaringTypeIdentifier: string, typeFullName: string) => ({
+    declaringTypeIdentifier,
+    stableSelector: "Transform",
+    canonicalSignature: "int Transform(int)",
+    fingerprint: "digest-transform",
+    typeFullName,
+    memberName: "Transform",
+    display: "Transform(int)",
+  });
+  const relation = (role: "Before" | "After") => ({
+    documentIdentifier: "relation-moved",
+    pairKind: "Changed" as const,
+    role,
+    before: moved("before-options", "Example.Options"),
+    after: moved("after-widget", "Example.Widget"),
+    changes: [],
+    match: { tier: "signature", confidence: 80 },
+  });
+  return {
+    ...result,
+    value: {
+      ...result.value,
+      types: [
+        { ...widget, members: [...widget.members, relation("After")] },
+        {
+          ...options,
+          state: "Diff",
+          after: {
+            identifier: "after-options",
+            namespace: "Example",
+            segments: ["Options"],
+            display: "Example.Options",
+          },
+          members: [relation("Before")],
+        },
+      ],
+    },
+  };
+}
+
+test("a moved Member shows its counterpart placement from exact declaring-Type identity", () => {
+  // Before-role placement: no current subject here; the counterpart Type is
+  // activatable when it is loaded.
+  const before = renderLibraryApiDiff(readyState(withMovedMember()), String, {
+    subject: { kind: "type", typeIdentifier: "after-options" },
+    activatableMembers: new Set(["digest-transform"]),
+    activatableTypes: new Set(["after-widget"]),
+  });
+  const beforeRow = before.match(/<li class="library-api-diff-member[^"]*" data-member-fingerprint="digest-transform"[\s\S]*?<\/li>/)?.[0] ?? "";
+  assert.match(beforeRow, /library-api-diff-member-inert/);
+  assert.doesNotMatch(beforeRow, /data-compare-member-fingerprint/);
+  assert.match(beforeRow, /Now declared on Example\.Widget/);
+  assert.match(beforeRow, /<button type="button" class="library-api-diff-counterpart" data-compare-type-id="after-widget">Open Example\.Widget<\/button>/);
+  assert.doesNotMatch(beforeRow, /Moved from/);
+
+  // Without a loaded counterpart there is no activation, only the fact.
+  const unloaded = renderLibraryApiDiff(readyState(withMovedMember()), String, {
+    subject: { kind: "type", typeIdentifier: "after-options" },
+    activatableMembers: new Set(["digest-transform"]),
+  });
+  assert.doesNotMatch(unloaded, /library-api-diff-counterpart/);
+  assert.match(unloaded, /Now declared on Example\.Widget/);
+
+  // After-role placement: activatable here, with provenance from the producer.
+  const after = renderLibraryApiDiff(readyState(withMovedMember()), String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+    activatableMembers: new Set(["digest-transform"]),
+    activatableTypes: new Set(["after-options"]),
+  });
+  const afterRow = after.match(/<li class="library-api-diff-member" data-member-fingerprint="digest-transform"[\s\S]*?<\/li>/)?.[0] ?? "";
+  assert.match(afterRow, /data-compare-member-fingerprint="digest-transform"/);
+  assert.match(afterRow, /<span class="library-api-diff-moved">Moved from Example\.Options · Matched by signature at 80% confidence<\/span>/);
+  assert.doesNotMatch(afterRow, /library-api-diff-counterpart/);
+
+  // A same-Type relation shows no move evidence.
+  assert.doesNotMatch(
+    after.match(/data-member-fingerprint="digest-run"[\s\S]*?<\/li>/)?.[0] ?? "",
+    /Moved from|Now declared on/);
+});
+
+test("Member Diff states the correspondence and the move when the producer issued them", () => {
+  const html = renderLibraryApiDiff(readyState(withMovedMember()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-transform",
+    },
+  });
+  assert.match(html, /<p class="library-api-diff-note library-api-diff-correspondence">Matched by signature at 80% confidence · Moved from Example\.Options to Example\.Widget<\/p>/);
+  const plain = renderLibraryApiDiff(readyState(withMovedMember()), String, {
+    subject: {
+      kind: "member",
+      typeIdentifier: "after-widget",
+      memberFingerprint: "digest-run",
+    },
+  });
+  assert.doesNotMatch(plain, /library-api-diff-correspondence/);
+});
+
+test("malformed match provenance is rejected at the transport boundary", async () => {
+  const result = withMovedMember();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  if (widget === undefined) throw new Error("Expected a Type.");
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const settled = (): LibraryApiDiffState => state.libraryApiDiff;
+  for (const [match, message] of [
+    [{ tier: "signature", confidence: 100 }, /match\.confidence must be between 1 and 99/],
+    [{ tier: "", confidence: 50 }, /match\.tier must not be empty/],
+  ] as const) {
+    const malformed = {
+      ...result,
+      value: {
+        ...result.value,
+        types: [{
+          ...widget,
+          members: widget.members.map(member =>
+            member.documentIdentifier === "relation-moved"
+              ? { ...member, match }
+              : member),
+        }],
+      },
+    };
+    const coordinator = createLibraryApiDiffCoordinator({
+      state,
+      operationAuthority: createOperationAuthorityPage(),
+      query: () => Promise.resolve(malformed),
+      cancel: () => undefined,
+      describeError: error => error instanceof Error ? error.message : String(error),
+      reportOperationDiagnostic: () => undefined,
+      render: () => undefined,
+    });
+    coordinator.reconcile(selection({}));
+    await Promise.resolve();
+    await Promise.resolve();
+    const outcome = settled();
+    assert.equal(outcome.status, "failed");
+    if (outcome.status === "failed") assert.match(outcome.error, message);
+    coordinator.cancelCurrentRequest();
+  }
 });
