@@ -430,11 +430,6 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
                 _context.ObserveWork(
                     MetadataOperationWorkKind.TypeNodeTextRetention);
             },
-            beforeRetainMaterialize: amount =>
-                EnsureCanCharge(
-                    ActiveTypeSpecificationSite(site),
-                    MetadataOperationDimension.RetainedText,
-                    amount),
             beforeMaterialize: amount =>
             {
                 Charge(

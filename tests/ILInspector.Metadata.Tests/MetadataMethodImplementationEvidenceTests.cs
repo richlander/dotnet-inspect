@@ -18,6 +18,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
     const string CycleWorkerVariable =
         "DOTNET_INSPECT_METHODIMPL_CYCLE_WORKER";
     const int LongDeclarationNameLength = 128;
+    const int UnicodeOwnerNameLength = 2_000;
     const int OverlongDeclarationNameLength =
         MetadataSafetyPolicy.MaxStructuralSignatureChars + 1;
 
@@ -2252,7 +2253,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
     }
 
     [Fact]
-    public void LongTypeNameExhaustsRetainedTextBeforeMaterialization()
+    public void LongTypeNameExhaustsRetainedTextBeforeNodeRetention()
     {
         using Fixture fixture =
             Fixture.Create(Scenario.LongExternalTypeName);
@@ -2274,9 +2275,70 @@ public sealed class MetadataMethodImplementationEvidenceTests
             MetadataOperationDimension.RetainedText,
             rejected.Failure.BudgetDimension);
         Assert.Equal(4_000, rejected.Failure.AttemptedCharge);
-        Assert.DoesNotContain(
+        Assert.Contains(
             MetadataOperationWorkKind.TypeNameMaterialization,
             work);
+        Assert.DoesNotContain(
+            MetadataOperationWorkKind.TypeNodeTextRetention,
+            work);
+    }
+
+    [Fact]
+    public void UnicodeOwnerNameUsesRetainedTextUnitsAtExactBoundary()
+    {
+        using Fixture fixture =
+            Fixture.Create(Scenario.UnicodeExternalTypeName);
+        string expectedName =
+            new('\u4E00', UnicodeOwnerNameLength);
+
+        MetadataMethodImplementationResult.Related baseline =
+            AssertRelated(Run(fixture, fixture.Body));
+        MetadataMethodImplementationCertificate certificate =
+            Assert.Single(baseline.Relationships);
+        var owner = Assert.IsType<MetadataTypeIdentity.Named>(
+            certificate.DeclarationOwner);
+        long exactLimit = baseline.Counters.RetainedText;
+
+        Assert.Equal(
+            expectedName,
+            Assert.Single(owner.Definition.Segments).ToString());
+        Assert.True(
+            System.Text.Encoding.UTF8.GetByteCount(expectedName)
+                > expectedName.Length);
+
+        MetadataMethodImplementationResult.Rejected below =
+            AssertRejected(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit - 1)),
+                MetadataMethodImplementationFailureReason.BudgetExceeded,
+                expectedRow: 1);
+        Assert.Equal(
+            MetadataOperationDimension.RetainedText,
+            below.Failure.BudgetDimension);
+
+        MetadataMethodImplementationResult.Related exact =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit)));
+        MetadataMethodImplementationResult.Related above =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit + 1)));
+
+        Assert.Equal(exactLimit, exact.Counters.RetainedText);
+        Assert.Equal(exactLimit, above.Counters.RetainedText);
     }
 
     [Fact]
@@ -2884,6 +2946,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
         UnicodeExternalMemberRefDeclarationName,
         LongUnresolvedLocalDeclarationName,
         LongExternalTypeName,
+        UnicodeExternalTypeName,
         OverlongExternalTypeName,
         LargeExternalPublicKey,
         RepeatedTypeSpecReferences,
@@ -4147,12 +4210,18 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     break;
 
                 case Scenario.LongExternalTypeName:
+                case Scenario.UnicodeExternalTypeName:
                     TypeReferenceHandle longExternalType =
                         metadata.AddTypeReference(
                             externalAssembly,
                             default,
                             metadata.GetOrAddString(
-                                new string('N', 4_000)));
+                                scenario
+                                    == Scenario.UnicodeExternalTypeName
+                                    ? new string(
+                                        '\u4E00',
+                                        UnicodeOwnerNameLength)
+                                    : new string('N', 4_000)));
                     MemberReferenceHandle longNameDeclaration =
                         metadata.AddMemberReference(
                             longExternalType,
