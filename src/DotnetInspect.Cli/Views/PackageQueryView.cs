@@ -136,40 +136,69 @@ public sealed class PackageQuerySemanticView
 public sealed class PackageQuerySemanticRow
 {
     public PackageQuerySemanticRow(PackageQueryMatch match)
+        : this(
+            new InertString(TextPolicy.Field, match.Package.PackageId),
+            new InertString(TextPolicy.Field, match.Package.Version),
+            match.Package.Source.Producer.Display,
+            match.Tier,
+            new InertString(
+                TextPolicy.Field,
+                string.Join(
+                    "; ",
+                    match.Answers.Select(item => item.Value))),
+            RequireLiteral(match).SelectedAsset.PathText,
+            RequireLiteral(match).SelectedAsset.AssemblyNameText,
+            RequireLiteral(match).SelectedAsset.TargetFrameworkText,
+            RequireLiteral(match).SelectedAsset.UnevaluatedSiblings,
+            RequireLiteral(match).Occurrences.Length,
+            new InertString(
+                TextPolicy.Field,
+                string.Join(
+                    ", ",
+                    RequireLiteral(match).Occurrences
+                        .Take(PackageQuery.MaximumEvidencePreviewItems)
+                        .Select(occurrence =>
+                            $"0x{occurrence.Address.MethodDefinitionToken:X8}"
+                            + $"/IL_{occurrence.Address.ILOffset:X4}"))),
+            new InertString(
+                TextPolicy.Field,
+                RequireLiteral(match).RootRequest.Encode()))
     {
-        PackageQueryLibraryLiteralResult literal =
-            match.LibraryLiteral
-            ?? throw new ArgumentException(
-                "A semantic Package Query row requires library-literal evidence.",
-                nameof(match));
-        PackageText = new(TextPolicy.Field, match.Package.PackageId);
-        VersionText = new(TextPolicy.Field, match.Package.Version);
-        SourceText = match.Package.Source.Producer.Display;
-        EvaluationTier = match.Tier;
-        AnswerItems = match.Answers;
-        LibraryText = literal.SelectedAsset.PathText;
-        AssemblyText = literal.SelectedAsset.AssemblyNameText;
-        TargetFrameworkText = literal.SelectedAsset.TargetFrameworkText;
-        UnevaluatedSiblingCount =
-            literal.SelectedAsset.UnevaluatedSiblings;
-        OccurrenceCount = literal.Occurrences.Length;
-        EvidenceText = new(
-            TextPolicy.Field,
-            string.Join(
-                ", ",
-                literal.Occurrences
-                    .Take(PackageQuery.MaximumEvidencePreviewItems)
-                    .Select(occurrence =>
-                        $"0x{occurrence.Address.MethodDefinitionToken:X8}"
-                        + $"/IL_{occurrence.Address.ILOffset:X4}")));
-        RootText = new(TextPolicy.Field, literal.RootRequest.Encode());
+    }
+
+    public PackageQuerySemanticRow(
+        InertString package,
+        InertString version,
+        InertString source,
+        PackageQueryAcquisitionTier evaluationTier,
+        InertString answer,
+        InertString library,
+        InertString assembly,
+        InertString targetFramework,
+        int unevaluatedSiblingCount,
+        int occurrenceCount,
+        InertString evidence,
+        InertString root)
+    {
+        PackageText = package;
+        VersionText = version;
+        SourceText = source;
+        EvaluationTier = evaluationTier;
+        AnswerText = answer;
+        LibraryText = library;
+        AssemblyText = assembly;
+        TargetFrameworkText = targetFramework;
+        UnevaluatedSiblingCount = unevaluatedSiblingCount;
+        OccurrenceCount = occurrenceCount;
+        EvidenceText = evidence;
+        RootText = root;
     }
 
     [MarkoutIgnore] public InertString PackageText { get; }
     [MarkoutIgnore] public InertString VersionText { get; }
     [MarkoutIgnore] public InertString SourceText { get; }
     [MarkoutIgnore] public PackageQueryAcquisitionTier EvaluationTier { get; }
-    [MarkoutIgnore] public ImmutableArray<PackageQueryAnswer> AnswerItems { get; }
+    [MarkoutIgnore] public InertString AnswerText { get; }
     [MarkoutIgnore] public InertString LibraryText { get; }
     [MarkoutIgnore] public InertString AssemblyText { get; }
     [MarkoutIgnore] public InertString TargetFrameworkText { get; }
@@ -181,9 +210,7 @@ public sealed class PackageQuerySemanticRow
     public string Version => VersionText.ToString();
     public string Tier => EvaluationTier.ToString();
     public string Source => SourceText.ToString();
-    public string Answer => string.Join(
-        "; ",
-        AnswerItems.Select(item => item.Value));
+    public string Answer => AnswerText.ToString();
     public string Library => LibraryText.ToString();
     public string Assembly => AssemblyText.ToString();
     [MarkoutPropertyName("Target Framework")]
@@ -193,4 +220,11 @@ public sealed class PackageQuerySemanticRow
     public int Occurrences => OccurrenceCount;
     public string Evidence => EvidenceText.ToString();
     public string Root => RootText.ToString();
+
+    private static PackageQueryLibraryLiteralResult RequireLiteral(
+        PackageQueryMatch match) =>
+        match.LibraryLiteral
+        ?? throw new ArgumentException(
+            "A semantic Package Query row requires library-literal evidence.",
+            nameof(match));
 }
