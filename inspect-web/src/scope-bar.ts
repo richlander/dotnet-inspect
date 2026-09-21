@@ -428,7 +428,7 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
         event.preventDefault();
         const id = groupItemId(tab);
         tab.click();
-        if (id) {
+        if (id && tab.dataset.localNavigationAction === undefined) {
           queueMicrotask(() => {
             const replacement = tab.ownerDocument.querySelector<HTMLElement>(
               `[data-navigation-item="tab"][data-navigation-id="${CSS.escape(id)}"]`);
@@ -1453,8 +1453,10 @@ class ScopeBarController implements ScopeBarBinding {
         const activates = item.dataset.navigationCurrent !== "true"
           && !item.disabled
           && item.getAttribute("aria-disabled") !== "true";
+        const localAction =
+          item.dataset.localNavigationAction !== undefined;
         this.closeMenu(group, !activates);
-        if (!activates) return;
+        if (!activates || localAction) return;
         const id = groupItemId(item);
         const target = id
           ? group.tabItems.find(tab => groupItemId(tab) === id)

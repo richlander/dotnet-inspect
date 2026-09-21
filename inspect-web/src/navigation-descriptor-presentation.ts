@@ -1,5 +1,6 @@
 import type {
   BrowserRetainedNavigationAction,
+  BrowserRetainedNavigationDiagnostic,
   BrowserRetainedNavigationLensDescriptor,
   BrowserRetainedNavigationLensOutcome,
   BrowserRetainedNavigationPackageDescriptor,
@@ -130,8 +131,16 @@ function subjectPresentation(
     retained: descriptor.isRetained,
     action: descriptor.action?.id ?? null,
     localAction: selectionRequired ? "choose-member" : null,
-    evidence: null,
+    evidence: hierarchyEvidence(descriptor.evidence),
   };
+}
+
+function hierarchyEvidence(
+  evidence: readonly BrowserRetainedNavigationDiagnostic[],
+): string | null {
+  return evidence.length === 0
+    ? null
+    : evidence.map(diagnostic => diagnostic.message).join("; ");
 }
 
 function lensPresentation(

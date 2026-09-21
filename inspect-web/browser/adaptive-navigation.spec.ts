@@ -75,6 +75,31 @@ test("adaptive navigation preserves complete inventories and manual activation",
   await expect(metadata).toBeFocused();
 });
 
+test("local Navigation tab activation preserves destination focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const type = page.getByRole("tab", { name: "Type", exact: true });
+  const member = page.locator(".type-row");
+  await type.evaluate(element => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("The Type Navigation tab is not an HTML element.");
+    }
+    delete element.dataset.scope;
+    element.dataset.localNavigationAction = "choose-member";
+    element.addEventListener("click", () => {
+      document.querySelector<HTMLElement>(".type-row")?.focus();
+    });
+  });
+
+  await type.focus();
+  await type.press("Enter");
+
+  await expect(member).toBeFocused();
+});
+
 test("adaptive navigation selects deterministic mixed and dual Chooser forms", async ({
   page,
 }) => {

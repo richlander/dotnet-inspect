@@ -108,6 +108,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       state: "Available",
       isActive: false,
       isRetained: true,
+      evidence: [],
       action: action("workspace-action", library.id),
     }, {
       kind: "Package",
@@ -116,6 +117,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       state: "Available",
       isActive: false,
       isRetained: true,
+      evidence: [],
       action: action("package-hierarchy-action", library.id),
     }, {
       kind: "Library",
@@ -124,6 +126,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       state: "Available",
       isActive: true,
       isRetained: true,
+      evidence: [],
       action: null,
     }, {
       kind: "Type",
@@ -132,6 +135,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       state: "Unavailable",
       isActive: false,
       isRetained: false,
+      evidence: [],
       action: null,
     }, {
       kind: "Member",
@@ -140,6 +144,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       state: "SelectionRequired",
       isActive: false,
       isRetained: false,
+      evidence: [],
       action: null,
     }],
     libraries: [],
@@ -333,6 +338,57 @@ test("descriptor bar preserves duplicate labels by identity and shows failures",
   assert.doesNotMatch(
     html,
     /data-navigation-id="library\.compare"[^>]*aria-controls="inspector-panel"/);
+});
+
+test("failed hierarchy items render only their exact descriptor evidence", () => {
+  const source = posting();
+  const failed = {
+    ...source,
+    navigation: {
+      ...source.navigation,
+      snapshot: {
+        ...source.navigation.snapshot,
+        hierarchy: source.navigation.snapshot.hierarchy.map(descriptor =>
+          descriptor.kind === "Type"
+            ? {
+                ...descriptor,
+                state: "Failed",
+                evidence: [{
+                  kind: "InspectionFailed",
+                  library: "library",
+                  message: "decode type: invalid",
+                }, {
+                  kind: "ParticipantFailed",
+                  library: "library",
+                  message: "metadata type: unavailable",
+                }],
+              }
+            : descriptor),
+      },
+    },
+  };
+
+  const presentation = createNavigationDescriptorPresentation(failed);
+  const type = presentation.subjects.find(item => item.kind === "Type");
+  const member = presentation.subjects.find(item => item.kind === "Member");
+  const html = renderNavigationDescriptorBar({
+    subjects: presentation.subjects,
+    inspectors: presentation.inspectors,
+    subjectLabel: presentation.subjectLabel,
+    lensOutcome: presentation.lensOutcome,
+    escapeHtml,
+  });
+
+  assert.equal(
+    type?.evidence,
+    "decode type: invalid; metadata type: unavailable");
+  assert.equal(member?.evidence, null);
+  assert.match(
+    html,
+    /Type<span class="navigation-status"> Failed: decode type: invalid; metadata type: unavailable<\/span>/);
+  assert.doesNotMatch(
+    html,
+    /Choose a member<span class="navigation-status">[^<]*(?:decode|metadata)/);
 });
 
 test("Workspace entry and Package rows render product labels, order, and status", () => {
