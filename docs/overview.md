@@ -615,6 +615,11 @@ substrates, and inspection producers that will extend that space.
   drill-down projection, Member detail boundary, and Explore return state. It
   consumes owner-issued comparison, clone, target, identity, and navigation
   contracts without redefining them.
+- [Inspect Web Structural Context](design/inspect-web-structural-context.md)
+  owns the explicit Browser Library Compare Diff disclosure and its bounded
+  structural-cohort projection over a future completed implementation-comparison
+  envelope. It preserves Research-issued local cohort facts without introducing
+  a quality interpretation or a third persistent Compare mode.
 - [Library API diff presentation](design/library-api-diff-presentation.md)
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,

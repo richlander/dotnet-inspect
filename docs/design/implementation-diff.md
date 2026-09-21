@@ -333,16 +333,21 @@ constructs, fixed thresholds, and maintainability conclusions do not transfer
 to this compiled-IL diff contract.
 
 The Research result and the explicit CLI `Structural Context` section form the
-two-slice production path tracked by issue #7696. `Structural Context` reuses
-`ImplementationComparisonQuery`, remains outside `@Diff` and default
+completed two-slice delivery tracked by issue #7696. `Structural Context`
+reuses `ImplementationComparisonQuery`, remains outside `@Diff` and default
 disclosure, and renders every eligible complete, unambiguous pair, including
 the all-Unchanged cohort. It exposes each signed vector dimension, its seven
 direction fields, population size, cohort size, and a stable
 `research.complexity.structural-cohort` Kind. Dedicated typed fields make the
 cohort criteria queryable without parsing display or Evidence text. As with
 the Research result, a singleton cohort is not an outlier or quality judgment.
-The same host-neutral result remains available to a future browser consumer
-without reimplementing cohort assignment.
+
+The current general `ImplementationComparisonQuery` route remains
+command-owned; it is not yet the completed host-neutral terminal needed by a
+Browser consumer. [Inspect Web Structural Context](inspect-web-structural-context.md)
+therefore records a separately scoped Browser adoption for the future
+subject-owned implementation-comparison envelope. That consumer must preserve
+these Research-issued facts rather than recomputing cohort assignment.
 
 The exact-name `Complexity Context` section projects non-unchanged complexity
 observations as a focused table with nullable numeric `Old`, `New`, `Delta`,
