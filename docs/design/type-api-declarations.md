@@ -120,13 +120,24 @@ The motivating real asset is `System.Text.Json@10.0.5`, `net10.0`,
 whereas its private/static implementation declarations appear only in all
 scope. Neither output contains their implementation bodies.
 
-Focused Release gates exercise the completed operation, CLI native/Markdown/
-structured and mixed output, and Browser consumption. Boundary cases cover
-mixed-accessibility property accessors, nested generic context, enums and
-delegates, exact non-public roots, unavailable metadata, and bounded extraction.
-Browser tests cover view/scoping request identity and visible completion or
-failure in the existing viewer. These gates are to be implemented in this
-delivery; the claims remain unverified until they pass.
+The PR-fast Release gates are `TypeApiDeclarationInspectionTests`,
+`TypeApiDeclarationSectionTests`, the `CommandExecutionTests.Type_ApiDeclarations_*`
+cases, and the declaration participant case in `SourceForwarderResolutionTests`.
+They cover native/Markdown/structured and mixed output, mixed-accessibility
+property accessors, protected internal versus private protected, nested generic
+context and subtree scope, enums and delegates, exact non-public roots, cyclic
+type identity, and bounded extraction. An incomplete identity projection is
+unavailable, not a conclusive missing type.
+
+`BrowserTypeSourceOperationTests` compares the exported declaration envelope
+with the shared operation and exercises reference-only package selection and
+scope release. `ProductionFacadeContextTests` gates its completed-contract
+transport. The focused `type-panel`, `type-source-managed-operation`,
+`source-inspection`, and `engine-worker-source` TypeScript tests cover view
+identity, stale completion, text/copy, unavailable diagnostics, and bounded
+envelope transport. The existing published Source-comparison Firefox gate also
+exercises both declaration scopes through the generated Wasm facade and the
+production viewer's selection/copy controls.
 
 [proposal]: https://github.com/dotnet/runtime/blob/f8546ab27b4eb75894e2574c7da144f039d4c95c/.github/ISSUE_TEMPLATE/02_api_proposal.yml#L19-L35
 [genapi]: https://github.com/dotnet/sdk/blob/7d46d29649c386ab78235be51220cdda736ed9b1/src/Compatibility/GenAPI/README.md#L1-L5
