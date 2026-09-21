@@ -65,14 +65,27 @@ internal static class LibraryMetadataService
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures =
                 SelectBodyAnalysisFeatures(requiredQueries);
+            bool needsResourceLifecycle =
+                requiredQueries?.Contains(
+                    ResourceTriageQuery.Definition) == true;
+            Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
+                needsResourceLifecycle
+                    ? Analysis.LibraryBodyAnalysisRequest
+                        .CreateResourceLifecycle(
+                            Analysis.ArrayPoolResourceEffectModel.Create(),
+                            bodyAnalysisFeatures)
+                    : Analysis.LibraryBodyAnalysisRequest.Create(
+                        bodyAnalysisFeatures);
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
-                    != Analysis.LibraryBodyAnalysisFeatures.None;
+                    != Analysis.LibraryBodyAnalysisFeatures.None
+                || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
-                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true;
+                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true
+                || needsResourceLifecycle;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
@@ -279,11 +292,10 @@ internal static class LibraryMetadataService
             ApplySourceLinkAudit(service, inspection);
 
             // Run typed queries against one shared assembly context.
-            var collectReferenceTree = options.CollectReferenceTree;
             var referencesWillRun =
                 queryPlan is not null
                 && requiredQueries?.Contains(AssemblyReferencesQuery.Definition) == true;
-            if ((collectReferenceTree || needsAuditSignals) && !referencesWillRun)
+            if (needsAuditSignals && !referencesWillRun)
             {
                 using var session = AssemblyInspectionSession.Borrow(pdbContext);
                 ApplyAssemblyReferencesResult(
@@ -306,6 +318,7 @@ internal static class LibraryMetadataService
                     SourceLinkContext = sourceLinkQueryContext,
                     MetadataRoot = options.MetadataRoot,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
+                    BodyAnalysisRequest = bodyAnalysisRequest,
                     Trace = trace,
                 };
 
@@ -394,25 +407,6 @@ internal static class LibraryMetadataService
                     inspection.AssemblyReferenceFailureKind
                     ?? IdentifierConfusionAuditFailureKind.InspectionFailed;
                 inspection.IdentifierConfusionFailure = failure;
-            }
-
-            // The query produces the flat direct-reference currency. Tree traversal remains a
-            // path-owning CLI projection over that result.
-            if (collectReferenceTree
-                && inspection.AssemblyReferenceIdentities is { Count: > 0 } referenceIdentities)
-            {
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                visited.Add(
-                    inspection.AssemblyInfo.AssemblyName
-                    ?? Path.GetFileNameWithoutExtension(path));
-
-                inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    referenceIdentities,
-                    path,
-                    visited,
-                    logger,
-                    deduplicate: true,
-                    maxDepth: options.ReferenceTreeDepth);
             }
 
             if (options.CollectIdentifierConfusionReferenceTree
@@ -545,8 +539,6 @@ internal static class LibraryMetadataService
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (queries?.Contains(ResourceTriageQuery.Definition) == true)
-            features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
         if (queries?.Contains(BodyShapesQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;
@@ -2500,9 +2492,13 @@ internal static class LibraryMetadataService
             .. FilterAndOrderTriageOpportunities(
                 available.Opportunities
                     .Concat(available.AllocationFanoutOpportunities)
-                    .Where(opportunity => IncludePerformanceOpportunity(
-                        opportunity,
-                        available.GeneratedFrameworkTypes)),
+                    .Where(opportunity =>
+                        opportunity.Shape
+                            == Analysis.AnalysisFindings
+                                .StringMaterializationShape
+                        || IncludePerformanceOpportunity(
+                            opportunity,
+                            available.GeneratedFrameworkTypes)),
                 options),
         ];
 
@@ -2627,6 +2623,7 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         AssemblyReferencesResult result)
     {
+        inspection.AssemblyReferencesQueryResult = result;
         switch (result)
         {
             case AssemblyReferencesResult.Available available:

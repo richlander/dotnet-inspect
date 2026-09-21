@@ -982,7 +982,9 @@ function renderProgress(
         ? "Manifests"
         : progress.phase === "package-content"
           ? "Package content"
-          : "Selected assemblies";
+          : progress.phase === "dependency-traversal"
+            ? "Dependency traversal"
+            : "Selected assemblies";
     const detail = progress.phase === "search"
       ? progress.completed === progress.limit ? "ready" : "running"
       : progress.phase === "assembly"
@@ -1263,6 +1265,7 @@ export function renderPackageQueryView(
               : "Changes rerun the selected input; blank package input stays idle."}</p>
             <div class="query-presets">${libraryLiteralActive ? "" : presets}</div>
             <p class="query-preset-disclosure">Content facts download up to 20 candidate package archives.</p>
+            <p class="query-preset-disclosure">Transitive dependency facts inspect up to 5 package candidates.</p>
             <p class="query-preset-disclosure">Candidate bound K: ${request.requestedLimit.toLocaleString()}; exact IDs use one candidate. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change prefix capacity.</p>
             <p class="query-preset-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
           </aside>

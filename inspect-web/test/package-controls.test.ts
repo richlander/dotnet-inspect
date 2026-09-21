@@ -26,9 +26,13 @@ function pkg(
 }
 
 class FakeElement {
-  readonly dataset: Record<string, string | undefined> = {};
+  readonly dataset: Record<string, string | undefined>;
   value = "";
   private readonly listeners = new Map<string, EventListener[]>();
+
+  constructor(dataset: Record<string, string | undefined> = {}) {
+    this.dataset = dataset;
+  }
 
   addEventListener(type: string, listener: EventListener) {
     const listeners = this.listeners.get(type) ?? [];
@@ -68,6 +72,8 @@ class FakeRoot {
 
 test("package selection bindings map Package content controls without eager dispatch", () => {
   const root = new FakeRoot();
+  const frameworkRow = new FakeElement({ packageFramework: "net9.0" });
+  root.addAll("[data-package-framework]", frameworkRow);
   const framework = root.add("#framework", new FakeElement());
   framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
@@ -77,20 +83,24 @@ test("package selection bindings map Package content controls without eager disp
   bindPackageSelections(
     fakeDom.parentNode(root),
     {
-      onFrameworkSelect: value => calls.push(`framework:${value}`),
+      onFrameworkSelect: (value, source) =>
+        calls.push(`framework:${value}:${source}`),
       onVersionSelect: value => calls.push(`version:${value}`),
     });
 
   assert.deepEqual(calls, []);
+  frameworkRow.dispatch("click");
   framework.value = "net10.0";
   framework.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net10.0",
+    "framework:net9.0:navigation",
+    "framework:net10.0:legacy",
   ]);
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net10.0",
+    "framework:net9.0:navigation",
+    "framework:net10.0:legacy",
     "version:10.0.1",
   ]);
 });
@@ -109,25 +119,30 @@ test("package selection binding tolerates an inactive surface with no controls",
 
 test("package controls connect selection events to their typed options", () => {
   const root = new FakeRoot();
+  const frameworkRow = new FakeElement({ packageFramework: "net9.0" });
+  root.addAll("[data-package-framework]", frameworkRow);
   const framework = root.add("#framework", new FakeElement());
   framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
   version.value = "10.0.0";
   const calls: string[] = [];
   const packageControls = createPackageControls({
-    selectFramework: value => calls.push(`framework:${value}`),
+    selectFramework: (value, source) =>
+      calls.push(`framework:${value}:${source}`),
     selectVersion: value => calls.push(`version:${value}`),
   });
 
   packageControls.bind(fakeDom.parentNode(root));
 
   assert.deepEqual(calls, []);
+  frameworkRow.dispatch("click");
   framework.value = "net10.0";
   framework.dispatch("change");
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net10.0",
+    "framework:net9.0:navigation",
+    "framework:net10.0:legacy",
     "version:10.0.1",
   ]);
 });

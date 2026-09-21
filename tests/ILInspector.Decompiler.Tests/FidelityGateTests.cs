@@ -38,16 +38,17 @@ public class FidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        // CachedStaticMethodGroup and CompoundAssignDictionaryIndexer were
-        // previously recompile failures: the
+        // CompoundAssignDictionaryIndexer was previously a recompile failure: the
         // skeleton lacked the System.Linq / System.Collections.Generic usings the
-        // product printer's short names assume, so they never compiled to be
-        // compared. The widened skeleton using set (changed-method missing-symbol
-        // work) now compiles them, surfacing pre-existing over-renders (static
-        // method-group caching, compound dictionary-indexer double access)
-        // that were masked, not introduced. Triage tracked separately.
-        "CachedStaticMethodGroup",
+        // product printer's short names assume, so it never compiled to be
+        // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
+        // #4229: the cached local-function argument recompiles with the restored
+        // <>O cache but without csc's bare-method-group stloc/ldloc carrier. The
+        // explicit neighbor retains identical opcodes and differs only in its
+        // reconstructed local-function ordinal. Focused gates below pin both shapes.
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -142,13 +143,10 @@ public class FidelityGateTests
         "ClosureWithLinq",
         "CountAbove",
         "SharedCaptureLambdas",
-        // #2945: outer-body reads of a hoisted capture field are substituted back
-        // to the captured source and the display class elides, so this fully
-        // raises. #3505 canonicalized the synthesized ordinals that used to make
-        // this an OperandDiff, and what remains underneath is an import below Full
-        // fidelity, so the harness now reports NotFull and forms no opcode verdict.
-        // Listed in <see cref="KnownNotFull"/> so that state is explicit rather
-        // than an unexamined docket row.
+        // #2945 substitutes outer-body reads of a hoisted capture field back to
+        // the captured source and elides the display class. #7687 restores the
+        // exact PDB local scope across final basic blocks, so the remaining
+        // compiler-generated ordinal difference is a Full OperandDiff.
         "CapturedParamReadInOuterBody",
         "ClosureCapture",
         "DayNumber",
@@ -176,10 +174,7 @@ public class FidelityGateTests
     /// remain an actual diff. A row that newly drops to NotFull is a validity
     /// regression and must fail rather than land here silently.
     /// </summary>
-    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
-    {
-        "CapturedParamReadInOuterBody",
-    };
+    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Methods a prior fidelity check fix turned exact under the fidelity contract. Pinning them guards the
@@ -463,6 +458,15 @@ public class FidelityGateTests
         "ULongSumIndexAsSigned",
         "ULongSumIndexBare",
         "Finalize",
+        // #4229: cache provenance selects a target-pinning method-group
+        // conversion, so csc regenerates the original <>O cache. The explicit
+        // construction close negative remains allocation-shaped and Exact.
+        "CachedStaticMethodGroup",
+        "ExplicitStaticMethodGroupArgument",
+        // #3218: receiver- and lambda-output-proven generic argument elision
+        // recompiles to the same Enumerable instantiations in the raised C# view.
+        "ReceiverInferredExtensionArguments",
+        "FluentResultInferredExtensionArgumentsAreOmitted",
         // Promoted from KnownDiffs by #3584 after they were measured Exact on the
         // current main. Most are the benign reconstruction-ordinal class that #3505
         // retired by canonicalizing synthesized-member ordinals in the oracle — the
@@ -675,6 +679,25 @@ public class FidelityGateTests
         }
 
         Assert.True(failures.Count == 0, string.Join("\n\n", failures));
+    }
+
+    [Fact]
+    public void LocalFunctionMethodGroups_PreserveCacheAndConstructionShapes()
+    {
+        var cached = Assert.Single(
+            EvaluateFixtures(),
+            result => result.Method == "CachedStaticMethodGroupLocalFunction");
+        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, cached.Status);
+        Assert.Equal(
+            "ldsfld dup brtrue pop ldnull ldftn newobj dup stsfld call ret",
+            cached.RecompiledOpcodes);
+
+        var explicitConstruction = Assert.Single(
+            EvaluateFixtures(),
+            result => result.Method == "ExplicitStaticMethodGroupLocalFunction");
+        Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, explicitConstruction.Status);
+        Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.OriginalOpcodes);
+        Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.RecompiledOpcodes);
     }
 
     /// <summary>

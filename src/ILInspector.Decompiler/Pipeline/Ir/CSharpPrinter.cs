@@ -80,6 +80,8 @@ public sealed partial class CSharpPrinter
         _reservedScopeNames = reservedScopeNames is null
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
+        if (function.HasAccessorStorageBinding)
+            _reservedScopeNames.Add("field");
         _capturedScopeNames = new HashSet<string>(
             CSharpSpellability
                 .ExternalArgumentNamesInScope(
@@ -295,6 +297,87 @@ public sealed partial class CSharpPrinter
                 return block.Parent is BlockContainer container ? container : block;
         }
         return null;
+    }
+
+    static IrNode EmittedDeclarationScope(IrNode owner)
+        => owner switch
+        {
+            // C# switch sections do not introduce independent scopes.
+            Block
+            {
+                Parent: BlockContainer
+                {
+                    Parent: SwitchSection { Parent: Switch switchStatement },
+                },
+            } => switchStatement,
+            BlockContainer
+            {
+                Parent: SwitchSection { Parent: Switch switchStatement },
+            } => switchStatement,
+            Block { Parent: BlockContainer container } => container,
+            _ => owner,
+        };
+
+    internal static IReadOnlySet<int>? PdbLocalEntryLabelsPrintedOutside(
+        IrFunction function,
+        IrNode declaration,
+        Block declarationBlock)
+    {
+        HashSet<int>? labels = null;
+        if (PdbLocalPrecedingScopeAnchors(declaration, declarationBlock) is { } anchors)
+        {
+            labels = anchors
+                .Select(anchor => anchor.SourceOffset)
+                .ToHashSet();
+        }
+
+        if (declaration.ChildIndex == 0)
+        {
+            Block entryBlock = declarationBlock;
+            while (entryBlock.Parent is Block parent)
+            {
+                entryBlock = parent;
+            }
+            if (entryBlock.Parent is BlockContainer
+                && entryBlock.StartOffset >= 0
+                && ReferenceOwnership.CollectBranchTargets(function).Contains(
+                    entryBlock.StartOffset))
+            {
+                (labels ??= []).Add(entryBlock.StartOffset);
+            }
+        }
+        return labels;
+    }
+
+    static IReadOnlyList<LabelAnchor>? PdbLocalPrecedingScopeAnchors(
+        IrNode declaration,
+        Block declarationBlock)
+    {
+        List<LabelAnchor>? anchors = null;
+        AddPrecedingRetainedAnchor(declaration, declarationBlock);
+        if (declaration.ChildIndex == 0)
+        {
+            Block entryBlock = declarationBlock;
+            while (entryBlock.Parent is Block parent)
+            {
+                AddPrecedingRetainedAnchor(entryBlock, parent);
+                entryBlock = parent;
+            }
+        }
+        return anchors;
+
+        void AddPrecedingRetainedAnchor(IrNode child, Block parent)
+        {
+            if (child.ChildIndex > 0
+                && parent.Children[child.ChildIndex - 1] is LabelAnchor
+                {
+                    RetainsPdbLocalScope: true,
+                    SourceOffset: >= 0,
+                } anchor)
+            {
+                (anchors ??= []).Add(anchor);
+            }
+        }
     }
 
     static IEnumerable<(int Local, IrNode Owner, LoadLocalAddress Address)>
@@ -1814,7 +1897,7 @@ public sealed partial class CSharpPrinter
                 _ => null,
             };
             if (index is { } local && declaration.Parent is { } parent)
-                scopes[local] = parent is Block { Parent: BlockContainer container } ? container : parent;
+                scopes[local] = EmittedDeclarationScope(parent);
         }
         foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
@@ -1850,7 +1933,7 @@ public sealed partial class CSharpPrinter
             }
         }
         foreach (var (local, owner, _) in VerifiedOutLocalDeclarations(function))
-            scopes[local] = owner;
+            scopes[local] = EmittedDeclarationScope(owner);
         return scopes;
 
         void AddOwned(int? index, IrNode owner)
@@ -1859,7 +1942,7 @@ public sealed partial class CSharpPrinter
                 && IrFunction.LocalSlotReferencesInScope(function.Body, local)
                     .All(reference => ExactLocalNameAllocation.Contains(owner, reference)))
             {
-                scopes[local] = owner;
+                scopes[local] = EmittedDeclarationScope(owner);
             }
         }
     }
@@ -1955,14 +2038,29 @@ public sealed partial class CSharpPrinter
             return false;
         if (declaration is StoreLocal store && StoreValueReferencesLocal(store))
             return false;
-        if (HasBranchTargetAfterStatement(declaration))
-            return false;
 
         if (declaration.ChildIndex >= block.Children.Count
             || !ReferenceEquals(block.Children[declaration.ChildIndex], declaration))
             return false;
 
         var allowed = block.Children.Skip(declaration.ChildIndex).ToList();
+        IReadOnlySet<int>? labelsPrintedOutside =
+            PdbLocalEntryLabelsPrintedOutside(function, declaration, block);
+        bool hasRetainedAnchor = allowed.Any(statement =>
+                statement.DescendantsOutsideNestedFunctions
+                    .Prepend(statement)
+                    .Any(node => node is LabelAnchor { RetainsPdbLocalScope: true }))
+            || PdbLocalPrecedingScopeAnchors(declaration, block) is not null;
+        if (HasBranchTargetAfterStatement(declaration)
+            && (!hasRetainedAnchor
+                || ReferenceOwnership.RewriteWouldInvalidateLabels(
+                    function,
+                    allowed,
+                    [],
+                    labelsPrintedOutside)))
+        {
+            return false;
+        }
 
         foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, index))
         {
@@ -4598,7 +4696,7 @@ public sealed partial class CSharpPrinter
         Constant { Value: double value } c when !double.IsFinite(value)
             => WithNodeKind(c, DoubleText(value), "MemberAccessExpression"),
         Constant c => ConstantText(c),
-        LoadField f => MemberTargetText(f, FieldTarget(f.Field, f.Instance)),
+        LoadField f => MemberTargetText(f, FieldTarget(f)),
         Binary b => BinaryText(b),
         Comparison c => ComparisonText(c),
         // A LogicalNot in value position (a folded `brfalse x; ldc.0/ldc.1` select,
@@ -4956,7 +5054,7 @@ public sealed partial class CSharpPrinter
             LoadLocalAddress local => LocalName(local.Index),
             LoadLocal local => LocalName(local.Index),
             LoadFieldAddress field => FieldTarget(field.Field, field.Instance),
-            LoadField field => FieldTarget(field.Field, field.Instance),
+            LoadField field => FieldTarget(field),
             _ => null,
         };
     }
@@ -7092,7 +7190,12 @@ public sealed partial class CSharpPrinter
     {
         string rendered = TypeTextCore(type);
 
-        if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
+        // A type parameter has no global qualification; escape the contextual keyword.
+        if (_function.HasAccessorStorageBinding
+            && type is { Kind: TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter,
+                GenericParameterName: "field" })
+            rendered = "@field";
+        else if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
 
         RecordFrameworkTypeImportDecision(type, rendered);

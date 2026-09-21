@@ -118,7 +118,8 @@ public sealed record CompleteRestorationPlan
         CompleteRestorationRecipe recipe,
         IReadOnlyDictionary<
             string,
-            PackageNavigationSource> packageSources)
+            PackageNavigationSource> packageSources,
+        IReadOnlyDictionary<string, GroupNavigationSource> groupSources)
     {
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
@@ -127,6 +128,8 @@ public sealed record CompleteRestorationPlan
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
         PackageSources = packageSources
             ?? throw new ArgumentNullException(nameof(packageSources));
+        GroupSources = groupSources
+            ?? throw new ArgumentNullException(nameof(groupSources));
     }
 
     public CompleteRestorationIntentIdentity Intent { get; }
@@ -140,6 +143,9 @@ public sealed record CompleteRestorationPlan
     internal IReadOnlyDictionary<
         string,
         PackageNavigationSource> PackageSources
+        { get; }
+
+    internal IReadOnlyDictionary<string, GroupNavigationSource> GroupSources
         { get; }
 }
 
@@ -252,7 +258,7 @@ public abstract record CompleteRestorationFailure
     public sealed record ScopeMutationFailed : CompleteRestorationFailure
     {
         internal ScopeMutationFailed(WorkspaceScopeOperationResult outcome)
-            : base("Workspace Scope replacement did not commit.")
+            : base("Workspace Scope admission did not commit.")
         {
             Outcome = outcome
                 ?? throw new ArgumentNullException(nameof(outcome));
@@ -697,7 +703,7 @@ public static class CompleteRestorationPreparation
             return FailedWorkspaceFree(authority.Identity, request);
 
         WorkspacePlan workspacePlan =
-            InspectionDefinitionRegistry.CreateWorkspacePlan(
+            InspectionDefinitionRegistry.CreateCompleteRestorationWorkspacePlan(
                 definitions.Workspace);
         IReadOnlyDictionary<string, PackageNavigationSource> packageSources =
             InspectionDefinitionRegistry.ResolvePackageNavigationSources(
@@ -710,7 +716,11 @@ public static class CompleteRestorationPreparation
                 request,
                 workspacePlan,
                 recipe,
-                packageSources));
+                packageSources,
+                InspectionDefinitionRegistry.ResolveGroupNavigationSources(
+                    definitions.Workspace,
+                    definitions.Navigation,
+                    definitions.NavigationTargetMatchMode)));
     }
 
     private static CompleteRestorationPreparationResult FailedWorkspaceFree(

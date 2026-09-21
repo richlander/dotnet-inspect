@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -321,6 +322,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex()
     {
         var registry = LibrarySections.CreateQueryRegistry();
@@ -337,7 +339,9 @@ public partial class SectionPipelineTests
             BodyAnalysisFeatures =
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                 | Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles,
+                    .ImplementationProfiles
+                | Analysis.LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
             Trace = trace,
         };
 
@@ -345,6 +349,7 @@ public partial class SectionPipelineTests
             [
                 UnsafeEvidenceQuery.Definition,
                 ImplementationProfilesQuery.Definition,
+                OptimizationOpportunitiesQuery.Definition,
             ],
             context,
             trace.RecordQueryExecution);
@@ -353,11 +358,16 @@ public partial class SectionPipelineTests
             results.Get(UnsafeEvidenceQuery.Definition));
         Assert.IsType<ImplementationProfilesResult.Available>(
             results.Get(ImplementationProfilesQuery.Definition));
+        Assert.IsType<OptimizationOpportunitiesResult.Available>(
+            results.Get(OptimizationOpportunitiesQuery.Definition));
         var analysis = Assert.Single(
             trace.Resources,
             resource => resource.Resource == "body analysis");
         Assert.Contains(
             "ImplementationProfiles",
+            analysis.Detail.ToString());
+        Assert.Contains(
+            "OptimizationOpportunities",
             analysis.Detail.ToString());
         Assert.DoesNotContain(
             trace.Resources,
@@ -471,7 +481,7 @@ public partial class SectionPipelineTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void OptimizationOpportunitiesQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    public void OptimizationOpportunitiesQuery_UsesFocusedBodyAnalysis()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -499,13 +509,18 @@ public partial class SectionPipelineTests
                 results.Get(OptimizationOpportunitiesQuery.Definition));
         Assert.NotEmpty(available.Opportunities);
         Assert.Empty(available.AllocationFanoutOpportunities);
-        var bodyIndex = Assert.Single(
+        var bodyAnalysis = Assert.Single(
             trace.Resources,
-            resource => resource.Resource == "body index");
-        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
+            resource => resource.Resource == "body analysis");
+        Assert.StartsWith(
+            "built in",
+            bodyAnalysis.Detail.ToString());
         Assert.Contains(
             "OptimizationOpportunities",
-            bodyIndex.Detail.ToString());
+            bodyAnalysis.Detail.ToString());
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
         Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "drill map");
@@ -515,19 +530,22 @@ public partial class SectionPipelineTests
     [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
     {
-        var index = Analysis.LibraryBodyIndex.Open(
-            typeof(SectionPipelineTests).Assembly.Location,
-            Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        Analysis.LibraryBodyAnalysisExecution execution =
+            Analysis.LibraryBodyAnalysisService.ExecutePath(
+                typeof(SectionPipelineTests).Assembly.Location,
+                Analysis.LibraryBodyAnalysisRequest.Create(
+                    Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
 
         var ordinary =
             Assert.IsType<OptimizationOpportunitiesResult.Available>(
                 OptimizationOpportunitiesQuery.Execute(
-                    index,
+                    execution.Optimization,
                     includeAllocationFanout: false));
         var fanout =
             Assert.IsType<OptimizationOpportunitiesResult.Available>(
                 OptimizationOpportunitiesQuery.Execute(
-                    index,
+                    execution.Optimization,
                     includeAllocationFanout: true));
 
         Assert.Empty(ordinary.AllocationFanoutOpportunities);
@@ -535,7 +553,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void OptimizationOpportunitiesQuery_BodyIndexFailureRemainsTyped()
+    public void OptimizationOpportunitiesQuery_BodyAnalysisFailureRemainsTyped()
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [OptimizationOpportunitiesQuery.Definition],
@@ -548,7 +566,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void OptimizationOpportunitiesQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    public void OptimizationOpportunitiesQuery_NoMetadata_DoesNotAcquireBodyAnalysis()
     {
         bool acquired = false;
 
@@ -667,41 +685,58 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void ResourceTriageQuery_RecordsBodyIndexAndDrillMapDuringExecution()
+    public void ResourceTriageAndTopLeverage_ShareFocusedAnalysisWithoutBodyIndex()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
         using var service = SourceLinkService.OpenPrefetched(
-            typeof(SectionPipelineTests).Assembly.Location,
+            path,
             _ => { });
         using var context = new InspectionQueryContext
         {
-            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            AssemblyPath = path,
             Model = new LibraryInspection(),
             Logger = new Output.VerboseLogger(false),
             MetadataContext = service.Context,
-            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
+            BodyReferenceResolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(path)),
+            BodyAnalysisRequest =
+                Analysis.LibraryBodyAnalysisRequest
+                    .CreateResourceLifecycle(
+                        Analysis.ArrayPoolResourceEffectModel.Create()),
             Trace = trace,
         };
 
         InspectionQueryResults results = registry.Run(
-            [ResourceTriageQuery.Definition],
+            [
+                ResourceTriageQuery.Definition,
+                TopLeverageQuery.Definition,
+            ],
             context,
             trace.RecordQueryExecution);
 
         Assert.IsType<ResourceTriageResult.Available>(
             results.Get(ResourceTriageQuery.Definition));
-        var bodyIndex = Assert.Single(
+        Assert.IsType<TopLeverageResult.Available>(
+            results.Get(TopLeverageQuery.Definition));
+        var bodyAnalysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.Contains(
+            "resource lifecycle: True",
+            bodyAnalysis.Detail.ToString());
+        Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "body index");
-        Assert.Contains("LeakTriage", bodyIndex.Detail.ToString());
         Assert.Single(
             trace.Resources,
             resource => resource.Resource == "drill map");
     }
 
     [Fact]
-    public void TopLeverageQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    public void TopLeverageQuery_RecordsFocusedAnalysisWithoutBodyIndex()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -726,15 +761,22 @@ public partial class SectionPipelineTests
         var available = Assert.IsType<TopLeverageResult.Available>(
             results.Get(TopLeverageQuery.Definition));
         Assert.NotEmpty(available.Methods);
-        var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
-        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
-        Assert.Contains("MethodEvidence", bodyIndex.Detail.ToString());
+        var bodyAnalysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.StartsWith("built in", bodyAnalysis.Detail.ToString());
+        Assert.Contains(
+            "MethodEvidence",
+            bodyAnalysis.Detail.ToString());
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
         var drillMap = Assert.Single(trace.Resources, r => r.Resource == "drill map");
         Assert.StartsWith("built in", drillMap.Detail.ToString());
     }
 
     [Fact]
-    public void TopLeverageQuery_BodyIndexFailureRemainsTyped()
+    public void TopLeverageQuery_AnalysisFailureRemainsTyped()
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [TopLeverageQuery.Definition],
@@ -746,7 +788,21 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void TopLeverageQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    public void TopLeverageQuery_MissingProducerRemainsTyped()
+    {
+        Analysis.LibraryBodyAnalysisExecution execution =
+            Analysis.LibraryBodyAnalysisService.ExecutePath(
+                typeof(SectionPipelineTests).Assembly.Location,
+                Analysis.LibraryBodyAnalysisRequest.Create(
+                    Analysis.LibraryBodyAnalysisFeatures.None));
+
+        var failed = Assert.IsType<TopLeverageResult.Failed>(
+            TopLeverageQuery.Execute(execution.Leverage));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public void TopLeverageQuery_NoMetadata_DoesNotAcquireAnalysis()
     {
         bool acquired = false;
 

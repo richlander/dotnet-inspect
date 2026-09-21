@@ -324,49 +324,75 @@ public partial class LibraryBodyIndexTests
     [Trait("Speed", "Slow")]
     public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
     {
-        // Dropped by ReleaseCallGraphCaches().
-        string[] callGraphCaches =
+        string[] resultGraphCaches =
         [
             "_directCallsByCaller",
-            "_directCallsByEvidenceMethod",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_declaredMethodMap",
             "_methodMap",
-            "_overloadRelationships",
-            "_projectedImplementationProfiles",
             "_rootPathGraph",
         ];
-
-        // Evidence-domain caches the release methods deliberately retain.
-        string[] retainedCaches =
+        string[] resultRetainedCaches =
         [
-            "_allocationFanoutOpportunities",
-            "_directCallerLoops",
-            "_generatedFrameworkTypes",
-            "_opportunities",
-            "_rootReachByToken",
+            "_physicalDirectCalls",
             "_signals",
+        ];
+        string[] adapterGraphCaches =
+        [
+            "_directCallsByEvidenceMethod",
+            "_overloadRelationships",
+            "_projectedImplementationProfiles",
+        ];
+        string[] adapterRetainedCaches =
+        [
             "_unsafeEvidenceByMember",
         ];
 
         Assert.Equal(
-            callGraphCaches.Concat(retainedCaches).OrderBy(name => name, StringComparer.Ordinal),
-            MutableCacheFields().Select(field => field.Name).OrderBy(name => name, StringComparer.Ordinal));
+            resultGraphCaches.Concat(resultRetainedCaches)
+                .OrderBy(name => name, StringComparer.Ordinal),
+            MutableCacheFields(typeof(LibraryCallGraphAnalysisResult))
+                .Select(field => field.Name)
+                .OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(
+            adapterGraphCaches.Concat(adapterRetainedCaches)
+                .OrderBy(name => name, StringComparer.Ordinal),
+            MutableCacheFields(typeof(LibraryBodyIndex))
+                .Select(field => field.Name)
+                .OrderBy(name => name, StringComparer.Ordinal));
 
         string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
 
         var index = Exercised(analysisPath);
-        var before = PopulatedCaches(index);
+        LibraryCallGraphAnalysisResult callGraph =
+            index.CallGraphAnalysis;
+        var resultBefore = PopulatedCaches(
+            callGraph,
+            typeof(LibraryCallGraphAnalysisResult));
+        var adapterBefore = PopulatedCaches(
+            index,
+            typeof(LibraryBodyIndex));
 
         // The gate is only meaningful if the caches under test were populated to begin with.
         // Both halves need this: an unpopulated cache is absent from `before` and from `after`,
         // so the set comparison would hold no matter what the release methods did to it.
-        foreach (var name in callGraphCaches.Concat(retainedCaches))
-            Assert.Contains(name, before);
+        foreach (var name in resultGraphCaches.Concat(resultRetainedCaches))
+            Assert.Contains(name, resultBefore);
+        foreach (var name in adapterGraphCaches.Concat(adapterRetainedCaches))
+            Assert.Contains(name, adapterBefore);
 
         index.ReleaseCallGraphCaches();
-        Assert.Equal(before.Where(name => !callGraphCaches.Contains(name)), PopulatedCaches(index));
+        Assert.Equal(
+            resultBefore.Where(name => !resultGraphCaches.Contains(name)),
+            PopulatedCaches(
+                callGraph,
+                typeof(LibraryCallGraphAnalysisResult)));
+        Assert.Equal(
+            adapterBefore.Where(name => !adapterGraphCaches.Contains(name)),
+            PopulatedCaches(
+                index,
+                typeof(LibraryBodyIndex)));
 
         static LibraryBodyIndex Exercised(string path)
         {
@@ -410,14 +436,14 @@ public partial class LibraryBodyIndexTests
         // "mutable state" rather than a type-shaped guess. An earlier version excluded value types
         // and so silently missed the two ImmutableArray caches, which is the same blind spot this
         // test exists to catch.
-        static IEnumerable<FieldInfo> MutableCacheFields()
-            => typeof(LibraryBodyIndex)
+        static IEnumerable<FieldInfo> MutableCacheFields(Type type)
+            => type
                 .GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)
                 .Where(field => field.Name.StartsWith('_') && !field.IsInitOnly);
 
-        static List<string> PopulatedCaches(LibraryBodyIndex index)
-            => MutableCacheFields()
-                .Where(field => IsPopulated(field.GetValue(index)))
+        static List<string> PopulatedCaches(object owner, Type type)
+            => MutableCacheFields(type)
+                .Where(field => IsPopulated(field.GetValue(owner)))
                 .Select(field => field.Name)
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToList();

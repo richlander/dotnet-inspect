@@ -65,6 +65,35 @@ public sealed class WorkspaceStateCommandTests
         Assert.Equal(CanonicalVector, encoded.Output.TrimEnd());
     }
 
+    [Fact]
+    public async Task CurrentFormatMicrosoftExtensionsPacket_RoundTrips()
+    {
+        Assert.Equal(44, ExpectedPackageSets.MicrosoftExtensions.Length);
+        string json = CurrentWorkspaceJson(
+            ExpectedPackageSets.MicrosoftExtensions);
+
+        var encoded = await RunCliAsync("workspace-state", "encode", json);
+
+        Assert.Equal(0, encoded.ExitCode);
+        Assert.Empty(encoded.Error);
+        string packet = encoded.Output.TrimEnd();
+        WorkspaceSharePacket decodedPacket = WorkspaceSharePacketCodec.Decode(
+            packet,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            ExpectedPackageSets.MicrosoftExtensions,
+            decodedPacket.Tabs.Select(tab => tab.Source));
+
+        var decoded = await RunCliAsync(
+            "workspace-state",
+            "decode",
+            packet);
+
+        Assert.Equal(0, decoded.ExitCode);
+        Assert.Empty(decoded.Error);
+        Assert.Equal(json, decoded.Output.TrimEnd());
+    }
+
     [Theory]
     [InlineData(CanonicalVector)]
     [InlineData(UnicodeVector)]
@@ -532,6 +561,23 @@ public sealed class WorkspaceStateCommandTests
                     - prefix.Length
                     - suffix.Length)
             + suffix;
+    }
+
+    private static string CurrentWorkspaceJson(
+        IReadOnlyList<string> packageIds)
+    {
+        string tabs = string.Join(
+            ',',
+            packageIds.Select(
+                packageId =>
+                    $"[\"{packageId}\",\"10.0.0\",\"net11.0\",null]"));
+        string indexes = string.Join(',', Enumerable.Range(0, packageIds.Count));
+        string viewStates = """[{"t":null,"u":{"k":"workspace"}}"""
+            + string.Concat(
+                Enumerable.Range(0, packageIds.Count)
+                    .Select(index => $",{{\"t\":{index}}}"))
+            + "]";
+        return $$"""{"f":3,"t":[{{tabs}}],"g":[[{{indexes}}]],"r":[],"a":0,"x":0,"v":{{viewStates}}}""";
     }
 
     private static MemoryStream Utf8Stream(string input) =>

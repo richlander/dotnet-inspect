@@ -15,8 +15,14 @@ public static class InspectionViewFacetCatalog
             "package.dependencies",
             InspectionViewFacetExecution.PackageDependencies),
         Binding(
+            "package.dependency-hierarchy",
+            InspectionViewFacetExecution.PackageDependencyHierarchy),
+        Binding(
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
+        Binding(
+            "library.reference-hierarchy",
+            InspectionViewFacetExecution.LibraryReferenceHierarchy),
         Binding(
             "library.integrations",
             InspectionViewFacetExecution.LibraryIntegrations),
@@ -94,6 +100,15 @@ public static class InspectionViewFacetCatalog
             AppliesToPackage),
         Active(
             Descriptor(
+                "package.dependency-hierarchy",
+                StructuralSubjectKind.Package,
+                "Dependency Hierarchy",
+                "Rooted transitive package dependencies for the selected target framework.",
+                300),
+            "Rooted transitive package dependencies for the selected target framework.",
+            AppliesToPackage),
+        Active(
+            Descriptor(
                 "library.references",
                 StructuralSubjectKind.Library,
                 "References",
@@ -101,6 +116,15 @@ public static class InspectionViewFacetCatalog
                 100,
                 ViewFacetRole.LibraryReferences),
             "Direct assembly references for the active Library.",
+            AppliesToLibrary),
+        Active(
+            Descriptor(
+                "library.reference-hierarchy",
+                StructuralSubjectKind.Library,
+                "Reference Hierarchy",
+                "Rooted transitive assembly references for the active Library.",
+                150),
+            "Rooted transitive assembly references for the active Library.",
             AppliesToLibrary),
         Active(
             Descriptor(
@@ -294,7 +318,9 @@ internal enum InspectionViewFacetExecution
     WorkspaceOverview,
     PackageOverview,
     PackageDependencies,
+    PackageDependencyHierarchy,
     LibraryReferences,
+    LibraryReferenceHierarchy,
     LibraryIntegrations,
     LibraryAnalysis,
     LibraryMetadata,

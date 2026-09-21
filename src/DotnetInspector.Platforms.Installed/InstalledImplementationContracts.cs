@@ -1,3 +1,4 @@
+using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Formats;
 using ILInspector.Metadata;
 
@@ -109,17 +110,22 @@ public sealed record InstalledImplementationFramework
 {
     internal InstalledImplementationFramework(
         PlatformFrameworkName name,
+        PlatformFamily? family,
         PlatformVersion version,
         InstalledPlatformContentDigest? runtimeConfigurationDigest,
         InstalledPlatformContentDigest dependencyManifestDigest)
     {
+        if (family.HasValue && !Enum.IsDefined(family.Value))
+            throw new ArgumentOutOfRangeException(nameof(family));
         Name = name;
+        Family = family;
         Version = version;
         RuntimeConfigurationDigest = runtimeConfigurationDigest;
         DependencyManifestDigest = dependencyManifestDigest;
     }
 
     public PlatformFrameworkName Name { get; }
+    public PlatformFamily? Family { get; }
     public PlatformVersion Version { get; }
     public InstalledPlatformContentDigest? RuntimeConfigurationDigest { get; }
     public InstalledPlatformContentDigest DependencyManifestDigest { get; }
@@ -169,16 +175,34 @@ public sealed record InstalledImplementationRealization
         InstalledPlatformSourceGeneration generation,
         InstalledImplementationPlatformCoordinate coordinate,
         IReadOnlyList<InstalledImplementationFramework> frameworks,
-        IReadOnlyList<InstalledImplementationLibrary> libraries)
+        IReadOnlyList<InstalledImplementationLibrary> libraries,
+        long consumedBytes)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(consumedBytes);
+        long unassignedBytes = consumedBytes;
+        foreach (InstalledImplementationLibrary library in libraries)
+        {
+            if (library.ContentLength > unassignedBytes)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(consumedBytes));
+            }
+            unassignedBytes -= library.ContentLength;
+        }
         Generation = generation;
         Coordinate = coordinate;
         Frameworks = frameworks;
         Libraries = libraries;
+        ConsumedBytes = consumedBytes;
     }
 
     public InstalledPlatformSourceGeneration Generation { get; }
     public InstalledImplementationPlatformCoordinate Coordinate { get; }
     public IReadOnlyList<InstalledImplementationFramework> Frameworks { get; }
     public IReadOnlyList<InstalledImplementationLibrary> Libraries { get; }
+
+    /// <summary>
+    /// Bytes consumed by selected manifests and realized assemblies.
+    /// </summary>
+    public long ConsumedBytes { get; }
 }

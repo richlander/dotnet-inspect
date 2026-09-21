@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using DotnetInspector.Cache;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
@@ -149,7 +150,15 @@ public sealed record PackageReferenceTarget(
     string OriginalArgument,
     bool IsLocalFile,
     string PackageName,
-    string Version);
+    string Version)
+{
+    /// <summary>
+    /// Exact declaration expression when available, including an explicit
+    /// empty expression. Null preserves the legacy <see cref="Version"/>
+    /// fallback.
+    /// </summary>
+    public string? DeclaredVersionExpression { get; init; }
+}
 
 /// <summary>
 /// A selected package version and the sources that reported that exact
@@ -297,6 +306,52 @@ public static class PackageExtractor
             client, packageSource, log, tempDirPrefix, sourceOptions,
             version, forceLatest, includePrerelease, authoritySession: null);
 
+    /// <summary>
+    /// Extracts the explicitly classified package target without inferring
+    /// local-archive versus package-reference intent from its spelling.
+    /// </summary>
+    public static Task<PackageExtractionOutcome> ExtractPackageAsync(
+        HttpClient client,
+        PackageReferenceTarget target,
+        Action<string>? log = null,
+        string tempDirPrefix = "inspect-pkg",
+        NuGetSourceOptions? sourceOptions = null,
+        bool forceLatest = false,
+        bool includePrerelease = false)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        string? versionExpression =
+            target.DeclaredVersionExpression
+            ?? (target.Version.Length == 0
+                ? null
+                : target.Version);
+        if (!target.IsLocalFile
+            && target.DeclaredVersionExpression?.Length == 0)
+        {
+            return Task.FromResult(
+                PackageExtractionOutcome.Error(
+                    "Package version expression cannot be empty."));
+        }
+
+        return ExtractPackageCoreAsync(
+            client,
+            target.OriginalArgument,
+            log,
+            tempDirPrefix,
+            sourceOptions,
+            target.IsLocalFile
+                || versionExpression is null
+                    ? null
+                    : versionExpression,
+            forceLatest,
+            includePrerelease,
+            authoritySession: null,
+            packageNameOverride: target.IsLocalFile
+                ? null
+                : target.PackageName,
+            isLocalFileOverride: target.IsLocalFile);
+    }
+
     public static Task<PackageExtractionOutcome>
         ExtractPackageWithCancellationAsync(
             HttpClient client,
@@ -416,11 +471,16 @@ public static class PackageExtractor
         bool includePrerelease,
         ConfiguredPackageExtractionSession? authoritySession,
         PackageExtractionOutcome? initialOutcome = null,
+        string? packageNameOverride = null,
+        bool? isLocalFileOverride = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        bool isLocalFile = authoritySession is null
-            && packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+        bool isLocalFile = isLocalFileOverride
+            ?? (authoritySession is null
+                && packageSource.EndsWith(
+                    ".nupkg",
+                    StringComparison.OrdinalIgnoreCase));
 
         if (isLocalFile)
         {
@@ -438,6 +498,8 @@ public static class PackageExtractor
         List<string> redirectChain = [];
         List<ToolWrapperPackage> wrapperPackages = [];
         string currentPackageSource = packageSource;
+        string? currentPackageNameOverride =
+            packageNameOverride;
         string? currentVersion = version;
         bool currentForceLatest = forceLatest;
         bool currentIncludePrerelease = includePrerelease;
@@ -458,12 +520,17 @@ public static class PackageExtractor
                     log,
                     tempDirPrefix,
                     currentSourceOptions,
-                    currentVersion,
-                    currentForceLatest,
-                    currentIncludePrerelease,
-                    authoritySession,
-                    cancellationToken).ConfigureAwait(false);
+                    packageNameOverride:
+                        currentPackageNameOverride,
+                    explicitVersion: currentVersion,
+                    forceLatest: currentForceLatest,
+                    includePrerelease:
+                        currentIncludePrerelease,
+                    authoritySession: authoritySession,
+                    cancellationToken:
+                        cancellationToken).ConfigureAwait(false);
                 initialOutcome = null;
+                currentPackageNameOverride = null;
             }
 
             if (!outcome.IsSuccess)
@@ -583,6 +650,7 @@ public static class PackageExtractor
         Action<string>? log,
         string tempDirPrefix,
         NuGetSourceOptions? sourceOptions,
+        string? packageNameOverride = null,
         string? explicitVersion = null,
         bool forceLatest = false,
         bool includePrerelease = false,
@@ -590,9 +658,12 @@ public static class PackageExtractor
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        (string packageName, string? parsedVersion) = authoritySession is null
-            ? ParsePackageReference(packageSource)
-            : (packageSource, null);
+        (string packageName, string? parsedVersion) =
+            packageNameOverride is not null
+                ? (packageNameOverride, null)
+                : authoritySession is null
+                    ? ParsePackageReference(packageSource)
+                    : (packageSource, null);
         var version = explicitVersion ?? parsedVersion;
 
         // A legacy selector's producer restriction is not an authority receipt.
@@ -1856,67 +1927,116 @@ public static class PackageExtractor
                     MaxCharactersInDocument = MaxNuspecBytes,
                 });
             XDocument document = XDocument.Load(reader, LoadOptions.None);
-            XElement? root = document.Root;
-            if (root is null
-                || root.Name.LocalName != "package")
-            {
-                return false;
-            }
-
-            XNamespace nuspecNamespace = root.Name.Namespace;
-            XElement[] metadataElements = root.Elements()
-                .Where(element =>
-                    element.Name.LocalName == "metadata")
-                .Take(2)
-                .ToArray();
-            if (metadataElements.Length != 1
-                || metadataElements[0].Name.Namespace
-                    != nuspecNamespace)
-            {
-                return false;
-            }
-
-            XElement metadata = metadataElements[0];
-            XElement[] idElements = metadata.Elements()
-                .Where(element => element.Name.LocalName == "id")
-                .Take(2)
-                .ToArray();
-            XElement[] versionElements = metadata.Elements()
-                .Where(element =>
-                    element.Name.LocalName == "version")
-                .Take(2)
-                .ToArray();
-            if (idElements.Length != 1
-                || idElements[0].Name.Namespace != nuspecNamespace
-                || versionElements.Length != 1
-                || versionElements[0].Name.Namespace != nuspecNamespace)
-            {
-                return false;
-            }
-
-            string actualId = idElements[0].Value;
-            string actualVersion = versionElements[0].Value;
-
-            return string.Equals(
-                       actualId.Trim(),
-                       packageId,
-                       StringComparison.OrdinalIgnoreCase)
-                   && TryNormalizePackageVersion(
-                       version,
-                       out string expected)
-                   && TryNormalizePackageVersion(
-                       actualVersion.Trim(),
-                       out string actual)
-                   && string.Equals(
-                       expected,
-                       actual,
-                       StringComparison.OrdinalIgnoreCase);
+            return TryGetExpectedNuspecMetadata(
+                document,
+                packageId,
+                version,
+                out _);
         }
         catch (XmlException)
         {
             return false;
         }
     }
+
+    internal static bool TryGetExpectedNuspecMetadata(
+        XDocument document,
+        string packageId,
+        string version,
+        [NotNullWhen(true)] out XElement? metadata)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        metadata = null;
+        XElement? root = document.Root;
+        if (root is null
+            || root.Name.LocalName != "package"
+            || !IsNuspecNamespace(root.Name.Namespace))
+        {
+            return false;
+        }
+
+        XElement[] metadataCandidates = root.Elements()
+            .Where(element =>
+                element.Name.LocalName == "metadata")
+            .ToArray();
+        XElement[] nuspecMetadataCandidates = metadataCandidates
+            .Where(element =>
+                IsNuspecNamespace(element.Name.Namespace))
+            .ToArray();
+        XElement[] metadataElements = nuspecMetadataCandidates
+            .Where(element =>
+                IsCompatibleMetadataNamespace(
+                    root.Name.Namespace,
+                    element.Name.Namespace))
+            .Take(2)
+            .ToArray();
+        if (nuspecMetadataCandidates.Length != metadataElements.Length
+            || metadataElements.Length != 1)
+        {
+            return false;
+        }
+
+        XElement candidate = metadataElements[0];
+        XNamespace nuspecNamespace = candidate.Name.Namespace;
+        XElement[] idElements = candidate.Elements()
+            .Where(element => element.Name.LocalName == "id")
+            .Take(2)
+            .ToArray();
+        XElement[] versionElements = candidate.Elements()
+            .Where(element =>
+                element.Name.LocalName == "version")
+            .Take(2)
+            .ToArray();
+        if (idElements.Length != 1
+            || idElements[0].Name.Namespace != nuspecNamespace
+            || versionElements.Length != 1
+            || versionElements[0].Name.Namespace != nuspecNamespace)
+        {
+            return false;
+        }
+
+        string actualId = idElements[0].Value;
+        string actualVersion = versionElements[0].Value;
+        if (!string.Equals(
+                actualId.Trim(),
+                packageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !TryNormalizePackageVersion(
+                version,
+                out string expected)
+            || !TryNormalizePackageVersion(
+                actualVersion.Trim(),
+                out string actual)
+            || !string.Equals(
+                expected,
+                actual,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        metadata = candidate;
+        return true;
+    }
+
+    private static bool IsNuspecNamespace(XNamespace ns)
+    {
+        string uri = ns.NamespaceName;
+        if (uri.Length == 0)
+            return true;
+
+        const string Prefix = "http://schemas.microsoft.com/packaging/";
+        const string Suffix = "/nuspec.xsd";
+        return uri.Length > Prefix.Length + Suffix.Length
+            && uri.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
+            && uri.EndsWith(Suffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCompatibleMetadataNamespace(
+        XNamespace rootNamespace,
+        XNamespace metadataNamespace) =>
+        string.IsNullOrEmpty(rootNamespace.NamespaceName)
+            || rootNamespace == metadataNamespace;
 
     /// <summary>
     /// Reads a local <c>.nuspec</c> under <see cref="MaxNuspecBytes"/>. Returns

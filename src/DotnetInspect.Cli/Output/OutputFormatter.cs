@@ -1,6 +1,8 @@
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Views;
+using System.Globalization;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
@@ -437,20 +439,66 @@ public static class OutputFormatter
         if (options.JsonOutput && !options.Count)
         {
             return JsonSerializer.Serialize(
-                PackageInspectionJson.Create(result),
+                PackageInspectionJson.Create(
+                    result,
+                    options.Rows,
+                    options.DependencyHierarchyRowsSelected),
                 PackageInspectionJsonContext.Default.PackageInspectionJson);
         }
 
-        var view = new InspectionResultView(result, includeTitleVersion: false);
+        var view = new InspectionResultView(
+            result,
+            includeTitleVersion: false);
         var writerOptions = BuildPackageDocumentWriterOptions(result, options, pipeline);
         if (options.Count)
         {
-            var projection = CountProjectionFormatter.Capture(
-                view, InspectionContext.Default, writerOptions);
+            var projection = CapturePackageCountProjection(
+                result,
+                options,
+                pipeline);
             var ordered = ResolveCountMapSections(
                 pipeline, options.IncludeSections, options.FixedOverview);
             return CountOutput.Render(
                 projection, ordered, options.Format, options.NoHeader);
+        }
+
+        if (options.Format is OutputFormat.Markdown
+                or OutputFormat.PlainText
+            && options.Columns is not { Length: > 0 }
+            && options.Fields is not { Length: > 0 }
+            && result.DependencyHierarchyProjection is { } hierarchy
+            && writerOptions.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy) == true)
+        {
+            writerOptions.IncludeSections =
+                writerOptions.IncludeSections
+                    .Where(section => !section.Equals(
+                        PackageSections.DependencyHierarchy,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            string package = MarkoutSerializer.Serialize(
+                view,
+                InspectionContext.Default,
+                writerOptions).TrimEnd();
+            IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
+                !options.DependencyHierarchyRowsSelected
+                && options.Rows is { IsUnlimited: false } window
+                    ? window.Apply(hierarchy.HierarchyRows)
+                    : hierarchy.HierarchyRows;
+            string hierarchySection =
+                options.Format == OutputFormat.Markdown
+                    ? DependsCommand.RenderHierarchySection(
+                        hierarchy,
+                        hierarchyRows,
+                        embeddedMermaid: false)
+                    : DependsCommand.RenderHierarchyPlainTextSection(
+                        hierarchy,
+                        hierarchyRows);
+            return string.Join(
+                Environment.NewLine + Environment.NewLine,
+                new[] { package, hierarchySection }
+                    .Where(static fragment =>
+                        !string.IsNullOrWhiteSpace(fragment)));
         }
 
         return MarkoutSerializer.Serialize(
@@ -461,10 +509,29 @@ public static class OutputFormatter
         InspectionResult result,
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
-        => CountProjectionFormatter.Capture(
-            new InspectionResultView(result, includeTitleVersion: false),
+    {
+        MarkoutWriterOptions writerOptions =
+            BuildPackageDocumentWriterOptions(result, options, pipeline);
+        CountProjection projection = CountProjectionFormatter.Capture(
+            new InspectionResultView(
+                result,
+                includeTitleVersion: false),
             InspectionContext.Default,
-            BuildPackageDocumentWriterOptions(result, options, pipeline));
+            writerOptions);
+        if (result.DependencyHierarchyProjection is { } hierarchy
+            && writerOptions.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy) == true)
+        {
+            int count = !options.DependencyHierarchyRowsSelected
+                && options.Rows is { IsUnlimited: false } window
+                ? window.Apply(hierarchy.HierarchyRows).Count
+                : hierarchy.HierarchyRows.Length;
+            projection.SetRows(
+                PackageSections.DependencyHierarchy,
+                count);
+        }
+        return projection;
+    }
 
     internal static MarkoutWriterOptions BuildPackageDocumentWriterOptions(
         InspectionResult result,
@@ -478,7 +545,12 @@ public static class OutputFormatter
             writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
         else if (selectInfo)
             writerOptions.SectionOrder = pipeline.InfoSectionNames;
-        writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+        writerOptions.RowWindow = RowWindow.ToMarkout(
+            options.DependencyHierarchyRowsSelected
+            && writerOptions.IncludeSections is { Count: 1 } sections
+            && sections.Contains(PackageSections.DependencyHierarchy)
+                ? null
+                : options.Rows);
         return writerOptions;
     }
 
@@ -494,7 +566,8 @@ public static class OutputFormatter
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-        var view = new InspectionResultView(result);
+        var view = new InspectionResultView(
+            result);
         WriteTable(Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
             options.Rows);
@@ -546,6 +619,17 @@ public static class OutputFormatter
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
+        if (options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(
+                SectionNames.ReferenceHierarchy))
+        {
+            WriteLibraryResults(
+                [inspection],
+                options,
+                pipeline);
+            return;
+        }
+
         if (options.Count)
         {
             var projection = CaptureLibraryCountProjection(
@@ -553,15 +637,6 @@ public static class OutputFormatter
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
-            return;
-        }
-
-        if (options.Tree && options.Discover == null)
-        {
-            OutputDestination.Write(
-                options.OutputPath,
-                options.Rows,
-                output => WriteReferenceTree(inspection, output));
             return;
         }
 
@@ -631,19 +706,6 @@ public static class OutputFormatter
         return includesMetadata
             ? MarkdownTableRowLimiter.Apply(plainText, rows)
             : plainText;
-    }
-
-    private static void WriteReferenceTree(
-        LibraryInspection inspection,
-        TextWriter output)
-    {
-        var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
-        var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
-        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
-        writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
-        writer.WriteHeading(2, SectionNames.References);
-        writer.WriteTree([.. tree]);
-        writer.Flush();
     }
 
     /// <summary>
@@ -761,6 +823,14 @@ public static class OutputFormatter
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
+        if (IsSingleReferenceHierarchySelection(options))
+        {
+            WriteLibraryReferenceHierarchyResults(
+                inspections,
+                options);
+            return;
+        }
+
         if (options.Count)
         {
             var projection = new CountProjection();
@@ -775,6 +845,291 @@ public static class OutputFormatter
                 projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
         }
+
+            static bool IsSingleReferenceHierarchySelection(
+                LibraryOptions options) =>
+                options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(
+                    SectionNames.ReferenceHierarchy);
+
+            static void WriteLibraryReferenceHierarchyResult(
+                LibraryInspection inspection,
+                LibraryOptions options)
+            {
+                DependsAssetProjection projection =
+                    inspection.ReferenceHierarchyProjection
+                    ?? throw new InvalidOperationException(
+                        "The Library reference hierarchy was not acquired.");
+                IReadOnlyList<DependencyHierarchyOccurrenceRow> rows =
+                    WindowHierarchyRows(projection, options.Rows);
+                if (options.Count)
+                {
+                    CountOutput.WriteCountResult(
+                        rows.Count.ToString(CultureInfo.InvariantCulture),
+                        options.OutputPath,
+                        options.Rows);
+                    return;
+                }
+
+                OutputDestination.Write(
+                    options.OutputPath,
+                    options.Rows,
+                    output => WriteLibraryReferenceHierarchyDocument(
+                        inspection,
+                        projection,
+                        rows,
+                        options,
+                        output));
+            }
+
+            static void WriteLibraryReferenceHierarchyResults(
+                IReadOnlyList<LibraryInspection> inspections,
+                LibraryOptions options)
+            {
+                if (inspections.Count == 1)
+                {
+                    WriteLibraryReferenceHierarchyResult(
+                        inspections[0],
+                        options);
+                    return;
+                }
+
+                if (options.Count)
+                {
+                    int count = inspections.Sum(
+                        inspection => WindowHierarchyRows(
+                            inspection.ReferenceHierarchyProjection
+                            ?? throw new InvalidOperationException(
+                                "The Library reference hierarchy was not acquired."),
+                            options.Rows).Count);
+                    CountOutput.WriteCountResult(
+                        count.ToString(CultureInfo.InvariantCulture),
+                        options.OutputPath,
+                        options.Rows);
+                    return;
+                }
+
+                OutputDestination.Write(
+                    options.OutputPath,
+                    options.Rows,
+                    output =>
+                    {
+                        if (options.JsonOutput)
+                        {
+                            LibraryReferenceHierarchyJson[] documents =
+                            [
+                                .. inspections.Select(inspection =>
+                                {
+                                    DependsAssetProjection projection =
+                                        inspection.ReferenceHierarchyProjection
+                                        ?? throw new InvalidOperationException(
+                                            "The Library reference hierarchy was not acquired.");
+                                    IReadOnlyList<DependencyHierarchyOccurrenceRow>
+                                        rows = WindowHierarchyRows(
+                                            projection,
+                                            options.Rows);
+                                    return CreateReferenceHierarchyJson(
+                                        inspection,
+                                        projection,
+                                        rows);
+                                }),
+                            ];
+                            output.WriteLine(JsonSerializer.Serialize(
+                                documents,
+                                LibraryReferenceHierarchyJsonContext.Default
+                                    .LibraryReferenceHierarchyJsonArray));
+                            return;
+                        }
+
+                        for (int index = 0; index < inspections.Count; index++)
+                        {
+                            if (index > 0)
+                                output.WriteLine();
+                            LibraryInspection inspection = inspections[index];
+                            DependsAssetProjection projection =
+                                inspection.ReferenceHierarchyProjection
+                                ?? throw new InvalidOperationException(
+                                    "The Library reference hierarchy was not acquired.");
+                            WriteLibraryReferenceHierarchyDocument(
+                                inspection,
+                                projection,
+                                WindowHierarchyRows(projection, options.Rows),
+                                options,
+                                output);
+                        }
+                    });
+            }
+
+            static void WriteLibraryReferenceHierarchyDocument(
+                LibraryInspection inspection,
+                DependsAssetProjection projection,
+                IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
+                LibraryOptions options,
+                TextWriter output)
+            {
+                if (options.Tree)
+                {
+                    DependencyHierarchyOutputAdapter.Write(
+                        projection.Hierarchy,
+                        rows,
+                        OutputFormat.PlainText,
+                        tree: true,
+                        embeddedMermaid: false,
+                        options.NoHeader,
+                        compactJson: false,
+                        output);
+                    return;
+                }
+
+                bool projected =
+                    options.Columns is { Length: > 0 }
+                    || options.Fields is { Length: > 0 };
+                var tableView = new LibraryReferenceHierarchyTableView
+                {
+                    ReferenceHierarchy =
+                    [
+                        .. rows.Select(DependsHierarchyOccurrenceView.From),
+                    ],
+                };
+                if (options.JsonOutput)
+                {
+                    if (projected)
+                    {
+                        WriteProjectedJson(
+                            output,
+                            options.Columns,
+                            options.Fields,
+                            (writer, formatter, writerOptions) =>
+                            {
+                                writerOptions.IncludeSections =
+                                    [SectionNames.ReferenceHierarchy];
+                                MarkoutSerializer.Serialize(
+                                    tableView,
+                                    writer,
+                                    formatter,
+                                    DependsAssetViewContext.Default,
+                                    writerOptions);
+                            },
+                            indented: true);
+                    }
+                    else
+                    {
+                        output.WriteLine(JsonSerializer.Serialize(
+                            CreateReferenceHierarchyJson(
+                                inspection,
+                                projection,
+                                rows),
+                            LibraryReferenceHierarchyJsonContext.Default
+                                .LibraryReferenceHierarchyJson));
+                    }
+                    return;
+                }
+
+                if (options.Tabular)
+                {
+                    if (projected)
+                    {
+                        WriteProjectedTable(
+                            output,
+                            !options.NoHeader,
+                            options.Tsv,
+                            options.Jsonl,
+                            options.Columns,
+                            options.Fields,
+                            (writer, formatter, writerOptions) =>
+                            {
+                                writerOptions.IncludeSections =
+                                    [SectionNames.ReferenceHierarchy];
+                                MarkoutSerializer.Serialize(
+                                    tableView,
+                                    writer,
+                                    formatter,
+                                    DependsAssetViewContext.Default,
+                                    writerOptions);
+                            });
+                    }
+                    else
+                    {
+                        DependencyHierarchyOutputAdapter.Write(
+                            projection.Hierarchy,
+                            rows,
+                            options.Format,
+                            tree: false,
+                            embeddedMermaid: false,
+                            options.NoHeader,
+                            compactJson: false,
+                            output);
+                    }
+                    return;
+                }
+
+                if (projected)
+                {
+                    var writerOptions = new MarkoutWriterOptions
+                    {
+                        IncludeSections = [SectionNames.ReferenceHierarchy],
+                        Projection = BuildProjection(
+                            options.Columns,
+                            options.Fields),
+                    };
+                    MarkoutSerializer.Serialize(
+                        tableView,
+                        output,
+                        options.Format == OutputFormat.PlainText
+                            ? new PlainTextFormatter()
+                            : new MarkdownFormatter(),
+                        DependsAssetViewContext.Default,
+                        writerOptions);
+                    return;
+                }
+
+                if (options.Format == OutputFormat.Markdown)
+                {
+                    output.WriteLine(RenderMarkdownHeading(
+                        1,
+                        LibraryViewText.DocumentTitle(inspection)));
+                    output.WriteLine();
+                    output.WriteLine(DependsCommand.RenderHierarchySection(
+                        projection,
+                        options.Rows,
+                        embeddedMermaid: false,
+                        SectionNames.ReferenceHierarchy));
+                    return;
+                }
+
+                output.WriteLine(LibraryViewText.DocumentTitle(inspection));
+                output.WriteLine();
+                output.WriteLine(SectionNames.ReferenceHierarchy);
+                DependencyHierarchyOutputAdapter.Write(
+                    projection.Hierarchy,
+                    rows,
+                    options.Format,
+                    tree: false,
+                    embeddedMermaid: false,
+                    options.NoHeader,
+                    compactJson: false,
+                    output);
+            }
+
+            static LibraryReferenceHierarchyJson
+                CreateReferenceHierarchyJson(
+                    LibraryInspection inspection,
+                    DependsAssetProjection projection,
+                    IReadOnlyList<DependencyHierarchyOccurrenceRow> rows) =>
+                new(
+                    inspection.FileName,
+                    inspection.Tfm,
+                    DependencyHierarchyOutputAdapter.CreateJsonDocument(
+                        projection.Hierarchy,
+                        rows));
+
+            static IReadOnlyList<DependencyHierarchyOccurrenceRow>
+                WindowHierarchyRows(
+                    DependsAssetProjection projection,
+                    RowWindow? rows) =>
+                rows is { IsUnlimited: false } window
+                    ? window.Apply(projection.HierarchyRows)
+                    : projection.HierarchyRows;
 
         if (options.JsonOutput)
         {
@@ -980,6 +1335,17 @@ public static class OutputFormatter
             auditView, InspectionContext.Default, writerOptions);
         projection.Merge(MetadataLensRenderer.CaptureCounts(
             inspection, writerOptions.IncludeSections, rows));
+        if (inspection.ReferenceHierarchyProjection is { } hierarchy
+            && writerOptions.IncludeSections?.Contains(
+                SectionNames.ReferenceHierarchy) == true)
+        {
+            int count = rows is { IsUnlimited: false } window
+                ? window.Apply(hierarchy.HierarchyRows).Count
+                : hierarchy.HierarchyRows.Length;
+            projection.SetRows(
+                SectionNames.ReferenceHierarchy,
+                count);
+        }
         ApplyILCoordinateCardinality(
             projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
         return projection;

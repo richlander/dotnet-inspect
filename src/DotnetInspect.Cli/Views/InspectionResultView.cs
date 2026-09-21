@@ -2,9 +2,14 @@ using System.Diagnostics.CodeAnalysis;
 using InertText;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 using DotnetInspect.Cli.Services;
 using Markout;
 
@@ -37,7 +42,7 @@ public class InspectionResultView
                 ? new ByteSizeFormatter().Format(view.PackageSizeBytes.Value)
                 : null),
         new("Selected TFM", static view =>
-            view.PackageMeasurements?.SelectedTargetFramework),
+            view.PackageMeasurements?.SelectedTargetFramework?.ToString()),
         new("Selected-TFM Folders", static view =>
             view.PackageMeasurements?.SelectedTargetFrameworkFolders
                 is { Count: > 0 } folders
@@ -68,6 +73,10 @@ public class InspectionResultView
                 : null),
         new("Selected-TFM Status", static view =>
             view.PackageMeasurementStatus),
+        new("Ecosystem Dependencies", static view =>
+            view.EcosystemDependenciesDisplay),
+        new("Ecosystem Dependency Status", static view =>
+            view.EcosystemDependencyStatus),
         new("Built", static view =>
             view._data.BuiltDate?.ToString("yyyy-MM-dd")),
         new("Published", static view =>
@@ -171,7 +180,9 @@ public class InspectionResultView
         return null;
     }
 
-    public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
+    public InspectionResultView(
+        InspectionResult data,
+        bool includeTitleVersion = true)
     {
         _data = data;
         _includeTitleVersion = includeTitleVersion;
@@ -220,6 +231,45 @@ public class InspectionResultView
             dependency.Id,
             dependency.Version))
         .ToList();
+
+    public static bool EcosystemDependencyCoverageIsComplete(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.Coverage is null);
+
+    [MarkoutSection(Name = PackageSections.EcosystemDependencies)]
+    [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyCoverageIsComplete),
+        nameof(PackageEcosystemDependencyRow.Coverage))]
+    public List<PackageEcosystemDependencyRow>? EcosystemDependencies =>
+        RecognitionDocument is { } document
+            ? (_data.EcosystemDependencyRows
+                    ?? document.Classification.Recognized)
+                .Select(entry =>
+                    PackageEcosystemDependencyRow.Create(
+                        entry,
+                        document))
+                .ToList()
+            : null;
+
+    [MarkoutSection(
+        Name = PackageSections.DependencyHierarchy,
+        EmptyText = "No dependency relationships.")]
+    public Markout.Graph? DependencyHierarchy
+    {
+        get
+        {
+            DependsAssetProjection? projection =
+                _data.DependencyHierarchyProjection;
+            if (projection is null)
+                return null;
+
+            return DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                projection.HierarchyRows,
+                markWindowedFragments: true);
+        }
+    }
 
     [MarkoutSection(Name = PackageSections.Manifest)]
     public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
@@ -690,9 +740,10 @@ public class InspectionResultView
         fields.Add(new("Type", PackageType));
 
         if (PackageMeasurements?.SelectedTargetFramework
-            is { Length: > 0 } selectedTfm)
+                is { } selectedTfm
+            && selectedTfm.ToString() is { Length: > 0 } selectedTfmText)
         {
-            fields.Add(new("Selected TFM", selectedTfm));
+            fields.Add(new("Selected TFM", selectedTfmText));
         }
         if (PackageMeasurements?.AvailableTargetFrameworks
             is { } targetFrameworks)
@@ -730,6 +781,44 @@ public class InspectionResultView
         }
         return fields;
     }
+
+    private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
+        _data.EcosystemDependencyRecognitionInspection?.Content switch
+        {
+            EcosystemDependencyRecognitionOutcome.Complete complete =>
+                complete.Document,
+            EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                incomplete.Document,
+            _ => null,
+        };
+
+    private string? EcosystemDependenciesDisplay =>
+        _data.EcosystemDependencyRecognitionInspection?.Content
+            is EcosystemDependencyRecognitionOutcome.Complete complete
+        && !complete.Document.Classification.RecognizedEcosystems.IsEmpty
+            ? string.Join(
+                ", ",
+                complete.Document.Classification.RecognizedEcosystems
+                    .Select(static ecosystem => ecosystem.Title))
+            : null;
+
+    private string? EcosystemDependencyStatus =>
+        _data.EcosystemDependencyRecognitionInspection?.Content switch
+        {
+            EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                $"Incomplete ({incomplete.Document.InputIssues.Length} "
+                + (incomplete.Document.InputIssues.Length == 1
+                    ? "issue"
+                    : "issues")
+                + ")",
+            EcosystemDependencyRecognitionOutcome.Unavailable unavailable =>
+                $"Unavailable ({unavailable.InputIssues.Length} "
+                + (unavailable.InputIssues.Length == 1
+                    ? "issue"
+                    : "issues")
+                + ")",
+            _ => null,
+        };
 
     private List<ManifestRow> GetManifestRows()
     {
@@ -977,6 +1066,189 @@ public sealed record PackageDependencyGroupRow(
 }
 
 [MarkoutSerializable]
+public sealed class PackageEcosystemDependencyRow
+{
+    public PackageEcosystemDependencyRow(
+        string ecosystem,
+        string kind,
+        string dependency,
+        string declaredBy,
+        string? coverage,
+        string matchingBases,
+        string? versionOrRange,
+        int occurrence,
+        string? requestedTargetFramework,
+        string? selectedTargetFramework,
+        int? selectedGroup)
+    {
+        EcosystemText = Field(ecosystem);
+        KindText = Field(kind);
+        DependencyText = Field(dependency);
+        DeclaredByText = Field(declaredBy);
+        CoverageText = OptionalField(coverage);
+        MatchingBasesText = Field(matchingBases);
+        VersionOrRangeText = OptionalField(versionOrRange);
+        Occurrence = occurrence;
+        RequestedTargetFrameworkText =
+            OptionalField(requestedTargetFramework);
+        SelectedTargetFrameworkText =
+            OptionalField(selectedTargetFramework);
+        SelectedGroup = selectedGroup;
+    }
+
+    [MarkoutIgnore]
+    public InertString EcosystemText { get; }
+
+    public string Ecosystem => EcosystemText.ToString();
+
+    [MarkoutIgnore]
+    public InertString KindText { get; }
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore]
+    public InertString DependencyText { get; }
+
+    public string Dependency => DependencyText.ToString();
+
+    [MarkoutIgnore]
+    public InertString DeclaredByText { get; }
+
+    [MarkoutPropertyName("Declared By")]
+    public string DeclaredBy => DeclaredByText.ToString();
+
+    [MarkoutIgnore]
+    public InertString? CoverageText { get; }
+
+    public string? Coverage => CoverageText?.ToString();
+
+    [MarkoutIgnore]
+    public InertString MatchingBasesText { get; }
+
+    [MarkoutPropertyName("Matching Bases")]
+    public string MatchingBases => MatchingBasesText.ToString();
+
+    [MarkoutIgnore]
+    public InertString? VersionOrRangeText { get; }
+
+    [MarkoutPropertyName("Version/Range")]
+    public string? VersionOrRange => VersionOrRangeText?.ToString();
+
+    public int Occurrence { get; }
+
+    [MarkoutIgnore]
+    public InertString? RequestedTargetFrameworkText { get; }
+
+    [MarkoutPropertyName("Requested TFM")]
+    public string? RequestedTargetFramework =>
+        RequestedTargetFrameworkText?.ToString();
+
+    [MarkoutIgnore]
+    public InertString? SelectedTargetFrameworkText { get; }
+
+    [MarkoutPropertyName("Selected TFM")]
+    public string? SelectedTargetFramework =>
+        SelectedTargetFrameworkText?.ToString();
+
+    [MarkoutPropertyName("Selected Group")]
+    public int? SelectedGroup { get; }
+
+    internal static PackageEcosystemDependencyRow Create(
+        EcosystemDependencyRecognitionEntry entry,
+        EcosystemDependencyRecognitionDocument document)
+    {
+        PackageDependencyGroups? groups =
+            document.InputContext
+                is EcosystemDependencyInputContext.Package packageContext
+            && packageContext.DependencyGroup
+                is EcosystemDependencyInputComponent<
+                    PackageDependencyGroups>.Available available
+                ? available.Value
+                : null;
+        string matchingBases = string.Join(
+            ", ",
+            entry.MatchingAssociations.Select(DescribeAssociation));
+        return entry.Observation switch
+        {
+            EcosystemDependencyObservation.PackageDeclaration package =>
+                new(
+                    entry.Ecosystem.Title,
+                    "Package declaration",
+                    $"{package.Dependency.Id} "
+                        + package.Dependency.VersionRange,
+                    $"{package.DeclaringPackage.PackageId}@"
+                        + package.DeclaringPackage.Version,
+                    CoverageValue(document),
+                    matchingBases,
+                    package.Dependency.VersionRange,
+                    package.Identity.Value,
+                    groups?.RequestedTargetFramework,
+                    groups?.SelectedTargetFramework,
+                    groups?.SelectedGroupIndex is int selectedGroup
+                        ? selectedGroup + 1
+                        : null),
+            EcosystemDependencyObservation.AssemblyReference assembly =>
+                new(
+                    entry.Ecosystem.Title,
+                    "Assembly reference",
+                    DescribeAssembly(assembly.Reference),
+                    DescribeLibrary(assembly.DeclaringLibrary),
+                    CoverageValue(document),
+                    matchingBases,
+                    assembly.Reference.Version?.ToString(),
+                    assembly.Identity.Value,
+                    groups?.RequestedTargetFramework,
+                    groups?.SelectedTargetFramework,
+                    groups?.SelectedGroupIndex is int selectedGroup
+                        ? selectedGroup + 1
+                        : null),
+            _ => throw new InvalidOperationException(
+                "Unknown ecosystem dependency observation."),
+        };
+    }
+
+    private static string? CoverageValue(
+        EcosystemDependencyRecognitionDocument document) =>
+        document.Coverage
+            == EcosystemDependencyRecognitionCoverage.Complete
+                ? null
+                : "Incomplete";
+
+    private static string DescribeAssociation(
+        EcosystemDependencyAssociation association) =>
+        $"{association.Domain switch
+        {
+            EcosystemDependencyIdentityDomain.PackageId =>
+                "Package ID",
+            EcosystemDependencyIdentityDomain.AssemblyName =>
+                "Assembly name",
+            _ => throw new InvalidOperationException(
+                "Unknown ecosystem dependency identity domain."),
+        }} {association.Kind.ToString().ToLowerInvariant()}: "
+        + association.Value;
+
+    private static string DescribeAssembly(
+        AssemblyReferenceIdentity identity) =>
+        $"{identity.Name}, Version={identity.Version}, "
+        + $"Culture={identity.Culture ?? "neutral"}, "
+        + $"PublicKeyToken={identity.PublicKeyToken ?? "null"}";
+
+    private static string DescribeLibrary(
+        PortableLibraryIdentity identity) =>
+        $"{identity.Name}, Version={identity.Version}, "
+        + $"Culture={identity.Culture ?? "neutral"}, "
+        + $"PublicKeyToken={identity.PublicKeyToken ?? "null"}";
+
+    private static InertString Field(string value) =>
+        new(TextPolicy.Field, value);
+
+    private static InertString? OptionalField(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? null
+            : Field(value);
+}
+
+[MarkoutSerializable]
 public sealed record PackageDependencyRow(
     [property: MarkoutIgnore] InertString IdText,
     [property: MarkoutIgnore] InertString VersionText)
@@ -1185,7 +1457,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(ILOffsetReturnAddressContextSection))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
-[MarkoutContext(typeof(EmptyDepsView))]
 [MarkoutContext(typeof(AggregatedSectionDocument))]
 public partial class InspectionContext : MarkoutSerializerContext
 {

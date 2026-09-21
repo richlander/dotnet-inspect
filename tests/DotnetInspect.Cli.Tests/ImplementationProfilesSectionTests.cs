@@ -335,6 +335,7 @@ public class ImplementationProfilesSectionTests
             "conditional_branches",
             "switches",
             "switch_targets",
+            "normal_flow_complexity",
             "catch_regions",
             "filter_regions",
             "finally_regions",
@@ -350,6 +351,12 @@ public class ImplementationProfilesSectionTests
                 root.TryGetProperty(property, out _),
                 $"Missing JSONL property '{property}'.");
         }
+        Assert.Equal(
+            1 + int.Parse(root.GetProperty("conditional_branches").GetString()!)
+                - int.Parse(root.GetProperty("switches").GetString()!)
+                + int.Parse(root.GetProperty("switch_targets").GetString()!),
+            int.Parse(
+                root.GetProperty("normal_flow_complexity").GetString()!));
 
         string relationships =
             root.GetProperty("overload_relationships")

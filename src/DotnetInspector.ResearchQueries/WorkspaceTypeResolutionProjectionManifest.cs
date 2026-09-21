@@ -256,15 +256,37 @@ internal static class WorkspaceTypeResolutionProjectionManifest
             v.RelationshipKind, v.SignatureKind, Inert(v.Kind)),
             Copy("Mechanism"), Text("Detail"), Copy("SubjectToken"), Copy("ConsumedNodes"),
             Copy("RelationshipKind"), Copy("SignatureKind"), Text("Kind"));
-    internal static readonly WorkspaceProjection<ResolvedTypeDefinition, E.Definition> Definition =
-        new(nameof(Definition), static (c, v) => new(
-            DefinitionKey.Project(c, v.Key), Address.Project(c, v.Address), Candidate.Project(c, v.Assembly),
-            Occurrence.Project(c, v.Occurrence), TypeName.Project(c, v.Type), v.Kind,
-            v.IsInterface, v.IsValueType, v.DeclaringAssemblyDefinesCoreLibraryRoot),
-            Project("Key", nameof(DefinitionKey)), Project("Address", nameof(Address)),
-            Project("Assembly", nameof(Candidate)), Project("Occurrence", nameof(Occurrence)),
-            Project("Type", nameof(TypeName)), Copy("Kind"), Copy("IsInterface"), Copy("IsValueType"),
-            Copy("DeclaringAssemblyDefinesCoreLibraryRoot"));
+    internal static readonly WorkspaceProjectionUnion<
+        MetadataTypeDefinitionKindFailure,
+        E.DefinitionKindFailure> DefinitionKindFailure =
+        new(nameof(DefinitionKindFailure),
+            new WorkspaceProjectionArm<
+                MetadataTypeDefinitionKindFailure,
+                E.DefinitionKindFailure,
+                MetadataTypeDefinitionKindFailure.BudgetExceeded,
+                E.DefinitionKindFailure.BudgetExceeded>(
+                static (_, v) => new(v.Budget, Inert(v.Detail)),
+                [Copy("Budget"), Text("Detail")]),
+            new WorkspaceProjectionArm<
+                MetadataTypeDefinitionKindFailure,
+                E.DefinitionKindFailure,
+                MetadataTypeDefinitionKindFailure.Malformed,
+                E.DefinitionKindFailure.Malformed>(
+                static (c, v) => new(
+                    v.SubjectToken,
+                    Inert(v.Detail),
+                    v.NameFailure is { } nameFailure
+                        ? NameFailure.Project(c, nameFailure)
+                        : null),
+                [Copy("SubjectToken"), Text("Detail"),
+                    Project("NameFailure", nameof(NameFailure))]),
+            new WorkspaceProjectionArm<
+                MetadataTypeDefinitionKindFailure,
+                E.DefinitionKindFailure,
+                MetadataTypeDefinitionKindFailure.Unsupported,
+                E.DefinitionKindFailure.Unsupported>(
+                static (_, v) => new(v.SubjectToken, Inert(v.Detail)),
+                [Copy("SubjectToken"), Text("Detail")]));
     internal static readonly WorkspaceProjection<TypeForwardingHop, E.Hop> Hop =
         new(nameof(Hop), static (c, v) => new(
             Candidate.Project(c, v.SourceAssembly), Occurrence.Project(c, v.SourceOccurrence),
@@ -360,8 +382,17 @@ internal static class WorkspaceTypeResolutionProjectionManifest
         new(nameof(Declaration),
             new WorkspaceProjectionArm<TypeDeclarationCandidate, E.Declaration,
                 TypeDeclarationCandidate.Definition, E.Declaration.Definition>(
-                static (c, v) => new(DefinitionToken.Project(c, v.Token), v.Kind, v.IsInterface, v.IsValueType),
-                [Project("Token", nameof(DefinitionToken)), Copy("Kind"), Copy("IsInterface"), Copy("IsValueType")]),
+                static (c, v) => new(
+                    DefinitionToken.Project(c, v.Token),
+                    v.Kind,
+                    v.IsInterface,
+                    v.IsValueType,
+                    v.KindFailure is { } failure
+                        ? DefinitionKindFailure.Project(c, failure)
+                        : null),
+                [Project("Token", nameof(DefinitionToken)), Copy("Kind"),
+                    Copy("IsInterface"), Copy("IsValueType"),
+                    Project("KindFailure", nameof(DefinitionKindFailure))]),
             new WorkspaceProjectionArm<TypeDeclarationCandidate, E.Declaration,
                 TypeDeclarationCandidate.Forwarder, E.Declaration.Forwarder>(
                 static (c, v) => new(Map(v.Declarations, t => ExportToken.Project(c, t)), Identity.Project(c, v.Target)),
@@ -397,6 +428,11 @@ internal static class WorkspaceTypeResolutionProjectionManifest
         new(nameof(Failure),
             FailureArm<TypeResolutionFailure.DeclarationRejected, E.Failure.DeclarationRejected>(
                 static (c, v) => new(NameFailure.Project(c, v.Rejection)), Project("Rejection", nameof(NameFailure))),
+            FailureArm<TypeResolutionFailure.DeclarationBudgetExceeded, E.Failure.DeclarationBudgetExceeded>(
+                static (_, v) => new(v.Budget, Inert(v.Detail)), Copy("Budget"), Text("Detail")),
+            FailureArm<TypeResolutionFailure.DefinitionKindUnavailable, E.Failure.DefinitionKindUnavailable>(
+                static (c, v) => new(DefinitionKindFailure.Project(c, v.Failure)),
+                Project("Failure", nameof(DefinitionKindFailure))),
             FailureArm<TypeResolutionFailure.ForwarderCycle, E.Failure.ForwarderCycle>(static (_, _) => new()),
             FailureArm<TypeResolutionFailure.HopBudgetExceeded, E.Failure.HopBudgetExceeded>(
                 static (_, v) => new(v.Budget), Copy("Budget")),
@@ -436,6 +472,22 @@ internal static class WorkspaceTypeResolutionProjectionManifest
                 static (_, v) => new(v.Budget), Copy("Budget")),
             FailureArm<TypeResolutionFailure.PlanExpansionRequired, E.Failure.PlanExpansionRequired>(
                 static (c, v) => new(PlanRequest.Project(c, v.Request)), Project("Request", nameof(PlanRequest))));
+
+    internal static readonly WorkspaceProjection<ResolvedTypeDefinition, E.Definition> Definition =
+        new(nameof(Definition), static (c, v) => new(
+            DefinitionKey.Project(c, v.Key), Address.Project(c, v.Address), Candidate.Project(c, v.Assembly),
+            Occurrence.Project(c, v.Occurrence), TypeName.Project(c, v.Type), v.Kind,
+            v.IsInterface, v.IsValueType, v.DeclaringAssemblyDefinesCoreLibraryRoot,
+            v.KindResolutionFailure is { } failure
+                ? Failure.Project(c, failure)
+                : null,
+            v.KindResolutionDependencyAssembly),
+            Project("Key", nameof(DefinitionKey)), Project("Address", nameof(Address)),
+            Project("Assembly", nameof(Candidate)), Project("Occurrence", nameof(Occurrence)),
+            Project("Type", nameof(TypeName)), Copy("Kind"), Copy("IsInterface"), Copy("IsValueType"),
+            Copy("DeclaringAssemblyDefinesCoreLibraryRoot"),
+            Project("KindResolutionFailure", nameof(Failure)),
+            Copy("KindResolutionDependencyAssembly"));
 
     static WorkspaceProjectionArm<TypeResolutionOutcome, E.Outcome> OutcomeArm<TSource, TDestination>(
         Func<WorkspaceProjectionContext, TSource, TDestination> project,
@@ -517,7 +569,7 @@ internal static class WorkspaceTypeResolutionProjectionManifest
     [
         Identity, Artifact, PolicyVersion, Catalog, Binding, Acquisition, Lineage, DefinitionKey, Assembly,
         Candidate, Occurrence, TypeName, DefinitionToken, ExportToken, Address, ModuleHash, Module,
-        BindingFailure, CandidateFailure, NameFailure, Definition, Hop, TypeRequest, BindingRequest,
+        BindingFailure, CandidateFailure, NameFailure, DefinitionKindFailure, Definition, Hop, TypeRequest, BindingRequest,
         Provenance, Target, Origin, Start, PlanRequest, Declaration, Ambiguity, Failure, Outcome, QueryResult,
     ];
 
@@ -542,7 +594,7 @@ internal static class WorkspaceTypeResolutionProjectionManifest
 
     internal static ImmutableArray<Type> PermittedValueLeaves { get; } =
     [
-        typeof(bool), typeof(int), typeof(Guid), typeof(DateTime), typeof(Version),
+        typeof(bool), typeof(int), typeof(long), typeof(Guid), typeof(DateTime), typeof(Version),
         typeof(string), typeof(InertString),
     ];
 

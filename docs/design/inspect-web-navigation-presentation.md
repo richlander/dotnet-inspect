@@ -705,9 +705,32 @@ locally alter that subject. Changing package version or TFM submits the
 realized coordinate result to Navigation and renders its reconciled snapshot
 rather than retaining or reconstructing Library identity in the browser.
 
+The initial Browser production adoption tracked by #7428 remains staged while
+the host-neutral snapshot consumer is unfinished. It projects the loaded
+coordinate's typed assembly descriptors into the same aggregate/exact
+single-select presentation and preserves the selected typed assembly identity
+across Browser history and coordinate replacement. This local projection does
+not close #7428 or #7432, manufacture unavailable or failed options, or claim
+owner-issued capability evidence; those trackers retire it with the product
+snapshot and opaque activation actions.
+
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
+
+The package-backed Library navigation may compose the Direct reference filter
+owned by [Library Query](library-query.md#browserwasm-adoption). A settled
+result narrows only the rendered exact-Library candidates by owner-issued asset
+ID; `All libraries` and the active exact Library remain visible even when they
+are not matches. Duplicate-name qualification is computed from the complete
+admitted inventory before filtering. The query submits those same exact asset
+IDs as its population roster, so a Library omitted by surface extraction or
+transport bounds cannot create an invisible positive match; the surface's
+typed inspection notice continues to disclose the omission. Loading or
+top-level failure leaves the candidate list unfiltered, while zero matches is
+represented by a settled empty match set. The filter does not alter the
+committed Library subject, aggregate composition, breadcrumbs, scopes,
+history, or restoration.
 
 Package and Type navigation render producer-owned Type and Member inventory
 rows with the activation descriptors returned in the snapshot. They submit the
@@ -745,27 +768,36 @@ arity.
 
 ## Package coordinate controls
 
-The old full-width `PACKAGE` row remains removed. Package version and TFM
-controls render in the Package working surface:
+The old full-width `PACKAGE` row remains removed. The Package navigation pane
+lists the available TFMs for the selected package version, and the Package
+working surface renders the version control:
 
 ```text
 dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
 ⬡ System.Text.Json
 
-Package coordinate
-Version 10.0.0   Framework net10.0
+TARGET FRAMEWORKS        Overview
+net10.0                  Version 10.0.0
+net9.0
 ```
 
 The trailing Application menu occupies its own row-one Surface
 Composition-owned slot;
 it is not a subject or inspector item.
 
-The coordinate editor is available while Package is selected, across its
-inspectors. It is absent from Workspace, Library, Type, and Member so package
-editing does not consume persistent shell space. Changing the coordinate
-updates the shared workspace by submitting the typed transition and rendering
-its outcome. Package Overview does not repeat a separate target-framework
-selector.
+The TFM inventory is available while Package is selected, across its
+inspectors. Its active row is the exact framework in the current coordinate.
+Changing it updates the shared workspace by submitting the typed transition and
+rendering its outcome. The version control remains in the Package working
+surface across Package inspectors. Neither control appears in Workspace, Type,
+or Member, and Package Overview does not repeat a target-framework selector.
+Library Metadata does not repeat Package Version or Framework controls.
+
+At a narrow viewport the content-navigation action is labelled `Frameworks`
+and opens the same complete TFM inventory. A pending TFM change retains the
+Package shell and moves focus to the content-loading status; success or failure
+returns focus to the initiating TFM row at wide widths and to the `Frameworks`
+action when the navigation pane is collapsed.
 
 Resolved assembly assets are Library details and do not enter the package
 coordinate or Package Overview.
@@ -937,7 +969,7 @@ add and pass these named Inspect Web tests:
 - `workspace-titlebar.spec.ts` covers same-lifetime stable-identity retention
   with new action rebinding, asynchronous replacement parking, and rejection
   of an outgoing generation's menu action or DOM target.
-- `library-hierarchy.spec.ts` exercises the production Browser shell and
+- `library-hierarchy.navigation.spec.ts` exercises the production Browser shell and
   bindings with deterministic facade results, including Package-to-Library
   activation, explicit lens and subject commits, direct 390-pixel entry and
   reload, empty inspector inventories, and unchanged URL and history during
@@ -945,7 +977,7 @@ add and pass these named Inspect Web tests:
 
 The adaptive-presentation gates in `scope-bar.test.ts`,
 `adaptive-navigation.spec.ts`, `workspace-titlebar.spec.ts`, and
-`library-hierarchy.spec.ts` exercise the Browser's current supported
+`library-hierarchy.navigation.spec.ts` exercise the Browser's current supported
 inventories through its normal rendering boundary. They do not construct a
 parallel host catalog merely to observe the renderer.
 

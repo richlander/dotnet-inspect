@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
+using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Sections;
 using Inspector.Findings;
 using Microsoft.CodeAnalysis;
@@ -129,6 +130,32 @@ public class IndexBuildInvariantTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task MemberCommand_ResearchProjection_ReusesAnalysisSession()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName = typeof(IndexBuildGuardFixture).FullName,
+                AssemblyPath = FixtureAssembly,
+                MemberFilter = [nameof(IndexBuildGuardFixture.Work)],
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSource,
+                    SectionNames.Facts,
+                ],
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Detailed,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task TypeCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
@@ -163,10 +190,12 @@ public class IndexBuildInvariantTests
     public async Task LibraryCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;
+        string fixture =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
 
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
-            AssemblyName = FixtureAssembly,
+            AssemblyName = fixture,
             IncludeSections =
             [
                 SectionNames.UnsafeMembers,

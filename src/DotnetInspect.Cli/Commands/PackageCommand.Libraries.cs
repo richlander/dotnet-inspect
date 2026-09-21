@@ -77,6 +77,7 @@ public partial class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
+        if (options.Roots) conflicts.Add("--roots");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
@@ -98,6 +99,7 @@ public partial class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
+        if (options.Roots) conflicts.Add("--roots");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null
             && !allowStaticDiscovery)
@@ -204,12 +206,11 @@ public partial class PackageCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
-
-        if (!LibraryCommand.ValidateReferenceTreeCount(
-                libraryOptions.Tree,
-                libraryOptions.Count,
-                libraryOptions.IncludeSections))
+        if (libraryOptions.IncludeSections?.Contains(
+                SectionNames.ReferenceHierarchy) == true)
         {
+            CommandError.Write(
+                "Reference Hierarchy requires one exact library. Use --library <assembly>.");
             return 1;
         }
 
@@ -247,13 +248,6 @@ public partial class PackageCommand
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<HostQueryDemand> commandQueryDemand = [];
-        if (libraryOptions.CollectReferenceTree)
-        {
-            commandQueryDemand.Add(
-                new HostQueryDemand(
-                    "reference tree",
-                    AssemblyReferencesQuery.Definition));
-        }
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
             && libraryOptions.PerformanceTriage.HasCandidateFilters)
@@ -801,7 +795,11 @@ public partial class PackageCommand
             Paths = options.Paths,
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
-            Rows = options.Rows,
+            Rows = options.CloneCandidateRowSelection is null
+                ? options.Rows
+                : null,
+            CloneCandidateRowSelection =
+                options.CloneCandidateRowSelection,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
             UserVerbosityOverride = options.Verbosity

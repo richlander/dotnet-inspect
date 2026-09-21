@@ -6,11 +6,15 @@ export type InertString = string & {
   readonly [inertStringBrand]: "InertString";
 };
 
+export type BrowserAllocationExceptionPathKind = "ThrownValue" | "ExceptionHandler" | number;
+
 export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
 
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
 
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
+
+export type BrowserAnnotatedSourceLocalThrowPathBoundaryKind = "AnalysisIncomplete" | "TraversalBoundary" | "PartialMethodEvidenceScope" | "UnresolvedLocalCalls" | "UnattributedGeneratedBodies" | "DepthLimit" | "NodeBudget" | "EdgeBudget" | "PathBudget" | "IncompleteLocalThrowEvidence" | "IncompleteCorrespondence" | number;
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
@@ -19,6 +23,8 @@ export type BrowserCalleeEvidenceKind = "ExceptionConstruction" | "Localloc" | "
 export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "InstructionUnavailable" | number;
 
 export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
+
+export type BrowserMemberSourcePartKind = "Member" | "XmlDocumentation" | "Attributes" | "Signature" | "Body" | number;
 
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
@@ -42,6 +48,27 @@ export interface BrowserAnnotatedSource {
   readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
   readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
   readonly callRelationships: ReadonlyArray<BrowserAnnotatedSourceCallRelationship>;
+}
+
+export interface BrowserAnnotatedSourceAllocationExceptionPath {
+  readonly factId: number;
+  readonly kind: BrowserAllocationExceptionPathKind;
+}
+
+export interface BrowserAnnotatedSourceAllocationExceptionPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceAllocationExceptionPath>;
+}
+
+export interface BrowserAnnotatedSourceAwaitCompletionPath {
+  readonly nodeId: number;
+}
+
+export interface BrowserAnnotatedSourceAwaitCompletionPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceAwaitCompletionPath>;
 }
 
 export interface BrowserAnnotatedSourceCallCycle {
@@ -105,6 +132,51 @@ export interface BrowserAnnotatedSourceInvocationDestination {
   readonly target: BrowserCallGraphTarget;
 }
 
+export interface BrowserAnnotatedSourceLocalThrowPath {
+  readonly factIds: ReadonlyArray<number>;
+  readonly targets: ReadonlyArray<BrowserCallGraphTarget>;
+  readonly terminalThrows: ReadonlyArray<BrowserAnnotatedSourceLocalThrowSite>;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathBoundary {
+  readonly kind: BrowserAnnotatedSourceLocalThrowPathBoundaryKind;
+  readonly value: number;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly isComplete: boolean;
+  readonly boundaries: ReadonlyArray<BrowserAnnotatedSourceLocalThrowPathBoundary>;
+  readonly limits: BrowserAnnotatedSourceLocalThrowPathLimits | null;
+  readonly receipt: BrowserAnnotatedSourceLocalThrowPathReceipt | null;
+  readonly paths: ReadonlyArray<BrowserAnnotatedSourceLocalThrowPath>;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathLimits {
+  readonly maximumDepth: number;
+  readonly maximumNodes: number;
+  readonly maximumEdges: number;
+  readonly maximumPaths: number;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathReceipt {
+  readonly destinationSearches: number;
+  readonly searchNodes: number;
+  readonly searchedEdges: number;
+  readonly observedReachablePairs: number;
+  readonly returnedPaths: number;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowSite {
+  readonly exceptionType: string;
+  readonly definitionModuleVersionId: string;
+  readonly definitionToken: number;
+  readonly constructionOffset: number;
+  readonly constructorToken: number;
+  readonly throwOffset: number;
+}
+
 export interface BrowserAnnotatedSourceSynchronousCompletion {
   readonly factId: number;
   readonly kind: BrowserSynchronousCompletionKind;
@@ -126,6 +198,9 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly callRelationships: BrowserAnnotatedSourceCapabilityAvailability;
   readonly callCycles: BrowserAnnotatedSourceCallCycleInspection;
   readonly synchronousCompletions: BrowserAnnotatedSourceSynchronousCompletionInspection;
+  readonly awaitCompletionPaths: BrowserAnnotatedSourceAwaitCompletionPathInspection;
+  readonly allocationExceptionPaths: BrowserAnnotatedSourceAllocationExceptionPathInspection;
+  readonly localThrowPaths: BrowserAnnotatedSourceLocalThrowPathInspection;
 }
 
 export interface BrowserCSharpBodyEvidence {
@@ -224,6 +299,25 @@ export interface BrowserMemberFindingFact {
   readonly detail: string | null;
   readonly conditionality: string;
   readonly instanceKey: number | null;
+}
+
+export interface BrowserMemberSource {
+  readonly source: BrowserSource;
+  readonly parts: ReadonlyArray<BrowserMemberSourcePart>;
+}
+
+export interface BrowserMemberSourcePart {
+  readonly kind: BrowserMemberSourcePartKind;
+  readonly spans: ReadonlyArray<BrowserMemberSourceSpan>;
+}
+
+export interface BrowserMemberSourceSpan {
+  readonly start: number;
+  readonly length: number;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly leadingIndentation: string;
+  readonly end: number;
 }
 
 export interface BrowserMethodBodyComparison {
@@ -681,10 +775,10 @@ export async function queryMemberFindingCensus(packageId: string, version: strin
   return $parsed as BrowserMemberFindingCensus;
 }
 
-export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource> {
+export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberSource> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserSource;
+  return $parsed as BrowserMemberSource;
 }
 
 export async function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult> {

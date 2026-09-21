@@ -59,6 +59,199 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int SequentialScopeLocalsWithInternalLabels(
+        bool firstPath,
+        bool secondPath,
+        int value)
+    {
+        int total = 0;
+        {
+            int same = value;
+            if (firstPath)
+                goto FirstIncrement;
+        FirstRecord:
+            total += same;
+            if (same < value + 2)
+                goto FirstIncrement;
+            goto FirstDone;
+        FirstIncrement:
+            Increment(ref same);
+            if (same <= value + 2)
+                goto FirstRecord;
+        FirstDone:
+            total += same;
+        }
+        {
+            string same = value.ToString();
+            if (secondPath)
+                goto SecondKeep;
+        SecondRecord:
+            total += same.Length;
+            if (same.Length < value)
+                goto SecondKeep;
+            goto SecondDone;
+        SecondKeep:
+            KeepAlive(ref same);
+            if (same.Length <= value)
+                goto SecondRecord;
+        SecondDone:
+            total += same.Length;
+        }
+        return total;
+    }
+
+    public static int SequentialScopeLocalsWithEntryLabels(bool secondPath, int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int same = value;
+            Increment(ref same);
+            total += same;
+        }
+        if (total < value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            string same = value.ToString();
+            KeepAlive(ref same);
+            total += same.Length;
+        }
+        if (total < value)
+            goto First;
+    Done:
+        return total;
+    }
+
+    public static int SequentialScopeLocalsWithEntryAndInternalLabels(
+        bool secondPath,
+        int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int same = value;
+            goto FirstCheck;
+        FirstIncrement:
+            Increment(ref same);
+        FirstCheck:
+            if (same < value + 2)
+                goto FirstIncrement;
+            total += same;
+        }
+        if (total < value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            string same = value.ToString();
+            goto SecondCheck;
+        SecondKeep:
+            KeepAlive(ref same);
+        SecondCheck:
+            if (same.Length <= value)
+                goto SecondKeep;
+            total += same.Length;
+        }
+        if (total < value)
+            goto First;
+    Done:
+        return total;
+    }
+
+    public static int SequentialScopeLocalsWithTrailingTransfer(
+        bool repeat,
+        int value)
+    {
+        int total = 0;
+        {
+            int same = value;
+            if (repeat)
+                goto Increment;
+        Record:
+            total += value;
+            if (total >= value)
+                goto Done;
+            goto Increment;
+        Increment:
+            Increment(ref same);
+            repeat = false;
+            if (value > 0)
+                goto Record;
+        Done:
+            ;
+        }
+        {
+            string same = value.ToString();
+            KeepAlive(ref same);
+            total += same.Length;
+        }
+        return total;
+    }
+
+    public static int NestedScopeLocalsWithEntryLabels(bool secondPath, int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int currentPos = 0;
+            int splitIdx = 0;
+            string currentSplit = value.ToString();
+            int typeIndex = 0;
+            goto FirstCheck;
+        FirstLoop:
+            {
+                Type type = typeof(int);
+                int splitPoint = currentPos + currentSplit.Length;
+                Increment(ref splitPoint);
+                total += type.Name.Length + splitIdx;
+                currentPos = splitPoint;
+            }
+            splitIdx++;
+            typeIndex++;
+        FirstCheck:
+            if (typeIndex < value)
+                goto FirstLoop;
+            total += currentPos;
+        }
+        if (total < -value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            int currentPos = value;
+            int splitIdx = value;
+            string currentSplit = value.ToString();
+            int typeIndex = value;
+            goto SecondCheck;
+        SecondLoop:
+            {
+                Type type = typeof(string);
+                int splitPoint = currentPos - currentSplit.Length;
+                Increment(ref splitPoint);
+                total += type.Name.Length + splitIdx;
+                currentPos = splitPoint;
+            }
+            splitIdx--;
+            typeIndex--;
+        SecondCheck:
+            if (typeIndex > 0)
+                goto SecondLoop;
+            total += currentPos;
+        }
+        if (total < -value)
+            goto First;
+    Done:
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;
@@ -113,6 +306,33 @@ public static class PdbScopeFixtures
             0 => TryRead(first, out int value) && value >= 0,
             _ => TryRead(second, out int value) && value >= 0,
         };
+
+    public static int SwitchSectionOutVariables(int selector, string value)
+    {
+        switch (selector)
+        {
+            case 0:
+            {
+                return TryRead(value, out int same) ? same : -1;
+            }
+            case 1:
+            {
+                return TryRead(value, out int same) ? same + 1 : -1;
+            }
+            case 2:
+            {
+                return TryRead(value, out int same) ? same + 2 : -1;
+            }
+            case 3:
+            {
+                return TryRead(value, out int same) ? same + 3 : -1;
+            }
+            default:
+            {
+                return TryRead(value, out int same) ? same + 4 : -1;
+            }
+        }
+    }
 
     public static void SequentialValueTypeScopeLocals()
     {

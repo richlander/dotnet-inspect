@@ -13,6 +13,18 @@ public class ExtensionMethodCallTests
     static string PrintRaised(string methodName)
         => PrintRaised(typeof(CfgSampleClass), methodName);
 
+    static IrFunction Import(string methodName)
+    {
+        using var context = new MetadataContext(RuntimeResolver);
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location,
+            null,
+            RuntimeResolver,
+            context);
+        return Assert.IsType<IrFunction>(
+            IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName));
+    }
+
     static string PrintRaised(Type type, string methodName)
     {
         using var context = new MetadataContext(RuntimeResolver);
@@ -83,7 +95,7 @@ public class ExtensionMethodCallTests
             nameof(ExtensionMethodCollisionSamples.CallsShadowedExtension));
 
         Assert.Equal(
-            "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();",
+            "return Values(receiver, typeof(Attribute), true).FirstOrDefault();",
             output);
     }
 
@@ -114,7 +126,7 @@ public class ExtensionMethodCallTests
                     .CallsShadowedGenericExtension));
 
         Assert.Equal(
-            "return global::System.Linq.Enumerable.Contains<int>(values, value);",
+            "return global::System.Linq.Enumerable.Contains(values, value);",
             output);
     }
 
@@ -128,7 +140,7 @@ public class ExtensionMethodCallTests
                     .CallsPropertyShadowedExtension));
 
         Assert.Equal(
-            "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();",
+            "return Values(receiver, typeof(Attribute), true).FirstOrDefault();",
             output);
     }
 
@@ -196,5 +208,283 @@ public class ExtensionMethodCallTests
         Assert.Equal(
             "return Equals<T>(value, other);",
             output);
+    }
+
+    [Fact]
+    public void ReceiverInferredGenericArguments_AreOmitted()
+    {
+        var function = Import(nameof(CfgSampleClass.ReceiverInferredExtensionArguments));
+        var concat = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Concat");
+        Assert.Equal(MetadataFactState.Yes, concat.Callee.TypeArgumentElisionOverloadSafety);
+        Assert.Equal(TypeRefKind.GenericInstance, concat.Callee.DefinitionParameterTypes[0].Kind);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            concat.Callee.DefinitionParameterTypes[0].TypeArguments[0].Kind);
+        Assert.True(concat.Callee.CanOmitTypeArguments);
+
+        string output = PrintRaised(nameof(CfgSampleClass.ReceiverInferredExtensionArguments));
+
+        Assert.Contains("values.Concat([extra]).Distinct()", output);
+        Assert.DoesNotContain("Concat<string>", output);
+        Assert.DoesNotContain("Distinct<string>", output);
+    }
+
+    [Fact]
+    public void SameReceiverOverloads_KeepTheInferenceCandidateSet()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.SameReceiverOverloadsRemainInferable));
+
+        Assert.Contains("values.Where(value =>", output);
+        Assert.DoesNotContain("Where<string>", output);
+    }
+
+    [Fact]
+    public void LambdaResultInference_OmitsGenericArguments()
+    {
+        var function = Import(nameof(CfgSampleClass.ResultInferredExtensionArgumentsAreOmitted));
+        var select = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Select");
+        var output = Assert.Single(select.Callee.TypeArgumentElisionLambdaOutputs);
+        Assert.Equal(1, output.TypeArgumentIndex);
+        Assert.Equal(1, output.ArgumentIndex);
+        Assert.True(select.Callee.CanOmitTypeArguments);
+
+        string text = PrintRaised(nameof(CfgSampleClass.ResultInferredExtensionArgumentsAreOmitted));
+
+        Assert.Contains("values.Select(value => value.Length)", text);
+        Assert.DoesNotContain("Select<string, int>", text);
+    }
+
+    [Fact]
+    public void FluentLambdaResultInference_OmitsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.FluentResultInferredExtensionArgumentsAreOmitted));
+
+        Assert.Contains(
+            "values.OrderBy(value => value.Length).ThenBy(value => value)",
+            output);
+        Assert.DoesNotContain("OrderBy<string, int>", output);
+        Assert.DoesNotContain("ThenBy<string, string>", output);
+    }
+
+    [Fact]
+    public void AmbiguousReceiverInstantiation_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.AmbiguousReceiverArgumentsRemainExplicit));
+
+        Assert.Contains("receiver.Value<int>()", output);
+    }
+
+    [Fact]
+    public void CovariantReceiverConversion_KeepsDifferentGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CovariantReceiverArgumentsRemainExplicit));
+
+        Assert.Contains("receiver.CovariantValue<object>()", output);
+    }
+
+    [Fact]
+    public void CompetingGenericArity_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CompetingGenericArityRemainsExplicit));
+
+        Assert.Contains("receiver.Overloaded<int>(\"value\")", output);
+    }
+
+    [Fact]
+    public void ExactSameAssemblyReceiver_OmitsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.ExactSameAssemblyReceiverArgumentsAreOmitted));
+
+        Assert.Contains("receiver.Value()", output);
+    }
+
+    [Fact]
+    public void ConflictingArgumentInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.ConflictingArgumentInferenceRemainsExplicit));
+
+        Assert.Contains("values.Append<byte>(1)", output);
+    }
+
+    [Fact]
+    public void CompetingSiblingInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CompetingSiblingInferenceRemainsExplicit));
+
+        Assert.Contains("values.SiblingInference<string>(factory)", output);
+    }
+
+    [Fact]
+    public void BareReceiverConversion_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.BareReceiverInferenceRemainsExplicit));
+
+        Assert.Contains("value.BareReceiverType<object>()", output);
+    }
+
+    [Fact]
+    public void RaisedLambdaOutputInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.LambdaOutputInferenceRemainsExplicit));
+
+        Assert.Contains("values.TakeFactory<byte>(() => 1)", output);
+    }
+
+    [Fact]
+    public void LambdaOutputNaturalTypeMismatch_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.OutputInferenceNaturalTypeMismatchRemainsExplicit));
+
+        Assert.Contains("values.Select<string, byte>(_ => 1)", output);
+    }
+
+    [Fact]
+    public void LambdaOutputWithoutNaturalType_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.OutputInferenceTypelessResultRemainsExplicit));
+
+        Assert.Contains("values.Select<string, string>(_ => null)", output);
+    }
+
+    [Fact]
+    public void ExpressionTreeOutputInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.ExpressionTreeOutputInferenceRemainsExplicit));
+
+        Assert.Contains("values.Select<string, int>", output);
+    }
+
+    [Fact]
+    public void OutputInferredMethodGroup_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            nameof(OutputInferenceMethodGroupSamples.Call));
+
+        Assert.Contains("values.Select<string, int>", output);
+        Assert.Contains("int.Parse", output);
+    }
+
+    [Fact]
+    public void CompetingOutputInferenceSibling_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CompetingOutputInferenceSiblingRemainsExplicit));
+
+        Assert.Contains(
+            "values.OutputCandidate<string, int>(value => value.Length)",
+            output);
+    }
+
+    [Fact]
+    public void ParamsCollectionOverload_KeepsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.ParamsCollectionInferenceRemainsExplicit));
+
+        Assert.Contains("values.ParamsCollection<string>(\"a\", \"b\")", output);
+    }
+
+    [Fact]
+    public void ArrayReceiverInference_OmitsGenericArguments()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.ArrayReceiverArgumentsAreOmitted));
+
+        Assert.Contains("values.CopyArray()", output);
+    }
+
+    [Fact]
+    public void FunctionPointerParameterInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.FunctionPointerParameterInferenceRemainsExplicit));
+
+        Assert.Contains("values.FunctionPointerArgument<string>(callback)", output);
+    }
+
+    [Fact]
+    public void NullSiblingInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.NullSiblingInferenceRemainsExplicit));
+
+        Assert.Contains(
+            "values.NullSiblingInference<string>(null, factory)",
+            output);
+    }
+
+    [Fact]
+    public void ConversionSiblingInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.ConversionSiblingInferenceRemainsExplicit));
+
+        Assert.Contains(
+            "values.ConversionSiblingInference<string>(\"value\", factory)",
+            output);
+    }
+
+    [Fact]
+    public void SpanSiblingInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.SpanSiblingInferenceRemainsExplicit));
+
+        Assert.Contains(
+            "values.SpanSiblingInference<string>(span, \"value\")",
+            output);
+    }
+
+    [Fact]
+    public void CollectionSiblingInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CollectionSiblingInferenceRemainsExplicit));
+
+        Assert.Contains(
+            "values.CollectionSiblingInference<string>([new object()])",
+            output);
+    }
+
+    [Fact]
+    public void CollectionElementInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CollectionElementInferenceRemainsExplicit));
+
+        Assert.Contains("values.CollectionArgument<byte>([1])", output);
+    }
+
+    [Fact]
+    public void TupleElementInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.TupleElementInferenceRemainsExplicit));
+
+        Assert.Contains("values.TupleArgument<byte>((1, 2))", output);
+    }
+
+    [Fact]
+    public void UnresolvedMethodMetadata_KeepsGenericArguments()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = Assert.IsType<IrFunction>(
+            IrImporter.Import(
+                source,
+                typeof(CfgSampleClass).FullName!,
+                nameof(CfgSampleClass.ReceiverInferredExtensionArguments)));
+        var concat = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Concat");
+
+        Assert.Equal(MetadataFactState.Unknown, concat.Callee.IsExtension);
+        Assert.False(concat.Callee.CanOmitTypeArguments);
     }
 }

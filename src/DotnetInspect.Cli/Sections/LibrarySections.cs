@@ -1,8 +1,10 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -73,6 +75,7 @@ public static class LibrarySections
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
                 [
+                    AssemblyReferencesQuery.Definition,
                     ClassifiedMethodsQuery.Definition,
                     CustomAttributesQuery.Definition,
                     ExtensionMethodsQuery.Definition,
@@ -114,6 +117,9 @@ public static class LibrarySections
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
+            .Add<EcosystemDependencies>(
+                AssemblyReferencesQuery.Definition)
+            .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
                 UnsafeEvidenceQuery.Definition,
@@ -141,6 +147,9 @@ public static class LibrarySections
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
             .Add<PerformanceEnumerators>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceStrings>(
                 OptimizationOpportunitiesQuery.Definition,
                 HasMethodBodies)
             .Add<PerformanceLoops>(
@@ -171,6 +180,7 @@ public static class LibrarySections
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddBaseCategory(SectionCategoryNames.Surface,
@@ -201,6 +211,11 @@ public static class LibrarySections
                 SectionCategoryNames.Integrations,
                 IntegrationSectionNames.Integrations,
                 IntegrationSectionNames.Opportunities)
+            .AddCategory(
+                SectionCategoryNames.Dependencies,
+                SectionNames.References,
+                SectionNames.EcosystemDependencies,
+                SectionNames.ReferenceHierarchy)
             .AddCategory(SectionCategoryNames.Context,
                 SectionNames.ILOffset,
                 SectionNames.MemberContext,
@@ -392,7 +407,7 @@ public static class LibrarySections
     {
         ResourceTriageResult result = ExecuteResourceTriageQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex,
+            () => context.BodyAnalysis().ResourceLifecycle,
             new Inspector.Findings.FindingSubject(
                 Path.GetFullPath(context.AssemblyPath),
                 Path.GetFileName(context.AssemblyPath)));
@@ -403,10 +418,11 @@ public static class LibrarySections
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         bool hasMetadata,
-        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+        Func<ILInspector.Analysis.LibraryResourceLifecycleAnalysisResult>
+            acquireLifecycle,
         Inspector.Findings.FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireLifecycle);
         ArgumentNullException.ThrowIfNull(subject);
 
         if (!hasMetadata)
@@ -415,7 +431,7 @@ public static class LibrarySections
         try
         {
             return ResourceTriageQuery.Execute(
-                acquireIndex(),
+                acquireLifecycle(),
                 subject);
         }
         catch (CostDeclarationException)
@@ -438,7 +454,7 @@ public static class LibrarySections
     {
         TopLeverageResult result = ExecuteTopLeverageQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex);
+            () => context.BodyAnalysis().Leverage);
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
@@ -461,16 +477,17 @@ public static class LibrarySections
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
         => ExecuteOptimizationOpportunitiesQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex,
+            () => context.BodyAnalysis().Optimization,
             context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(
             bool hasMetadata,
-            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+            Func<ILInspector.Analysis.LibraryOptimizationAnalysisResult>
+                acquireAnalysis,
             bool includeAllocationFanout)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new OptimizationOpportunitiesResult.NoMetadata();
@@ -478,7 +495,7 @@ public static class LibrarySections
         try
         {
             return OptimizationOpportunitiesQuery.Execute(
-                acquireIndex(),
+                acquireAnalysis(),
                 includeAllocationFanout);
         }
         catch (CostDeclarationException)
@@ -559,16 +576,17 @@ public static class LibrarySections
 
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         bool hasMetadata,
-        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+        Func<ILInspector.Analysis.LibraryLeverageAnalysisResult>
+            acquireAnalysis)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new TopLeverageResult.NoMetadata();
 
         try
         {
-            return TopLeverageQuery.Execute(acquireIndex());
+            return TopLeverageQuery.Execute(acquireAnalysis());
         }
         catch (CostDeclarationException)
         {
@@ -649,6 +667,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
             => model.InspectionFailures is { Count: > 0 };
     }
@@ -769,7 +788,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Switches;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.SwitchInspection.CanRenderWithPresence(model.HasSwitches);
     }
@@ -806,8 +825,10 @@ public static class LibrarySections
         => model.AssemblyInfo != null;
 
     private static bool HasReferenceData(LibraryInspection model)
-        => model.AssemblyInfo?.References is { Count: > 0 }
-           || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+        => model.AssemblyReferenceInspection?.Value
+               is FindingInspection<AssemblyReference>.Complete
+           || (model.AssemblyReferenceInspection is null
+               && model.AssemblyInfo?.References is not null);
 
     private static bool HasMethodBodies(LibraryInspection model)
         => model.HasMethodBodies;
@@ -848,16 +869,46 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
-    // ===== Normal sections (offline, cheap) =====
+    // ===== Offline inventory sections =====
 
     public sealed class References : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
-            => model.AssemblyReferenceInspection.HasFindings()
-               || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+            => HasReferenceData(model);
+    }
+
+    public sealed class EcosystemDependencies :
+        ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.EcosystemDependencies;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Informative;
+        public static bool CanRender(LibraryInspection model) =>
+            model.EcosystemDependencyRecognitionInspection?.Content
+                is EcosystemDependencyRecognitionOutcome.Complete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    }
+                or EcosystemDependencyRecognitionOutcome.Incomplete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    };
+    }
+
+    public sealed class ReferenceHierarchy :
+        ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ReferenceHierarchy;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.ReferenceHierarchyProjection is not null;
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>
@@ -976,6 +1027,14 @@ public static class LibrarySections
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators);
     }
 
+    public sealed class PerformanceStrings : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceStrings;
+        public static bool IsExpensive => false;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceStrings);
+    }
+
     public sealed class PerformanceLoops : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceLoops;
@@ -1021,6 +1080,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PInvokeMethods;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
                && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
@@ -1057,6 +1117,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.UnionTypes;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.UnionTypeInspection.CanRenderWithPresence(model.HasUnionTypes);
     }
@@ -1065,6 +1126,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarderInspection.CanRenderWithPresence(model.HasExportedTypeForwarders);
     }

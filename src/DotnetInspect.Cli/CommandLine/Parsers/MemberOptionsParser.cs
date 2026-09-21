@@ -61,11 +61,10 @@ public static class MemberOptionsParser
             .. positionalMembers,
             .. optionMembers,
         ];
-        var (memberFilter, _) =
+        var memberFilter =
             BuildMemberFilter(
                 members,
-                parseResult.GetValue(args.CtorOption),
-                out _);
+                parseResult.GetValue(args.CtorOption));
         return memberFilter.Count > 0
             || (!string.IsNullOrWhiteSpace(typeName)
                 && StructuralViewRegistry
@@ -154,14 +153,6 @@ public static class MemberOptionsParser
         error = GetMemberSelectorConflictError(members);
         if (error is not null)
             return true;
-        if (parseResult.GetResult(args.ShapeOption)
-            is { Implicit: false })
-        {
-            error = new OptionError(
-                "--shape is only valid for type targets.");
-            return true;
-        }
-
         error = SharedParsers.ParseAnalysisQueryOptions(
             parseResult,
             options,
@@ -306,8 +297,9 @@ public static class MemberOptionsParser
         Option<string[]> CallerPackageOption,
         Option<string[]> RepoOption,
         Option<string?> AtOption,
-        Option<bool> ShapeOption,
-        Option<string?> RouterDeferredTargetOption);
+        Option<string?> RouterDeferredTargetOption,
+        Option<bool> SourcePartsOption,
+        Option<string?> SourcePartOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -360,9 +352,40 @@ public static class MemberOptionsParser
         SharedOptions opts,
         MemberCommandArgs args)
     {
+        bool sourceParts = parseResult.GetValue(args.SourcePartsOption);
+        MemberSourcePartKind? sourcePart = null;
+        if (parseResult.GetValue(args.SourcePartOption) is { } partName)
+        {
+            if (!MemberSourcePartsProjection.TryParse(partName, out var parsedPart))
+                return new VersionError("--part must be member, xml-docs, attributes, signature, or body.");
+            if (!parseResult.GetValue(opts.Print))
+                return new VersionError("--part requires --print.");
+            sourcePart = parsedPart;
+        }
+        if (sourceParts && parseResult.GetValue(opts.Print) && sourcePart is null)
+            return new VersionError("Use --print --part to print a member part, or omit --source-parts to print the whole file.");
+
+        bool selectsCallRows =
+            MemberCallRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
+        bool selectsCallerRows =
+            MemberCallerRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
+        bool selectsCloneCandidateRows =
+            CloneCandidateRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
-                "Member Facts",
+                selectsCallRows
+                    ? "Member Calls"
+                    : selectsCallerRows
+                    ? "Member Callers"
+                    : selectsCloneCandidateRows
+                    ? "Clone Candidates"
+                    : "Member Facts",
                 out RowSelectionIntent<string>? rowSelection,
                 out string? rowSelectionError))
         {
@@ -386,11 +409,6 @@ public static class MemberOptionsParser
         }
 
         bool routerDeferredTypeOrMember = deferredRouteValue is not null;
-        bool shapeExplicitlySet =
-            parseResult.GetResult(args.ShapeOption) is { Implicit: false };
-        if (shapeExplicitlySet && !routerDeferredTypeOrMember)
-            return new VersionError("--shape is only valid for type targets.");
-
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
         {
@@ -434,7 +452,8 @@ public static class MemberOptionsParser
                 sourceInputs,
                 sourceOptions,
                 parseResult.GetValue(opts.Verbose),
-                tryQualifiedTypeName: false);
+                tryQualifiedTypeName: false,
+                parseResult.GetValue(args.FrameworkOption));
             source = sourceSelection.Source;
         }
 
@@ -556,9 +575,7 @@ public static class MemberOptionsParser
             typeName = dottedTypeFilter;
 
         // Build member filter
-        var (memberFilter, memberLimit) = BuildMemberFilter(allMembers, ctorOnly, out var clearShorthand);
-        if (clearShorthand)
-            shorthandIndex = null;
+        var memberFilter = BuildMemberFilter(allMembers, ctorOnly);
         OptionError? memberSelectionError =
             GetMemberSelectionError(
                 memberGenericArity,
@@ -595,6 +612,8 @@ public static class MemberOptionsParser
         {
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
+        if ((sourceParts || sourcePart is not null) && !hasExplicitSelect)
+            select = [SectionNames.SourceLocations];
 
         OptionError? mermaidError =
             GetMermaidOptionError(parseResult, opts);
@@ -618,7 +637,6 @@ public static class MemberOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            Limit = memberLimit,
             ShowDocs = true,  // Docs always on (local XML); use source command for SourceLink
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
@@ -660,6 +678,8 @@ public static class MemberOptionsParser
                 || parseResult.GetResult(opts.Head) is { Implicit: false }
                 || parseResult.GetResult(opts.Tail) is { Implicit: false },
             ShareFormat = shareFormat,
+            SourceParts = sourceParts,
+            SourcePart = sourcePart,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
@@ -670,8 +690,6 @@ public static class MemberOptionsParser
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
-            ShapeOutput = parseResult.GetValue(args.ShapeOption),
-            ShapeExplicitlySet = shapeExplicitlySet,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
@@ -682,7 +700,21 @@ public static class MemberOptionsParser
             Rows = rowSelection is null
                 ? opts.ParseRows(parseResult)
                 : null,
-            FactsRowSelection = rowSelection,
+            FactsRowSelection = selectsCallRows
+                || selectsCallerRows
+                || selectsCloneCandidateRows
+                ? null
+                : rowSelection,
+            CallRowSelection = selectsCallRows
+                ? rowSelection
+                : null,
+            CallerRowSelection = selectsCallerRows
+                ? rowSelection
+                : null,
+            CloneCandidateRowSelection =
+                selectsCloneCandidateRows
+                    ? rowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,
@@ -696,7 +728,7 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || memberLimit != null
+            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
@@ -741,7 +773,7 @@ public static class MemberOptionsParser
                 parsedMembers,
                 inferDottedTypeFilter: string.IsNullOrEmpty(typeName),
                 suppliedTypeName: typeName);
-        (memberFilter, _) = BuildMemberFilter(parsedMembers, ctor, out _);
+        memberFilter = BuildMemberFilter(parsedMembers, ctor);
         exactMember = index is not null
             || shorthandIndex is not null
             || !string.IsNullOrWhiteSpace(memberDigest)
@@ -779,23 +811,19 @@ public static class MemberOptionsParser
         return null;
     }
 
-    private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)
+    private static HashSet<string> BuildMemberFilter(
+        string[] allMembers,
+        bool ctorOnly)
     {
-        clearShorthand = false;
-
         if (ctorOnly)
-            return (new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" }, null);
-
-        if (allMembers.Length == 1 && int.TryParse(allMembers[0], out var mNum))
-        {
-            clearShorthand = true;
-            return ([], mNum);
-        }
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
 
         if (allMembers.Length > 0)
-            return (new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase), null);
+            return new HashSet<string>(
+                allMembers,
+                StringComparer.OrdinalIgnoreCase);
 
-        return ([], null);
+        return [];
     }
 
     private static OptionError? GetMemberSelectionError(

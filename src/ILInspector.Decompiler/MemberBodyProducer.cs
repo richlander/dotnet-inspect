@@ -122,6 +122,17 @@ public static class MemberBodyProducer
     public static MemberBodyProductionResult ProduceBody(
         Pipeline.MetadataSource source,
         MetadataMethodAddress address)
+        => ProduceBody(source, address, propertySource: null);
+
+    /// <summary>
+    /// Produces a body with optional proven getter-storage binding before raising.
+    /// A caller supplying <paramref name="propertySource"/> must place the body
+    /// in the owning property; null preserves independent body-only spelling.
+    /// </summary>
+    public static MemberBodyProductionResult ProduceBody(
+        Pipeline.MetadataSource source,
+        MetadataMethodAddress address,
+        SelectedPropertyAccessorSource? propertySource)
     {
         ArgumentNullException.ThrowIfNull(source);
         try
@@ -188,6 +199,7 @@ public static class MemberBodyProducer
                     "method body could not be imported");
             }
 
+            propertySource?.BindBody(function);
             var projection = Pipeline.CSharpPrinter.PrintRaised(
                 function,
                 importMethodBody: methodRef => Pipeline.IrImporter.Import(source, methodRef),
@@ -1464,13 +1476,12 @@ public static class MemberBodyProducer
                             member.Name,
                             index,
                             bodyPublicOnly);
+                    IReadOnlyList<string> attributes = [];
                     if (attributeMode == MemberRenderAttributeMode.All)
                     {
-                        var attributes = memberHandle is { } attrHandle
+                        attributes = memberHandle is { } attrHandle
                             ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
                             : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
-                        foreach (var attribute in attributes)
-                            sb.AppendLf($"    [{attribute}]");
                     }
                     else if (memberHandle is { } requiredAttributeHandle
                         && AttributeReader.HasAttribute(
@@ -1478,7 +1489,7 @@ public static class MemberBodyProducer
                             reader.GetMethodDefinition(requiredAttributeHandle).GetCustomAttributes(),
                             KnownAttributeNames.SkipLocalsInitAttribute))
                     {
-                        sb.AppendLf("    [global::System.Runtime.CompilerServices.SkipLocalsInit]");
+                        attributes = ["global::System.Runtime.CompilerServices.SkipLocalsInit"];
                     }
 
                     string? constructorChain = null;
@@ -1486,83 +1497,12 @@ public static class MemberBodyProducer
                     bool bodyIsSingleExpressionBody = false;
                     bool bodyIsDestructor = false;
                     IReadOnlyList<string>? bodyParameterNames = null;
+                    var propertySource = memberHandle is { } accessorHandle
+                        ? SelectedPropertyAccessorSource.Create(pipelineSource, accessorHandle, member)
+                        : null;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null, tracker);
-
-                    // An explicit interface property implementation surfaces
-                    // as its accessor method. Derive the property identity from
-                    // the MethodSemantics-owned PropertyDef rather than parsing
-                    // get_/set_ markers from the qualified MethodDef name.
-                    bool isExplicitSetter = false;
-                    string? explicitPropertyPath =
-                        member.Kind == "explicit-interface-implementation"
-                            && memberHandle is { } explicitAccessorHandle
-                            ? ExplicitPropertyName(
-                                reader,
-                                typeHandle,
-                                explicitAccessorHandle,
-                                out isExplicitSetter)
-                            : null;
-                    if (member.Kind == "explicit-interface-implementation"
-                        && explicitPropertyPath is { } propertyPath
-                        && memberHandle is { } propertyAccessorHandle
-                        && body is not null)
-                    {
-                        ThrowIfAccessorParameterNamesChanged(
-                            member.Name,
-                            isExplicitSetter
-                                ? AccessorRole.Setter
-                                : AccessorRole.Getter,
-                            function: null,
-                            bodyParameterNames,
-                            DeclarationParameterNames(member));
-                        string? accessorPropertyType = isExplicitSetter
-                            ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
-                            : member.SignatureModel?.ReturnType
-                                ?? member.ReturnType;
-                        if (string.IsNullOrEmpty(accessorPropertyType))
-                        {
-                            throw new InvalidOperationException(
-                                "The explicit property accessor does not provide its property type.");
-                        }
-                        string staticModifier = member.IsStatic ? "static " : "";
-                        string readonlyModifier = member.IsReadOnly ? "readonly " : "";
-                        string unsafeModifier =
-                            (member.IsUnsafe || requiresUnsafeContext)
-                                ? "unsafe "
-                                : "";
-                        string propertyType = EscapeKnownIdentifiers(
-                            accessorPropertyType,
-                            type.TypeParameters.Select(p => p.Name));
-                        string head =
-                            $"{staticModifier}{readonlyModifier}{unsafeModifier}{propertyType} {propertyPath}";
-                        if (isExplicitSetter)
-                        {
-                            string accessorKind = MetadataDeclarationQuery.IsInitOnlySetter(
-                                reader,
-                                reader.GetTypeDefinition(typeHandle),
-                                reader.GetMethodDefinition(propertyAccessorHandle))
-                                    ? "init"
-                                    : "set";
-                            sb.AppendLf($"    {head}");
-                            sb.AppendLf("    {");
-                            CSharpMemberLayout.Append(sb, accessorKind, body, 8, WrapExpressionBodyArrow(printerOptions));
-                            sb.AppendLf("    }");
-                        }
-                        else if (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(body) is not null)
-                        {
-                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions), bodyIsSingleExpressionBody, DisableSignatureWrapping(printerOptions));
-                        }
-                        else
-                        {
-                            sb.AppendLf($"    {head}");
-                            sb.AppendLf("    {");
-                            CSharpMemberLayout.Append(sb, "get", body, 8, WrapExpressionBodyArrow(printerOptions));
-                            sb.AppendLf("    }");
-                        }
-                        break;
-                    }
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null, tracker, propertySource);
 
                     var bodyShape = body is null
                         ? null
@@ -1579,6 +1519,21 @@ public static class MemberBodyProducer
                             // not silently re-inject the mandatory base call.
                             SuppressDestructorSyntax = member.IsFinalizer && !bodyIsDestructor
                         };
+                    if (bodyShape is not null && propertySource is not null)
+                    {
+                        sb.AppendLf(propertySource.Format(
+                            type,
+                            bodyShape,
+                            bodyIsSingleExpressionBody,
+                            attributes: attributes,
+                            includeSignatureAttributes: attributeMode == MemberRenderAttributeMode.All,
+                            wrapExpressionBodyArrow: WrapExpressionBodyArrow(printerOptions),
+                            indent: 4));
+                        break;
+                    }
+
+                    foreach (var attribute in attributes)
+                        sb.AppendLf($"    [{attribute}]");
                     var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
                         ? DefaultDeclarationFormatter
                         : ShellDeclarationFormatter;
@@ -1812,45 +1767,6 @@ public static class MemberBodyProducer
         }
     }
 
-    /// <summary>
-    /// Returns the explicit property name owned by the accessor's
-    /// MethodSemantics relationship. Indexer accessors keep method form.
-    /// </summary>
-    static string? ExplicitPropertyName(
-        MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle methodHandle,
-        out bool isSetter)
-    {
-        isSetter = false;
-        var type = reader.GetTypeDefinition(typeHandle);
-        foreach (var propertyHandle in type.GetProperties())
-        {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            var accessors = property.GetAccessors();
-            bool isGetter = accessors.Getter == methodHandle;
-            if (!isGetter && accessors.Setter != methodHandle)
-                continue;
-
-            isSetter = !isGetter;
-            string name = reader.GetString(property.Name);
-            int separator = name.LastIndexOf('.');
-            if (separator <= 0)
-                return null;
-            string propName = name[(separator + 1)..];
-            if (propName.Length == 0)
-                return null;
-            var signature = GuardedSignatureText.PropertyText(
-                reader,
-                property,
-                GenericContext.ForType(reader, type));
-            if (!signature.ParameterTypes.IsEmpty)
-                return null;
-            return $"{EscapeQualifiedName(name[..separator])}.{ContainedIdentifier(propName)}";
-        }
-        return null;
-    }
-
     static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
     {
         // An explicit base(...)/this(...) chain renders as a signature
@@ -1925,14 +1841,16 @@ public static class MemberBodyProducer
             : body?.Trim() == $"{target} = value;";
     }
 
-    static bool IsCompilerGeneratedAutoProperty(
+    internal static bool IsCompilerGeneratedAutoProperty(
         Pipeline.MetadataSource source,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         ApiMember member,
         MethodDefinitionHandle? getterHandle,
-        MethodDefinitionHandle? setterHandle)
+        MethodDefinitionHandle? setterHandle,
+        out FieldDefinitionHandle backingFieldHandle)
     {
+        backingFieldHandle = default;
         if (getterHandle is null && setterHandle is null)
             return false;
 
@@ -1951,6 +1869,27 @@ public static class MemberBodyProducer
             }
         }
 
+        return TryGetCompilerGeneratedBackingField(
+                reader, typeHandle, member, getterHandle, setterHandle, out backingFieldHandle)
+            && (getterHandle is null
+                || AccessorReferencesBackingField(
+                    source, typeHandle, getterHandle.Value, backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
+            && (setterHandle is null
+                || AccessorReferencesBackingField(
+                    source, typeHandle, setterHandle.Value, backingFieldHandle,
+                    member.IsStatic ? ILOpCode.Stsfld : ILOpCode.Stfld));
+    }
+
+    internal static bool TryGetCompilerGeneratedBackingField(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member,
+        MethodDefinitionHandle? getterHandle,
+        MethodDefinitionHandle? setterHandle,
+        out FieldDefinitionHandle backingFieldHandle)
+    {
+        backingFieldHandle = default;
         var type = reader.GetTypeDefinition(typeHandle);
         var genericContext = GenericContext.ForType(reader, type);
         PropertyDefinitionHandle propertyHandle = default;
@@ -1985,7 +1924,6 @@ public static class MemberBodyProducer
             return false;
         }
 
-        FieldDefinitionHandle backingFieldHandle = default;
         string backingFieldName = $"<{member.Name}>k__BackingField";
         foreach (var fieldHandle in type.GetFields())
         {
@@ -2016,23 +1954,7 @@ public static class MemberBodyProducer
                 backingFieldHandle = fieldHandle;
             }
         }
-        if (backingFieldHandle.IsNil)
-            return false;
-
-        return (getterHandle is null
-                || AccessorReferencesBackingField(
-                    source,
-                    typeHandle,
-                    getterHandle.Value,
-                    backingFieldHandle,
-                    member.IsStatic ? ILOpCode.Ldsfld : ILOpCode.Ldfld))
-            && (setterHandle is null
-                || AccessorReferencesBackingField(
-                    source,
-                    typeHandle,
-                    setterHandle.Value,
-                    backingFieldHandle,
-                    member.IsStatic ? ILOpCode.Stsfld : ILOpCode.Stfld));
+        return !backingFieldHandle.IsNil;
     }
 
     static bool AccessorReferencesBackingField(
@@ -2063,7 +1985,7 @@ public static class MemberBodyProducer
                 backingFieldHandle);
     }
 
-    static bool FieldOperandMatchesBackingField(
+    internal static bool FieldOperandMatchesBackingField(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         EntityHandle operandHandle,
@@ -2124,7 +2046,8 @@ public static class MemberBodyProducer
                     typeHandle,
                     member,
                     getterHandle,
-                    setterHandle))
+                    setterHandle,
+                    out _))
             {
                 return false;
             }
@@ -2295,7 +2218,8 @@ public static class MemberBodyProducer
                 typeHandle,
                 member,
                 getterHandle,
-                setterHandle)
+                setterHandle,
+                out _)
             && accessors.All(a => IsTrivialAutoAccessor(
                 a.Keyword,
                 a.Body,
@@ -2578,7 +2502,8 @@ public static class MemberBodyProducer
         out IReadOnlyList<string>? parameterNames,
         Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic,
-        CSharpCompositionTracker? tracker)
+        CSharpCompositionTracker? tracker,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -2593,7 +2518,8 @@ public static class MemberBodyProducer
                 () => Pipeline.IrImporter.Import(
                     pipelineSource,
                     methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic, tracker);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic, tracker,
+                propertySource: propertySource);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -2960,7 +2886,8 @@ public static class MemberBodyProducer
         bool failOnDiagnostic,
         CSharpCompositionTracker? tracker,
         CSharpBodyProjectionKind projectionKind,
-        out CSharpCompositionTracker.ProjectionTicket? projection)
+        out CSharpCompositionTracker.ProjectionTicket? projection,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
@@ -2982,18 +2909,23 @@ public static class MemberBodyProducer
                     projection,
                     DecompilerResult.Failure(
                         DiagnosticIds.ContextUnavailable,
-                        "method has no importable IL body"));
+                        "method has no importable IL body"),
+                    propertySource);
                 projection.MarkNonContributing();
             }
             return null;
         }
+        propertySource?.BindBody(function);
         CollectNamespaces(function, bodyNamespaces);
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
         if (projection is not null)
         {
-            tracker!.Complete(projection, result);
+            tracker!.Complete(
+                projection,
+                result,
+                propertySource);
             tracker.ObserveSymbols(pipelineSource.Symbols);
         }
         if (!result.Succeeded
@@ -3032,7 +2964,8 @@ public static class MemberBodyProducer
         bool failOnDiagnostic,
         CSharpCompositionTracker? tracker = null,
         CSharpBodyProjectionKind projectionKind =
-            CSharpBodyProjectionKind.MemberBody)
+            CSharpBodyProjectionKind.MemberBody,
+        SelectedPropertyAccessorSource? propertySource = null)
         => DecompileFunction(
             pipelineSource,
             methodHandle,
@@ -3047,7 +2980,8 @@ public static class MemberBodyProducer
             failOnDiagnostic,
             tracker,
             projectionKind,
-            out _);
+            out _,
+            propertySource);
 
     /// <summary>
     /// Unions the namespaces of every definition type the function references

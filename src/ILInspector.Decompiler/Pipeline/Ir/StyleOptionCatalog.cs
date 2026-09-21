@@ -378,6 +378,8 @@ public static class StyleOptionCatalog
     private const string VarStyleId = "var-spelling-style";
     private const string ObjectCreationStyleId = "object-creation-style";
     private const string EnumLabelOrderId = "enum-case-label-order";
+    private const string LongLiteralStyleId = "prefer-long-literal-suffix";
+    private const string LegacyLongLiteralSuffixChoiceId = "prefer-long-literal-suffix";
 
     // Value tokens for the guarded-boolean-return family axis.
     private const string GuardedReturnDefault = "flat";
@@ -553,16 +555,7 @@ public static class StyleOptionCatalog
         VarSpellingStyle(),
         ObjectCreationStyle(),
         EnumCaseLabelOrderStyle(),
-        Boolean(
-            id: "prefer-long-literal-suffix",
-            title: "Long literal suffix (10L)",
-            summary: "Render a long constant the IL spells `ldc.i4(.s) N; conv.i8` as the idiomatic NL literal instead of the (long)N cast; a genuine ldc.i8 source keeps its current spelling.",
-            tier: StyleOptionTier.Lens,
-            byteDivergent: true,
-            oracleEndorsed: false,
-            configKey: "dotnet_inspect_style_prefer_long_literal_suffix",
-            get: static o => o.PreferLongLiteralSuffix,
-            with: static (o, v) => o with { PreferLongLiteralSuffix = v }),
+        LongLiteralStyle(),
     ];
 
     /// <summary>
@@ -576,10 +569,12 @@ public static class StyleOptionCatalog
     /// <summary>
     /// Every selectable non-default style value as a product-owned picker row, in
     /// stable option/value presentation order. Choice ids preserve the browser's
-    /// existing persisted vocabulary: a lone non-default value keeps the option
-    /// id, while existing multi-value choices use
+    /// advertised persisted vocabulary: a lone non-default value normally keeps
+    /// the option id, while existing multi-value choices use
     /// <c>option-id:value-token</c>. The ids are stored explicitly on values so
-    /// future catalog growth cannot rename an existing choice.
+    /// future catalog growth cannot rename an existing choice. When a former
+    /// choice becomes the default, <see cref="ResolveChoices"/> may retain its old
+    /// id as a migration alias without advertising a no-op picker row.
     /// </summary>
     public static IReadOnlyList<StyleOptionChoice> Choices { get; } = CreateChoices();
 
@@ -636,11 +631,11 @@ public static class StyleOptionCatalog
     }
 
     /// <summary>
-    /// Resolves product-owned picker <see cref="Choices"/> ids into user-facing
-    /// <see cref="DefaultOptions"/> plus the selected values. This is deliberately
-    /// separate from the composable <see cref="StyleOptionValue.ConfigKey"/>
-    /// vocabulary consumed by configuration files. Unknown ids and two distinct
-    /// choices from one non-null
+    /// Resolves product-owned picker <see cref="Choices"/> ids, plus explicitly
+    /// retained migration aliases, into user-facing <see cref="DefaultOptions"/>
+    /// plus the selected values. This is deliberately separate from the composable
+    /// <see cref="StyleOptionValue.ConfigKey"/> vocabulary consumed by
+    /// configuration files. Unknown ids and two distinct choices from one non-null
     /// <see cref="StyleOptionChoice.ConflictGroup"/> are rejected rather than
     /// silently producing default or order-dependent output. Duplicate copies of
     /// the same id are harmless, matching set semantics.
@@ -666,6 +661,15 @@ public static class StyleOptionCatalog
                 candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
             if (choice is null)
             {
+                // Before #7763 the suffix spelling was opt-in under this id. It is
+                // now the product default, so persisted browser selections become a
+                // deliberate no-op rather than an unknown-id failure.
+                if (string.Equals(id, LegacyLongLiteralSuffixChoiceId, StringComparison.Ordinal))
+                {
+                    applied.Add(id);
+                    continue;
+                }
+
                 throw new ArgumentException(
                     $"'{id}' is not a style choice in the product catalog.",
                     nameof(choiceIds));
@@ -993,6 +997,39 @@ public static class StyleOptionCatalog
                     SetSelected = static (o, on) => on
                         ? o with { EnumCaseLabelOrder = EnumCaseLabelOrder.Value }
                         : o,
+                },
+            ],
+        };
+
+    private static StyleOptionDescriptor LongLiteralStyle()
+        => new()
+        {
+            Id = LongLiteralStyleId,
+            Title = "Use explicit long literal casts",
+            Summary = "Render compiler-shaped long constants as explicit (long)N casts instead of the default terse NL suffix; genuine ldc.i8 sources keep their current spelling.",
+            Tier = StyleOptionTier.Spelling,
+            ByteDivergent = false,
+            DefaultValue = "true",
+            Values =
+            [
+                new StyleOptionValue
+                {
+                    Token = "false",
+                    ChoiceId = "explicit-long-literal-cast",
+                    Title = "Explicit (long)N cast",
+                    IsSelected = static o => !o.PreferLongLiteralSuffix,
+                    SetSelected = static (o, on) => on
+                        ? o with { PreferLongLiteralSuffix = false }
+                        : o,
+                },
+                new StyleOptionValue
+                {
+                    Token = "true",
+                    Title = "NL suffix (default)",
+                    ConfigKey = "dotnet_inspect_style_prefer_long_literal_suffix",
+                    IsSelected = static o => o.PreferLongLiteralSuffix,
+                    SetSelected = static (o, on) =>
+                        o with { PreferLongLiteralSuffix = on },
                 },
             ],
         };

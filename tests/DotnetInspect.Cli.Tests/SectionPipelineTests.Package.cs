@@ -75,6 +75,7 @@ public partial class SectionPipelineTests
                 PackageSections.TargetFrameworks,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Vulnerabilities,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies,
@@ -82,7 +83,12 @@ public partial class SectionPipelineTests
             ],
             categories[SectionCategoryNames.Package]);
         Assert.Equal(
-            [PackageSections.Dependencies, PackageSections.RuntimeDependencies],
+            [
+                PackageSections.DependencyHierarchy,
+                PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
+                PackageSections.RuntimeDependencies,
+            ],
             categories[SectionCategoryNames.Dependencies]);
         Assert.Equal(
             [
@@ -117,6 +123,35 @@ public partial class SectionPipelineTests
         Assert.Equal(
             expected,
             PackageSectionDescriptors.AuditArtifactText.CanRender(model));
+    }
+
+    [Fact]
+    public void PackagePipeline_BaseInventoriesFollowMeasuredGrowthClasses()
+    {
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.TargetFrameworks.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.Dependencies.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.EcosystemDependencies.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.RuntimeDependencies.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.SkillFiles.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.NuspecFiles.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.Manifest.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.Vulnerabilities.SizeClass);
     }
 
     [Fact]
@@ -178,13 +213,7 @@ public partial class SectionPipelineTests
                 PackageSections.Summary,
                 PackageSections.PackageInfo,
                 PackageSections.FilesReadme,
-                PackageSections.TargetFrameworks,
-                PackageSections.FilesNuspec,
-                PackageSections.FilesSkills,
                 PackageSections.Signature,
-                PackageSections.Dependencies,
-                PackageSections.Manifest,
-                PackageSections.RuntimeDependencies
             }.OrderBy(name => name, StringComparer.Ordinal),
             pipeline.GetCandidateSections(Verbosity.Normal)
                 .OrderBy(name => name, StringComparer.Ordinal));
@@ -201,6 +230,7 @@ public partial class SectionPipelineTests
                 PackageSections.FilesSkills,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Vulnerabilities,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies
@@ -211,18 +241,35 @@ public partial class SectionPipelineTests
             [
                 PackageSections.PackageInfo,
                 PackageSections.FilesReadme,
-                PackageSections.FilesNuspec,
                 PackageSections.Signature,
-                PackageSections.Manifest
             ],
             pipeline.BareSelectSectionNames);
+    }
+
+    [Theory]
+    [InlineData(PackageSections.TargetFrameworks)]
+    [InlineData(PackageSections.Dependencies)]
+    [InlineData(PackageSections.EcosystemDependencies)]
+    [InlineData(PackageSections.RuntimeDependencies)]
+    [InlineData(PackageSections.FilesSkills)]
+    [InlineData(PackageSections.FilesNuspec)]
+    [InlineData(PackageSections.Manifest)]
+    [InlineData(PackageSections.Vulnerabilities)]
+    public void PackagePipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
+        string section)
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+
+        Assert.Equal(Verbosity.Detailed, pipeline.GetRequiredVerbosity(include));
+        Assert.Equal([section], pipeline.GetCandidateSections(Verbosity.Detailed, include));
     }
 
     [Fact]
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(22, pipeline.AllSectionNames.Length);
+        Assert.Equal(24, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -242,7 +289,9 @@ public partial class SectionPipelineTests
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Package license files", names);
         Assert.Contains("Statistics", names);
+        Assert.Contains(PackageSections.DependencyHierarchy, names);
         Assert.Contains("Dependencies", names);
+        Assert.Contains(PackageSections.EcosystemDependencies, names);
         Assert.Contains("Package files", names);
         Assert.Contains("Package skill files", names);
         Assert.Contains(PackageSections.SourceLinkFiles, names);
@@ -346,7 +395,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsManifestWhenPresent()
+    public void PackagePipeline_Detailed_ShowsManifestWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -356,13 +405,13 @@ public partial class SectionPipelineTests
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Manifest", effective);
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsRuntimeDepsWhenPresent()
+    public void PackagePipeline_Detailed_ShowsRuntimeDepsWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -372,7 +421,7 @@ public partial class SectionPipelineTests
             RuntimeDependencies = [new PackageDependency { Id = "Dep", Version = "1.0.0" }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Runtime Dependencies", effective);
     }
@@ -410,7 +459,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsPackageDepsWhenPresent()
+    public void PackagePipeline_Detailed_ShowsPackageDepsWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -420,7 +469,7 @@ public partial class SectionPipelineTests
             DependencyGroups = [new DependencyGroup { TargetFramework = "net8.0", Dependencies = [new PackageDependency { Id = "Dep", Version = "1.0" }] }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Dependencies", effective);
     }
@@ -539,7 +588,9 @@ public partial class SectionPipelineTests
             LibraryFiles = ["lib/net8.0/test.dll"],
             Files = [new PackageFile("lib/net8.0/test.dll", 1234)],
             SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" },
-            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
+            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")],
+            DependencyHierarchyProjection =
+                CreateEmptyDependencyHierarchyProjection(),
         };
 
         // At Detailed with all default-renderable data populated, Unbounded-cost sections stay
@@ -550,6 +601,7 @@ public partial class SectionPipelineTests
         Assert.NotNull(include);
         Assert.DoesNotContain("Package files", include);
         Assert.DoesNotContain("SourceLink: Files", include);
+        Assert.DoesNotContain(PackageSections.DependencyHierarchy, include);
     }
 
     [Fact]

@@ -15,8 +15,10 @@ and retire `depends`; those passages remain historical input for focused
 Dependency adoption rather than target grammar.
 The host-neutral dependency settlement operation and ordinary CLI adoption are
 implemented under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug
-sidecar serialization and Browser/Wasm adoption remain proposed.
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug CLI
+sidecar delivery is implemented under
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
+Browser/Wasm adoption remains proposed.
 
 ## Owner and claim
 
@@ -404,6 +406,27 @@ resolver must return one owner-issued selected type identity or a typed
 not-found, ambiguous, or rejected outcome before traversal begins. Candidate
 assemblies supplied by scope options are search participants, not roots.
 `--depth` counts from that one selected type node.
+
+### Query operation profiles
+
+Dependency registers one executable Query Operation with two profiles:
+
+- **Type relationships** binds the selected-Type subject, `Dependency Graph`
+  result, and existing Source, Target, Kind, and Traversal row vocabulary.
+  `--where`, `--order-by`, `--top`, Head, Tail, Window, and Depth lower to one
+  portable intent and resolve to the existing `TypeDependencySectionPlan`.
+  Traversal remains a sequence order and cannot rank Top.
+- **Rooted hierarchy** binds either the explicit asset-root set or an already
+  resolved Package subject to `Dependency Hierarchy`. Both routes inherit
+  Depth and Head, Tail, and Window from the same profile rather than copying a
+  command-local inventory.
+
+Depth is an upstream traversal-work dimension. Row stages run after traversal
+and do not imply that the graph was exhausted at the selected row boundary.
+An unsupported term, order, ranking, stage, or depth fails before source
+acquisition. Query registration does not change root admission, traversal,
+evidence, completion, hierarchy occurrence identity, failures, section
+selection, or rendering.
 
 ## Asset admission and expansion authority
 
@@ -835,8 +858,9 @@ demonstration that diagnostic registration disappears from retail compilation.
 **Status:** partially implemented under
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117). The
 host-neutral ordinary and enriched settlement entry points and ordinary CLI
-cutover are implemented. Debug sidecar serialization and Browser/Wasm adoption
-remain proposed.
+cutover are implemented. Debug CLI sidecar delivery is implemented under
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
+Browser/Wasm adoption remains proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -872,8 +896,8 @@ baseline consumer to understand `TEvidence`.
 
 The typed Content, evidence Document, root-occurrence currency,
 same-execution association, selected-plan settlement operation, and ordinary
-CLI consumption, and closed generated serialization are implemented. Generated
-sidecar serialization and Browser/Wasm adoption remain proposed.
+CLI consumption, closed generated serialization, and Debug CLI sidecar
+delivery are implemented. Browser/Wasm adoption remains proposed.
 
 The dependency service issues one named settled Document:
 
@@ -960,6 +984,13 @@ Package Dependency Evidence or dependency graphs. Rendering or serialization
 consumes the settled values and never reopens an archive, assets file, package
 source, or traversal.
 
+When an explicit package Share request settles an exact package coordinate and
+source authorization, evidence capture consumes that same settlement rather
+than resolving the original selector again. Evidence-only acquisition may add
+typed Evidence, but its verbose and network-traffic logs do not enter the
+ordinary Share stderr stream. A nonprojectable Share remains governed by the
+ordinary sidecar ordering and refusal contract.
+
 ### Thin Debug views and Browser adoption
 
 The four diagnostic sections remain useful Debug views but no longer own
@@ -1035,6 +1066,9 @@ pathological fixtures. They cover:
 - equal extracted baselines for ordinary and enriched execution, including an
   evidence-only producer failure and complete envelope equality for one
   settled request;
+- exact and `@latest` package Share requests reuse the settled coordinate and
+  authorization for evidence acquisition, with evidence-only verbose and
+  network-traffic logging excluded from ordinary Share stderr;
 - selected-plan exclusion of graph, traversal, pruning, and their failures
   when a host adapter supplies values for an unselected phase;
 - one execution, detached lifetime, and serialization without acquisition or
@@ -1277,10 +1311,13 @@ family-incomplete inventory is a visible typed inventory failure.
 No matching package group, unavailable restored target selection, and an empty
 selected group remain distinct states.
 
-When `--tfm` is omitted, package-manifest traversal uses the package
-dependency-group owner's per-manifest default selection. Each package retains
-its selected framework, and the resulting graph does not claim one shared
-target framework.
+When `--tfm` is omitted, a package root may retain the dependency-group owner's
+package-local no-request selection, while recursive package-manifest traversal
+uses `TraversalTargetFrameworkPolicy.ProductDefault(net12.0)`. Supplying
+`--tfm` configures the traversal policy as well as the command's existing root
+selection gesture. Candidate-acquired manifests use compatible selection
+against that one traversal target; a selected lower framework never replaces
+the target on a later edge.
 
 This design does not add `--rid`. A restored target selected by existing
 owner policy retains and discloses its RID. A future explicit RID gesture would

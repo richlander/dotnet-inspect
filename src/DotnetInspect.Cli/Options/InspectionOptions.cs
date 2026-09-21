@@ -22,7 +22,25 @@ public record InspectionOptions : IProjectionOptions
     public string? ExplicitVersion { get; init; }
 
     /// <summary>
-    /// Legacy alias for selecting the package Dependencies section as a tree.
+    /// Canonical Workspace packet supplying the selected Package context.
+    /// </summary>
+    public string? WorkspacePacket { get; init; }
+
+    /// <summary>
+    /// Optional derived Workspace Share output.
+    /// </summary>
+    public WorkspaceShareFormat? ShareFormat { get; init; }
+
+#if DEBUG
+    /// <summary>
+    /// Debug-only destination for the complete enriched Package envelope.
+    /// </summary>
+    public string? EvidenceEnvelopePath { get; init; }
+#endif
+
+    /// <summary>
+    /// Legacy dependency-tree input. The Package route rejects it with focused
+    /// replacement guidance; Library routes retain their existing handling.
     /// </summary>
     public bool ShowDependencies { get; init; }
 
@@ -30,6 +48,12 @@ public record InspectionOptions : IProjectionOptions
     /// Target framework to use for dependency resolution (defaults to highest).
     /// </summary>
     public string? Tfm { get; init; }
+
+    public DependencyQueryPlan? DependencyQueryPlan { get; init; }
+
+    internal int? DependencyHierarchyLegacyWindowStageIndex { get; init; }
+
+    internal bool DependencyHierarchyRowsSelected { get; init; }
 
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
@@ -141,6 +165,12 @@ public record InspectionOptions : IProjectionOptions
 
     public bool Paths { get; init; }
 
+    /// <summary>
+    /// Project top-level package roots represented by selected
+    /// <c>Package files</c> rows.
+    /// </summary>
+    public bool Roots { get; init; }
+
     public bool JsonArray { get; init; }
 
     /// <summary>
@@ -183,9 +213,25 @@ public record InspectionOptions : IProjectionOptions
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for one package layout's scoped file paths.
+    /// </summary>
+    public RowSelectionIntent<string>? PackageLayoutRowSelection { get; init; }
+
+    /// <summary>
     /// Semantic row selection for one package's target-framework listing.
     /// </summary>
     public RowSelectionIntent<string>? PackageTfmRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one Package's ecosystem-dependency pairs.
+    /// </summary>
+    public RowSelectionIntent<string>?
+        EcosystemDependencyRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for Clone Candidates on a delegated Library route.
+    /// </summary>
+    public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.
@@ -340,7 +386,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

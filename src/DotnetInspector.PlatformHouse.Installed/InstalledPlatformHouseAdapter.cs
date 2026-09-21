@@ -56,14 +56,17 @@ public abstract record InstalledPlatformHouseResult<T>
     {
         public NotSucceeded(
             InstalledPlatformSourceDiagnostic diagnostic,
-            PlatformSourceContribution contribution)
+            PlatformSourceContribution contribution,
+            PlatformHouseConsumedWork? sourceWork = null)
             : base(contribution)
         {
             ArgumentNullException.ThrowIfNull(diagnostic);
             Diagnostic = diagnostic;
+            SourceWork = sourceWork;
         }
 
         public InstalledPlatformSourceDiagnostic Diagnostic { get; }
+        public PlatformHouseConsumedWork? SourceWork { get; }
     }
 }
 
@@ -119,22 +122,58 @@ public sealed class InstalledPlatformHouseAdapter
         DiscoverTargets(PlatformHouseRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        return DiscoverTargets(request, request.Work);
+    }
+
+    public InstalledPlatformHouseResult<InstalledReferenceTargetInventory>
+        DiscoverTargets(
+            PlatformHouseRequest request,
+            PlatformHouseWorkBudget remainingWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(remainingWork);
         InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
             ownerOutcome;
-        if (request.Target is not PlatformTargetDemand.Selecting selecting)
+        PlatformFamily family;
+        PlatformTargetDiscoveryBudget discoveryWork;
+        InstalledReferenceDiscoveryScope scope;
+        bool demandAuthorizes;
+        switch (request.Target)
         {
-            throw new ArgumentException(
-                "Installed target discovery requires a selecting House target.",
-                nameof(request));
+            case PlatformTargetDemand.Selecting selecting:
+                family = selecting.Family;
+                discoveryWork = selecting.Work;
+                scope = new InstalledReferenceDiscoveryScope.ExactFramework(
+                    selecting.TargetFramework);
+                demandAuthorizes = selecting.DiscoveryCapabilities.Any(
+                    capability => ReferenceEquals(
+                        capability,
+                        Capabilities.TargetDiscovery));
+                break;
+            case PlatformTargetDemand.FamilyDefault familyDefault
+                when familyDefault.Policy.Preferred?.Capabilities.Any(
+                    capability => ReferenceEquals(
+                        capability,
+                        Capabilities.TargetDiscovery)) == true:
+                family = familyDefault.Family;
+                discoveryWork = familyDefault.Work;
+                scope = new InstalledReferenceDiscoveryScope.AllFrameworks();
+                demandAuthorizes = true;
+                break;
+            case PlatformTargetDemand.FamilyDefault:
+                return RejectDiscovery(
+                    request,
+                    "Installed family-default discovery requires the preferred all-framework stage.");
+            default:
+                throw new ArgumentException(
+                    "Installed target discovery requires a selecting House target.",
+                    nameof(request));
         }
 
         if (!request.Sources.Authorizes(
                 PlatformSourceFacet.TargetDiscovery,
                 Capabilities.TargetDiscovery)
-            || !selecting.DiscoveryCapabilities.Any(
-                capability => ReferenceEquals(
-                    capability,
-                    Capabilities.TargetDiscovery)))
+            || !demandAuthorizes)
         {
             return RejectDiscovery(
                 request,
@@ -142,8 +181,8 @@ public sealed class InstalledPlatformHouseAdapter
         }
 
         request.CancellationToken.ThrowIfCancellationRequested();
-        if (request.Work.MaxSourceOperations == 0
-            || request.Work.MaxDuration == TimeSpan.Zero)
+        if (remainingWork.MaxSourceOperations == 0
+            || remainingWork.MaxDuration == TimeSpan.Zero)
         {
             return IncompleteDiscovery(
                 request,
@@ -151,16 +190,18 @@ public sealed class InstalledPlatformHouseAdapter
         }
 
         using CancellationTokenSource budgetCancellation =
-            CreateBudgetCancellation(request);
+            CreateBudgetCancellation(
+                request,
+                remainingWork.MaxDuration);
         try
         {
             ownerOutcome = _referenceSource.Discover(
                 new InstalledReferenceDiscoveryRequest(
-                    MapFamily(selecting.Family),
-                    selecting.TargetFramework,
+                    MapFamily(family),
+                    scope,
                     Math.Min(
-                        selecting.Work.MaxCandidates,
-                        request.Work.MaxTargetCandidates)),
+                        discoveryWork.MaxCandidates,
+                        remainingWork.MaxTargetCandidates)),
                 budgetCancellation.Token);
         }
         catch (OperationCanceledException)
@@ -187,14 +228,51 @@ public sealed class InstalledPlatformHouseAdapter
                 "Installed reference realization requires an exact House target.",
                 nameof(request));
         }
+        return await RealizeReferenceCoreAsync(
+                request,
+                exact.Target,
+                request.Work)
+            .ConfigureAwait(false);
+    }
 
+    public async ValueTask<
+        InstalledPlatformHouseResult<InstalledReferenceRealization>>
+        RealizeSelectedReferenceAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseWorkBudget remainingWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(remainingWork);
+        if (request.Target is not PlatformTargetDemand.FamilyDefault demand
+            || demand.Family != target.Family)
+        {
+            throw new ArgumentException(
+                "Selected installed reference realization requires a corresponding family-default target.",
+                nameof(target));
+        }
+        return await RealizeReferenceCoreAsync(
+                request,
+                target,
+                remainingWork)
+            .ConfigureAwait(false);
+    }
+
+    async ValueTask<
+        InstalledPlatformHouseResult<InstalledReferenceRealization>>
+        RealizeReferenceCoreAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseWorkBudget work)
+    {
         if (!request.Sources.Authorizes(
                 PlatformSourceFacet.Reference,
                 Capabilities.ReferenceRealization))
         {
             return RejectRealization(
                 request,
-                exact.Target,
+                target,
                 "The installed reference capability is not authorized by the House source plan.");
         }
 
@@ -204,7 +282,7 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return RejectRealization(
                 request,
-                exact.Target,
+                target,
                 "The House operation does not request reference realization.");
         }
 
@@ -217,20 +295,20 @@ public sealed class InstalledPlatformHouseAdapter
             && contentDemand.HasFlag(
                 PlatformLibraryContentDemand
                     .CompiledXmlDocumentation);
-        if (request.Work.MaxSourceOperations == 0
-            || request.Work.MaxDuration == TimeSpan.Zero)
+        if (work.MaxSourceOperations == 0
+            || work.MaxDuration == TimeSpan.Zero)
         {
             return IncompleteRealization(
                 request,
-                exact.Target,
+                target,
                 "The House work budget does not permit installed reference realization.");
         }
         if (includeCompiledXmlDocumentation
-            && request.Work.MaxXmlDocuments == 0)
+            && work.MaxXmlDocuments == 0)
         {
             return IncompleteRealization(
                 request,
-                exact.Target,
+                target,
                 "The House work budget does not permit compiled XML realization.");
         }
 
@@ -241,7 +319,7 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return RejectRealization(
                 request,
-                exact.Target,
+                target,
                 "An opaque platform-library identity cannot be projected to an installed reference-pack member.");
         }
 
@@ -263,20 +341,22 @@ public sealed class InstalledPlatformHouseAdapter
         InstalledPlatformSourceOutcome<InstalledReferenceRealization>
             ownerOutcome;
         using CancellationTokenSource budgetCancellation =
-            CreateBudgetCancellation(request);
+            CreateBudgetCancellation(
+                request,
+                work.MaxDuration);
         try
         {
             ownerOutcome = await _referenceSource.RealizeAsync(
                     new InstalledReferenceRealizationRequest(
                         new InstalledReferencePackCoordinate(
                             _referenceSource.Hive,
-                            MapFamily(exact.Target.Family),
-                            exact.Target.TargetFramework,
-                            exact.Target.Version),
+                            MapFamily(target.Family),
+                            target.TargetFramework,
+                            target.Version),
                         population,
                         new InstalledReferenceWorkBudget(
-                            request.Work.MaxAssemblies,
-                            request.Work.MaxBytes),
+                            work.MaxAssemblies,
+                            work.MaxBytes),
                         includeCompiledXmlDocumentation),
                     budgetCancellation.Token)
                 .ConfigureAwait(false);
@@ -286,13 +366,13 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return IncompleteRealization(
                 request,
-                exact.Target,
+                target,
                 "Installed reference realization exceeded the House duration budget.");
         }
 
         return ProjectRealization(
             request,
-            exact.Target,
+            target,
             housePopulation,
             ownerOutcome);
     }
@@ -308,14 +388,51 @@ public sealed class InstalledPlatformHouseAdapter
                 "Installed implementation realization requires an exact House target.",
                 nameof(request));
         }
+        return await RealizeImplementationCoreAsync(
+                request,
+                exact.Target,
+                request.Work)
+            .ConfigureAwait(false);
+    }
 
+    public async ValueTask<
+        InstalledPlatformHouseResult<InstalledImplementationRealization>>
+        RealizeSelectedImplementationAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseWorkBudget remainingWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(remainingWork);
+        if (request.Target is not PlatformTargetDemand.FamilyDefault demand
+            || demand.Family != target.Family)
+        {
+            throw new ArgumentException(
+                "Selected installed implementation realization requires a corresponding family-default target.",
+                nameof(target));
+        }
+        return await RealizeImplementationCoreAsync(
+                request,
+                target,
+                remainingWork)
+            .ConfigureAwait(false);
+    }
+
+    async ValueTask<
+        InstalledPlatformHouseResult<InstalledImplementationRealization>>
+        RealizeImplementationCoreAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseWorkBudget work)
+    {
         if (!request.Sources.Authorizes(
                 PlatformSourceFacet.Implementation,
                 Capabilities.ImplementationRealization))
         {
             return RejectImplementation(
                 request,
-                exact.Target,
+                target,
                 "The installed implementation capability is not authorized by the House source plan.");
         }
 
@@ -324,7 +441,7 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return RejectImplementation(
                 request,
-                exact.Target,
+                target,
                 "The House operation does not request implementation realization.");
         }
         if (realize.Population is PlatformPopulationDemand.Library
@@ -334,19 +451,19 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return RejectImplementation(
                 request,
-                exact.Target,
+                target,
                 "An opaque platform-library identity cannot be projected to an installed implementation member.");
         }
 
         request.CancellationToken.ThrowIfCancellationRequested();
-        if (request.Work.MaxSourceOperations == 0
-            || request.Work.MaxDuration == TimeSpan.Zero
-            || request.Work.MaxAssemblies == 0
-            || request.Work.MaxBytes == 0)
+        if (work.MaxSourceOperations == 0
+            || work.MaxDuration == TimeSpan.Zero
+            || work.MaxAssemblies == 0
+            || work.MaxBytes == 0)
         {
             return IncompleteImplementation(
                 request,
-                exact.Target,
+                target,
                 "The House work budget does not permit installed implementation realization.");
         }
 
@@ -355,22 +472,24 @@ public sealed class InstalledPlatformHouseAdapter
         var sourceRequest = new InstalledImplementationRealizationRequest(
             new InstalledImplementationPlatformCoordinate(
                 _implementationSource.Hive,
-                MapFamily(exact.Target.Family),
-                exact.Target.Version),
+                MapFamily(target.Family),
+                target.Version),
             new InstalledImplementationWorkBudget(
                 maximums.MaxFrameworks,
                 maximums.MaxResolutionSteps,
                 maximums.MaxManifestLibraries,
                 maximums.MaxManifestAssets,
                 Math.Min(
-                    request.Work.MaxAssemblies,
+                    work.MaxAssemblies,
                     maximums.MaxAssemblies),
-                Math.Min(request.Work.MaxBytes, maximums.MaxBytes)));
+                Math.Min(work.MaxBytes, maximums.MaxBytes)));
 
         InstalledPlatformSourceOutcome<InstalledImplementationRealization>
             ownerOutcome;
         using CancellationTokenSource budgetCancellation =
-            CreateBudgetCancellation(request);
+            CreateBudgetCancellation(
+                request,
+                work.MaxDuration);
         try
         {
             ownerOutcome = await _implementationSource.RealizeAsync(
@@ -383,7 +502,7 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return IncompleteImplementation(
                 request,
-                exact.Target,
+                target,
                 "Installed implementation realization exceeded the House duration budget.");
         }
 
@@ -399,14 +518,15 @@ public sealed class InstalledPlatformHouseAdapter
         {
             return UnavailableImplementation(
                 request,
-                exact.Target,
+                target,
                 succeeded.Value.Generation,
-                "The requested assembly is absent from the installed implementation closure.");
+                "The requested assembly is absent from the installed implementation closure.",
+                RealizationWork(succeeded.Value));
         }
 
         return ProjectImplementation(
             request,
-            exact.Target,
+            target,
             ownerOutcome);
     }
 
@@ -776,6 +896,20 @@ public sealed class InstalledPlatformHouseAdapter
                     exactTarget));
     }
 
+    static PlatformHouseConsumedWork RealizationWork(
+        InstalledImplementationRealization realization) =>
+        new(
+            sourceOperations: 0,
+            targetCandidates: 0,
+            assemblies: realization.Libraries.Count,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: realization.ConsumedBytes,
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+
     InstalledPlatformHouseResult<InstalledReferenceTargetInventory>
         IncompleteDiscovery(
             PlatformHouseRequest request,
@@ -866,7 +1000,8 @@ public sealed class InstalledPlatformHouseAdapter
             PlatformHouseRequest request,
             PlatformFamilyTarget exactTarget,
             InstalledPlatformSourceGeneration sourceGeneration,
-            string summary)
+            string summary,
+            PlatformHouseConsumedWork? sourceWork = null)
     {
         var diagnostic = new InstalledPlatformSourceDiagnostic(
             InstalledPlatformSourceDiagnosticKind.InvalidMember,
@@ -880,18 +1015,22 @@ public sealed class InstalledPlatformHouseAdapter
                     request.Snapshot,
                     PlatformSourceGeneration.Create(sourceGeneration.Name),
                     exactTarget,
-                    PlatformSourceUnavailabilityKind.Absent));
+                    PlatformSourceUnavailabilityKind.Absent),
+                sourceWork);
     }
 
     static CancellationTokenSource CreateBudgetCancellation(
-        PlatformHouseRequest request)
+        PlatformHouseRequest request,
+        TimeSpan? maxDuration = null)
     {
         var source = CancellationTokenSource.CreateLinkedTokenSource(
             request.CancellationToken);
-        if (request.Work.MaxDuration
+        TimeSpan duration =
+            maxDuration ?? request.Work.MaxDuration;
+        if (duration
             <= TimeSpan.FromMilliseconds(uint.MaxValue - 1))
         {
-            source.CancelAfter(request.Work.MaxDuration);
+            source.CancelAfter(duration);
         }
 
         return source;

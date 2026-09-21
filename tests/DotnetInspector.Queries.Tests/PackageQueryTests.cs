@@ -1,10 +1,15 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.QueryOperations;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspector.Services;
 using InertText;
 using NuGetFetch;
@@ -97,6 +102,37 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteToEnvelopeExplicitNullSinkRemainsUnambiguous()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        InspectionEnvelope<PackageQueryDocument> envelope =
+            await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                null,
+                null,
+                TestContext.Current.CancellationToken);
+
+        Assert.Single(envelope.Content.Results);
+        Assert.Empty(envelope.Content.Failures);
+    }
+
+    [Fact]
     public async Task ExecuteToEnvelopeCancellationProducesNoDocument()
     {
         SearchResult[] candidates =
@@ -139,11 +175,15 @@ public sealed class PackageQueryTests
                 ("dependencies", 100),
                 ("dependency-target", 150),
                 ("depends", 200),
+                ("depends-ecosystem", 210),
+                ("depends-transitive", 220),
+                ("dependency-depth", 225),
                 ("license", 250),
                 ("downloads", 300),
                 ("readme", 400),
                 ("tool", 500),
                 ("tool-format", 510),
+                ("references", 550),
                 ("skill", 600),
             ],
             PackageQuery.Terms.Select(term =>
@@ -153,6 +193,10 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
+                PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -191,15 +235,106 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public void TermDescriptors_SeparateAcquisitionAndExecutionClass()
+    {
+        Assert.Equal(
+            [
+                ("package", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("prefix", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("prerelease", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("dependencies", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("dependency-target", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("depends", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("depends-ecosystem", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("depends-transitive", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.NuspecExpensive),
+                ("dependency-depth", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.NuspecExpensive),
+                ("license", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("downloads", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("readme", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("tool", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("tool-format", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
+                ("references", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.Metadata),
+                ("skill", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
+            ],
+            PackageQuery.Terms.Select(term =>
+                (term.Key, term.Tier, term.ExecutionClass)));
+        Assert.DoesNotContain(
+            PackageQuery.Terms,
+            term => term.ExecutionClass
+                == PackageQueryExecutionClass.MetadataExpensive);
+        Assert.Equal(
+            [
+                "search-metadata",
+                "nuspec",
+                "nuspec-expensive",
+                "package-content",
+                "metadata",
+                "metadata-expensive",
+            ],
+            Enum.GetValues<PackageQueryExecutionClass>()
+                .Select(PackageQuery.ExecutionClassIdentity));
+    }
+
+    [Fact]
     public void TermDescriptors_ExposeClosedAndFreeValueShapes()
     {
         PackageQueryTermDescriptor depends = PackageQuery.Terms.Single(
             term => term.Key == PackageQuery.DependsTermKey);
         Assert.Equal(
-            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            [
+                PortableQueryModel.TextOf(PortableQueryOperator.Equal),
+                PortableQueryModel.TextOf(
+                    PortableQueryOperator.StartsWith),
+            ],
             depends.Operators);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, depends.Tier);
         Assert.Equal(PackageQueryTermControlKind.Input, depends.ControlKind);
+        Assert.Equal(
+            "NuGet package ID or prefix",
+            depends.ValueKind);
+        PackageQueryTermDescriptor dependsTransitive =
+            PackageQuery.Terms.Single(
+                term => term.Key == PackageQuery.DependsTransitiveTermKey);
+        Assert.Equal(
+            PackageQueryExecutionClass.NuspecExpensive,
+            dependsTransitive.ExecutionClass);
+        Assert.Equal(
+            PackageQueryTermControlKind.Input,
+            dependsTransitive.ControlKind);
+        PackageQueryTermDescriptor dependencyDepth =
+            PackageQuery.Terms.Single(
+                term => term.Key == PackageQuery.DependencyDepthTermKey);
+        Assert.Equal(
+            ["2", "3", "4"],
+            dependencyDepth.Options.Select(option => option.Value));
+        Assert.Equal(
+            PackageQueryTermControlKind.Choice,
+            dependencyDepth.ControlKind);
+        PackageQueryTermDescriptor dependencies =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.DependenciesTermKey);
+        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, dependencies.Tier);
+        Assert.Equal(
+            PackageQueryTermControlKind.Choice,
+            dependencies.ControlKind);
+        Assert.Equal(
+            ["none", "cross-prefix"],
+            dependencies.Options.Select(option => option.Value));
+        Assert.Equal(
+            "dependencies",
+            dependencies.SelectionGroupId);
+        PackageQueryTermDescriptor dependsEcosystem =
+            PackageQuery.Terms.Single(
+                term => term.Key == PackageQuery.DependsEcosystemTermKey);
+        Assert.Equal(
+            "canonical ecosystem ID",
+            dependsEcosystem.ValueKind);
+        Assert.Equal(
+            PackageQueryAcquisitionTier.Nuspec,
+            dependsEcosystem.Tier);
+        Assert.Equal(
+            PackageQueryTermControlKind.Input,
+            dependsEcosystem.ControlKind);
         PackageQueryTermDescriptor dependencyTarget =
             PackageQuery.Terms.Single(term =>
                 term.Key == PackageQuery.DependencyTargetTermKey);
@@ -217,6 +352,16 @@ public sealed class PackageQueryTests
             PackageQuery.Terms.Single(term =>
                 term.Key == PackageQuery.DownloadsTermKey)
                 .Options.Select(option => option.Value));
+        PackageQueryTermDescriptor references =
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.ReferencesTermKey);
+        Assert.Equal(
+            PackageQueryAcquisitionTier.PackageContent,
+            references.Tier);
+        Assert.Equal(
+            PackageQueryTermControlKind.Input,
+            references.ControlKind);
+        Assert.Equal("assembly simple name", references.ValueKind);
         PackageQueryTermDescriptor license = PackageQuery.Terms.Single(
             term => term.Key == PackageQuery.LicenseTermKey);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, license.Tier);
@@ -224,6 +369,88 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["any", "MIT", "OSMF"],
             license.Options.Select(option => option.Value));
+    }
+
+    [Fact]
+    public void OperationRoute_ProjectsTheCompleteExecutableVocabulary()
+    {
+        IQueryOperationRoute route = PackageQuery.OperationRoute;
+
+        Assert.Equal(PackageQuery.OperationRouteIdentity, route.Identity);
+        Assert.Equal(PackageQuery.OperationIdentity, route.OperationIdentity);
+        Assert.Equal(
+            PackageQuery.OperationSubjectRole,
+            route.SubjectRole);
+        Assert.Equal(
+            PackageQuery.OperationResultGrain,
+            route.ResultGrain);
+        Assert.Equal(
+            [PackageQuery.OperationPackagesRowSet],
+            route.RowSets);
+        Assert.Equal(
+            PackageQuery.OperationProfileIdentity,
+            route.ProfileIdentity);
+        Assert.Equal(
+            PackageQuery.VocabularyIdentity,
+            route.Capabilities.Vocabulary);
+        Assert.Equal(
+            PackageQuery.Terms.Select(term => term.Key),
+            route.Capabilities.Terms.Select(term =>
+                term.Binding.Key));
+        for (int index = 0; index < PackageQuery.Terms.Length; index++)
+        {
+            Assert.Equal(
+                PackageQuery.Terms[index].Operators,
+                route.Capabilities.Terms[index].Operators.Select(
+                    PortableQueryModel.TextOf));
+        }
+        Assert.Equal(
+            ["candidates", "matches"],
+            route.Capabilities.Dimensions);
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Tail,
+                RowSelectionStageKind.Window,
+            ],
+            route.Capabilities.Stages);
+
+        QueryOperationTermCapability packageContent =
+            route.Capabilities.Terms.Single(term =>
+                term.Binding.Key == PackageQuery.SkillTermKey);
+        Assert.Contains(
+            packageContent.Binding.Effects,
+            effect =>
+                effect.Kind == QueryOperationEffectKind.Capability
+                && effect.Identity
+                    == PackageQuery.PackageContentCapability);
+        Assert.Contains(
+            packageContent.Binding.Effects,
+            effect =>
+                effect.Kind == QueryOperationEffectKind.AcquisitionTier
+                && effect.Identity == "package-content");
+    }
+
+    [Fact]
+    public void RegisteredTerms_AreTheEffectiveOperationProjection()
+    {
+        Assert.Equal(
+            PackageQuery.OperationRoute.Capabilities.Terms.Select(
+                capability => capability.Binding.Key),
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor.Key));
+        for (int index = 0;
+             index < PackageQuery.RegisteredTerms.Length;
+             index++)
+        {
+            Assert.Equal(
+                PackageQuery.OperationRoute.Capabilities.Terms[index].Operators,
+                PackageQuery.RegisteredTerms[index].Operators);
+        }
+        Assert.Equal(
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor),
+            PackageQuery.Terms);
     }
 
     [Theory]
@@ -243,6 +470,21 @@ public sealed class PackageQueryTests
         "not/a/package",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
+        "depends",
+        PortableQueryOperator.StartsWith,
+        "not/a/prefix",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "depends",
+        PortableQueryOperator.StartsWith,
+        "Microsoft.*",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "dependencies",
+        PortableQueryOperator.Equal,
+        "other",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
         "license",
         PortableQueryOperator.Equal,
         "Apache-2.0",
@@ -256,6 +498,31 @@ public sealed class PackageQueryTests
         "dependency-target",
         PortableQueryOperator.Equal,
         "not/a/tfm",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "references",
+        PortableQueryOperator.Equal,
+        "System.Runtime, Version=10.0.0.0",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "references",
+        PortableQueryOperator.Equal,
+        "lib/System.Runtime",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "references",
+        PortableQueryOperator.Equal,
+        "System\\Runtime",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "references",
+        PortableQueryOperator.Equal,
+        " System.Runtime",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "references",
+        PortableQueryOperator.Equal,
+        "",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     public void PlanInput_RejectsInvalidTermsBeforeExecution(
         string key,
@@ -347,6 +614,78 @@ public sealed class PackageQueryTests
                         PackageQuery.DependencyTargetTermKey,
                         "net8.0"),
                 ])).Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleTerms,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "none"),
+                    Term(PackageQuery.DependenciesTermKey, "CROSS-PREFIX"),
+                ])).Reason);
+    }
+
+    [Fact]
+    public void PlanInput_BindsDependencyStartsWithAndCollapsesCaseVariants()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Microsoft.Extensions.",
+                        PortableQueryOperator.StartsWith),
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "microsoft.extensions.",
+                        PortableQueryOperator.StartsWith),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "NET10.0"),
+                ]));
+
+        BoundPackageQueryTerm prefix = Assert.Single(
+            plan.BoundTerms,
+            term => term.Predicate.Kind
+                == PackageQueryPredicateKind.DependsPrefix);
+        Assert.Equal("Microsoft.Extensions.", prefix.Predicate.Text);
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            prefix.Predicate.PackagePrefix!.Prefix);
+        Assert.Equal(
+            "net10.0",
+            plan.DependencyTarget.RequestedTargetFramework);
+    }
+
+    [Fact]
+    public void PlanInput_DistinguishesDependencyOperators()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Contoso.Dependency"),
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Contoso.Dependency",
+                        PortableQueryOperator.StartsWith),
+                ]));
+
+        Assert.Equal(2, plan.BoundTerms.Length);
+        Assert.Contains(
+            plan.BoundTerms,
+            term => term.Term.Operator == PortableQueryOperator.Equal
+                && term.Predicate.Kind == PackageQueryPredicateKind.Depends);
+        Assert.Contains(
+            plan.BoundTerms,
+            term => term.Term.Operator == PortableQueryOperator.StartsWith
+                && term.Predicate.Kind
+                    == PackageQueryPredicateKind.DependsPrefix);
     }
 
     [Fact]
@@ -370,6 +709,89 @@ public sealed class PackageQueryTests
         Assert.Equal(
             [PackageQuery.DependencyTargetTermKey],
             failure.TermKeys);
+    }
+
+    [Fact]
+    public void PlanInput_TransitiveDependencyRequiresExactTargetAndDepth()
+    {
+        PortableQueryTerm transitive = Term(
+            PackageQuery.DependsTransitiveTermKey,
+            "Contoso.Target");
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    transitive,
+                    Term(PackageQuery.DependencyDepthTermKey, "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    transitive,
+                    Term(PackageQuery.DependencyTargetTermKey, "all"),
+                    Term(PackageQuery.DependencyDepthTermKey, "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TransitiveDependencyRequiresDepth,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    transitive,
+                    Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason
+                .DependencyDepthRequiresTransitiveDependency,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.DependsTermKey, "Contoso.Target"),
+                    Term(PackageQuery.DependencyDepthTermKey, "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates)).Reason);
+
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                transitive,
+                Term(PackageQuery.DependencyTargetTermKey, "NET10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: PackageQuery.MaximumNuspecExpensiveCandidates));
+        Assert.True(plan.RequiresDependencyTraversal);
+        Assert.Equal(2, plan.DependencyDepth);
+        Assert.Equal(
+            "net10.0",
+            plan.DependencyTarget.RequestedTargetFramework);
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidCandidateLimit,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    transitive,
+                    Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                    Term(PackageQuery.DependencyDepthTermKey, "2"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumNuspecExpensiveCandidates + 1)).Reason);
     }
 
     [Fact]
@@ -632,6 +1054,491 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DependsPrefixTermsAndWithinSelectedScope()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Complete"),
+            Match("Contoso.Partial"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.complete@1.0.0"] = Manifest(
+                    "Contoso.Complete",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="Microsoft.Extensions.Configuration" version="[10.0.0, 11.0.0)" />
+                      <dependency id="microsoft.extensions.logging" version="10.0.0" />
+                      <dependency id="System.Text.Json" version="[10.0.0]" />
+                    </group>
+                    <group targetFramework="net8.0">
+                      <dependency id="Legacy.Dependency" version="1.0.0" />
+                    </group>
+                    """),
+                ["contoso.partial@1.0.0"] = Manifest(
+                    "Contoso.Partial",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="Microsoft.Extensions.Options" version="10.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "microsoft.extensions.",
+                        PortableQueryOperator.StartsWith),
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "System.",
+                        PortableQueryOperator.StartsWith),
+                    Term(
+                        PackageQuery.DependencyTargetTermKey,
+                        "net10.0"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Contoso.Complete", match.Package.PackageId);
+        Assert.Equal(
+            ["microsoft.extensions.", "net10.0", "System."],
+            match.Answers.Select(answer => answer.Value)
+                .Order(StringComparer.OrdinalIgnoreCase));
+        PackageQueryEvidence[] prefixEvidence =
+        [
+            .. match.Evidence.Where(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey
+                && evidence.Term!.Operator
+                    == PortableQueryOperator.StartsWith),
+        ];
+        Assert.Equal(2, prefixEvidence.Length);
+        PackageQueryEvidence extensions = prefixEvidence.Single(evidence =>
+            evidence.Term!.Value == "microsoft.extensions.");
+        Assert.Equal(2, extensions.Summary!.Count);
+        Assert.Equal(
+            [
+                "net10.0: Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
+                "net10.0: microsoft.extensions.logging 10.0.0",
+            ],
+            extensions.Summary.Preview.Select(value => value.ToString()));
+        PackageQueryEvidence system = prefixEvidence.Single(evidence =>
+            evidence.Term!.Value == "System.");
+        Assert.Equal(1, system.Summary!.Count);
+        Assert.Equal(
+            ["net10.0: System.Text.Json [10.0.0]"],
+            system.Summary.Preview.Select(value => value.ToString()));
+        Assert.Equal(2, source.ManifestRequests.Count);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsPrefixUsesLiteralPrefixSemantics()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Package",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Microsoft.ExtensionsX" version="1.0.0" />
+                </group>
+                """),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsTermKey,
+                        "Microsoft.Extensions",
+                        PortableQueryOperator.StartsWith),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal(
+            "Microsoft.Extensions",
+            Assert.Single(match.Answers).Value);
+        Assert.Equal(
+            "net10.0: Microsoft.ExtensionsX 1.0.0",
+            Assert.Single(
+                Assert.Single(match.Evidence.Where(evidence =>
+                    evidence.Id == PackageQuery.DependsTermKey
+                    && evidence.Term!.Operator
+                        == PortableQueryOperator.StartsWith))
+                .Summary!.Preview).ToString());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TransitiveTermsShareOneBoundedTraversalAndRetainPaths()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Root",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Bridge" version="[1.0.0]" />
+                </group>
+                """),
+            "Contoso.Root");
+        var traversal = new FakePackageQueryTraversal(
+            ("Contoso.Bridge", "1.0.0",
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Target.One" version="[2.0.0]" />
+                  <dependency id="Contoso.Target.Two" version="[3.0.0]" />
+                </group>
+                """),
+            ("Contoso.Target.One", "2.0.0", ""),
+            ("Contoso.Target.Two", "3.0.0", ""));
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(
+                    PackageQuery.DependsTransitiveTermKey,
+                    "Contoso.Target.One"),
+                Term(
+                    PackageQuery.DependsTransitiveTermKey,
+                    "contoso.target.two"),
+                Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: 1,
+            maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                traversal.Services,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal(
+            [
+                "net10.0",
+                "Contoso.Target.One",
+                "contoso.target.two",
+                "2",
+            ],
+            match.Answers.Select(answer => answer.Value));
+        PackageQueryEvidence[] transitiveEvidence =
+        [
+            .. match.Evidence.Where(item =>
+                item.Id == PackageQuery.DependsTransitiveTermKey),
+        ];
+        Assert.Equal(2, transitiveEvidence.Length);
+        Assert.All(
+            transitiveEvidence,
+            item =>
+            {
+                Assert.Equal(1, item.Summary!.Count);
+                string preview = Assert.Single(item.Summary.Preview).ToString();
+                Assert.Contains(
+                    "Contoso.Root@1.0.0",
+                    preview,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("[1.0.0, 1.0.0]", preview);
+                Assert.Contains(
+                    "Contoso.Bridge@1.0.0",
+                    preview,
+                    StringComparison.OrdinalIgnoreCase);
+            });
+        Assert.Contains(
+            "Contoso.Target.One@2.0.0",
+            transitiveEvidence[0].Summary!.Preview[0].ToString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, traversal.ResolverCallCount);
+        Assert.Equal(1, traversal.ManifestCallCount);
+        Assert.Contains(
+            events.OfType<PackageQueryEvent.Progress>(),
+            item => item.Value.Phase
+                == PackageQueryProgressPhase.DependencyTraversal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TransitiveTermExcludesDirectOnlyReachability()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Root",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Target" version="[2.0.0]" />
+                </group>
+                """),
+            "Contoso.Root");
+        var traversal = new FakePackageQueryTraversal(
+            ("Contoso.Target", "2.0.0", ""));
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(
+                    PackageQuery.DependsTransitiveTermKey,
+                    "Contoso.Target"),
+                Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: 1,
+            maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                traversal.Services,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(events.OfType<PackageQueryEvent.Failure>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_IncompleteTransitiveTraversalIsVisibleFailure()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Root",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Contoso.Bridge" version="[1.0.0]" />
+                </group>
+                """),
+            "Contoso.Root");
+        var traversal = new FakePackageQueryTraversal();
+        PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
+            "Contoso.*",
+            terms:
+            [
+                Term(
+                    PackageQuery.DependsTransitiveTermKey,
+                    "Contoso.Target"),
+                Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                Term(PackageQuery.DependencyDepthTermKey, "2"),
+            ],
+            maximumCandidates: 1,
+            maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                traversal.Services,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        PackageQueryFailure failure =
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.DependencyTraversal,
+            failure.Kind);
+        Assert.Contains("work bounds", failure.Message);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CrossPrefixDependenciesUseFirstIdSegmentAndRetainWitnesses()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Microsoft.Extensions.Hosting"),
+            Match("Microsoft.Extensions.Logging"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["microsoft.extensions.hosting@1.0.0"] = Manifest(
+                    "Microsoft.Extensions.Hosting",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="microsoft.extensions.configuration" version="10.0.0" />
+                      <dependency id="Newtonsoft.Json" version="13.0.3" />
+                      <dependency id="Newtonsoft.Json" version="13.0.3" />
+                    </group>
+                    <group targetFramework="net8.0">
+                      <dependency id="System.Text.Json" version="10.0.0" />
+                    </group>
+                    """),
+                ["microsoft.extensions.logging@1.0.0"] = Manifest(
+                    "Microsoft.Extensions.Logging",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="Microsoft.Extensions.Primitives" version="10.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Microsoft.Extensions.Hosting", match.Package.PackageId);
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            candidate =>
+                candidate.Id == PackageQuery.DependenciesTermKey);
+        Assert.Equal(3, evidence.Summary!.Count);
+        Assert.Equal(
+            [
+                "net10.0: Newtonsoft.Json 13.0.3",
+                "net8.0: System.Text.Json 10.0.0",
+            ],
+            evidence.Summary.Preview.Select(value => value.ToString()));
+        Assert.Equal(
+            "Microsoft",
+            EvidenceProperty(evidence, "package-prefix"));
+        Assert.Equal(1, evidence.Summary.Count - evidence.Summary.Preview.Length);
+        Assert.Equal(2, source.ManifestRequests.Count);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CrossPrefixDependenciesUseWholeIdWhenNoDotExists()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Polly",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Polly.Core" version="8.6.4" />
+                  <dependency id="System.Threading.Tasks.Extensions" version="4.5.4" />
+                </group>
+                """),
+            "Polly");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Polly*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            candidate =>
+                candidate.Id == PackageQuery.DependenciesTermKey);
+
+        Assert.Equal(1, evidence.Summary!.Count);
+        Assert.Equal(
+            ["net10.0: System.Threading.Tasks.Extensions 4.5.4"],
+            evidence.Summary.Preview.Select(value => value.ToString()));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CrossPrefixDependenciesUseSelectedDependencyTarget()
+    {
+        var source = SourceFor(
+            Manifest(
+                "Azure.Identity",
+                dependencies:
+                """
+                <group targetFramework="net10.0">
+                  <dependency id="Azure.Core" version="1.50.0" />
+                </group>
+                <group targetFramework="net8.0">
+                  <dependency id="Microsoft.Identity.Client" version="4.77.0" />
+                </group>
+                """),
+            "Azure.Identity");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Azure.Identity*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
+                    Term(PackageQuery.DependencyTargetTermKey, "net10.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        Assert.Empty(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>());
+
+        PackageQueryPlan net8Plan = Accepted(
+            PackageQuery.PlanInput(
+                "Azure.Identity*",
+                terms:
+                [
+                    Term(PackageQuery.DependenciesTermKey, "cross-prefix"),
+                    Term(PackageQuery.DependencyTargetTermKey, "net8.0"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+        PackageQueryMatch net8Match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                net8Plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Contains(
+            "net8.0: Microsoft.Identity.Client 4.77.0",
+            net8Match.Evidence.Single(evidence =>
+                    evidence.Id == PackageQuery.DependenciesTermKey)
+                .Summary!.Preview.Select(value => value.ToString()));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DependencyTargetSelectsOneCompatibleGroup()
     {
         var source = SourceFor(
@@ -756,6 +1663,250 @@ public sealed class PackageQueryTests
         Assert.Equal(
             PackageQueryEvidenceScope.Package,
             selectedMatch.Evidence[1].Scope);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsEcosystemMatchesExactAndPrefixMembership()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Exact"),
+            Match("Contoso.Prefix"),
+            Match("Contoso.Similar"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.exact@1.0.0"] = Manifest(
+                    "Contoso.Exact",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Hosting" version="[9.0.0, 10.0.0)" />
+                    </group>
+                    """),
+                ["contoso.prefix@1.0.0"] = Manifest(
+                    "Contoso.Prefix",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Future.Integration" version="9.1.0" />
+                    </group>
+                    """),
+                ["contoso.similar@1.0.0"] = Manifest(
+                    "Contoso.Similar",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Contoso.Aspire.Hosting" version="1.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                EcosystemCatalog(
+                    Ecosystem(
+                        "ecosystem.aspire",
+                        exactPackages: ["Aspire.Hosting"],
+                        packagePrefixes: ["Aspire."])),
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.aspire"),
+                ],
+                maximumCandidates: 3,
+                maximumMatches: null));
+
+        PackageQueryMatch[] matches =
+        [
+            .. (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+                .OfType<PackageQueryEvent.Match>()
+                .Select(queryEvent => queryEvent.Value),
+        ];
+
+        Assert.Equal(
+            ["Contoso.Exact", "Contoso.Prefix"],
+            matches.Select(match => match.Package.PackageId));
+        Assert.All(matches, match => Assert.Equal(
+            "ecosystem.aspire",
+            Assert.Single(match.Answers).Value));
+        Assert.Equal(
+            "net8.0: Aspire.Hosting [9.0.0, 10.0.0)"
+                + " -> ecosystem.aspire (exact package Aspire.Hosting)",
+            Assert.Single(matches[0].Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey)
+                .Summary!.Preview).ToString());
+        Assert.Equal(
+            "net8.0: Aspire.Future.Integration 9.1.0"
+                + " -> ecosystem.aspire (package prefix Aspire.)",
+            Assert.Single(matches[1].Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey)
+                .Summary!.Preview).ToString());
+        Assert.Equal(3, source.ManifestRequests.Count);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsEcosystemTermsAndWithinSelectedGroup()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Both"),
+            Match("Contoso.Split"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.both@1.0.0"] = Manifest(
+                    "Contoso.Both",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Hosting" version="9.0.0" />
+                      <dependency id="Microsoft.Extensions.AI" version="9.0.0" />
+                    </group>
+                    """),
+                ["contoso.split@1.0.0"] = Manifest(
+                    "Contoso.Split",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Hosting" version="9.0.0" />
+                    </group>
+                    <group targetFramework="net9.0">
+                      <dependency id="Microsoft.Extensions.AI" version="9.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                EcosystemCatalog(
+                    Ecosystem(
+                        "ecosystem.aspire",
+                        packagePrefixes: ["Aspire."]),
+                    Ecosystem(
+                        "ecosystem.ai",
+                        packagePrefixes: ["Microsoft.Extensions.AI"])),
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.aspire"),
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.ai"),
+                    Term(PackageQuery.DependencyTargetTermKey, "net8.0"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal("Contoso.Both", match.Package.PackageId);
+        Assert.Equal(
+            2,
+            match.Evidence.Count(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey));
+        Assert.Equal(
+            ["ecosystem.ai", "ecosystem.aspire", "net8.0"],
+            match.Answers
+                .Select(answer => answer.Value)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            match.Evidence.Where(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey),
+            evidence => Assert.StartsWith(
+                "net8.0:",
+                Assert.Single(evidence.Summary!.Preview).ToString(),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DependsEcosystemRejectsMalformedUnknownAndUnboundIdentities()
+    {
+        PackageQueryEcosystemMembershipCatalog catalog = EcosystemCatalog(
+            Ecosystem("ecosystem.platform"));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidTermValue,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                catalog,
+                [Term(PackageQuery.DependsEcosystemTermKey, "Aspire")]))
+                .Reason);
+
+        PackageQueryRequestFailure unknown = Rejected(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                catalog,
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.unknown"),
+                ]));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.UnknownEcosystem,
+            unknown.Reason);
+        Assert.Equal("ecosystem.unknown", unknown.EcosystemId);
+
+        PackageQueryRequestFailure unbound = Rejected(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                catalog,
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.platform"),
+                ]));
+        Assert.Equal(
+            PackageQueryRequestFailureReason
+                .EcosystemPackagePopulationUnavailable,
+            unbound.Reason);
+        Assert.Equal("ecosystem.platform", unbound.EcosystemId);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsPortableUnboundEcosystemBeforeSourceWork()
+    {
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan portablePlan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.aspire"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => CollectAsync(PackageQuery.ExecuteAsync(
+                    source,
+                    portablePlan,
+                    TestContext.Current.CancellationToken)));
+
+        Assert.Contains(
+            "ecosystem-membership binding",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, source.LastSearchTake);
+        Assert.Empty(source.ManifestRequests);
     }
 
     [Fact]
@@ -1515,6 +2666,498 @@ public sealed class PackageQueryTests
         Assert.Single(source.ManifestRequests);
         Assert.Single(content.Requests);
         Assert.Empty(archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferencesMatchEveryAdmittedFrameworkGroup()
+    {
+        string assetRoot = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQueryReferences");
+        var archive = FakePackageContent.FromBytes(
+            (
+                "lib/net10.0/Microsoft.Extensions.Http.dll",
+                File.ReadAllBytes(Path.Combine(
+                    assetRoot,
+                    "net10.0",
+                    "Microsoft.Extensions.Http.dll"))),
+            (
+                "lib/net462/Microsoft.Extensions.Http.dll",
+                File.ReadAllBytes(Path.Combine(
+                    assetRoot,
+                    "net462",
+                    "Microsoft.Extensions.Http.dll"))));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.Extensions.Http"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.Extensions.Http"),
+            "Microsoft.Extensions.Http");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Microsoft.Extensions.*",
+                [
+                    Term(
+                        PackageQuery.ReferencesTermKey,
+                        "microsoft.extensions.dependencyinjection.abstractions"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            item => item.Id == PackageQuery.ReferencesTermKey);
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(evidence.Summary);
+        Assert.Equal(2, summary.Count);
+        Assert.Equal(
+            [
+                "net10.0: lib/net10.0/Microsoft.Extensions.Http.dll -> Microsoft.Extensions.DependencyInjection.Abstractions",
+                "net462: lib/net462/Microsoft.Extensions.Http.dll -> Microsoft.Extensions.DependencyInjection.Abstractions",
+            ],
+            summary.Preview.Select(item => item.ToString()));
+        Assert.Equal(PackageQueryAcquisitionTier.PackageContent, match.Tier);
+        Assert.Equal(
+            [
+                "lib/net10.0/Microsoft.Extensions.Http.dll",
+                "lib/net462/Microsoft.Extensions.Http.dll",
+            ],
+            archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferencesMatchLegacyFrameworkGroup()
+    {
+        const string framework = "portable-win8%2Bwpa81";
+        const string fixtureFramework = "portable-win8+wpa81";
+        const string assetPath =
+            "lib/portable-win8%2Bwpa81/PCLStorage.dll";
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQueryReferences",
+            fixtureFramework,
+            "PCLStorage.dll");
+        var archive = FakePackageContent.FromBytes(
+            (assetPath, File.ReadAllBytes(assemblyPath)));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["PCLStorage"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("PCLStorage"),
+            "PCLStorage");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "PCLStorage*",
+                [Term(PackageQuery.ReferencesTermKey, "Windows")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            item => item.Id == PackageQuery.ReferencesTermKey);
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(evidence.Summary);
+        Assert.Equal(1, summary.Count);
+        Assert.Equal(
+            $"{framework}: {assetPath} -> Windows",
+            Assert.Single(summary.Preview).ToString());
+        Assert.Equal([assetPath], archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceNearMissDoesNotMatch()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQueryReferences",
+            "net10.0",
+            "Microsoft.Extensions.Http.dll");
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.Extensions.Http"] =
+                    FakePackageContent.FromBytes(
+                        (
+                            "lib/net10.0/Microsoft.Extensions.Http.dll",
+                            File.ReadAllBytes(assemblyPath))),
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.Extensions.Http"),
+            "Microsoft.Extensions.Http");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Microsoft.Extensions.*",
+                [Term(PackageQuery.ReferencesTermKey, "System.Collections.Immutable")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        PackageQuerySummary summary =
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
+        Assert.Equal(0, summary.Matches);
+        Assert.Equal(0, summary.Failures);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceTermsAndTogether()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQueryReferences",
+            "net10.0",
+            "Microsoft.Extensions.Http.dll");
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.Extensions.Http"] =
+                    FakePackageContent.FromBytes(
+                        (
+                            "lib/net10.0/Microsoft.Extensions.Http.dll",
+                            File.ReadAllBytes(assemblyPath))),
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.Extensions.Http"),
+            "Microsoft.Extensions.Http");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Microsoft.Extensions.*",
+                [
+                    Term(
+                        PackageQuery.ReferencesTermKey,
+                        "Microsoft.Extensions.DependencyInjection.Abstractions"),
+                    Term(
+                        PackageQuery.ReferencesTermKey,
+                        "Contoso.Missing"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(content.Requests);
+        Assert.Equal(
+            1,
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1])
+                .Value.Candidates);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CheapMismatchPreventsAssemblyAcquisition()
+    {
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.Extensions.Http"] = new FakePackageContent(),
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.Extensions.Http"),
+            "Microsoft.Extensions.Http");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Microsoft.Extensions.*",
+                [
+                    Term(PackageQuery.DownloadsTermKey, "1m"),
+                    Term(
+                        PackageQuery.ReferencesTermKey,
+                        "Microsoft.Extensions.DependencyInjection.Abstractions"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(content.Requests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyReferenceAssetRemainsVisible()
+    {
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQueryReferences",
+            "net10.0",
+            "Microsoft.Extensions.Http.dll");
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.Extensions.Http"] =
+                    FakePackageContent.FromBytes(
+                        (
+                            "lib/net10.0/Microsoft.Extensions.Http.dll",
+                            File.ReadAllBytes(assemblyPath)),
+                        (
+                            "lib/net8.0/Broken.dll",
+                            "not a managed assembly"u8.ToArray())),
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.Extensions.Http"),
+            "Microsoft.Extensions.Http");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Microsoft.Extensions.*",
+                [
+                    Term(
+                        PackageQuery.ReferencesTermKey,
+                        "Microsoft.Extensions.DependencyInjection.Abstractions"),
+                ],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        PackageQueryFailure failure =
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentEvaluation,
+            failure.Kind);
+        Assert.Equal(
+            "The package content could not be evaluated.",
+            failure.Message);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyModuleNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            ManagedAssemblyWithReferences(
+                1,
+                RequiredIdentityName.Module));
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedModuleNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            WithMalformedModuleDefinitionName(
+                ManagedAssemblyWithReferences(1)));
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyAssemblyNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            ManagedAssemblyWithReferences(
+                1,
+                RequiredIdentityName.Assembly));
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            WithMalformedAssemblyDefinitionName(
+                ManagedAssemblyWithReferences(1)));
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyAssemblyReferenceNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            ManagedAssemblyWithReferences(
+                1,
+                RequiredIdentityName.AssemblyReference));
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyReferenceNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            WithMalformedAssemblyReferenceName(
+                ManagedAssemblyWithReferences(1)));
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceAssetLimitRemainsVisible()
+    {
+        (string Path, byte[] Content)[] entries =
+        [
+            .. Enumerable.Range(
+                    0,
+                    PackageQuery.MaximumAssemblyReferenceAssets + 1)
+                .Select(index =>
+                    (
+                        $"lib/net8.0/Assembly{index:D3}.dll",
+                        "not opened"u8.ToArray())),
+        ];
+        var archive = FakePackageContent.FromBytes(entries);
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Contoso.Package"),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ReferencesTermKey, "System.Runtime")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Empty(archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceRowLimitRemainsVisible()
+    {
+        var archive = FakePackageContent.FromBytes(
+            (
+                "lib/net8.0/Contoso.Package.dll",
+                ManagedAssemblyWithReferences(
+                    PackageQuery.MaximumAssemblyReferenceRows + 1)));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Contoso.Package"),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ReferencesTermKey, "Reference00000")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Single(archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceEntryLimitRemainsVisible()
+    {
+        var archive = FakePackageContent.FromBytes(
+            (
+                "lib/net8.0/Contoso.Package.dll",
+                new byte[
+                    PackageQuery.MaximumAssemblyReferenceEntryBytes + 1]));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Contoso.Package"),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ReferencesTermKey, "System.Runtime")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Single(archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceTotalByteLimitRemainsVisible()
+    {
+        byte[] image = ManagedAssemblyWithReferences(1);
+        int paddedLength =
+            PackageQuery.MaximumAssemblyReferenceTotalBytes / 3 + 1;
+        var archive = FakePackageContent.FromBytes(
+            (
+                "lib/net8.0/Contoso.One.dll",
+                PaddedImage(image, paddedLength)),
+            (
+                "lib/net8.0/Contoso.Two.dll",
+                PaddedImage(image, paddedLength)),
+            (
+                "lib/net8.0/Contoso.Three.dll",
+                PaddedImage(image, paddedLength)));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Contoso.Package"),
+            "Contoso.Package");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ReferencesTermKey, "Reference00000")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Single(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Equal(3, archive.EntryRequests.Count);
     }
 
     [Fact]
@@ -2506,8 +4149,25 @@ public sealed class PackageQueryTests
         PackageQueryPlanResult result) =>
         Assert.IsType<PackageQueryPlanResult.Rejected>(result).Failure;
 
-    private static PortableQueryTerm Term(string key, string value) =>
-        new(key, PortableQueryOperator.Equal, value);
+    private static PortableQueryTerm Term(
+        string key,
+        string value,
+        PortableQueryOperator @operator = PortableQueryOperator.Equal) =>
+        new(key, @operator, value);
+
+    private static PackageQueryEcosystemMembershipCatalog EcosystemCatalog(
+        params PackageQueryEcosystemMembershipDeclaration[] declarations) =>
+        new(declarations);
+
+    private static PackageQueryEcosystemMembershipDeclaration Ecosystem(
+        string id,
+        string[]? exactPackages = null,
+        string[]? packagePrefixes = null) =>
+        new(
+            WorkspaceEcosystemRegistrationId.Create(id),
+            (exactPackages ?? []).Select(package => new PackageCoordinate(package)),
+            (packagePrefixes ?? []).Select(prefix =>
+                new PackagePrefixDeclaration(prefix)));
 
     private static string EvidenceProperty(
         PackageQueryMatch match,
@@ -2544,6 +4204,140 @@ public sealed class PackageQueryTests
             version,
             TotalDownloads: totalDownloads,
             Verified: verified);
+
+    private enum RequiredIdentityName
+    {
+        Module,
+        Assembly,
+        AssemblyReference,
+    }
+
+    private static byte[] ManagedAssemblyWithReferences(
+        int referenceCount,
+        RequiredIdentityName? emptyName = null)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: emptyName == RequiredIdentityName.Module
+                ? default
+                : metadata.GetOrAddString("Contoso.Package.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            emptyName == RequiredIdentityName.Assembly
+                ? default
+                : metadata.GetOrAddString("Contoso.Package"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < referenceCount; index++)
+        {
+            metadata.AddAssemblyReference(
+                emptyName == RequiredIdentityName.AssemblyReference
+                    && index == 0
+                        ? default
+                        : metadata.GetOrAddString(
+                            $"Reference{index:D5}"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static async Task AssertAssemblyReferenceIdentityFailureAsync(
+        byte[] image)
+    {
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = FakePackageContent.FromBytes(
+                    ("lib/net8.0/Contoso.Package.dll", image)),
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ReferencesTermKey, "Reference00000")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        PackageQueryFailure failure =
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentEvaluation,
+            failure.Kind);
+    }
+
+    private static byte[] WithMalformedModuleDefinitionName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata => metadata.GetModuleDefinition().Name);
+
+    private static byte[] WithMalformedAssemblyDefinitionName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata => metadata.GetAssemblyDefinition().Name);
+
+    private static byte[] WithMalformedAssemblyReferenceName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata =>
+                metadata.GetAssemblyReference(
+                    Assert.Single(metadata.AssemblyReferences)).Name);
+
+    private static byte[] WithMalformedUtf8(
+        byte[] image,
+        Func<MetadataReader, StringHandle> selectHandle)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        StringHandle handle = selectHandle(metadata);
+        Assert.False(handle.IsNil);
+        int stringOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetHeapMetadataOffset(HeapIndex.String)
+            + MetadataTokens.GetHeapOffset(handle);
+        malformed[stringOffset] = 0xff;
+        return malformed;
+    }
+
+    private static byte[] PaddedImage(byte[] image, int length)
+    {
+        var padded = new byte[length];
+        image.CopyTo(padded, 0);
+        return padded;
+    }
 
     private static FakePackageSource SourceFor(
         byte[] manifest,
@@ -2655,13 +4449,17 @@ public sealed class PackageQueryTests
                 .Value.Completion);
     }
 
-    private static PackageSourceResultFactory CreateResultFactory()
+    private static PackageSourceResultFactory CreateResultFactory() =>
+        CreateResultFactory(PackageSourceAssociation.Create());
+
+    private static PackageSourceResultFactory CreateResultFactory(
+        PackageSourceAssociation association)
     {
         PackageSourceResultFactory? captured = null;
         using IPackageSourceClient client =
             PackageSourceClientFactory.CreateCustom(
                 PackageSourceDescriptor.NuGetGallery,
-                PackageSourceAssociation.Create(),
+                association,
                 factory =>
                 {
                     captured = factory;
@@ -2862,15 +4660,138 @@ public sealed class PackageQueryTests
         }
     }
 
-    private sealed class FakePackageContent(
-        params (string Path, string Content)[] entries)
-        : IPackageContent
+    private sealed class FakePackageQueryTraversal
     {
-        readonly IReadOnlyDictionary<string, byte[]> _entries =
-            entries.ToDictionary(
+        private readonly Resolver _resolver;
+        private readonly Acquirer _acquirer;
+
+        internal FakePackageQueryTraversal(
+            params (string PackageId, string Version, string Dependencies)[]
+                packages)
+        {
+            PackageSourceAuthorization authorization =
+                PackageSourceAuthorization.Authorize(
+                    [
+                        new PackageSource(
+                            "package-query-test",
+                            "https://package-query-test.example/v3/index.json"),
+                    ]);
+            var issuer = new PackageAcquisitionCandidateIssuer();
+            var candidates =
+                new Dictionary<string, PackageAcquisitionCandidate>(
+                    StringComparer.OrdinalIgnoreCase);
+            var manifests =
+                new Dictionary<
+                    PackageAcquisitionCandidateCorrespondence,
+                    PackageSourceManifest>();
+            foreach ((string packageId, string version, string dependencies)
+                in packages)
+            {
+                PackageSourceCoordinate coordinate =
+                    PackageSourceCoordinate.Create(packageId, version);
+                PackageAcquisitionCandidate candidate =
+                    issuer.ResolvePinnedCandidate(
+                        authorization,
+                        coordinate).Candidate
+                    ?? throw new InvalidOperationException(
+                        "The test package coordinate was not authorized.");
+                candidates.Add(packageId, candidate);
+                PackageSourceResultFactory factory = CreateResultFactory(
+                    candidate.Authorities[0].Authority.Association);
+                manifests.Add(
+                    candidate.Correspondence,
+                    factory.Manifest(
+                        coordinate,
+                        Manifest(packageId, version, dependencies)));
+            }
+
+            _resolver = new Resolver(candidates);
+            _acquirer = new Acquirer(manifests);
+            Services = new(_resolver, _acquirer);
+        }
+
+        internal PackageQueryDependencyTraversalServices Services { get; }
+
+        internal int ResolverCallCount => _resolver.CallCount;
+
+        internal int ManifestCallCount => _acquirer.CallCount;
+
+        private sealed class Resolver(
+            IReadOnlyDictionary<string, PackageAcquisitionCandidate> candidates)
+            : IPackageDependencyTraversalCandidateResolver
+        {
+            internal int CallCount { get; private set; }
+
+            public ValueTask<PackageDependencyTraversalCandidateResult>
+                ResolveAsync(
+                    PackageDependencyEvidenceDeclaration declaration,
+                    CancellationToken cancellationToken = default,
+                    NuGetOperationContext? operationContext = null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                CallCount++;
+                return ValueTask.FromResult<
+                    PackageDependencyTraversalCandidateResult>(
+                    candidates.TryGetValue(
+                        declaration.CanonicalPackageId,
+                        out PackageAcquisitionCandidate? candidate)
+                            ? new PackageDependencyTraversalCandidateResult
+                                .Resolved(candidate, [])
+                            : new PackageDependencyTraversalCandidateResult
+                                .Failed(
+                                    new PackageDependencyTraversalCandidateFailure
+                                        .NoMatchingVersion()));
+            }
+        }
+
+        private sealed class Acquirer(
+            IReadOnlyDictionary<
+                PackageAcquisitionCandidateCorrespondence,
+                PackageSourceManifest> manifests)
+            : IPackageDependencyTraversalManifestAcquirer
+        {
+            internal int CallCount { get; private set; }
+
+            public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+                PackageAcquisitionCandidate candidate,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                CallCount++;
+                return Task.FromResult<PackageDependencyTraversalManifestResult>(
+                    manifests.TryGetValue(
+                        candidate.Correspondence,
+                        out PackageSourceManifest? manifest)
+                            ? new PackageDependencyTraversalManifestResult
+                                .Acquired(manifest, [])
+                            : new PackageDependencyTraversalManifestResult
+                                .Failed([]));
+            }
+        }
+    }
+
+    private sealed class FakePackageContent : IPackageContent
+    {
+        readonly IReadOnlyDictionary<string, byte[]> _entries;
+
+        public FakePackageContent(
+            params (string Path, string Content)[] entries) =>
+            _entries = entries.ToDictionary(
                 entry => entry.Path,
                 entry => Encoding.UTF8.GetBytes(entry.Content),
                 StringComparer.Ordinal);
+
+        private FakePackageContent(
+            IEnumerable<(string Path, byte[] Content)> entries) =>
+            _entries = entries.ToDictionary(
+                entry => entry.Path,
+                entry => entry.Content,
+                StringComparer.Ordinal);
+
+        public static FakePackageContent FromBytes(
+            params (string Path, byte[] Content)[] entries) =>
+            new(entries);
 
         public string? RootPath => null;
         public string? NupkgPath => null;

@@ -244,6 +244,22 @@ public static class IrImporter
             return null;
         if (result is TypeDeclarationResult.BudgetExceeded budget)
             throw new TypeDeclarationBudgetExceededException(budget.Detail);
+        if (result
+            is TypeDeclarationResult.DefinitionKindUnavailable unavailable)
+        {
+            throw unavailable.Failure switch
+            {
+                MetadataTypeDefinitionKindFailure.BudgetExceeded exceeded =>
+                    new TypeDeclarationBudgetExceededException(
+                        exceeded.Detail),
+                MetadataTypeDefinitionKindFailure.Malformed malformed =>
+                    new BadImageFormatException(malformed.Detail),
+                MetadataTypeDefinitionKindFailure.Unsupported unsupported =>
+                    new NotSupportedException(unsupported.Detail),
+                _ => new InvalidOperationException(
+                    "Unknown TypeDef kind failure."),
+            };
+        }
         if (result is TypeDeclarationResult.Rejected rejected)
             throw new BadImageFormatException(rejected.Rejection.Detail);
         if (result is TypeDeclarationResult.Ambiguous)
@@ -1473,6 +1489,18 @@ public static class IrImporter
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
 
+                    if (source.CrossAssembly.TryProveExtensionTypeArgumentInference(
+                        callee,
+                        arguments,
+                        out var lambdaOutputs))
+                    {
+                        callee = callee with
+                        {
+                            CanOmitTypeArguments = true,
+                            TypeArgumentElisionLambdaOutputs = lambdaOutputs,
+                        };
+                    }
+
                     var call = new Call(
                         callee,
                         opcode == ILOpCode.Callvirt,
@@ -2531,6 +2559,15 @@ public static class IrImporter
                 bool requiresUnsafe =
                     requiresUnsafeContract.IsExplicit;
                 string methodName = reader.GetString(method.Name);
+                bool isExtension =
+                    MethodDefinitionFacts.HasExtensionAttribute(reader, method);
+                TypeArgumentElisionOverloadResult overloadFacts =
+                    isExtension && method.GetGenericParameters().Count > 0
+                        ? MethodDefinitionFacts.TypeArgumentElisionOverloads(
+                            reader,
+                            declaringType,
+                            (MethodDefinitionHandle)handle)
+                        : new(MetadataFactState.Unknown, []);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
                     ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
@@ -2560,7 +2597,10 @@ public static class IrImporter
                     DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
                         ? FactState(IsDelegateType(reader, declaringType))
                         : MetadataFactState.Unknown,
-                    IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    IsExtension = FactState(isExtension),
+                    TypeArgumentElisionOverloadSafety = overloadFacts.State,
+                    TypeArgumentElisionSiblingParameters =
+                        overloadFacts.SameReceiverSiblingParameters,
                     IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
                     IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
                     IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),

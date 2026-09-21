@@ -17,6 +17,7 @@ using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli.Planning;
+using NuGet.Versioning;
 using Decompiler = ILInspector.Decompiler;
 
 namespace DotnetInspect.Cli.Commands;
@@ -27,6 +28,22 @@ namespace DotnetInspect.Cli.Commands;
 public static class TypeCommand
 {
     public const string Name = "type";
+
+    private static readonly InspectionEnvelopeJsonContract<
+        ExactTypeInspectionResult> ExactTypeJsonContract =
+            new(
+                "exact-type",
+                1,
+                ExactTypeInspectionJsonContext.Default
+                    .ExactTypeInspectionResult);
+
+    private static readonly InspectionEnvelopeJsonContract<
+        ExactLibraryApiInspectionResult> ExactLibraryApiJsonContract =
+            new(
+                "exact-library-api",
+                1,
+                ExactLibraryApiInspectionJsonContext.Default
+                    .ExactLibraryApiInspectionResult);
 
     public static Task<int> ExecuteAsync(TypeOptions options)
         => ExecuteAsync(
@@ -71,7 +88,7 @@ public static class TypeCommand
     internal static TypeOptions FromDeferredMemberOptions(
         MemberOptions options)
     {
-        var (memberFilter, memberLimit) =
+        var memberFilter =
             SharedParsers.ParseMemberFilter(
                 options.RouterDeferredTypeMemberValues);
         return new()
@@ -90,7 +107,6 @@ public static class TypeCommand
             Verbose = options.Verbose,
             ShowDocs = options.DocsExplicitlySet && options.ShowDocs,
             DocsExplicitlySet = options.DocsExplicitlySet,
-            UseLocalDocs = options.UseLocalDocs,
             ShowSamples = options.ShowSamples,
             PreferRenderedUrls = options.PreferRenderedUrls,
             Verbosity = options.Verbosity,
@@ -109,8 +125,6 @@ public static class TypeCommand
             EmbeddedMermaid = options.EmbeddedMermaid,
             Bare = options.Bare,
             NoHeader = options.NoHeader,
-            Limit = memberLimit,
-            MemberLimit = memberLimit,
             MemberFilter = memberFilter,
             KindFilter = options.KindFilter,
             UnsafeOnly = options.UnsafeOnly,
@@ -129,7 +143,6 @@ public static class TypeCommand
             Discover = options.Discover,
             Tree = options.Tree,
             ShapeOutput = options.ShapeOutput,
-            ShapeExplicitlySet = options.ShapeExplicitlySet,
             Schema = options.Schema,
             Count = options.Count,
             Rows = options.Rows,
@@ -173,6 +186,7 @@ public static class TypeCommand
         if (resolvedSource is null
             && loadedSurface is null
             && options.WorkspacePacket is not null
+            && !options.EnvelopeOutput
             && options.ShareFormat is not null
             && options.Discover is not null
             && !options.EffectiveDiscovery)
@@ -196,7 +210,8 @@ public static class TypeCommand
 
         if (resolvedSource is null
             && loadedSurface is null
-            && options.WorkspacePacket is not null)
+            && options.WorkspacePacket is not null
+            && !options.EnvelopeOutput)
         {
             return await ExecuteWorkspaceExactTypeAsync(
                 options,
@@ -206,17 +221,20 @@ public static class TypeCommand
                 cancellationToken).ConfigureAwait(false);
         }
 
-        try
+        if (!options.EnvelopeOutput)
         {
-            if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
-                return prefixBrowseExitCode;
-            if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
-                return findIfMissExitCode;
-        }
-        catch (Exception ex)
-        {
-            CommandError.Write(ex);
-            return 1;
+            try
+            {
+                if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+                    return prefixBrowseExitCode;
+                if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
+                    return findIfMissExitCode;
+            }
+            catch (Exception ex)
+            {
+                CommandError.Write(ex);
+                return 1;
+            }
         }
 
         if (resolvedSource is null
@@ -248,6 +266,13 @@ public static class TypeCommand
                     exactLibraryRequest,
                     exactTypeCapabilities)
                 .ConfigureAwait(false);
+        }
+
+        if (options.EnvelopeOutput)
+        {
+            CommandError.Write(
+                "--envelope on type requires exact package-backed Type or Library API inspection, or --match.");
+            return 1;
         }
 
         bool ownsSource = resolvedSource is null;
@@ -363,7 +388,7 @@ public static class TypeCommand
                         List<Tip> tips =
                         [
                             new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
-                            new(Name, $"{sourceFlag} --shape", "view type shape"),
+                            new(Name, $"{sourceFlag} --tree", "view type tree"),
                             new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
@@ -522,24 +547,11 @@ public static class TypeCommand
                         return 1;
                     }
 
-                    // Default --shape on for single-type view when the user is not running a
-                    // section/projection query and did not explicitly choose another renderer.
+                    // Default to the tree renderer for a single Type when the user is not running
+                    // a section/projection query and did not explicitly choose another renderer.
                     // Verbosity grows the tree view; --markdown opts into the section/document view.
-                    if (!effectiveOptions.ShapeExplicitlySet && ShouldDefaultToShape(effectiveOptions))
+                    if (ShouldDefaultToShape(effectiveOptions))
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
-
-                    // Explicit --shape cannot honor a section/projection query; warn rather than
-                    // silently dropping the selection.
-                    bool shapeProjectionWillReject =
-                        LensProjection.IsRequested(effectiveOptions)
-                        || effectiveOptions.JsonOutput
-                            && (effectiveOptions.Fields is { Length: > 0 }
-                                || effectiveOptions.Columns is { Length: > 0 });
-                    if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false }
-                        && !shapeProjectionWillReject)
-                    {
-                        CommandError.WriteWarning("--shape does not support -S/--columns/--fields or --where Kind=...; selection was ignored.");
-                    }
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
@@ -567,11 +579,7 @@ public static class TypeCommand
                         await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                             apiType,
                             sourceFilesDllPath,
-                            effectiveOptions with
-                            {
-                                ShowDocs = false,
-                                UseLocalDocs = false,
-                            },
+                            effectiveOptions with { ShowDocs = false },
                             logger,
                             context.HttpClient,
                             sourceAssembly,
@@ -659,7 +667,7 @@ public static class TypeCommand
                         if (overloadGroups.Any(g => g.Count() > 1))
                             tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
 
-                        tips.Add(new(Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
+                        tips.Add(new(Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
                         tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
 
                         if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
@@ -765,17 +773,20 @@ public static class TypeCommand
             || options.PackageRangeAddress is not null
             || options.AssemblyPath is not null
             || options.PlatformAssembly is not null
+            || options.PlatformFramework is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
+            || options.WorkspacePacket is not null
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(options.TypeName)
+            || !string.IsNullOrWhiteSpace(options.TypeFilter)
             || new TypeGestureIntent(options.TypeFilter)
                 .SelectsListingCatalog(options.TypeName)
             || options.EffectiveDiscovery
             || options.Verbosity is not (
                 Verbosity.Quiet or Verbosity.Minimal)
-            || !options.IsDefaultInvocation
+            || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
@@ -801,7 +812,7 @@ public static class TypeCommand
         }
 
         (string packageId, string? version) =
-            PackageExtractor.ParsePackageReference(options.PackagePath);
+            PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
             || string.IsNullOrWhiteSpace(version))
         {
@@ -813,8 +824,8 @@ public static class TypeCommand
             request = new ExactTypeInspectionRequest(
                 packageId,
                 version,
-                options.Tfm,
-                options.TypeName);
+                options.Tfm!,
+                options.TypeName!);
             return true;
         }
         catch (ArgumentException)
@@ -835,15 +846,20 @@ public static class TypeCommand
             || options.PackageRangeAddress is not null
             || string.IsNullOrWhiteSpace(options.AssemblyPath)
             || options.PlatformAssembly is not null
+            || options.PlatformFramework is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
+            || options.WorkspacePacket is not null
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(options.TypeFilter)
             || !(string.IsNullOrWhiteSpace(options.TypeName)
                 || new TypeGestureIntent(options.TypeFilter)
                     .SelectsListingCatalog(options.TypeName))
             || options.EffectiveDiscovery
-            || !options.IsDefaultInvocation
+            || options.Verbosity is not (
+                Verbosity.Quiet or Verbosity.Minimal)
+            || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
@@ -869,9 +885,12 @@ public static class TypeCommand
         }
 
         (string packageId, string? version) =
-            PackageExtractor.ParsePackageReference(options.PackagePath);
+            PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
-            || string.IsNullOrWhiteSpace(version))
+            || string.IsNullOrWhiteSpace(version)
+            || !NuGetVersion.TryParse(
+                version,
+                out NuGetVersion? parsedVersion))
         {
             return false;
         }
@@ -880,15 +899,50 @@ public static class TypeCommand
         {
             request = new ExactLibraryApiInspectionRequest(
                 packageId,
-                version,
-                options.Tfm,
-                options.AssemblyPath);
+                parsedVersion.ToNormalizedString(),
+                options.Tfm!,
+                options.AssemblyPath!);
             return true;
         }
         catch (ArgumentException)
         {
             return false;
         }
+    }
+
+    static bool IsCompleteInspectionOutput(TypeOptions options)
+    {
+        bool completeFormat =
+            options.IsDefaultInvocation
+            || options.JsonOutput
+            || options.EnvelopeOutput;
+
+        return completeFormat
+            && !options.Bare
+            && !options.Tree
+            && !options.ShapeOutput
+            && !options.Print
+            && options.PrintRow is null
+            && !options.Value
+            && !options.Urls
+            && !options.Paths
+            && !options.JsonArray
+            && !options.NoHeader
+            && options.TypeListingRowSelection
+                is not { Operations.Count: > 0 }
+            && !options.MarkdownExplicitlySet
+            && !options.PlainText
+            && !options.Tabular
+            && !options.Tsv
+            && !options.Jsonl
+            && !options.MermaidOutput
+            && !options.EmbeddedMermaid
+            && !options.Count
+            && options.Discover is null
+            && !options.Schema
+            && options.Columns is null
+            && options.Fields is null
+            && !options.RequestAllTaste;
     }
 
     static Task<int> ExecuteSharedExactLibraryApiAsync(
@@ -925,6 +979,34 @@ public static class TypeCommand
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
         ExactLibraryApiInspectionResult result = envelope.Content;
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                ExactLibraryApiJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            WriteInspectionDiagnostics(envelope.Diagnostics);
+            if (result.Outcome
+                    is not ExactLibraryApiInspectionOutcome.Available
+                && !envelope.Diagnostics.Any(diagnostic =>
+                    diagnostic.Severity
+                        == InspectionDiagnosticSeverity.Error))
+            {
+                CommandError.Write(
+                    result.Failures.FirstOrDefault()?.Detail
+                    ?? "Could not extract API from library.");
+            }
+            else if (wrote && execution.Surface is not null)
+            {
+                WriteExactLibraryTips(
+                    options,
+                    request,
+                    execution.Surface);
+            }
+            return wrote && result.IsComplete ? 0 : 1;
+        }
+
         if (result.Outcome
                 is not ExactLibraryApiInspectionOutcome.Available
             || execution.Surface is null)
@@ -946,36 +1028,47 @@ public static class TypeCommand
         if (!options.FormatExplicitlySet
             && !options.IsRawOutput)
         {
-            ApiType? exampleType = execution.Surface.Types
-                .OrderByDescending(type => type.Members.Count)
-                .FirstOrDefault();
-            if (exampleType is not null)
-            {
-                string sourceFlag =
-                    $"--package {request.PackageId} "
-                    + $"--library {request.Library}";
-                string simpleName =
-                    TypeMatcher.GetSimpleName(exampleType.FullName);
-                Hints.WriteTips(
-                    options.TipLevel,
-                    [
-                        new(
-                            MemberCommand.Name,
-                            $"{simpleName} {sourceFlag}",
-                            "inspect type members"),
-                        new(
-                            Name,
-                            $"{sourceFlag} --shape",
-                            "view type shape"),
-                        new(
-                            Name,
-                            $"-t \"*Writer*\" {sourceFlag}",
-                            "filter types by pattern"),
-                    ]);
-            }
+            WriteExactLibraryTips(
+                options,
+                request,
+                execution.Surface);
         }
 
         return result.IsComplete ? 0 : 1;
+    }
+
+    static void WriteExactLibraryTips(
+        TypeOptions options,
+        ExactLibraryApiInspectionRequest request,
+        ApiSurface surface)
+    {
+        ApiType? exampleType = surface.Types
+            .OrderByDescending(type => type.Members.Count)
+            .FirstOrDefault();
+        if (exampleType is null)
+            return;
+
+        string sourceFlag =
+            $"--package {request.PackageId} "
+            + $"--library {request.Library}";
+        string simpleName =
+            TypeMatcher.GetSimpleName(exampleType.FullName);
+        Hints.WriteTips(
+            options.TipLevel,
+            [
+                new(
+                    MemberCommand.Name,
+                    $"{simpleName} {sourceFlag}",
+                    "inspect type members"),
+                new(
+                    Name,
+                    $"{sourceFlag} --tree",
+                    "view type tree"),
+                new(
+                    Name,
+                    $"-t \"*Writer*\" {sourceFlag}",
+                    "filter types by pattern"),
+            ]);
     }
 
     static Task<int> ExecuteSharedExactTypeAsync(
@@ -1008,6 +1101,20 @@ public static class TypeCommand
         }
 
         ExactTypeInspectionResult result = envelope.Content;
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                ExactTypeJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            if (!result.IsAvailable)
+                WriteExactTypeNonSuccess(envelope);
+            else
+                WriteInspectionDiagnostics(envelope.Diagnostics);
+            return wrote && result.IsComplete ? 0 : 1;
+        }
+
         if (!result.IsAvailable)
         {
             WriteExactTypeNonSuccess(envelope);
@@ -1113,7 +1220,7 @@ public static class TypeCommand
         ExactTypeRenderSource renderSource,
         SelectedContextExactTypeLiveTarget target)
     {
-        WriteExactTypeDiagnostics(diagnostics);
+        WriteInspectionDiagnostics(diagnostics);
 
         try
         {
@@ -1213,7 +1320,7 @@ public static class TypeCommand
         IEnumerable<InspectionDiagnostic> diagnostics,
         ExactTypeRenderSource renderSource)
     {
-        WriteExactTypeDiagnostics(diagnostics);
+        WriteInspectionDiagnostics(diagnostics);
 
         ExactTypeApi exactType = result.Type!;
         MetadataTypeDefinitionName definitionName =
@@ -1351,7 +1458,7 @@ public static class TypeCommand
             ? null
             : diagnostics.FirstOrDefault(diagnostic =>
                 diagnostic.Code == primaryCode);
-        WriteExactTypeDiagnostics(
+        WriteInspectionDiagnostics(
             primary is null
                 ? diagnostics
                 : diagnostics.Where(diagnostic =>
@@ -1600,7 +1707,7 @@ public static class TypeCommand
         }
     }
 
-    static void WriteExactTypeDiagnostics(
+    static void WriteInspectionDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)
     {
         foreach (InspectionDiagnostic diagnostic in diagnostics)
@@ -1621,7 +1728,7 @@ public static class TypeCommand
                     throw new ArgumentOutOfRangeException(
                         nameof(diagnostics),
                         diagnostic.Severity,
-                        "Unknown exact Type diagnostic severity.");
+                        "Unknown inspection diagnostic severity.");
             }
         }
     }
@@ -1738,7 +1845,8 @@ public static class TypeCommand
             options.IncludeAll,
             options.SourceOptions,
             context.HttpClient,
-            logger);
+            logger,
+            options.PlatformFramework);
         if (resolution.Status == TypeFindIfMissStatus.None)
             return null;
 
@@ -1777,7 +1885,6 @@ public static class TypeCommand
             PlatformPrefixQuery = null,
             TypeFilter = null,
             ShapeOutput = false,
-            ShapeExplicitlySet = false,
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
@@ -1856,7 +1963,10 @@ public static class TypeCommand
         var findOptions = new FindOptions
         {
             Pattern = pattern,
-            PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+            PlatformFrameworks =
+                string.IsNullOrWhiteSpace(options.PlatformFramework)
+                    ? CommandLineBuilder.PlatformFrameworkNames
+                    : [options.PlatformFramework],
             IncludeAll = options.IncludeAll,
             Limit = options.Limit,
             SourceOptions = options.SourceOptions
@@ -1878,13 +1988,23 @@ public static class TypeCommand
                 g => g.Key,
                 g => g.Select(r => r.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
+        bool hasExplicitTarget =
+            !string.IsNullOrWhiteSpace(options.PlatformFramework);
         var merged = new ApiSurface
         {
             Name = query,
             Source = SourceKind.Platform,
-            Version = string.Join(", ", distinctResults.Select(r => $"{r.Source}@{r.SourceVersion}").Distinct()),
-            Tfm = "platform"
+            Version = hasExplicitTarget
+                ? null
+                : string.Join(
+                    ", ",
+                    distinctResults
+                        .Select(r => $"{r.Source}@{r.SourceVersion}")
+                        .Distinct()),
+            Tfm = hasExplicitTarget ? null : "platform"
         };
+        string? targetVersion = null;
+        string? targetTfm = null;
 
         foreach (var ((framework, assembly, _), fullNames) in resultNamesByAssembly)
         {
@@ -1898,6 +2018,36 @@ public static class TypeCommand
             {
                 logger.LogWarning($"Could not resolve platform library '{assembly}' in {framework}: {error}");
                 continue;
+            }
+
+            if (hasExplicitTarget)
+            {
+                string? resolvedTfm =
+                    ApiSourceResolver
+                        .TryGetReferencePackTargetFramework(assemblyPath);
+                if (string.IsNullOrWhiteSpace(version)
+                    || string.IsNullOrWhiteSpace(resolvedTfm))
+                {
+                    throw new InvalidOperationException(
+                        "The explicit platform target did not resolve "
+                            + "an exact version and reference-pack TFM.");
+                }
+                if (targetVersion is not null
+                    && (!string.Equals(
+                            targetVersion,
+                            version,
+                            StringComparison.Ordinal)
+                        || !string.Equals(
+                            targetTfm,
+                            resolvedTfm,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException(
+                        "The explicit platform prefix browse resolved "
+                            + "multiple target identities.");
+                }
+                targetVersion = version;
+                targetTfm = resolvedTfm;
             }
 
             var loaded = ApiServices.LoadFullApi(
@@ -1938,6 +2088,11 @@ public static class TypeCommand
                 assemblyPath);
         }
 
+        if (hasExplicitTarget)
+        {
+            merged.Version = targetVersion;
+            merged.Tfm = targetTfm;
+        }
         merged.Types = merged.Types
             .DistinctBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
             .OrderBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
@@ -2068,7 +2223,6 @@ public static class TypeCommand
         {
             TypeFilter = null,
             ShapeOutput = false,
-            ShapeExplicitlySet = false,
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 

@@ -394,6 +394,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     0,
                     new IOException("group fixture")),
             ],
+            [],
             [new IOException("artifact fixture")]);
 
         ImmutableArray<PackageVersionCellWorkspaceCleanupFailure> failures =
@@ -553,6 +554,8 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     {
         public int Calls { get; private set; }
 
+        public List<int> Positions { get; } = [];
+
         public PackageHouseVersionPopulationCellExecution? Execution
         {
             get;
@@ -567,6 +570,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Calls++;
+            Positions.Add(execution.Cell.Address.Position);
             Execution = execution;
             Settlement = execute(execution);
             return Task.FromResult(Settlement);

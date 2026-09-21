@@ -16,7 +16,10 @@ public sealed record LibraryBodyAnalysisReceipt(
 /// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
 public sealed record LibrarySafetyAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
-    ImmutableArray<UnsafeEvidence> Evidence)
+    ImmutableArray<UnsafeEvidence> Evidence,
+    IReadOnlyDictionary<
+        int,
+        ImmutableArray<UnsafetyOccurrence>> Occurrences)
 {
     /// <summary>Whether unsafe-evidence production participated in this execution.</summary>
     public bool WasRequested =>
@@ -44,6 +47,23 @@ public sealed record LibraryImplementationProfileAnalysisResult(
 }
 
 /// <summary>
+/// Detached terminal-resource facts produced from one resolution and body
+/// acquisition generation.
+/// </summary>
+public sealed record LibraryResourceOccurrenceAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ResourceEffectAdmissionReceipt? AdmissionReceipt,
+    ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations)
+{
+    public bool IsComplete =>
+        WasRequested
+        && Limitations.IsEmpty
+        && Methods.All(method => method.IsComplete);
+}
+
+/// <summary>
 /// Explicit focused results produced by one shared library-body Analysis
 /// execution.
 /// </summary>
@@ -68,14 +88,46 @@ public sealed class LibraryBodyAnalysisExecution
             plan.Features,
             HasFullMethodEvidenceScope(plan),
             analysis.Diagnostics);
+        CallGraph = new(
+            Receipt,
+            _moduleName,
+            analysis);
+        var generatedFrameworkTypes =
+            new GeneratedFrameworkTypeSet(CallGraph);
+        Leverage = new(
+            Receipt,
+            CallGraph,
+            generatedFrameworkTypes);
         Safety = new(
             Receipt,
-            analysis.Safety.Evidence);
+            analysis.Safety.Evidence,
+            analysis.Safety.Occurrences);
+        Allocations = new(
+            Receipt,
+            analysis.Allocations);
         ImplementationProfiles =
             CreateImplementationProfileResult(
                 Receipt,
                 analysis,
-                _moduleName);
+                CallGraph,
+                generatedFrameworkTypes);
+        Optimization = new(
+            Receipt,
+            analysis,
+            CallGraph,
+            generatedFrameworkTypes);
+        ResourceOccurrences = new(
+            Receipt,
+            plan.IncludesResourceOccurrences,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceOccurrences?.Methods ?? [],
+            analysis.ResourceOccurrences?.Limitations ?? []);
+        ResourceLifecycle = new(
+            Receipt,
+            plan.IncludesResourceLifecycle,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceLifecycle?.Methods ?? [],
+            analysis.ResourceLifecycle?.Limitations ?? []);
     }
 
     /// <summary>
@@ -87,9 +139,33 @@ public sealed class LibraryBodyAnalysisExecution
     /// <summary>Focused unsafe-evidence result.</summary>
     public LibrarySafetyAnalysisResult Safety { get; }
 
+    /// <summary>Focused allocation-occurrence result.</summary>
+    public LibraryAllocationAnalysisResult Allocations { get; }
+
     /// <summary>Focused implementation-profile result.</summary>
     public LibraryImplementationProfileAnalysisResult
-        ImplementationProfiles { get; }
+        ImplementationProfiles
+    { get; }
+
+    /// <summary>Focused optimization-opportunity result.</summary>
+    public LibraryOptimizationAnalysisResult Optimization { get; }
+
+    /// <summary>Focused local call-graph result.</summary>
+    public LibraryCallGraphAnalysisResult CallGraph { get; }
+
+    /// <summary>Focused whole-library leverage result.</summary>
+    public LibraryLeverageAnalysisResult Leverage { get; }
+
+    /// <summary>Focused root-bound Resource Occurrence result.</summary>
+    public LibraryResourceOccurrenceAnalysisResult ResourceOccurrences
+    { get; }
+
+    /// <summary>Focused root-bound Resource Lifecycle result.</summary>
+    public LibraryResourceLifecycleAnalysisResult ResourceLifecycle
+    { get; }
+
+    internal bool HasMaterializedCompatibilityIndex =>
+        _compatibilityIndex is not null;
 
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
@@ -102,7 +178,10 @@ public sealed class LibraryBodyAnalysisExecution
             _moduleName,
             _analysis,
             Receipt.Features,
-            Receipt.HasFullMethodEvidenceScope);
+            Receipt.HasFullMethodEvidenceScope,
+            Optimization,
+            CallGraph,
+            Leverage);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
@@ -113,7 +192,8 @@ public sealed class LibraryBodyAnalysisExecution
         CreateImplementationProfileResult(
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
-            string? moduleName)
+            LibraryCallGraphAnalysisResult callGraph,
+            GeneratedFrameworkTypeSet generatedFrameworkTypes)
     {
         if (!receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures.ImplementationProfiles))
@@ -125,50 +205,22 @@ public sealed class LibraryBodyAnalysisExecution
                 []);
         }
 
-        ImmutableArray<DirectCall> physicalDirectCalls =
-        [
-            .. analysis.Methods.DirectCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
-        MethodDefinitionMap methodMap =
-            MethodDefinitionMap.Create(
-                analysis.Methods.DeclaredMethods,
-                moduleName);
-        Dictionary<int, MethodSignals> signals =
-            MethodSignalAnalysis.Collect(
-                physicalDirectCalls,
-                analysis.Safety.Evidence,
-                analysis.Methods.BodySignals,
-                receipt.Features.HasFlag(
-                    LibraryBodyAnalysisFeatures.Allocations)
-                    ? analysis.Allocations.Occurrences
-                    : null,
-                analysis.Methods.InAssemblyTypeIsException,
-                analysis.Methods.NonHeapNewObjOperandTokens);
         ImmutableArray<OverloadCallRelationship> relationships =
             MethodImplementationProfileAnalysis
                 .CollectOverloadRelationships(
-                    analysis.Methods.DeclaredMethods,
-                    analysis.Methods.DirectCalls,
-                    methodMap);
+                    callGraph.DeclaredMethods,
+                    callGraph.DirectCalls,
+                    callGraph.DeclaredMethodMap);
 
         return new(
             receipt,
             MethodImplementationProfileAnalysis.Collect(
                 analysis.Methods.ImplementationProfiles,
-                analysis.Methods.DirectCalls,
-                signals,
+                callGraph.DirectCalls,
+                callGraph.MethodSignals,
                 relationships,
-                methodMap),
+                callGraph.DeclaredMethodMap),
             relationships,
-            GeneratedFrameworkTypeAnalysis.Collect(
-                    physicalDirectCalls,
-                    analysis.Methods.Methods)
-                .ToImmutableHashSet());
+            generatedFrameworkTypes.Types);
     }
 }

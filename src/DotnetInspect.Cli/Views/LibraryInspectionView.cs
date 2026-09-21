@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -214,16 +215,119 @@ public class LibraryInspectionView
         Types = info.TypeDefinitionCount > 0 ? info.TypeDefinitionCount.ToString("N0") : null,
         UnionTypes = _data.UnionTypeInspection.FindingCount(),
         Version = LibraryInspectionDisplay.ResolveVersion(_data),
+        EcosystemDependencies = EcosystemDependenciesDisplay,
+        EcosystemDependencyStatus = EcosystemDependencyStatus,
     };
 
-    [MarkoutSection(Name = "References")]
+    [MarkoutSection(Name = SectionNames.EcosystemDependencies)]
+    [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyCoverageIsComplete),
+        nameof(PackageEcosystemDependencyRow.Coverage))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencyRequestedTargetFrameworkIsEmpty),
+        nameof(PackageEcosystemDependencyRow.RequestedTargetFramework))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencySelectedTargetFrameworkIsEmpty),
+        nameof(PackageEcosystemDependencyRow.SelectedTargetFramework))]
+    [MarkoutIgnoreColumnWhen(
+        nameof(EcosystemDependencySelectedGroupIsEmpty),
+        nameof(PackageEcosystemDependencyRow.SelectedGroup))]
+    public List<PackageEcosystemDependencyRow>? EcosystemDependenciesSection =>
+        RecognitionDocument is { } document
+            ? (_data.EcosystemDependencyRows
+                    ?? document.Classification.Recognized)
+                .Select(entry =>
+                    PackageEcosystemDependencyRow.Create(
+                        entry,
+                        document))
+                .ToList()
+            : null;
+
+    public static bool EcosystemDependencyCoverageIsComplete(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        InspectionResultView.EcosystemDependencyCoverageIsComplete(rows);
+
+    public static bool EcosystemDependencyRequestedTargetFrameworkIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.RequestedTargetFramework is null);
+
+    public static bool EcosystemDependencySelectedTargetFrameworkIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.SelectedTargetFramework is null);
+
+    public static bool EcosystemDependencySelectedGroupIsEmpty(
+        List<PackageEcosystemDependencyRow>? rows) =>
+        rows is null
+        || rows.All(static row => row.SelectedGroup is null);
+
+    [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
-        _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
+        (_data.AssemblyReferenceDisplayOrder
+            ?? _data.AssemblyReferenceInspection
+                .PayloadsForRendering()
+                .OrderBy(r => r.Name, StringComparer.Ordinal)
+                .ToArray())
             .Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
-            .ToList() is { Count: > 0 } list ? list : null;
+            .ToList() is { Count: > 0 } list
+                ? list
+                : _data.AssemblyReferenceInspection is { } inspection
+                  && inspection.Failure() is null
+                    ? []
+                    : null;
+
+    [MarkoutSection(
+        Name = SectionNames.ReferenceHierarchy,
+        EmptyText = "No reference relationships.")]
+    public Markout.Graph? ReferenceHierarchySection =>
+        _data.ReferenceHierarchyProjection is { } projection
+            ? DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                projection.HierarchyRows,
+                markWindowedFragments: true)
+            : null;
+
+    private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
+        _data.EcosystemDependencyRecognitionInspection?.Content switch
+        {
+            EcosystemDependencyRecognitionOutcome.Complete complete =>
+                complete.Document,
+            EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                incomplete.Document,
+            _ => null,
+        };
+
+    private string? EcosystemDependenciesDisplay =>
+        _data.EcosystemDependencyRecognitionInspection?.Content
+            is EcosystemDependencyRecognitionOutcome.Complete complete
+        && !complete.Document.Classification.RecognizedEcosystems.IsEmpty
+            ? string.Join(
+                ", ",
+                complete.Document.Classification.RecognizedEcosystems
+                    .Select(static ecosystem => ecosystem.Title))
+            : null;
+
+    private string? EcosystemDependencyStatus =>
+        _data.EcosystemDependencyRecognitionInspection?.Content switch
+        {
+            EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                $"Incomplete ({incomplete.Document.InputIssues.Length} "
+                + (incomplete.Document.InputIssues.Length == 1
+                    ? "issue"
+                    : "issues")
+                + ")",
+            EcosystemDependencyRecognitionOutcome.Unavailable unavailable =>
+                $"Unavailable ({unavailable.InputIssues.Length} "
+                + (unavailable.InputIssues.Length == 1
+                    ? "issue"
+                    : "issues")
+                + ")",
+            _ => null,
+        };
 
     [MarkoutIgnore]
     public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };
@@ -905,6 +1009,10 @@ public class LibraryInspectionView
     [MarkoutIgnore] public bool HasPerformanceEnumerators => PerformanceEnumeratorsSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceEnumerators, ShowWhenProperty = nameof(HasPerformanceEnumerators))]
     public List<PerformanceRow>? PerformanceEnumeratorsSection => PerformanceRowsFor(SectionNames.PerformanceEnumerators);
+
+    [MarkoutIgnore] public bool HasPerformanceStrings => PerformanceStringsSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceStrings, ShowWhenProperty = nameof(HasPerformanceStrings))]
+    public List<PerformanceRow>? PerformanceStringsSection => PerformanceRowsFor(SectionNames.PerformanceStrings);
 
     [MarkoutIgnore] public bool HasPerformanceLoops => PerformanceLoopsSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceLoops, ShowWhenProperty = nameof(HasPerformanceLoops))]
@@ -2156,6 +2264,10 @@ public class LibraryInfoSection
     public int CustomAttributes { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Deterministic { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? EcosystemDependencies { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? EcosystemDependencyStatus { get => field; init => field = LibraryViewText.Contain(value); }
     public int ExtensionMethods { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }

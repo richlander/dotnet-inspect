@@ -111,6 +111,11 @@ dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
+dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
+dnx dotnet-inspect -y -- depends Int128 \
+  --where "Kind=Interface" \
+  --order-by "Target desc" \
+  --top 5 --table
 dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
   --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
   --tfm net8.0 \
@@ -127,12 +132,34 @@ dnx dotnet-inspect -y -- depends \
   --package Microsoft.Extensions.Hosting@10.0.0 \
   --depth 1 \
   --tree
+dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
+  -S Dependencies
+dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
+  -S "Dependency Hierarchy" --depth 1 --tree
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -D @Dependencies --details
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -D "Reference Hierarchy" --details
+dnx dotnet-inspect -y -- library System.Text.Json -S References
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -S "Reference Hierarchy" --tree
 ```
 
 For asset roots, `Dependency Hierarchy` preserves one occurrence per
 root-relative parent relationship. Use `Dependencies` for direct declaration
 evidence; use hierarchy table or JSON output when repeated targets and their
-parent context matter.
+parent context matter. On `package`, selecting `Dependency Hierarchy` invokes
+the same Depends operation, while `--tree` only chooses its projection.
+Both entrances inherit the same Depth capability. For positional type mode,
+`-Q "Dependency Graph"` reports the Source, Target, and Kind predicates plus
+field and Traversal ordering. `--top` requires a Source, Target, or Kind field
+order; Traversal cannot rank.
+On `library`, `References` remains direct assembly metadata and
+`Reference Hierarchy` invokes that same occurrence-addressed Depends operation
+for the exact assembly; `--depth` controls traversal and `--tree` remains only
+a projection choice. Use `-D @Dependencies --details` to compare the complete
+category with its members before choosing the exact hierarchy section for tree
+or Mermaid output.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
@@ -142,6 +169,14 @@ the complete dependency relationships plus the selected
 `rowSelection.relationships`; dependency enums remain numeric.
 The service constructs Share for both JSON modes, but `--json` emits Content
 only; `--envelope` exposes Share.
+
+For one exact NuGet.org package version and TFM, `share.kind` is normally
+`available`; its `full_url` opens the analogous Dependencies view in Inspect
+Web and `packet` is the canonical replay state. Mixed dependency sources and
+explicit `--depth` remain valid Content requests but make Share
+`nonProjectable`, because the published browser cannot preserve them. This is
+the high-value envelope path when a dependency answer should include a
+user-drillable graph.
 
 With `--envelope`, use `--compact` for minified JSON. `--depth` remains
 traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
@@ -160,8 +195,20 @@ with `--bin`, `--project`, or `--caller-package`. With no explicit source, the
 first `--project` is the source context; repeated `--project` values after it
 remain caller scopes.
 
+With exactly `-S Callers`, `-n`, `--tail`, and strict `--rows A..B` select
+complete deduplicated call-site rows after every authorized caller scope has
+been scanned. Markdown, table, TSV, JSONL, JSON, and Count consume that same
+selected vector. Add `--lines` only for rendered-text clipping; `@Calls`, mixed
+sections, and scope-implied Callers retain rendered-line fallback.
+
+With exactly `-S Calls`, the same selectors operate on complete direct
+call-site occurrences after the selected method and its generated evidence
+methods have been analyzed. Repeated calls remain distinct, all output formats
+consume the same selected vector, and neighboring `@Calls`, mixed-section,
+discovery, and verbosity-implied modes retain rendered-line fallback.
+
 ```bash
-dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls
+dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls -n 1 --tail --json
 dnx dotnet-inspect -y -- member string -m IndexOf~147d84bbd7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
@@ -177,6 +224,12 @@ edge rows consistently across these views.
 
 For a type-level dependency summary, `Called Types` groups direct calls by
 target type, assembly, members, and call kinds.
+
+`Call Graph` has no `--envelope` route. Its graph, row selection, and
+completeness evidence belong to Content, so use the graph views or structured
+row formats above. A separate exact-member `--share url` projects the public
+API Overview, not the Call Graph; do not present that URL as a replay of the
+graph analysis.
 
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"
@@ -241,7 +294,11 @@ or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
 graph is built and before those formats; use `--lines` only for explicit
 rendered-line clipping. Row selection does not reduce package acquisition or
 hide retained graph failures. `graph libraries` remains a separate
-multi-section command and keeps rendered-line `-n` behavior.
+multi-section command: its default and exact `Call Sites` views apply the same
+semantic gestures to complete physical call sites, and exact
+`Direct Use Clusters` applies them to complete deterministic cluster rows.
+Its independent summary, path, wildcard, category, and multi-section views
+retain rendered-line `-n`.
 Missing `api.extension` or `integration.observed` endpoints whose assemblies are
 absent from the explicit package set remain outside the induced graph; add the
 owning package to admit those relationships. A missing

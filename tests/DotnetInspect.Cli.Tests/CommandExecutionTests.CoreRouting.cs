@@ -310,7 +310,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("System.Collections.Generic.List<T>.Add")]
     [InlineData("List<T>.Add")]
-    public async Task Router_GenericPlatformMember_PreservesContractDocumentation(
+    public async Task Router_GenericPlatformMember_UsesPlatformHouseDocumentation(
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -646,6 +646,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NetStandardForwardedMember_UsesContractDocumentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Threading.Tasks.Task<T>.Result",
+            "--framework",
+            "netstandard",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Gets the result value of this Task.",
+            output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypePreservesBodyKindQuery()
     {
         string[] arguments =
@@ -848,6 +867,169 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
         Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredVersionedPlatformMember_PreservesRequestedTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf",
+            "--framework",
+            "runtime@10.0.10",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 10.0.10", output);
+        Assert.Contains(
+            "Reports the zero-based index of the first occurrence",
+            output);
+    }
+
+    [Fact]
+    public async Task Router_DeferredLegacyRuntimeMember_PreservesReferencePackTfm()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 3.1.0", output);
+        Assert.Contains("TFM: netcoreapp3.1", output);
+        Assert.Contains(
+            "Reports the zero-based index of the first occurrence",
+            output);
+    }
+
+    [Fact]
+    public async Task Router_DeferredVersionedMember_UsesTargetCatalogLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.AppDomain.FriendlyName",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 3.1.0", output);
+        Assert.Contains("TFM: netcoreapp3.1", output);
+        Assert.Contains("System.Runtime.Extensions.dll", output);
+        Assert.Contains(
+            "Gets the friendly name of this application domain.",
+            output);
+    }
+
+    [Fact]
+    public async Task Type_VersionedPlatformTarget_UsesTargetCatalogLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.AppDomain",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 3.1.0", output);
+        Assert.Contains("TFM: netcoreapp3.1", output);
+        Assert.Contains("System.Runtime.Extensions.dll", output);
+    }
+
+    [Fact]
+    public async Task Member_VersionedCoreType_UsesReferenceDocumentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "--framework",
+            "runtime@10.0.10",
+            "-S",
+            "Methods",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Using platform ref library: runtime 10.0.10",
+            error);
+        Assert.Contains(
+            "Extracting API from: System.Runtime.dll",
+            error);
+        Assert.Contains(
+            "Represents text as a sequence of UTF-16 code units.",
+            output);
+        Assert.Contains(
+            "Reports the zero-based index of the first occurrence",
+            output);
+    }
+
+    [Fact]
+    public async Task Type_VersionedPlatformMiss_DoesNotBrowseCurrentCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.TimeProvider",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("Showing best-effort platform prefix", error);
+        Assert.DoesNotContain("runtime 11", error);
+        Assert.DoesNotContain("# System.TimeProvider", output);
+    }
+
+    [Fact]
+    public async Task Type_VersionedPlatformPrefixBrowse_UsesRequestedCatalogIdentity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Time",
+            "--framework",
+            "runtime@3.1.0",
+            "--json",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Resolved from installed packs: runtime 3.1.0",
+            error);
+        Assert.Contains(
+            "libraries in runtime@3.1.0",
+            error);
+        Assert.DoesNotContain(
+            "runtime@3.1.0@3.1.0",
+            error);
+        Assert.DoesNotContain("runtime 11", error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "3.1.0",
+            document.RootElement.GetProperty("version").GetString());
+        Assert.Equal(
+            "netcoreapp3.1",
+            document.RootElement.GetProperty("tfm").GetString());
+        Assert.Contains("System.TimeSpan", output);
+        Assert.DoesNotContain("System.TimeProvider", output);
     }
 
     [Fact]
@@ -1107,7 +1289,6 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--shape")]
     [InlineData("--tree")]
     public async Task Router_DeferredExactTypePreservesTypeOnlyOutput(
         string outputOption)
@@ -1246,7 +1427,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "-m",
             "Add",
-            "--shape",
+            "--tree",
             "--tips",
             "q"
         ];
@@ -1543,7 +1724,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_DeferredExactTypePreservesSharedMemberLimit()
+    public async Task Router_DeferredExactTypePreservesNumericMemberFilter()
     {
         const string target =
             "System.Collections.Immutable.ImmutableArray<T>.Builder";
@@ -1563,8 +1744,11 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(0, deferred.Exit);
-        Assert.Equal("1", deferred.Output.Trim());
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "No members matched filter '1'",
+            deferred.Error);
     }
 
     [Theory]
@@ -1874,7 +2058,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--shape", "--tips", "q");
+            typeName, "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(

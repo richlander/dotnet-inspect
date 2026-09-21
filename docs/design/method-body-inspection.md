@@ -61,17 +61,28 @@ weighty production logic.
 The first implementation is `ILOffsetProjectionProducer`:
 
 - `ILOffsetProjectionRequest` carries the already-open `SourceLinkService`,
-  coordinate, and capability flags — never a path, `PEReader`, or command options.
+  optional focused Analysis input, coordinate, and capability flags — never a
+  path, `PEReader`, `LibraryBodyIndex`, or command options.
 - Metadata exposes a session-bound `MethodBodySource` from both `PdbContext` and
   `AssemblyInspectionSession`. It returns copied `MethodBodyData` and implements
   operand-name resolution without exposing its owned readers.
 - `MethodBodyData` lives in `MetadataPrimitives` because it is the neutral
   Metadata-to-Instructions contract; Instructions decodes the snapshot directly.
-- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + Analysis +
-  SourceLink composition and returns `ILOffsetProjectionOutcome`.
+- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + focused
+  Analysis + SourceLink composition and returns `ILOffsetProjectionOutcome`;
+  it never acquires or reopens Analysis.
 - `ResearchViews.ProjectILOffset` forwards directly to the producer.
-- `ILOffsetQuery` retains only CLI parsing, capability selection, symbol
-  acquisition, failure/exit handling, and producer invocation.
+- `ILOffsetQuery` retains CLI parsing, capability selection, one scoped
+  Analysis execution over the SourceLink session's prefetched authoritative
+  image, failure/exit handling, and producer invocation. Coordinate-file
+  execution unions the MethodDef tokens once and reuses one focused input for
+  every row.
+
+`ILOffsetAnalysisInput` joins allocation, safety, and call-graph results from
+one Analysis execution receipt. The producer verifies that the input's module
+version matches the already-open source session and that each requested result
+family participated; missing, mixed, stale, or unrequested evidence remains a
+typed visible failure rather than an empty context.
 
 The capability replaces product friendship. Research and the CLI consume
 explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
@@ -79,9 +90,30 @@ explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
 Metadata friend set. The source rejects resolver operations after its owning
 session is disposed, while copied body data remains safe to retain.
 
-This establishes the migration pattern for the existing member projection:
-top-level contracts, a focused `MemberProjectionProducer`, and a thin
-`ResearchViews.ProjectMember` forwarder. That migration is tracked by
+`MemberProjectionProducer` applies that pattern to member inspection:
+
+- top-level `MemberProjectionRequest` and `MemberProjectionResult` contracts
+  carry already-open Metadata, optional focused Analysis input, and selected
+  projection capabilities;
+- the producer owns method import, one Finding census, overlays, portable
+  source, tracing, and projection-specific failure shaping;
+- `ResearchViews.ProjectMember` is a compatibility forwarder with no production
+  logic;
+- CLI member inspection and L1 Research queries invoke the producer directly;
+  the CLI unions `ResearchFactRegistry` requirements into its existing Analysis
+  execution, while the pathless Workspace query supplies its immutable-image
+  context; and
+- `MemberProjectionAnalysisInput` joins the exact allocation, safety,
+  call-graph, and leverage results issued by one Analysis execution. CLI and
+  Workspace/L1 composition supply it, so the producer never reopens Analysis.
+
+`ResearchAssemblyContext` is no longer a member-projection input. The
+Workspace/L1 query retains it only for residual query-owned callee evidence
+that still uses the compatibility index. The focused member input is not a
+universal Research result bag: its constructor names the four result families
+used by the default registry and requires one shared execution receipt.
+
+This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
 
 ## Selector shapes
@@ -163,6 +195,7 @@ public sealed class MethodBodyInspectionSession
 {
     public string SourceName { get; }
     public LibraryBodyAnalysisExecution AnalysisExecution { get; }
+    public LibraryCallGraphAnalysisResult CallGraphAnalysis { get; }
     public LibraryBodyIndex BodyIndex { get; } // compatibility only
 }
 ```
@@ -174,7 +207,11 @@ migrated queries. The boundary:
   `LibraryBodyAnalysisRequest`, and delegates path or prefetched-image
   execution to `LibraryBodyAnalysisService`
 - one session builds and reuses one Analysis service execution per command
-- migrated neutral Analysis queries consume focused Analysis-owned results
+- migrated neutral Analysis queries consume focused Analysis-owned safety,
+  implementation-profile, optimization, leverage, and call-graph results
+- local and catalog member graphs compose
+  `LibraryCallGraphAnalysisResult` values, while optional graph annotations
+  consume `LibraryOptimizationAnalysisResult`
 - `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
@@ -224,9 +261,10 @@ body acquisition. The
 [library body Analysis service](library-body-analysis-service.md) owns
 stateless path and immutable-image execution plus publication of focused
 detached results. `LibraryBodyAnalysisPlan` owns producer dependencies and
-scope; execution returns cohesive method, safety, allocation, optimization,
-resource-occurrence, and resource-lifecycle results. Section queries and
-topic-specific Analysis services consume those typed results rather than
+scope; execution publishes separately typed safety, implementation-profile,
+optimization, leverage, and call-graph results, with resource-occurrence and
+resource-lifecycle results following in their owning slices. Section queries
+and topic-specific Analysis services consume those typed results rather than
 adding more properties or algorithms to the facade.
 For each decoded method, `MethodBodyAnalysisContext` packages the method
 identity, exception regions, the shared Layer-0 `MethodInstructions`, and
@@ -237,8 +275,23 @@ decoded once during acquisition rather than independently by safety evidence
 and occurrence scans. Raw IL, generic decoding scope, metadata readers, and
 reader-bound method bodies remain outside the context so a topic producer
 cannot create a second decode or metadata traversal path.
-Allocation path contexts, confidence, and post-dominance remain private
-Layer-1 interpretations rather than becoming neutral context.
+Allocation path contexts, confidence, and post-dominance remain Layer-1
+interpretations rather than becoming neutral context. Analysis may publish
+those interpretations through the typed `AllocationOccurrence` result; a
+consumer must preserve that owner-issued value rather than infer path context
+from rendered detail text or source syntax. The first Annotated Source adoption
+projects only positive exception-related allocation paths:
+
+- `Escape == ThrowPath` means the allocation constructs the value used by a
+  `throw`;
+- otherwise `PathContext == ErrorPath` means the allocation occurs in a
+  `catch`, filter, or fault handler.
+
+The two cases are structural compiled-code evidence. They do not claim that an
+exception occurred, a handler ran, the path is cold or rare, or how often the
+allocation executed. Branch and switch-arm contexts are not called fallback
+paths because Analysis does not identify the branch's semantic role.
+
 `BodySignalAnalysis` owns array, throw, exception-region, allocating-box, and
 throw-path object signals; it receives the metadata-dependent box judgment
 through a narrow callback. `MethodBodyFlowProbe` owns the bounded throw-path

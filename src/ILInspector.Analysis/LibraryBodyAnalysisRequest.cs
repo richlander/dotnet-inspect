@@ -12,17 +12,23 @@ public sealed class LibraryBodyAnalysisRequest
     private LibraryBodyAnalysisRequest(
         LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? bodyScope,
-        Func<TypeRef, bool>? bodyTypeScope)
+        Func<TypeRef, bool>? bodyTypeScope,
+        ResourceEffectAdmission? resourceEffects,
+        bool includeResourceLifecycle)
     {
         ImmutableHashSet<int>? bodyScopeSnapshot =
             bodyScope?.ToImmutableHashSet();
         Features = features;
         BodyScope = bodyScopeSnapshot;
         BodyTypeScope = bodyTypeScope;
+        ResourceEffects = resourceEffects;
+        IncludesResourceLifecycle = includeResourceLifecycle;
         Plan = LibraryBodyAnalysisPlan.Create(
             features,
             bodyScopeSnapshot,
-            bodyTypeScope);
+            bodyTypeScope,
+            resourceEffects,
+            includeResourceLifecycle);
     }
 
     /// <summary>The features requested before prerequisite expansion.</summary>
@@ -37,11 +43,69 @@ public sealed class LibraryBodyAnalysisRequest
     /// <summary>Optional caller-supplied type predicate for this execution.</summary>
     public Func<TypeRef, bool>? BodyTypeScope { get; }
 
+    /// <summary>
+    /// Admitted declarations to resolve and project as terminal-resource
+    /// occurrences. Null leaves the producer entirely inactive.
+    /// </summary>
+    public ResourceEffectAdmission? ResourceEffects { get; }
+
+    /// <summary>
+    /// Whether the explicit admitted effects also select Resource Lifecycle
+    /// Analysis. Occurrence-only requests leave this false.
+    /// </summary>
+    public bool IncludesResourceLifecycle { get; }
+
     internal LibraryBodyAnalysisPlan Plan { get; }
 
     public static LibraryBodyAnalysisRequest Create(
         LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null) =>
-        new(features, bodyScope, bodyTypeScope);
+        new(
+            features,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects: null,
+            includeResourceLifecycle: false);
+
+    /// <summary>
+    /// Selects Resource Occurrence Analysis with explicit admitted effect
+    /// semantics. The producer is parameterized and therefore intentionally
+    /// does not participate in <see cref="LibraryBodyAnalysisFeatures.All"/>.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateResourceOccurrences(
+        ResourceEffectAdmission resourceEffects,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.None,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null)
+    {
+        ArgumentNullException.ThrowIfNull(resourceEffects);
+        return new(
+            features,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects,
+            includeResourceLifecycle: false);
+    }
+
+    /// <summary>
+    /// Selects Resource Lifecycle Analysis and its Resource Occurrence
+    /// prerequisite with explicit admitted effect semantics.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateResourceLifecycle(
+        ResourceEffectAdmission resourceEffects,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.None,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null)
+    {
+        ArgumentNullException.ThrowIfNull(resourceEffects);
+        return new(
+            features,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects,
+            includeResourceLifecycle: true);
+    }
 }

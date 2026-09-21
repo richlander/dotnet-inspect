@@ -27,6 +27,7 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures/ILInspector.Analysis.StringMaterializationFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures/ILInspector.Analysis.TopLevelAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures/ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.UnoptimizedAsyncFixtures/ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
@@ -103,6 +104,7 @@
     <Project Path="fixtures/queries/DotnetInspector.CloneSearchFixtures/DotnetInspector.CloneSearchFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.RestoredRidFixtures/DotnetInspector.RestoredRidFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
@@ -150,6 +152,7 @@
     <Project Path="src/DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
+    <Project Path="src/DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />
@@ -255,6 +258,7 @@
   <Folder Name="/tools/">
     <Project Path="tools/AnalysisHarness/AnalysisHarness.csproj" />
     <Project Path="tools/AotProbe/AotProbe.csproj" />
+    <Project Path="tools/CSharpPrinter.Benchmarks/CSharpPrinter.Benchmarks.csproj" />
     <Project Path="tools/CSharpDiffHarness/CSharpDiffHarness.csproj" />
     <Project Path="tools/DecompilerHarness/DecompilerHarness.csproj" />
     <Project Path="tools/DiffHarnessCommon/DiffHarnessCommon.csproj" />
@@ -264,5 +268,6 @@
     <Project Path="tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj" />
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
+    <Project Path="tools/SourceBuildAttestation/SourceBuildAttestation.csproj" />
   </Folder>
 </Solution>

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
@@ -6,6 +7,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 using Inspector.Findings;
 
@@ -41,6 +43,19 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// Includes framework-authenticated synchronous task-completion observations
 /// joined to their exact physical <c>call.edge</c> Findings.
 /// </param>
+/// <param name="AwaitCompletionPaths">
+/// Includes Decompiler-proven inline and suspension/resume paths for each
+/// reconstructed classic <c>await</c>.
+/// </param>
+/// <param name="AllocationExceptionPaths">
+/// Includes Analysis-classified thrown-value and exception-handler paths for
+/// exact allocation Findings.
+/// </param>
+/// <param name="LocalThrowPaths">
+/// Includes bounded same-module direct-call paths from the selected MethodDef
+/// to methods containing Analysis-proven local throws. This requires exact
+/// call relationships and local-throw Analysis.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -57,7 +72,10 @@ public sealed record AssemblyContextMemberProjectionRequest(
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
     bool CallRelationships = false,
     bool CallCycles = false,
-    bool SynchronousCompletions = false);
+    bool SynchronousCompletions = false,
+    bool AwaitCompletionPaths = false,
+    bool AllocationExceptionPaths = false,
+    bool LocalThrowPaths = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -150,16 +168,76 @@ public sealed record AssemblyMemberSynchronousCompletion(
     int FactId,
     SynchronousCompletionKind Kind);
 
+/// <summary>
+/// One Decompiler-issued classic <c>await</c> node whose inline and
+/// suspension/resume paths were proven before reconstruction.
+/// </summary>
+public sealed record AssemblyMemberAwaitCompletionPath(int NodeId);
+
+/// <summary>
+/// One exact allocation Finding Analysis placed on exception-related control
+/// flow.
+/// </summary>
+public sealed record AssemblyMemberAllocationExceptionPath(
+    int FactId,
+    AllocationExceptionPathKind Kind);
+
+public enum AssemblyMemberLocalThrowPathBoundaryKind
+{
+    AnalysisIncomplete,
+    TraversalBoundary,
+    PartialMethodEvidenceScope,
+    UnresolvedLocalCalls,
+    UnattributedGeneratedBodies,
+    DepthLimit,
+    NodeBudget,
+    EdgeBudget,
+    PathBudget,
+    IncompleteLocalThrowEvidence,
+    IncompleteCorrespondence,
+}
+
+public sealed record AssemblyMemberLocalThrowPathBoundary(
+    AssemblyMemberLocalThrowPathBoundaryKind Kind,
+    int Value);
+
+public sealed record AssemblyMemberLocalThrowSite(
+    ILInspector.Analysis.TypeRef ExceptionType,
+    MetadataTypeDefinitionAddress Definition,
+    int ConstructionOffset,
+    int ConstructorToken,
+    int ThrowOffset);
+
+public sealed record AssemblyMemberLocalThrowPath(
+    IReadOnlyList<int> FactIds,
+    IReadOnlyList<CallGraphNode> Targets,
+    IReadOnlyList<AssemblyMemberLocalThrowSite> TerminalThrows);
+
+public sealed record AssemblyMemberLocalThrowPathInspection(
+    IReadOnlyList<AssemblyMemberLocalThrowPath> Paths,
+    IReadOnlyList<AssemblyMemberLocalThrowPathBoundary> Boundaries,
+    LibraryBodyRootPathLimits Limits,
+    LibraryBodyRootPathReceipt Receipt)
+{
+    public bool IsComplete => Boundaries.Count == 0;
+}
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
-    ResearchViews.MemberProjectionResult Projection,
+    MemberProjectionResult Projection,
     MemberProjectionContextLimitation? ContextLimitation,
     IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
     IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations,
     AssemblyMemberCallRelationshipOverlay? CallRelationships = null,
     AssemblyMemberCallCycleInspection? CallCycles = null,
     IReadOnlyList<AssemblyMemberSynchronousCompletion>?
-        SynchronousCompletions = null);
+        SynchronousCompletions = null,
+    IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
+        AwaitCompletionPaths = null,
+    IReadOnlyList<AssemblyMemberAllocationExceptionPath>?
+        AllocationExceptionPaths = null,
+    AssemblyMemberLocalThrowPathInspection?
+        LocalThrowPaths = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -301,6 +379,31 @@ public static class AssemblyContextMemberProjectionQuery
                 "Synchronous completions require exact call relationships.",
                 nameof(request));
         }
+        if (request.AwaitCompletionPaths
+            && (!request.SourceDocument || request.MethodToken is null))
+        {
+            throw new ArgumentException(
+                "Await completion paths require a source document and an exact MethodDef token.",
+                nameof(request));
+        }
+        if (request.AllocationExceptionPaths
+            && (!request.SourceDocument
+                || !request.AnalysisFeatures.HasFlag(
+                    LibraryBodyAnalysisFeatures.Allocations)))
+        {
+            throw new ArgumentException(
+                "Allocation exception paths require a source document and allocation analysis.",
+                nameof(request));
+        }
+        if (request.LocalThrowPaths
+            && (!request.CallRelationships
+                || !request.AnalysisFeatures.HasFlag(
+                    LibraryBodyAnalysisFeatures.LocalThrows)))
+        {
+            throw new ArgumentException(
+                "Local throw paths require exact call relationships and local-throw analysis.",
+                nameof(request));
+        }
         if (request.FindingEvidence
             && (!request.SourceDocument || !request.FactRows))
         {
@@ -318,15 +421,18 @@ public static class AssemblyContextMemberProjectionQuery
     {
         AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
             AssemblyContextResearchSource.Resolver(group, subject);
+        LibraryBodyAnalysisExecution? execution = null;
         LibraryBodyIndex? index = null;
         MemberProjectionContextLimitation? limitation = null;
         try
         {
-            index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            execution = LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextResearchSource.Name(subject),
                 snapshot.Content,
-                request.AnalysisFeatures,
+                LibraryBodyAnalysisRequest.Create(
+                    request.AnalysisFeatures),
                 resolver);
+            index = execution.CompatibilityIndex();
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -349,6 +455,14 @@ public static class AssemblyContextMemberProjectionQuery
                     resolver);
             ResearchAssemblyContext? assembly =
                 index is null ? null : ResearchAssemblyContext.Create(index);
+            MemberProjectionAnalysisInput? analysis =
+                execution is null
+                    ? null
+                    : new(
+                        execution.Allocations,
+                        execution.Safety,
+                        execution.CallGraph,
+                        execution.Leverage);
             CallRelationshipProjection? callRelationships =
                 index is not null
                     && request.MethodToken is int requestedMethodToken
@@ -356,7 +470,8 @@ public static class AssemblyContextMemberProjectionQuery
                     ? ProjectCallRelationships(
                         index,
                         requestedMethodToken,
-                        request.CallCycles)
+                        request.CallCycles,
+                        request.LocalThrowPaths)
                     : null;
             if (request.CallRelationships
                 && index is not null
@@ -365,9 +480,9 @@ public static class AssemblyContextMemberProjectionQuery
                 throw new InvalidOperationException(
                     "Call relationship projection produced no callee topology.");
             }
-            ResearchViews.MemberProjectionResult projection =
-                ResearchViews.ProjectMember(
-                    new ResearchViews.MemberProjectionRequest(
+            MemberProjectionResult projection =
+                MemberProjectionProducer.Produce(
+                    new MemberProjectionRequest(
                         source,
                         request.Type,
                         request.Member,
@@ -387,7 +502,7 @@ public static class AssemblyContextMemberProjectionQuery
                         request.PrinterOptions,
                         CaretFocus: null,
                         request.SourceDocument,
-                        assembly,
+                        Analysis: analysis,
                         CallSites: request.CallRelationships
                                 && callRelationships is not null
                             ? callRelationships.Calls
@@ -396,12 +511,13 @@ public static class AssemblyContextMemberProjectionQuery
                             : null));
             IReadOnlyList<AssemblyMemberFindingEvidence>? findingEvidence =
                 request.FindingEvidence
-                    ? assembly is null
+                    ? assembly is null || analysis is null
                         ? null
                         : ProjectFindingEvidence(
                             source,
                             projection,
                             assembly,
+                            analysis,
                             request.PrinterOptions)
                     : null;
             IReadOnlyList<AssemblyMemberInvocationDestination> destinations = [];
@@ -415,7 +531,8 @@ public static class AssemblyContextMemberProjectionQuery
                     ?? ProjectCallRelationships(
                         index,
                         methodToken,
-                        includeCycles: false);
+                        includeCycles: false,
+                        includeExtendedCallees: false);
                 if (destinationRelationships is not null)
                 {
                     destinations = ProjectInvocationDestinations(
@@ -448,6 +565,34 @@ public static class AssemblyContextMemberProjectionQuery
                             callRelationships,
                             relationshipOverlay)
                         : null;
+            IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
+                awaitCompletionPaths =
+                    request.AwaitCompletionPaths
+                        && projection.SourceDocument is { } awaitDocument
+                        ? ProjectAwaitCompletionPaths(
+                            projection,
+                            awaitDocument)
+                        : null;
+            IReadOnlyList<AssemblyMemberAllocationExceptionPath>?
+                allocationExceptionPaths =
+                    request.AllocationExceptionPaths
+                        && assembly is not null
+                        && projection.SourceDocument is not null
+                        ? ProjectAllocationExceptionPaths(
+                            projection)
+                        : null;
+            AssemblyMemberLocalThrowPathInspection? localThrowPaths =
+                request.LocalThrowPaths
+                    && index is not null
+                    && request.MethodToken is int localThrowRootToken
+                    && callRelationships is not null
+                    && relationshipOverlay is not null
+                    ? ProjectLocalThrowPaths(
+                        index,
+                        localThrowRootToken,
+                        callRelationships,
+                        relationshipOverlay)
+                    : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
@@ -455,7 +600,10 @@ public static class AssemblyContextMemberProjectionQuery
                 destinations,
                 relationshipOverlay,
                 cycleInspection,
-                synchronousCompletions);
+                synchronousCompletions,
+                awaitCompletionPaths,
+                allocationExceptionPaths,
+                localThrowPaths);
             resolver.ValidateForPublication();
             return result;
         }
@@ -470,8 +618,9 @@ public static class AssemblyContextMemberProjectionQuery
 
     static IReadOnlyList<AssemblyMemberFindingEvidence> ProjectFindingEvidence(
         MetadataSource source,
-        ResearchViews.MemberProjectionResult projection,
+        MemberProjectionResult projection,
         ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         PrinterOptions? printerOptions)
     {
         if (projection.Facts is not { } facts
@@ -488,7 +637,7 @@ public static class AssemblyContextMemberProjectionQuery
         var calleeProjections =
             new Dictionary<MethodIdentity, CalleeSourceProjection>();
         var result = new List<AssemblyMemberFindingEvidence>();
-        foreach (ResearchViews.FactRow fact in facts)
+        foreach (FactRow fact in facts)
         {
             if (fact.Id is not (
                     "cost.callee"
@@ -549,7 +698,7 @@ public static class AssemblyContextMemberProjectionQuery
 
             CalleeSourceProjection callee = ProjectCalleeSource(
                 source,
-                assembly,
+                analysis,
                 evidence.Subject,
                 printerOptions,
                 calleeProjections);
@@ -695,7 +844,7 @@ public static class AssemblyContextMemberProjectionQuery
 
     static CalleeSourceProjection ProjectCalleeSource(
         MetadataSource source,
-        ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         MethodIdentity callee,
         PrinterOptions? printerOptions,
         IDictionary<MethodIdentity, CalleeSourceProjection> cache)
@@ -703,16 +852,16 @@ public static class AssemblyContextMemberProjectionQuery
         if (cache.TryGetValue(callee, out CalleeSourceProjection? existing))
             return existing;
 
-        ResearchViews.MemberProjectionResult projected =
-            ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+        MemberProjectionResult projected =
+            MemberProjectionProducer.Produce(
+                new MemberProjectionRequest(
                     source,
                     callee.DeclaringType.ToQualifiedDisplayString(),
                     callee.Name,
                     MethodToken: callee.MetadataToken,
                     PrinterOptions: printerOptions,
                     SourceDocument: true,
-                    Assembly: assembly));
+                    Analysis: analysis));
         var created = new CalleeSourceProjection(
             projected.SourceDocument,
             projected.SourceDocumentFailure?.Diagnostics.Count > 0
@@ -779,10 +928,14 @@ public static class AssemblyContextMemberProjectionQuery
         ImmutableArray<AnnotatedCallGraphMappedCall> Calls,
         AnnotatedCallGraphCycleInspection? Cycles);
 
+    const int ExtendedCalleeDepth = 3;
+    const int ExtendedCalleeNodes = 25;
+
     static CallRelationshipProjection? ProjectCallRelationships(
         LibraryBodyIndex index,
         int callerToken,
-        bool includeCycles)
+        bool includeCycles,
+        bool includeExtendedCallees)
     {
         index.GetDirectCallsByEvidenceMethod()
             .TryGetValue(callerToken, out ImmutableArray<DirectCall> callArray);
@@ -798,37 +951,42 @@ public static class AssemblyContextMemberProjectionQuery
 
         CallGraphProjection graph;
         AnnotatedCallGraphCycleInspection? cycles = null;
-        if (includeCycles)
+        if (includeCycles || includeExtendedCallees)
         {
-            const int CycleDepth = 3;
-            const int CycleMaxNodes = 25;
             CallTreeNode boundedCalleeRoot = index.BuildCallTree(
                 callerToken,
-                CycleDepth,
-                CycleMaxNodes);
+                ExtendedCalleeDepth,
+                ExtendedCalleeNodes);
             CallTreeNode calleeRoot = PreserveExactFocusNeighborhood(
                 exactCalleeRoot,
                 boundedCalleeRoot);
-            CallTreeNode callerRoot = index.BuildCallerTree(
-                callerToken,
-                CycleDepth,
-                CycleMaxNodes);
-            var graphView = new MemberCallGraphView(
-                CallGraphTier.Callers,
-                calleeRoot,
-                callerRoot)
+            if (includeCycles)
             {
-                FocusModuleVersionId =
-                    index.ModuleIdentity.ModuleVersionId,
-                FocusMethodToken = callerToken,
-                FocusCallSites = [.. calls],
-            };
-            graph = CallGraphProjection.Create(
-                graphView.CallerRoot,
-                graphView.CalleeRoot);
-            cycles = CallGraphCycleFindings.Inspect(
-                graphView,
-                graph);
+                CallTreeNode callerRoot = index.BuildCallerTree(
+                    callerToken,
+                    ExtendedCalleeDepth,
+                    ExtendedCalleeNodes);
+                var graphView = new MemberCallGraphView(
+                    CallGraphTier.Callers,
+                    calleeRoot,
+                    callerRoot)
+                {
+                    FocusModuleVersionId =
+                        index.ModuleIdentity.ModuleVersionId,
+                    FocusMethodToken = callerToken,
+                    FocusCallSites = [.. calls],
+                };
+                graph = CallGraphProjection.Create(
+                    graphView.CallerRoot,
+                    graphView.CalleeRoot);
+                cycles = CallGraphCycleFindings.Inspect(
+                    graphView,
+                    graph);
+            }
+            else
+            {
+                graph = CallGraphProjection.FromCallees(calleeRoot);
+            }
         }
         else
         {
@@ -1011,6 +1169,314 @@ public static class AssemblyContextMemberProjectionQuery
         return new(findings, limits);
     }
 
+    static AssemblyMemberLocalThrowPathInspection ProjectLocalThrowPaths(
+        LibraryBodyIndex index,
+        int rootToken,
+        CallRelationshipProjection relationships,
+        AssemblyMemberCallRelationshipOverlay relationshipOverlay)
+    {
+        var limits = new LibraryBodyRootPathLimits(
+            MaximumDepth: ExtendedCalleeDepth,
+            MaximumNodes: ExtendedCalleeNodes,
+            MaximumEdges: 100,
+            MaximumPaths: 25);
+        MethodIdentity root = index.DeclaredMethods.Single(
+            method => method.MetadataToken == rootToken);
+        Dictionary<int, MethodIdentity> methodsByToken =
+            index.DeclaredMethods.ToDictionary(
+                static method => method.MetadataToken);
+        HashSet<int> outboundNodeIds =
+            OutboundNodeIds(
+                relationships.Graph,
+                ExtendedCalleeDepth);
+        bool IsProjectedLocalMethod(int methodToken) =>
+            methodsByToken.TryGetValue(
+                methodToken,
+                out MethodIdentity? method)
+            && relationships.Graph.FindNode(
+                    method,
+                    out CallGraphNode node)
+                == CallGraphNodeMatch.Found
+            && outboundNodeIds.Contains(node.Id);
+        Dictionary<int, ImmutableArray<LocalThrowSite>> knownThrows =
+            index.LocalThrows
+                .OfType<MethodLocalThrowEvidence.Inspected>()
+                .Select(evidence => (
+                    evidence.MethodToken,
+                    Sites: evidence.Sites
+                        .Where(site =>
+                            site.Kind == LocalThrowInstructionKind.Throw
+                            && site.Type is LocalThrowTypeEvidence.Known)
+                        .ToImmutableArray()))
+                .Where(entry =>
+                    !entry.Sites.IsEmpty
+                    && IsProjectedLocalMethod(entry.MethodToken))
+                .ToDictionary(
+                    static entry => entry.MethodToken,
+                    static entry => entry.Sites);
+        int incompleteThrowEvidence = index.LocalThrows.Count(evidence =>
+            IsProjectedLocalMethod(evidence.MethodToken)
+            && (evidence switch
+                {
+                    MethodLocalThrowEvidence.Inspected inspected =>
+                        !inspected.IsComplete,
+                    MethodLocalThrowEvidence.Unavailable unavailable =>
+                        unavailable.Reason
+                            is not LocalThrowUnavailableReason.NoManagedBody,
+                    _ => true,
+                }));
+
+        MetadataMethodAddress rootAddress = MethodAddress(root);
+        ImmutableArray<MetadataMethodAddress> destinations =
+        [
+            .. knownThrows.Keys
+                .Where(token => token != rootToken)
+                .Order()
+                .Select(token => MethodAddress(
+                    methodsByToken[token])),
+        ];
+        IReadOnlyList<LibraryBodyRootPathWitness> witnesses;
+        LibraryBodyRootPathReceipt receipt;
+        List<AssemblyMemberLocalThrowPathBoundary> boundaries;
+        if (destinations.IsEmpty)
+        {
+            witnesses = [];
+            receipt = new LibraryBodyRootPathReceipt(
+                RequestedRoots: 1,
+                RequestedDestinations: 0,
+                DestinationSearches: 0,
+                SearchNodes: 0,
+                SearchedEdges: 0,
+                ObservedReachablePairs: 0,
+                ReturnedPaths: 0);
+            boundaries = [];
+            if (!index.HasFullMethodEvidenceScope)
+            {
+                boundaries.Add(
+                    new AssemblyMemberLocalThrowPathBoundary(
+                        AssemblyMemberLocalThrowPathBoundaryKind
+                            .PartialMethodEvidenceScope,
+                        1));
+            }
+            if (!index.Diagnostics.IsEmpty)
+            {
+                boundaries.Add(
+                    new AssemblyMemberLocalThrowPathBoundary(
+                        AssemblyMemberLocalThrowPathBoundaryKind
+                            .AnalysisIncomplete,
+                        index.Diagnostics.Length));
+            }
+        }
+        else
+        {
+            LibraryBodyRootPathResult search =
+                LibraryBodyRootPathAnalysis.FindShortestPaths(
+                index,
+                [rootAddress],
+                destinations,
+                limits);
+            witnesses = search.Witnesses;
+            receipt = search.Receipt;
+            boundaries =
+                search.Boundaries
+                    .Select(ProjectLocalThrowPathBoundary)
+                    .ToList();
+        }
+        Dictionary<
+            (Guid ModuleVersionId, int CallerToken, int ILOffset, int OperandToken),
+            int> factsByCall =
+            relationshipOverlay.Relationships.ToDictionary(
+                static relationship => (
+                    relationship.Occurrence.ModuleVersionId,
+                    relationship.Occurrence.CallerToken,
+                    relationship.Occurrence.ILOffset,
+                    relationship.Occurrence.OperandToken),
+                static relationship =>
+                    relationship.Occurrence.FactId);
+
+        var paths = new List<AssemblyMemberLocalThrowPath>();
+        if (relationships.Graph.HasUnexploredTraversalBoundary)
+        {
+            boundaries.Add(
+                new AssemblyMemberLocalThrowPathBoundary(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .TraversalBoundary,
+                    1));
+        }
+        if (relationships.Graph.HasAnalysisFailureBoundary
+            && boundaries.All(boundary =>
+                boundary.Kind
+                    != AssemblyMemberLocalThrowPathBoundaryKind
+                        .AnalysisIncomplete))
+        {
+            boundaries.Add(
+                new AssemblyMemberLocalThrowPathBoundary(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .AnalysisIncomplete,
+                    1));
+        }
+        if (incompleteThrowEvidence > 0)
+        {
+            boundaries.Add(
+                new AssemblyMemberLocalThrowPathBoundary(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .IncompleteLocalThrowEvidence,
+                    incompleteThrowEvidence));
+        }
+        int incompleteCorrespondence = 0;
+        foreach (LibraryBodyRootPathWitness witness in witnesses)
+        {
+            if (!knownThrows.TryGetValue(
+                    witness.Destination.MetadataToken,
+                    out ImmutableArray<LocalThrowSite> terminalSites))
+            {
+                continue;
+            }
+
+            LibraryBodyRootPathStep first = witness.Steps[0];
+            int[] factIds =
+            [
+                .. first.CallSites
+                    .Select(call => factsByCall.GetValueOrDefault((
+                        call.EvidenceMethod.ModuleVersionId,
+                        call.EvidenceMethod.MetadataToken,
+                        call.ILOffset,
+                        call.OperandToken), -1))
+                    .Where(static factId => factId >= 0)
+                    .Distinct()
+                    .Order(),
+            ];
+            incompleteCorrespondence +=
+                first.CallSites.Length - factIds.Length;
+            if (factIds.Length == 0)
+            {
+                continue;
+            }
+
+            var targets = new List<CallGraphNode>(witness.Steps.Length);
+            bool completeTargets = true;
+            foreach (LibraryBodyRootPathStep step in witness.Steps)
+            {
+                if (relationships.Graph.FindNode(
+                        step.Callee,
+                        out CallGraphNode target)
+                    != CallGraphNodeMatch.Found)
+                {
+                    completeTargets = false;
+                    incompleteCorrespondence++;
+                    break;
+                }
+                targets.Add(target);
+            }
+            if (!completeTargets)
+                continue;
+
+            paths.Add(
+                new AssemblyMemberLocalThrowPath(
+                    factIds,
+                    targets,
+                    [
+                        .. terminalSites.Select(site =>
+                        {
+                            var known =
+                                (LocalThrowTypeEvidence.Known)site.Type;
+                            return new AssemblyMemberLocalThrowSite(
+                                known.ExceptionType,
+                                known.Definition,
+                                known.ConstructionOffset,
+                                known.ConstructorToken,
+                                site.ILOffset);
+                        }),
+                    ]));
+        }
+        if (incompleteCorrespondence > 0)
+        {
+            boundaries.Add(
+                new AssemblyMemberLocalThrowPathBoundary(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .IncompleteCorrespondence,
+                    incompleteCorrespondence));
+        }
+
+        return new(
+            paths,
+            boundaries,
+            limits,
+            receipt with { ReturnedPaths = paths.Count });
+    }
+
+    static HashSet<int> OutboundNodeIds(
+        CallGraphProjection graph,
+        int maximumDepth)
+    {
+        HashSet<int> result = [graph.Focus.Id];
+        HashSet<int> frontier = [graph.Focus.Id];
+        for (int depth = 0;
+            depth < maximumDepth && frontier.Count > 0;
+            depth++)
+        {
+            HashSet<int> next =
+            [
+                .. graph.Rows
+                    .Where(row => frontier.Contains(row.Edge.From))
+                    .Select(static row => row.Edge.To)
+                    .Where(result.Add),
+            ];
+            frontier = next;
+        }
+        return result;
+    }
+
+    static AssemblyMemberLocalThrowPathBoundary
+        ProjectLocalThrowPathBoundary(
+            LibraryBodyRootPathBoundary boundary) =>
+        boundary switch
+        {
+            LibraryBodyRootPathBoundary.AnalysisIncomplete value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .AnalysisIncomplete,
+                    value.DiagnosticCount),
+            LibraryBodyRootPathBoundary.PartialMethodEvidenceScope =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .PartialMethodEvidenceScope,
+                    1),
+            LibraryBodyRootPathBoundary.UnresolvedLocalCalls value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .UnresolvedLocalCalls,
+                    value.Count),
+            LibraryBodyRootPathBoundary.UnattributedGeneratedBodies value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind
+                        .UnattributedGeneratedBodies,
+                    value.Count),
+            LibraryBodyRootPathBoundary.DepthLimit value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind.DepthLimit,
+                    value.MaximumDepth),
+            LibraryBodyRootPathBoundary.NodeBudget value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind.NodeBudget,
+                    value.MaximumNodes),
+            LibraryBodyRootPathBoundary.EdgeBudget value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind.EdgeBudget,
+                    value.MaximumEdges),
+            LibraryBodyRootPathBoundary.PathBudget value =>
+                new(
+                    AssemblyMemberLocalThrowPathBoundaryKind.PathBudget,
+                    value.MaximumPaths),
+            _ => throw new ArgumentOutOfRangeException(nameof(boundary)),
+        };
+
+    static MetadataMethodAddress MethodAddress(MethodIdentity method) =>
+        new(
+            method.ModuleVersionId,
+            MetadataTokens.MethodDefinitionHandle(
+                method.MetadataToken & 0x00FFFFFF));
+
     static IReadOnlyList<AssemblyMemberSynchronousCompletion>
         ProjectSynchronousCompletions(
             CallRelationshipProjection relationships,
@@ -1055,6 +1521,43 @@ public static class AssemblyContextMemberProjectionQuery
                 }),
         ];
     }
+
+    static IReadOnlyList<AssemblyMemberAwaitCompletionPath>
+        ProjectAwaitCompletionPaths(
+            MemberProjectionResult projection,
+            AnnotatedSourceDocument document)
+    {
+        return
+        [
+            .. (projection.AwaitCompletionPathNodeIds ?? [])
+                .Select(nodeId =>
+                {
+                    AnnotatedSourceNode node = document.Nodes[nodeId];
+                    if (node.Medium != SourceLineKind.CSharp
+                        || !string.Equals(
+                            node.Kind,
+                            AnnotatedSourceNodeKinds.AwaitExpression,
+                            StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Classic await completion path names non-await node {nodeId}.");
+                    }
+                    return new AssemblyMemberAwaitCompletionPath(nodeId);
+                }),
+        ];
+    }
+
+    static IReadOnlyList<AssemblyMemberAllocationExceptionPath>
+        ProjectAllocationExceptionPaths(
+            MemberProjectionResult projection)
+        =>
+        [
+            .. (projection.AllocationExceptionPaths ?? [])
+                .Select(static path =>
+                    new AssemblyMemberAllocationExceptionPath(
+                        path.FactId,
+                        path.Kind)),
+        ];
 
     static CallGraphNode? FindCallee(
         CallGraphProjection graph,

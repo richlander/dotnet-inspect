@@ -89,13 +89,29 @@ internal static class DependencyEvidenceAcquisition
             CancellationToken cancellationToken,
             IPackageSourceAuthorization? authorization = null,
             DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-            DependencyEvidenceVersionDiscovery? discoverVersions = null)
+            DependencyEvidenceVersionDiscovery? discoverVersions = null,
+            PackageSourceCoordinate? settledPackageCoordinate = null,
+            PackageSourceAuthorization? settledPackageAuthorization = null)
     {
         ArgumentNullException.ThrowIfNull(requestedRoots);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(composition);
         ArgumentNullException.ThrowIfNull(operationContext);
+        if ((settledPackageCoordinate is null)
+            != (settledPackageAuthorization is null))
+        {
+            throw new ArgumentException(
+                "A settled package coordinate and authorization must be supplied together.");
+        }
+        if (settledPackageCoordinate is not null
+            && requestedRoots.Count(static root =>
+                root.Kind == DependencyInspectionRootKind.Package) != 1)
+        {
+            throw new ArgumentException(
+                "A settled package coordinate requires exactly one package root.",
+                nameof(requestedRoots));
+        }
 
         IPackageSourceAuthorization sourceAuthorization = authorization
             ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
@@ -149,7 +165,9 @@ internal static class DependencyEvidenceAcquisition
                         roots,
                         failures,
                         cancellationToken,
-                        operationContext).ConfigureAwait(false);
+                        operationContext,
+                        settledPackageCoordinate,
+                        settledPackageAuthorization).ConfigureAwait(false);
                     break;
                 case DependencyInspectionRootKind.Nuspec:
                     await AcquireNuspecAsync(
@@ -195,6 +213,74 @@ internal static class DependencyEvidenceAcquisition
                 roots.ToImmutable(),
                 failures.ToImmutable()),
             acquired.ToImmutable());
+    }
+
+    /// <summary>
+    /// Admits the manifest from an already-acquired Package root without
+    /// resolving or acquiring that root again.
+    /// </summary>
+    internal static DependencyEvidenceAcquisitionBatch
+        AdmitPackageManifestRoot(
+            DependsAssetRoot requestedRoot,
+            PackageSourceCoordinate expectedCoordinate,
+            byte[]? manifestBytes,
+            string? targetFramework)
+    {
+        ArgumentNullException.ThrowIfNull(requestedRoot);
+        ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        if (requestedRoot.Kind != DependencyInspectionRootKind.Package)
+        {
+            throw new ArgumentException(
+                "An admitted Package manifest requires a Package root.",
+                nameof(requestedRoot));
+        }
+
+        var roots =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
+        var failures =
+            ImmutableArray.CreateBuilder<
+                PackageDependencyEvidenceRootFailure>();
+        InertString label = Label(requestedRoot.Value);
+        if (manifestBytes is null || manifestBytes.Length == 0)
+        {
+            failures.Add(
+                Acquisition(
+                    PackageDependencyEvidenceAcquisitionForm.PackageArchive,
+                    PackageDependencyEvidenceAcquisitionFailureReason
+                        .ProducerContract,
+                    label));
+        }
+        else
+        {
+            AddManifestRoot(
+                manifestBytes,
+                PackageDependencyEvidenceAcquisitionForm.PackageArchive,
+                targetFramework,
+                label,
+                roots,
+                failures,
+                expectedCoordinate);
+        }
+
+        bool admitted = roots.Count == 1;
+        bool failed = failures.Count == 1;
+        if (admitted == failed)
+        {
+            throw new InvalidOperationException(
+                "An admitted Package manifest must produce exactly one input or one typed failure.");
+        }
+
+        return new DependencyEvidenceAcquisitionBatch(
+            new PackageDependencyEvidenceRequest(
+                roots.ToImmutable(),
+                failures.ToImmutable()),
+            [
+                new DependencyEvidenceAcquiredRoot(
+                    requestedRoot,
+                    admitted ? 0 : null,
+                    failed ? 0 : null,
+                    RestoredTraversal: null),
+            ]);
     }
 
     /// <summary>
@@ -424,7 +510,9 @@ internal static class DependencyEvidenceAcquisition
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
         CancellationToken cancellationToken,
-        NuGetOperationContext? operationContext)
+        NuGetOperationContext? operationContext,
+        PackageSourceCoordinate? settledCoordinate,
+        PackageSourceAuthorization? settledAuthorization)
     {
         InertString label = Label(package);
         if (IsLocalArchiveTarget(package))
@@ -436,6 +524,22 @@ internal static class DependencyEvidenceAcquisition
                 roots,
                 failures,
                 cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (settledCoordinate is not null)
+        {
+            await AcquireSourceManifestAsync(
+                settledCoordinate,
+                settledAuthorization!.Authorities,
+                options,
+                label,
+                getComposition(),
+                httpClient,
+                roots,
+                failures,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
             return;
         }
 
@@ -1121,12 +1225,17 @@ internal static class DependencyEvidenceAcquisition
         string? targetFramework,
         InertString label,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
-        ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures)
+        ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
+        PackageSourceCoordinate? expectedCoordinate = null)
     {
         PackageManifestFactsResult facts;
         try
         {
-            facts = PackageManifestFactsQuery.ExecuteSelfAttested(manifestBytes);
+            facts = expectedCoordinate is null
+                ? PackageManifestFactsQuery.ExecuteSelfAttested(manifestBytes)
+                : PackageManifestFactsQuery.Execute(
+                    manifestBytes,
+                    expectedCoordinate);
         }
         catch (NuspecParseException)
         {

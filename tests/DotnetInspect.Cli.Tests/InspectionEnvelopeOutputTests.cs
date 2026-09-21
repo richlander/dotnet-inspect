@@ -237,6 +237,133 @@ public sealed class InspectionEnvelopeOutputTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EnrichedEnvelopeUsesFlatTransportFrame()
+    {
+        var inspection = new InspectionEnvelope<EnvelopeTestContent>(
+            Content(),
+            new InspectionShare.Available(
+                "https://example.test/inspect",
+                "packet"));
+        var enriched =
+            new EvidenceInspectionEnvelope<
+                EnvelopeTestContent,
+                EnvelopeTestEvidence>(
+                    inspection,
+                    new EnvelopeTestEvidence("retained"));
+
+        bool serialized =
+            InspectionEnvelopeOutput.TrySerializeEvidence(
+                enriched,
+                Contract,
+                EnvelopeTestContentJsonContext.Default
+                    .EnvelopeTestEvidence,
+                compactJson: true,
+                out byte[] payload,
+                out Exception? exception);
+        bool prettySerialized =
+            InspectionEnvelopeOutput.TrySerializeEvidence(
+                enriched,
+                Contract,
+                EnvelopeTestContentJsonContext.Default
+                    .EnvelopeTestEvidence,
+                compactJson: false,
+                out byte[] prettyPayload,
+                out Exception? prettyException);
+
+        Assert.True(serialized);
+        Assert.True(prettySerialized);
+        Assert.Null(exception);
+        Assert.Null(prettyException);
+        Assert.Equal((byte)'\n', payload[^1]);
+        AssertJsonEqual(
+            System.Text.Encoding.UTF8.GetString(prettyPayload),
+            System.Text.Encoding.UTF8.GetString(payload));
+        using JsonDocument document = JsonDocument.Parse(payload);
+        JsonElement root = document.RootElement;
+        Assert.Equal(7, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "test-content",
+            root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "retained",
+            root.GetProperty("evidence")
+                .GetProperty("owner_evidence_name")
+                .GetString());
+        Assert.False(root.TryGetProperty("inspection", out _));
+    }
+
+    [Fact]
+    public void EvidencePublicationAtomicallyReplacesTheExistingFile()
+    {
+        using var directory =
+            new TemporaryTestDirectory("evidence-publication-");
+        string path = Path.Combine(directory.FullName, "evidence.json");
+        File.WriteAllText(path, "old");
+        byte[] payload = "new\n"u8.ToArray();
+
+        bool published = EvidenceEnvelopeOutput.TryPublish(
+            path,
+            payload,
+            out Exception? exception);
+
+        Assert.True(published);
+        Assert.Null(exception);
+        Assert.Equal(payload, File.ReadAllBytes(path));
+        Assert.Equal(
+            [path],
+            Directory.EnumerateFiles(directory.FullName));
+    }
+
+    [Fact]
+    public void EvidencePublicationFailureLeavesAbsentDestinationAbsent()
+    {
+        using var directory =
+            new TemporaryTestDirectory("evidence-publication-failure-");
+        string missingParent = Path.Combine(
+            directory.FullName,
+            "missing");
+        string path = Path.Combine(missingParent, "evidence.json");
+
+        bool published = EvidenceEnvelopeOutput.TryPublish(
+            path,
+            "new\n"u8,
+            out Exception? exception);
+
+        Assert.False(published);
+        Assert.IsType<DirectoryNotFoundException>(exception);
+        Assert.False(Directory.Exists(missingParent));
+        Assert.False(File.Exists(path));
+        Assert.Equal(
+            [],
+            Directory.EnumerateFileSystemEntries(directory.FullName));
+    }
+
+    [Theory]
+    [InlineData(@"C:\work\result.json", @"C:\work\result.json")]
+    [InlineData(@"\\?\C:\work\result.json", @"C:\work\result.json")]
+    [InlineData(@"\\.\C:\work\result.json", @"C:\work\result.json")]
+    [InlineData(
+        @"\\?\UNC\server\share\result.json",
+        @"\\server\share\result.json")]
+    [InlineData(@"\\server\share\result.json", @"\\server\share\result.json")]
+    public void WindowsPathNormalizationCollapsesEquivalentFileNamespaces(
+        string path,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            EvidenceEnvelopeOutput.NormalizeWindowsPath(path));
+    }
+
+    [Fact]
+    public void WindowsPathNormalizationRefusesUnsupportedDeviceNamespaces()
+    {
+        Assert.Null(
+            EvidenceEnvelopeOutput.NormalizeWindowsPath(
+                @"\\?\Volume{00000000-0000-0000-0000-000000000000}\result.json"));
+    }
+
     private static EnvelopeTestContent Content() =>
         new EnvelopeTestContent.Available(
             "owner value",
@@ -329,10 +456,14 @@ internal enum EnvelopeTestStatus
     Ready,
 }
 
+internal sealed record EnvelopeTestEvidence(
+    [property: JsonPropertyName("owner_evidence_name")] string Name);
+
 [JsonSourceGenerationOptions(
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(EnvelopeTestContent))]
+[JsonSerializable(typeof(EnvelopeTestEvidence))]
 internal partial class EnvelopeTestContentJsonContext : JsonSerializerContext;
 
 [JsonConverter(typeof(FailingEnvelopeContentJsonConverter))]

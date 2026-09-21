@@ -140,10 +140,15 @@ internal sealed record DependsAssetProjection(
     ImmutableArray<DependencyInspectionFailure> Failures,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,
     ImmutableArray<DependencyEvidenceRestoredPackageRow> RestoredPackages,
-    DependencyInspectionEvidenceDocument? Evidence)
+    EvidenceInspectionEnvelope<
+        DependencyInspectionContent,
+        DependencyInspectionEvidenceDocument>? Enriched)
 {
     internal DependencyInspectionContent Content => Inspection.Content;
 
     internal ImmutableArray<DependencyInspectionLicense> Licenses =>
         Content.Licenses;
+
+    internal DependencyInspectionEvidenceDocument? Evidence =>
+        Enriched?.Evidence;
 }

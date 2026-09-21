@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -10,6 +11,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
@@ -24,6 +26,13 @@ public partial class DependsCommand
     private const int PackageManifestTraversalBudget = 1_024;
     private const int PackageDeclarationTraversalBudget = 16_384;
     private const string SummarySection = "Summary";
+    private static readonly
+        InspectionEnvelopeJsonContract<DependencyInspectionContent>
+        AssetDependencyJson = new(
+            "asset-dependencies",
+            1,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
 
     public static async Task<int> ExecuteAssetDependsAsync(
         DependsOptions options,
@@ -42,12 +51,16 @@ public partial class DependsCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pruneSource);
 
-        if (DependsShareProjection.ValidateOptions(options) is { } shareError)
+        bool evidenceEnvelopeRequested =
+            options.EvidenceEnvelopePath is not null;
+        if (DependsShareProjection.ValidateOptions(options)
+            is { } shareError)
         {
             CommandError.Write(shareError);
             return 1;
         }
-        if (options.ShareFormat is not null)
+        if (!evidenceEnvelopeRequested
+            && options.ShareFormat is not null)
         {
             var shareContext = new CommandContext(options.Verbose);
             return await DependsShareProjection.WriteAsync(
@@ -118,6 +131,13 @@ public partial class DependsCommand
             includeSections.Add(DependsAssetSections.DependencyHierarchy);
         DependsAssetRequestPlan plan =
             DependsAssetRequestPlan.FromSections(includeSections);
+        if (evidenceEnvelopeRequested)
+        {
+            plan = plan with
+            {
+                SupplementalEvidence = true,
+            };
+        }
         if (!ValidateAssetOptions(
                 options,
                 selection.Sections,
@@ -131,14 +151,35 @@ public partial class DependsCommand
         var context = new CommandContext(options.Verbose);
         try
         {
+            DependsShareProjection.AssetSharePreparation? sharePreparation =
+                options.ShareFormat is null
+                    ? null
+                    : await DependsShareProjection.PrepareAssetAsync(
+                        options,
+                        context.HttpClient,
+                        context.Logger,
+                        cancellationToken).ConfigureAwait(false);
+            CommandContext inspectionContext =
+                evidenceEnvelopeRequested
+                && sharePreparation is not null
+                    ? context.WithVerboseLogging(enabled: false)
+                    : context;
+            using IDisposable? networkTrafficLogSuppression =
+                evidenceEnvelopeRequested
+                && sharePreparation is not null
+                    ? DotnetInspector.Networking.HttpClientFactory
+                        .SuppressNetworkTrafficLogging()
+                    : null;
             DependsAssetProjection projection =
                 await AcquireAssetProjectionAsync(
                     options,
-                    context,
+                    inspectionContext,
                     plan,
-                    options.Effective && options.Depth is null
+                    options.Effective
+                        && EffectiveDepth(options) is null
                         ? 1
-                        : options.Depth,
+                        : EffectiveDepth(options),
+                    sharePreparation,
                     pruneSource,
                     cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
@@ -174,16 +215,102 @@ public partial class DependsCommand
                     discoveryExitCode,
                     AssetExitCode(projection));
             }
-            if (!WriteAssetProjection(
-                    projection,
-                    options,
-                    includeSections))
+
+            byte[] evidencePayload = [];
+            Exception? evidenceSerializationError = null;
+            if (evidenceEnvelopeRequested)
+            {
+                if (projection.Enriched is null)
+                {
+                    evidenceSerializationError =
+                        new InvalidOperationException(
+                            "The dependency inspection did not produce its requested evidence.");
+                }
+                else
+                {
+                    InspectionEnvelopeOutput.TrySerializeEvidence(
+                        projection.Enriched,
+                        AssetDependencyJson,
+                        DependencyInspectionJsonContext.Default
+                            .DependencyInspectionEvidenceDocument,
+                        options.CompactJson,
+                        out evidencePayload,
+                        out evidenceSerializationError);
+                }
+            }
+
+            bool ordinaryOutputWritten = true;
+            if (options.ShareFormat is null)
+            {
+                if (options.EnvelopeOutput)
+                {
+                    ordinaryOutputWritten =
+                        InspectionEnvelopeOutput.TryWrite(
+                            projection.Inspection,
+                            AssetDependencyJson,
+                            includeEnvelope: true,
+                            options.CompactJson,
+                            options.OutputPath);
+                }
+                else
+                {
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        options.Rows,
+                        output => ordinaryOutputWritten =
+                            WriteAssetProjection(
+                                projection,
+                                options,
+                                includeSections,
+                                output));
+                }
+            }
+            if (!ordinaryOutputWritten)
             {
                 return 1;
             }
 
-            WriteAssetDiagnostics(projection);
-            return AssetExitCode(projection);
+            int exitCode = 0;
+            if (options.ShareFormat is null)
+            {
+                WriteAssetDiagnostics(projection);
+                exitCode = AssetExitCode(projection);
+            }
+            if (evidenceEnvelopeRequested)
+            {
+                string evidencePath = options.EvidenceEnvelopePath!;
+                if (evidenceSerializationError is not null)
+                {
+                    CommandError.Write(
+                        $"Evidence envelope serialization failed for '{evidencePath}': {evidenceSerializationError.Message}");
+                    exitCode = Math.Max(exitCode, 1);
+                }
+                else if (!EvidenceEnvelopeOutput.TryPublish(
+                        evidencePath,
+                        evidencePayload,
+                        out Exception? publicationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope publication failed for '{evidencePath}': {publicationError!.Message}");
+                    exitCode = Math.Max(exitCode, 1);
+                }
+                else
+                {
+                    CommandError.WriteLine(
+                        $"Evidence envelope: {evidencePath}");
+                }
+            }
+
+            if (options.ShareFormat is { } shareFormat)
+            {
+                exitCode = Math.Max(
+                    exitCode,
+                    DependsShareProjection.WriteAsset(
+                        projection.Inspection.Share,
+                        shareFormat));
+            }
+
+            return exitCode;
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -246,7 +373,7 @@ public partial class DependsCommand
             }
         }
 
-        if (options.Depth is not null && !hierarchyRequested)
+        if (EffectiveDepth(options) is not null && !hierarchyRequested)
         {
             CommandError.Write(
                 "--depth requires the Dependency Hierarchy section.");
@@ -282,6 +409,27 @@ public partial class DependsCommand
             && candidateSections.Contains(
                 DependsAssetSections.Failures,
                 StringComparer.OrdinalIgnoreCase);
+        if (!discoveryMode
+            && hierarchyFailuresJsonl
+            && IsColumnProjectionRequested(options))
+        {
+            CommandError.Write(
+                "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
+            return false;
+        }
+        DocumentSchema projectionSchema =
+            options.Tabular && !options.Count
+                ? DependsAssetSections.CreateTableSchema()
+                : DependsAssetSections.CreateSchema();
+        if (!discoveryMode
+            && !ProjectionDiagnostics.ValidateProjection(
+                projectionSchema,
+                candidateSections,
+                options.Fields,
+                options.Columns))
+        {
+            return false;
+        }
         if (!discoveryMode
             && options.Tabular
             && !options.Count
@@ -419,7 +567,7 @@ public partial class DependsCommand
                 || hasNuspec
                 || hasPrefix)
             && options.Tfm is { } framework
-            && !PackageDependencyTraversalFrameworkMode.TryCreateExact(
+            && !TryCreateTraversalTargetPolicy(
                 framework,
                 out _))
         {
@@ -450,6 +598,10 @@ public partial class DependsCommand
             "Asset-mode depends requires at least one --package, --nuspec, --library, --project, or --package-prefix root.");
         return false;
     }
+
+    private static int? EffectiveDepth(DependsOptions options) =>
+        options.QueryPlan?.MaximumDepth
+        ?? options.Depth;
 
     private static HashSet<string> EffectiveDiscoveryPlanSections(
         string[] discover,
@@ -533,14 +685,155 @@ public partial class DependsCommand
         selectedSections is { Count: 1 }
         && selectedSections.Contains(DependsAssetSections.Failures);
 
+    internal static Task<DependsAssetProjection>
+        AcquirePackageSubjectProjectionAsync(
+            string packageReference,
+            string? targetFramework,
+            bool includePrerelease,
+            NuGetSourceOptions? sourceOptions,
+            DependencyQueryPlan queryPlan,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageReference);
+        ArgumentNullException.ThrowIfNull(queryPlan);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Package,
+                    packageReference),
+            ],
+            Tfm = targetFramework,
+            IncludePrerelease = includePrerelease,
+            SourceOptions = sourceOptions,
+            Depth = queryPlan.MaximumDepth,
+            QueryPlan = queryPlan,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth: queryPlan.MaximumDepth,
+            sharePreparation: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken);
+    }
+
+    internal static Task<DependsAssetProjection>
+        AcquireAdmittedPackageSubjectProjectionAsync(
+            string packageId,
+            string packageVersion,
+            byte[]? manifestBytes,
+            string? targetFramework,
+            bool includePrerelease,
+            NuGetSourceOptions? sourceOptions,
+            DependencyQueryPlan queryPlan,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+        ArgumentNullException.ThrowIfNull(queryPlan);
+        ArgumentNullException.ThrowIfNull(context);
+
+        string packageReference = $"{packageId}@{packageVersion}";
+        var root = new DependsAssetRoot(
+            1,
+            DependencyInspectionRootKind.Package,
+            packageReference);
+        var options = new DependsOptions
+        {
+            AssetRoots = [root],
+            Tfm = targetFramework,
+            IncludePrerelease = includePrerelease,
+            SourceOptions = sourceOptions,
+            Depth = queryPlan.MaximumDepth,
+            QueryPlan = queryPlan,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        DependencyEvidenceAcquisitionBatch acquisition =
+            DependencyEvidenceAcquisition.AdmitPackageManifestRoot(
+                root,
+                PackageSourceCoordinate.Create(packageId, packageVersion),
+                manifestBytes,
+                targetFramework);
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth: queryPlan.MaximumDepth,
+            sharePreparation: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken,
+            acquisition);
+    }
+
+    internal static Task<DependsAssetProjection>
+        AcquireLibrarySubjectProjectionAsync(
+            string assemblyPath,
+            string? targetFramework,
+            NuGetSourceOptions? sourceOptions,
+            int? traversalDepth,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Library,
+                    assemblyPath),
+            ],
+            Tfm = targetFramework,
+            SourceOptions = sourceOptions,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth,
+            sharePreparation: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken);
+    }
+
     private static async Task<DependsAssetProjection>
         AcquireAssetProjectionAsync(
             DependsOptions options,
             CommandContext context,
             DependsAssetRequestPlan plan,
             int? traversalDepth,
+            DependsShareProjection.AssetSharePreparation? sharePreparation,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            DependencyEvidenceAcquisitionBatch? suppliedAcquisition = null)
     {
         DependencyEvidenceAcquisitionOptions evidenceOptions =
             EvidenceOptions(options);
@@ -568,17 +861,22 @@ public partial class DependsCommand
         }
         else
         {
-            acquisition =
-                await DependencyEvidenceAcquisition.AcquireDependsRootsAsync(
-                    options.AssetRoots,
-                    evidenceOptions,
-                    context.HttpClient,
-                    context.Logger.Log,
-                    composition,
-                    operationContext,
-                    plan.PackageTraversal,
-                    traversalDepth,
-                    cancellationToken).ConfigureAwait(false);
+            acquisition = suppliedAcquisition
+                ?? await DependencyEvidenceAcquisition.AcquireDependsRootsAsync(
+                        options.AssetRoots,
+                        evidenceOptions,
+                        context.HttpClient,
+                        context.Logger.Log,
+                        composition,
+                        operationContext,
+                        plan.PackageTraversal,
+                        traversalDepth,
+                        cancellationToken,
+                        settledPackageCoordinate:
+                            sharePreparation?.Coordinate,
+                        settledPackageAuthorization:
+                            sharePreparation?.Authorization)
+                    .ConfigureAwait(false);
             evidenceRequest = acquisition.Request;
         }
 
@@ -657,11 +955,10 @@ public partial class DependsCommand
 
         if (plan.PackageTraversal && packageInputIndexes.Count > 0)
         {
-            PackageDependencyTraversalFrameworkMode frameworkMode =
+            TraversalTargetFrameworkPolicy traversalTargetPolicy =
                 options.Tfm is { } framework
-                    ? CreateFrameworkMode(framework)
-                    : new PackageDependencyTraversalFrameworkMode
-                        .ManifestDefault();
+                    ? CreateTraversalTargetPolicy(framework)
+                    : TraversalTargetFrameworkPolicy.ProductDefault;
             var candidateSource =
                 new DesktopPackageDependencyCandidateSource(
                     composition,
@@ -683,9 +980,14 @@ public partial class DependsCommand
                                         ? PackageDependencyTraversalExpansionAuthority
                                             .DirectDeclarationsOnly
                                         : PackageDependencyTraversalExpansionAuthority
-                                            .RecursiveSources)),
+                                            .RecursiveSources,
+                                    suppliedAcquisition is null
+                                        ? PackageDependencyTraversalRootRecurrenceAuthority
+                                            .None
+                                        : PackageDependencyTraversalRootRecurrenceAuthority
+                                            .ExactCoordinate)),
                         ],
-                        frameworkMode,
+                        traversalTargetPolicy,
                         new PackageDependencyTraversalCandidateAdapter(
                             candidateSource),
                         new DesktopPackageDependencyTraversalManifestSource(
@@ -855,7 +1157,8 @@ public partial class DependsCommand
             additionalFailures,
             pruning.Rows,
             pruning.Failures,
-            pruning.Summary)
+            pruning.Summary,
+            sharePreparation?.Share)
         {
             Licenses = licenses.Rows,
             LicenseSummary = licenses.Summary,
@@ -916,7 +1219,7 @@ public partial class DependsCommand
             liveFailures,
             evidence?.DependencyGroups ?? [],
             evidence?.RestoredPackages ?? [],
-            enriched?.Evidence);
+            enriched);
     }
 
     private static bool IsSelectedEvidenceFailure(
@@ -1030,18 +1333,34 @@ public partial class DependsCommand
         && counts.Unavailable == 0
         && counts.Failed == 0;
 
-    private static PackageDependencyTraversalFrameworkMode.Exact
-        CreateFrameworkMode(string framework)
+    private static TraversalTargetFrameworkPolicy
+        CreateTraversalTargetPolicy(string framework)
     {
-        if (PackageDependencyTraversalFrameworkMode.TryCreateExact(
+        if (TryCreateTraversalTargetPolicy(
                 framework,
-                out PackageDependencyTraversalFrameworkMode.Exact mode))
+                out TraversalTargetFrameworkPolicy policy))
         {
-            return mode;
+            return policy;
         }
 
         throw new InvalidOperationException(
             $"Target framework '{framework}' was not validated.");
+    }
+
+    private static bool TryCreateTraversalTargetPolicy(
+        string framework,
+        out TraversalTargetFrameworkPolicy policy)
+    {
+        try
+        {
+            policy = new TraversalTargetFrameworkPolicy(framework);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            policy = null!;
+            return false;
+        }
     }
 
     private static async Task<List<LibraryAssetResult>>
@@ -1768,23 +2087,35 @@ public partial class DependsCommand
                 "Unknown dependency root kind."),
         };
 
-    private static bool WriteAssetProjection(
+    internal static bool WriteAssetProjection(
         DependsAssetProjection projection,
         DependsOptions options,
-        HashSet<string> includeSections)
+        HashSet<string> includeSections,
+        TextWriter? output = null)
     {
+        output ??= Console.Out;
         DocumentSchema schema = options.Tabular && !options.Count
             ? DependsAssetSections.CreateTableSchema()
             : DependsAssetSections.CreateSchema();
+        if (!TrySelectHierarchyRows(
+                projection,
+                options.QueryPlan,
+                options.Rows,
+                options.LegacyHierarchyWindowStageIndex,
+                out IReadOnlyList<DependencyHierarchyOccurrenceRow>
+                    hierarchyRows))
+        {
+            return false;
+        }
         if (options.Count)
             return WriteAssetCount(
                 projection,
                 options,
                 includeSections,
-                schema);
+                schema,
+                hierarchyRows,
+                output);
 
-        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
-            Window(projection.HierarchyRows, options.Rows);
         if (options.Tree || options.MermaidOutput)
         {
             DependencyHierarchyOutputAdapter.Write(
@@ -1796,7 +2127,8 @@ public partial class DependsCommand
                 tree: options.Tree,
                 embeddedMermaid: false,
                 options.NoHeader,
-                options.CompactJson);
+                options.CompactJson,
+                output);
             return true;
         }
 
@@ -1806,8 +2138,9 @@ public partial class DependsCommand
             DependsAssetDocument document = DependsAssetDocument.Create(
                 projection,
                 includeSections,
-                options.Rows);
-            Console.WriteLine(
+                options.Rows,
+                hierarchyRows);
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     document,
                     options.CompactJson
@@ -1829,15 +2162,11 @@ public partial class DependsCommand
             && failuresSelected;
         if (hierarchyFailuresJsonl)
         {
-            if (IsColumnProjectionRequested(options))
-            {
-                CommandError.Write(
-                    "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
-                return false;
-            }
             WriteAssetHierarchyFailuresJsonLines(
                 projection,
-                options.Rows);
+                options.Rows,
+                hierarchyRows,
+                output);
             return true;
         }
         if (hasTraversalFailures
@@ -1849,24 +2178,17 @@ public partial class DependsCommand
                 "Projected JSON and JSONL columns cannot represent typed traversal failure detail; use unprojected --json.");
             return false;
         }
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                includeSections,
-                options.Fields,
-                options.Columns))
-        {
-            return false;
-        }
-
         DependsAssetView view = BuildAssetView(
             projection,
             includeSections,
             options.Rows,
+            hierarchyRows,
             options.EmbeddedMermaid);
         DependsAssetTableView tableView = BuildAssetTableView(
             projection,
             includeSections,
-            options.Rows);
+            options.Rows,
+            hierarchyRows);
         if (options.JsonOutput)
         {
             MarkoutField[] summary = MarkoutFieldRecorder.Record(
@@ -1874,10 +2196,11 @@ public partial class DependsCommand
                     projection,
                     NoAssetSections,
                     options.Rows,
+                    hierarchyRows,
                     embeddedMermaid: false),
                 DependsAssetViewContext.Default);
             OutputFormatter.WriteProjectedJson(
-                Console.Out,
+                output,
                 options.Columns,
                 options.Fields,
                 (writer, formatter, writerOptions) =>
@@ -1902,7 +2225,7 @@ public partial class DependsCommand
         if (options.Tabular)
         {
             OutputFormatter.WriteProjectedTable(
-                Console.Out,
+                output,
                 !options.NoHeader,
                 options.Tsv,
                 options.Jsonl,
@@ -1928,14 +2251,17 @@ public partial class DependsCommand
                 WriteProjectedAssetMarkdown(
                     options,
                     includeSections,
-                    tableView);
+                    tableView,
+                    output);
             }
             else
             {
                 WriteAssetMarkdown(
                     projection,
                     options,
-                    includeSections);
+                    includeSections,
+                    hierarchyRows,
+                    output);
             }
             return true;
         }
@@ -1946,7 +2272,9 @@ public partial class DependsCommand
                 projection,
                 options,
                 includeSections,
-                tableView);
+                tableView,
+                hierarchyRows,
+                output);
             return true;
         }
 
@@ -1956,7 +2284,7 @@ public partial class DependsCommand
             options.Fields);
         writerOptions.IncludeSections = includeSections;
         var writer = new MarkoutWriter(
-            Console.Out,
+            output,
             options.Format == OutputFormat.PlainText
                 ? new PlainTextFormatter()
                 : new MarkdownFormatter(
@@ -2005,16 +2333,19 @@ public partial class DependsCommand
 
     private static void WriteAssetHierarchyFailuresJsonLines(
         DependsAssetProjection projection,
-        RowWindow? rows)
+        RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        TextWriter output)
     {
         DependsAssetDocument document = DependsAssetDocument.Create(
             projection,
             HierarchyFailureSections,
-            rows);
+            rows,
+            hierarchyRows);
         foreach (DependencyHierarchyJsonOccurrence occurrence in
                  document.DependencyHierarchy?.Occurrences ?? [])
         {
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     new DependsAssetJsonLine
                     {
@@ -2026,7 +2357,7 @@ public partial class DependsCommand
         }
         foreach (DependsFailureJson failure in document.Failures ?? [])
         {
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     new DependsAssetJsonLine
                     {
@@ -2041,7 +2372,9 @@ public partial class DependsCommand
     private static void WriteAssetMarkdown(
         DependsAssetProjection projection,
         DependsOptions options,
-        HashSet<string> includeSections)
+        HashSet<string> includeSections,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        TextWriter output)
     {
         var sections = new HashSet<string>(
             includeSections,
@@ -2051,7 +2384,7 @@ public partial class DependsCommand
         string hierarchy = includeHierarchy
             ? RenderHierarchySection(
                 projection,
-                options.Rows,
+                hierarchyRows,
                 options.EmbeddedMermaid)
             : "";
         string evidence = "";
@@ -2068,19 +2401,21 @@ public partial class DependsCommand
                 BuildAssetTableView(
                     projection,
                     sections,
-                    options.Rows),
+                    options.Rows,
+                    hierarchyRows),
                 writer);
             evidence = writer.ToString();
         }
 
-        Console.Out.WriteLine(
+        output.WriteLine(
             JoinMarkdown(hierarchy, evidence));
     }
 
     private static void WriteProjectedAssetMarkdown(
         DependsOptions options,
         HashSet<string> includeSections,
-        DependsAssetTableView tableView)
+        DependsAssetTableView tableView,
+        TextWriter output)
     {
         var writerOptions = OutputFormatter.CreateWindowedOptions(
             rows: null,
@@ -2091,14 +2426,16 @@ public partial class DependsCommand
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, writer);
-        Console.Out.WriteLine(writer.ToString());
+        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
-        DependsAssetTableView tableView)
+        DependsAssetTableView tableView,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        TextWriter output)
     {
         var summaryWriter = new MarkoutWriter(
             new PlainTextFormatter(),
@@ -2108,6 +2445,7 @@ public partial class DependsCommand
                 projection,
                 NoAssetSections,
                 options.Rows,
+                hierarchyRows,
                 embeddedMermaid: false),
             summaryWriter);
 
@@ -2121,16 +2459,28 @@ public partial class DependsCommand
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, tableWriter);
 
-        Console.Out.WriteLine(
+        output.WriteLine(
             JoinMarkdown(
                 summaryWriter.ToString(),
                 tableWriter.ToString()));
     }
 
-    private static string RenderHierarchySection(
+    internal static string RenderHierarchySection(
         DependsAssetProjection projection,
         RowWindow? rows,
-        bool embeddedMermaid)
+        bool embeddedMermaid,
+        string sectionName = DependsAssetSections.DependencyHierarchy)
+        => RenderHierarchySection(
+            projection,
+            Window(projection.HierarchyRows, rows),
+            embeddedMermaid,
+            sectionName);
+
+    internal static string RenderHierarchySection(
+        DependsAssetProjection projection,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        bool embeddedMermaid,
+        string sectionName = DependsAssetSections.DependencyHierarchy)
     {
         var writer = new MarkoutWriter(
             embeddedMermaid
@@ -2139,12 +2489,28 @@ public partial class DependsCommand
         writer.WriteGraph(
             DependencyHierarchyOutputAdapter.ToGraph(
                 projection.Hierarchy,
-                Window(projection.HierarchyRows, rows),
+                hierarchyRows,
                 markWindowedFragments: !embeddedMermaid));
         string hierarchy = writer.ToString().TrimEnd();
         if (embeddedMermaid)
-            return $"## {DependsAssetSections.DependencyHierarchy}\n\n{hierarchy}";
-        return $"## {DependsAssetSections.DependencyHierarchy}\n\n```text\n{hierarchy}\n```";
+            return $"## {sectionName}\n\n{hierarchy}";
+        return $"## {sectionName}\n\n```text\n{hierarchy}\n```";
+    }
+
+    internal static string RenderHierarchyPlainTextSection(
+        DependsAssetProjection projection,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        string sectionName = DependsAssetSections.DependencyHierarchy)
+    {
+        var writer = new MarkoutWriter(
+            new PlainTextFormatter());
+        writer.WriteHeading(2, sectionName);
+        writer.WriteGraph(
+            DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                hierarchyRows,
+                markWindowedFragments: true));
+        return writer.ToString().TrimEnd();
     }
 
     private static string JoinMarkdown(params string[] fragments) =>
@@ -2158,7 +2524,9 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
-        DocumentSchema schema)
+        DocumentSchema schema,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
+        TextWriter output)
     {
         string[] ordered =
         [
@@ -2167,15 +2535,6 @@ public partial class DependsCommand
         ];
         if (ordered.Length == 0)
             ordered = [DependsAssetSections.DependencyHierarchy];
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                ordered,
-                options.Fields,
-                options.Columns))
-        {
-            return false;
-        }
-
         foreach (string section in ordered)
         {
             if (IsExactAssetRowSet(projection, section))
@@ -2188,6 +2547,13 @@ public partial class DependsCommand
         var counts = new CountProjection();
         foreach (string section in ordered)
         {
+            if (section.Equals(
+                    DependsAssetSections.DependencyHierarchy,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                counts.SetRows(section, hierarchyRows.Count);
+                continue;
+            }
             int count = DependsAssetSections.CountRows(projection, section);
             counts.SetRows(
                 section,
@@ -2207,11 +2573,12 @@ public partial class DependsCommand
                 : options.Tsv ? OutputFormat.Tsv
                 : options.Tabular ? OutputFormat.Table
                 : OutputFormat.Markdown,
-            options.NoHeader);
+            options.NoHeader,
+            output);
         return true;
     }
 
-    private static bool IsExactAssetRowSet(
+    internal static bool IsExactAssetRowSet(
         DependsAssetProjection projection,
         string section)
     {
@@ -2282,6 +2649,7 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         IReadOnlySet<string> sections,
         RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         bool embeddedMermaid)
     {
         DependencyInspectionSummary summary = projection.Summary;
@@ -2293,7 +2661,7 @@ public partial class DependsCommand
         {
             Description =
                 sections.Contains(DependsAssetSections.DependencyHierarchy)
-                && projection.HierarchyRows.IsEmpty
+                && hierarchyRows.Count == 0
                 ? "No dependency relationships."
                 : null,
             RootSet = summary.RootSetCompletion.ToString(),
@@ -2354,7 +2722,7 @@ public partial class DependsCommand
                 sections.Contains(DependsAssetSections.DependencyHierarchy)
                     ? DependencyHierarchyOutputAdapter.ToGraph(
                         projection.Hierarchy,
-                        Window(projection.HierarchyRows, rows),
+                        hierarchyRows,
                         markWindowedFragments: !embeddedMermaid)
                     : null,
             Roots = Rows(
@@ -2411,7 +2779,8 @@ public partial class DependsCommand
     private static DependsAssetTableView BuildAssetTableView(
         DependsAssetProjection projection,
         IReadOnlySet<string> sections,
-        RowWindow? rows)
+        RowWindow? rows,
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows)
     {
         DependencyEvidenceSourceTokens sourceTokens =
             RootSourceTokens(projection);
@@ -2420,8 +2789,8 @@ public partial class DependsCommand
             DependencyHierarchy = Rows(
                 sections,
                 DependsAssetSections.DependencyHierarchy,
-                projection.HierarchyRows,
-                rows,
+                hierarchyRows,
+                window: null,
                 DependsHierarchyOccurrenceView.From),
             Roots = Rows(
                 sections,
@@ -2486,7 +2855,7 @@ public partial class DependsCommand
     private static List<TView>? Rows<TRow, TView>(
         IReadOnlySet<string> sections,
         string section,
-        ImmutableArray<TRow> rows,
+        IReadOnlyList<TRow> rows,
         RowWindow? window,
         Func<TRow, TView> select)
     {
@@ -2506,6 +2875,98 @@ public partial class DependsCommand
             ? bounded.Apply(rows)
             : rows;
 
+    internal static bool TrySelectHierarchyRows(
+        DependsAssetProjection projection,
+        DependencyQueryPlan? plan,
+        RowWindow? legacyRows,
+        int? legacyWindowStageIndex,
+        out IReadOnlyList<DependencyHierarchyOccurrenceRow> selected)
+    {
+        if (projection.HierarchyRows.IsEmpty)
+        {
+            selected = projection.HierarchyRows;
+            return true;
+        }
+
+        if (plan?.HierarchyRows is not { Operations.Count: > 0 } intent)
+        {
+            selected = Window(projection.HierarchyRows, legacyRows);
+            return true;
+        }
+
+        if (legacyWindowStageIndex is null)
+        {
+            return CliSemanticRowSelection.TrySelect(
+                intent,
+                projection.HierarchyRows,
+                DependsAssetSections.DependencyHierarchy,
+                failure =>
+                    HierarchyRowSelectionFailure(
+                        failure.Failure.StageNumber,
+                        failure.Failure.RequiredPosition,
+                        failure.Failure.AvailableCount),
+                out selected);
+        }
+
+        int legacyStage = legacyWindowStageIndex.Value;
+        if (legacyStage < 0
+            || legacyStage >= intent.Operations.Count
+            || intent.Operations[legacyStage].Kind
+                != RowSelectionStageKind.Window)
+        {
+            throw new InvalidOperationException(
+                "The legacy hierarchy window stage does not identify "
+                    + "a Window operation.");
+        }
+
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> current =
+            projection.HierarchyRows;
+        for (int index = 0;
+            index < intent.Operations.Count;
+            index++)
+        {
+            RowSelectionIntentOperation<string> operation =
+                intent.Operations[index];
+            if (index == legacyStage)
+            {
+                current =
+                    RowWindow.Range(
+                            operation.Start ?? 1,
+                            operation.End)
+                        .Apply(current);
+                continue;
+            }
+
+            int stageNumber = index + 1;
+            if (!CliSemanticRowSelection.TrySelect(
+                    RowSelectionIntent<string>.Create([operation]),
+                    current,
+                    DependsAssetSections.DependencyHierarchy,
+                    failure =>
+                        HierarchyRowSelectionFailure(
+                            stageNumber,
+                            failure.Failure.RequiredPosition,
+                            failure.Failure.AvailableCount),
+                    out current))
+            {
+                selected = Array.Empty<
+                    DependencyHierarchyOccurrenceRow>();
+                return false;
+            }
+        }
+
+        selected = current;
+        return true;
+    }
+
+    private static string HierarchyRowSelectionFailure(
+        int stageNumber,
+        int requiredPosition,
+        int availableCount) =>
+        $"Dependency Hierarchy row selection stage {stageNumber} "
+            + $"requires row {requiredPosition}, but only "
+            + $"{availableCount} hierarchy rows are available.";
+
     private static int WindowCount(RowWindow window, int rows)
     {
         (int start, int end) = window.Resolve(rows);
@@ -2517,7 +2978,7 @@ public partial class DependsCommand
         options.Fields is { Length: > 0 }
         || options.Columns is { Length: > 0 };
 
-    private static void WriteAssetDiagnostics(
+    internal static void WriteAssetDiagnostics(
         DependsAssetProjection projection)
     {
         if (!projection.Failures.IsEmpty)
@@ -2563,7 +3024,7 @@ public partial class DependsCommand
         }
     }
 
-    private static int AssetExitCode(DependsAssetProjection projection) =>
+    internal static int AssetExitCode(DependsAssetProjection projection) =>
         projection.Summary.TraversalCompletion
                 is DependencyInspectionTraversalCompletion.Partial
                     or DependencyInspectionTraversalCompletion.Failed

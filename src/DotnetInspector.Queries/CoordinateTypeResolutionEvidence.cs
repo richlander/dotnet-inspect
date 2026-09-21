@@ -63,7 +63,9 @@ public sealed record CoordinateResolutionDefinitionEvidence(
     CoordinateResolutionOccurrenceEvidence Occurrence,
     MetadataTypeDefinitionName Type,
     MetadataTypeDefinitionKind Kind,
-    bool DeclaringAssemblyDefinesCoreLibraryRoot);
+    bool DeclaringAssemblyDefinesCoreLibraryRoot,
+    CoordinateTypeResolutionFailureEvidence? KindResolutionFailure,
+    AssemblyReferenceIdentity? KindResolutionDependencyAssembly);
 
 public sealed record CoordinateForwardingHopEvidence(
     CoordinateResolutionCandidateEvidence SourceAssembly,
@@ -112,7 +114,8 @@ public abstract record CoordinateTypeDeclarationCandidateEvidence
         TypeDefinitionToken Token,
         MetadataTypeDefinitionKind Kind,
         bool IsInterface,
-        bool IsValueType)
+        bool IsValueType,
+        MetadataTypeDefinitionKindFailure? KindFailure)
         : CoordinateTypeDeclarationCandidateEvidence;
 
     public sealed record Forwarder(
@@ -197,6 +200,15 @@ public abstract record CoordinateTypeResolutionFailureEvidence
     private protected CoordinateTypeResolutionFailureEvidence() { }
 
     public sealed record DeclarationRejected(MetadataTypeNameFailure Rejection)
+        : CoordinateTypeResolutionFailureEvidence;
+
+    public sealed record DeclarationBudgetExceeded(
+        int Budget,
+        string Detail)
+        : CoordinateTypeResolutionFailureEvidence;
+
+    public sealed record DefinitionKindUnavailable(
+        MetadataTypeDefinitionKindFailure Failure)
         : CoordinateTypeResolutionFailureEvidence;
 
     public sealed record ForwarderCycle
@@ -502,7 +514,11 @@ static class CoordinateTypeResolutionProjector
             Occurrence(definition.Occurrence, observation),
             definition.Type,
             definition.Kind,
-            definition.DeclaringAssemblyDefinesCoreLibraryRoot);
+            definition.DeclaringAssemblyDefinesCoreLibraryRoot,
+            definition.KindResolutionFailure is { } failure
+                ? Failure(failure, observation)
+                : null,
+            definition.KindResolutionDependencyAssembly);
 
     static CoordinateForwardingHopEvidence Hop(
         TypeForwardingHop hop,
@@ -615,7 +631,8 @@ static class CoordinateTypeResolutionProjector
                     definition.Token,
                     definition.Kind,
                     definition.IsInterface,
-                    definition.IsValueType),
+                    definition.IsValueType,
+                    definition.KindFailure),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new CoordinateTypeDeclarationCandidateEvidence.Forwarder(
                     forwarder.Declarations,
@@ -636,6 +653,14 @@ static class CoordinateTypeResolutionProjector
             TypeResolutionFailure.DeclarationRejected rejected =>
                 new CoordinateTypeResolutionFailureEvidence.DeclarationRejected(
                     rejected.Rejection),
+            TypeResolutionFailure.DeclarationBudgetExceeded exceeded =>
+                new CoordinateTypeResolutionFailureEvidence
+                    .DeclarationBudgetExceeded(
+                        exceeded.Budget,
+                        exceeded.Detail),
+            TypeResolutionFailure.DefinitionKindUnavailable unavailable =>
+                new CoordinateTypeResolutionFailureEvidence
+                    .DefinitionKindUnavailable(unavailable.Failure),
             TypeResolutionFailure.ForwarderCycle =>
                 new CoordinateTypeResolutionFailureEvidence.ForwarderCycle(),
             TypeResolutionFailure.HopBudgetExceeded exceeded =>

@@ -53,19 +53,34 @@ public partial class CommandExecutionTests
         Assert.Contains("JsonSerializer.Write.String.cs", output);
     }
 
-    [Fact]
-    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints(bool print)
     {
         // A property has no MethodDef of its own; its PDB source is located through its
         // accessor's PDB sequence points, reported against the owning property (#3278).
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth", "-S", "Source Locations", "--tips", "q");
+            [
+                "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+                "MaxDepth", "-S", "Source Locations", "--tips", "q",
+                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+            ]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Locations", output);
-        Assert.Contains("public int MaxDepth { get; set; }", output);
+        if (print)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("Source Locations", document.RootElement.GetProperty("section").GetString());
+            Assert.Contains("class JsonSerializerOptions", document.RootElement.GetProperty("content").GetString());
+            Assert.Contains("MaxDepth", document.RootElement.GetProperty("content").GetString());
+        }
+        else
+        {
+            Assert.Contains("## Source Locations", output);
+            Assert.Contains("public int MaxDepth { get; set; }", output);
+        }
         Assert.Contains("JsonSerializerOptions.cs", output);
         Assert.Contains("raw.githubusercontent.com", output);
     }
@@ -186,6 +201,50 @@ public partial class CommandExecutionTests
         }
     }
 
+    // Inherits Speed=Slow; run explicitly in the focused member-parts gate.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText(bool mismatch)
+    {
+        var (assemblyPath, sourcePath, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            if (mismatch)
+                File.AppendAllText(sourcePath, "\n// Different checkout.\n");
+
+            var locations = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath, "-S", "Source Locations", "--json", "--tips", "q");
+            Assert.Equal(0, locations.Exit);
+            Assert.Empty(locations.Error);
+            using var json = JsonDocument.Parse(locations.Output);
+            Assert.Equal(sourcePath, json.RootElement.GetProperty("document").GetProperty("path").GetString());
+            Assert.False(json.RootElement.GetProperty("document").TryGetProperty("url", out _));
+            Assert.False(json.RootElement.TryGetProperty("parts", out _));
+
+            var part = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath, "--print", "--part", "signature", "--tips", "q");
+            if (mismatch)
+            {
+                Assert.Equal(1, part.Exit);
+                Assert.Empty(part.Output);
+                Assert.Contains("Could not acquire verified member parts", part.Error);
+            }
+            else
+            {
+                Assert.True(part.Exit == 0, part.Error);
+                Assert.Empty(part.Error);
+                Assert.Equal("    public static int Overloaded(int value)", part.Output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Member_PdbSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
     {
@@ -202,103 +261,6 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("readonly object _gate", canonical.Output);
 
         Assert.Equal(canonical, caseVariant);
-    }
-
-    [Fact]
-    public void PdbSource_LineNormalizationPreservesPdbCoordinatesAcrossFormFeed()
-    {
-        const string source =
-            "class C\n{\n"
-            + "    string S = @\"a\fb\";\n"
-            + "    void A() { }\n"
-            + "    void B() { }\n"
-            + "}";
-
-        string normalized = ApiCommand.NormalizePdbSourceLineEndings(source);
-        var resolved = ApiCommand.SliceResolvedMethodSource(
-            normalized,
-            startLine: 4,
-            endLine: 4,
-            methodName: "A",
-            sourceLocation: "fixture.cs",
-            pdbPath: null);
-
-        Assert.Contains('\f', normalized);
-        Assert.Equal("void A() { }", resolved.Source?.SourceCode);
-    }
-
-    [Fact]
-    public void PdbSource_ForwardsConditionalBranchEvidenceToTheSlicer()
-    {
-        const string source = """
-            class C
-            {
-            #if FIRST
-                void Dead() { }
-            #else
-                void Live() { }
-            #endif
-            }
-            """;
-
-        var resolved = ApiCommand.SliceResolvedMethodSource(
-            source,
-            startLine: 6,
-            endLine: 6,
-            methodName: "Live",
-            sourceLocation: "fixture.cs",
-            pdbPath: null,
-            visibleSequencePointStartLines: [6]);
-
-        Assert.Equal("void Live() { }", resolved.Source?.SourceCode);
-    }
-
-    [Fact]
-    public void PdbSource_TokenDenseInputCarriesAVisibleFailureState()
-    {
-        string source = "class C { void M() { "
-            + new string(';', 500_001)
-            + " } }";
-
-        var resolved = ApiCommand.SliceResolvedMethodSource(
-            source,
-            startLine: 1,
-            endLine: 1,
-            methodName: "M",
-            sourceLocation: "fixture.cs",
-            pdbPath: null);
-
-        Assert.True(resolved.MemberSourceTooComplex);
-        Assert.Null(resolved.Source);
-        Assert.Contains(
-            "lexical complexity limit",
-            ApiCommand.PdbSourceUnavailableNote(
-                new MemberOptions { MemberSourceTooComplex = true }),
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PdbSource_InvalidSequencePointCoordinatesCarryAVisibleFailureState()
-    {
-        const string source = "class C\n{\n    void M() { }\n}";
-
-        var resolved = ApiCommand.SliceResolvedMethodSource(
-            source,
-            startLine: 3,
-            endLine: 6,
-            methodName: "M",
-            sourceLocation: "fixture.cs",
-            pdbPath: "fixture.pdb",
-            visibleSequencePointStartLines: [3]);
-
-        Assert.True(resolved.MemberSourceCoordinatesInvalid);
-        Assert.Null(resolved.Source);
-        Assert.Equal("fixture.pdb", resolved.PdbPath);
-        Assert.Contains(
-            "sequence-point coordinates",
-            ApiCommand.PdbSourceUnavailableNote(
-                new MemberOptions { MemberSourceCoordinatesInvalid = true }),
-            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1241,12 +1203,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(
-            "+public readonly int get_Value()",
-            output);
-        Assert.DoesNotContain(
-            "+public int get_Value()",
-            output);
+        Assert.Contains("PDB comparison and Decompiled comparison are identical.", output);
+        Assert.DoesNotContain("get_Value(", output);
     }
 
     [Theory]

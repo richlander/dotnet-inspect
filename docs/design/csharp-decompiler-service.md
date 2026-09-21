@@ -8,8 +8,10 @@ owns its `CSharpDecompilerService` boundary, tracked in
 producer step of [#6512](https://github.com/richlander/dotnet-inspect/issues/6512)
 and project 4 of [#7177](https://github.com/richlander/dotnet-inspect/issues/7177).
 The service is implemented and consumed by the shared source-query family.
-SourceHouse composition and the broader host-envelope adoption remain separate
-steps of #6512.
+SourceHouse now consumes the service for shared exact-member and exact-type
+decompilation. Browser Type Source consumes the exact-type path through the
+completed shared query envelope; direct CLI whole-type adoption remains a
+separate step of the broader #6512 plan.
 
 > Given caller-selected assembly content, one exact type or member in that
 > content, a binding policy, explicit supplied-PDB or no-PDB input, rendering
@@ -145,8 +147,14 @@ family. The path has three steps:
    comparisons, supplying the PDB already selected by its acquisition stage.
    Both hosts consume that query family.
 
-SourceHouse later consumes the same service when its composition lands under
-the broader #6512 plan; this producer becomes useful before that future House.
+SourceHouse consumes the same service for exact-member and exact-type
+decompilation while retaining its Library snapshot, finite work,
+symbol-contribution, and lease-settlement evidence. Ordinary CLI
+selected-member Decompiled Source consumes the member operation's exact native
+body projection while retaining its existing declaration formatter. Browser
+Type Source consumes the type operation through `TypeSourceInspection`;
+ordinary CLI whole-type decompilation and other direct consumers remain later
+adoption under the broader #6512 plan.
 
 Retire direct composer calls in the adopted shared-query path. Other existing
 `MemberBodyProducer` consumers remain supported until their own adoption;
@@ -160,9 +168,10 @@ steps retain the goal of one shared completed inspection API returning
 `InspectionEnvelope<TContent>`; this producer slice does not claim that
 envelope migration is already complete.
 
-Direct CLI listings outside this shared-query path remain part of that broader
-adoption. Existing CLI Markout/code output and browser code viewers remain the
-host lowering boundaries; this producer introduces no alternative formatter.
+Direct CLI type decompilation and analysis projections outside this
+shared-query path remain part of that broader adoption. Existing CLI
+Markout/code output and browser code viewers remain the host lowering
+boundaries; this producer introduces no alternative formatter.
 
 ## Evidence
 

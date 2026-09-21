@@ -192,11 +192,83 @@ may throw.
 
 Table scans, name resolution, and relationship traversal take explicit work
 bounds. Exhaustion produces **Budget-limited**, not `Malformed`, absence, or an
-escaping budget exception. Type-definition lookup publishes
-`TypeDeclarationResult.BudgetExceeded`; the runtime `System.Enum` lookup and
-the repeated-long-name boundary are gated by
+escaping budget exception. Full type-declaration scans and lazy index
+construction preflight at most
+`MetadataSafetyPolicy.MaxTypeDeclarationRows` combined TypeDef and ExportedType
+rows; exact TypeDef lookup applies the same ceiling to its TypeDef rows. Each
+path charges cumulative stored or compared UTF-8 name work against
+`MetadataSafetyPolicy.MaxTypeDeclarationNameWorkChars`. Index construction is
+all-or-nothing: exhaustion publishes one global
+`TypeDeclarationResult.BudgetExceeded` rather than exposing a partial index.
+Construction charges stored leaf names, and each indexed query independently
+charges plausible structured-name comparisons against the same name-work
+ceiling before matching candidates.
+The direct row and name boundaries, index row and name boundaries, discarded
+partial state, and runtime `System.Enum` control are gated by
+`ProbeDefinition_RejectsRowsBeforeScanning`,
+`Probe_RejectsCombinedDeclarationRowsBeforeScanning`,
+`Probe_RejectsRepeatedLeafComparisonWork`,
+`DeclarationIndex_RejectsRowsBeforeConstruction`,
+`DeclarationIndex_DiscardsPartialStateAfterNameWorkExhaustion`, and
+`Session_DeclarationIndexResolvesRuntimeCoreLibraryType`. Indexed query work is
+gated by `Session_DeclarationIndexRejectsRepeatedStructuredNameWork`. Exact
+TypeDef lookup also publishes `TypeDeclarationResult.BudgetExceeded`; its runtime
+`System.Enum` lookup and repeated-long-name boundary are gated by
 `ProbeDefinition_MaterializesCoreEnumAsSpecialClass` and
 `ProbeDefinition_ReportsRepeatedLongLeafWorkAsBudgetExceeded`.
+
+TypeDef kind classification publishes
+`TypeDeclarationResult.DefinitionKindUnavailable` when a known definition
+cannot be classified. Its failure evidence distinguishes relationship or
+TypeSpec work exhaustion, malformed metadata, and decoded TypeSpec shapes
+outside the classifier's supported named-class contract. A successful
+`TypeDeclarationResult.Defined` may carry
+`MetadataTypeDefinitionKind.Unknown` only when it also carries the external
+definition-kind dependency that a resolution context can authenticate.
+Ambiguous declaration candidates retain the same typed failure evidence.
+Resolution preserves the known TypeDef identity and projects the classification
+failure beside `Unknown`; it does not convert the operation's bound into a
+claim that the artifact is malformed. The relationship-bound, cyclic TypeSpec,
+unsupported TypeSpec, forged class marker, invalid generic-parameter numbering,
+resolved-identity, external-dependency, and ordinary-kind controls are gated by
+`Probe_ReportsDefinitionKindRelationshipBudget`,
+`TypeSpecificationDepthBudgetRemainsTypedForDeclarationKind`,
+`Probe_ReportsCyclicConstructedTypeDefinitionBase`,
+`CyclicTypeSpecificationBaseFailsClosed`,
+`Probe_ReportsUnsupportedPrimitiveTypeSpecificationBase`,
+`Probe_RejectsForgedClassMarkerOnConstructedValueTypeBase`,
+`Probe_ReportsInvalidGenericParameterNumbering`,
+`Probe_AmbiguityRetainsDefinitionKindFailure`,
+`LocalDefinitionKindFailurePreservesResolvedIdentity`,
+`WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`,
+`DeclarationIndexReusesAssemblyReferenceProjection`, and
+`Probe_MaterializesDefinitionKindAndCoreLibraryRoot`.
+
+Member unsafe-contract derivation publishes
+`MemorySafetyMemberContractFailureKind.BudgetExceeded` when a module-rule scan,
+accessor-association scan, or direct or associated `RequiresUnsafeAttribute`
+scan stops at an operation-imposed row or name-work bound. Malformed module or
+association metadata remains `MetadataUnavailable`; unreadable attribute
+metadata remains `AttributeUnavailable`; decoded invalid marker rows remain
+`MalformedRequiresUnsafeAttribute`. The module, association, direct-attribute,
+and associated-attribute budget distinctions are gated by
+`ModuleMarkerScanBudgetFailureIsTyped`,
+`AccessorAssociationBudgetFailureIsTyped`,
+`DirectAttributeRowBudgetFailureIsTyped`, and
+`AssociatedAttributeRowBudgetFailureIsTyped`, with member attribute name-work
+exhaustion gated by `DirectAttributeNameWorkBudgetFailureIsTyped`.
+
+State-machine relationship queries publish
+`StateMachineRelationshipFailureKind.InvalidHandle` for nil or out-of-range
+MethodDef and TypeDef coordinates. State-machine claim names that exceed the
+encoded-byte, decoded-character, or reflection-name parse-node bounds publish
+`BudgetExceeded`; syntactically invalid names remain `Malformed`. These
+distinctions are gated by
+`StateMachineRelationshipIndex_InvalidHandlesAreTyped`,
+`StateMachineRelationshipIndex_ReportsEncodedTypeNameBudgetBeforeDecode`,
+`StateMachineRelationshipIndex_ReportsTypeNameCharacterBudget`,
+`StateMachineRelationshipIndex_ReportsTypeNameParseNodeBudget`, and
+`StateMachineRelationshipIndex_RetainsMalformedTypeName`.
 
 Caching belongs to the consumer. A consumer may create a substrate per
 operation or retain one for a reader's lifetime. The substrate introduces no
@@ -239,8 +311,6 @@ registration row, registry service, naming convention, or maintained census.
 
 | Gap | Tracker | Relation to this contract |
 | --- | --- | --- |
-| Reachable outcome distinctions are collapsed across existing components | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
-| Whole-table declaration construction lacks a work bound | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) | Deviation |
 | Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) | Deviation |
 | A declaration failure type spans unrelated domains with mismatched codomains | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
 | Existing entry points publish result types broader than their observed codomains | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |

@@ -4,11 +4,32 @@ public sealed class Counter
 {
     const int BuildValue = 1;
 
+    /// <summary>
+    /// Returns the value represented by this fixture version.
+    /// </summary>
+    /// <returns>The fixture's counter value.</returns>
     public int Value() => 1 + 2;
 
     public int Unchanged() => 7;
 
     public int SameSource() => BuildValue;
+
+    public int Property => 1;
+
+    int Hidden() => 1;
+
+    public int LocalFunction(int value)
+    {
+        int Adjust(int input) => input + 1;
+        return Adjust(value) + Hidden();
+    }
+
+    public int MultipleLocalFunctions(int value)
+    {
+        int Increment(int input) => input + 1;
+        int Scale(int input) => input * 2;
+        return Increment(value) + Scale(value);
+    }
 
     public int Reordered()
     {

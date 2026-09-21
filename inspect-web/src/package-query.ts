@@ -8,6 +8,14 @@
 // by the caller so this module can be built and tested against fake sources
 // independently from the Browser engine adapter.
 
+type QueryExecutionClass =
+  | "search-metadata"
+  | "nuspec"
+  | "nuspec-expensive"
+  | "package-content"
+  | "metadata"
+  | "metadata-expensive";
+
 /** One product-issued package-query preset descriptor. */
 export interface QueryPreset {
   id: string;
@@ -18,6 +26,7 @@ export interface QueryPreset {
   summary?: string;
   weight?: number;
   tier: "search-metadata" | "nuspec" | "package-content";
+  executionClass: QueryExecutionClass;
   selectionGroupId?: string | null;
   combinesWithinSelectionGroup?: boolean;
   replacementGroupId?: string | null;
@@ -32,6 +41,7 @@ export interface QueryTermDescriptor {
   summary: string;
   weight: number;
   tier: "search-metadata" | "nuspec" | "package-content";
+  executionClass: QueryExecutionClass;
   operators: readonly string[];
   valueKind: string;
   example: string;
@@ -56,6 +66,7 @@ interface QueryTerm {
 const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
 const DEFAULT_QUERY_MATCH_LIMIT = 100;
 const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
+const NUSPEC_EXPENSIVE_QUERY_CANDIDATE_LIMIT = 5;
 export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
 export const PACKAGE_QUERY_LIBRARY_LITERAL_PREFIX_CANDIDATE_LIMIT = 5;
 const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
@@ -197,6 +208,11 @@ function queryCandidateLimit(
   presets: readonly QueryPreset[],
   terms: readonly QueryTerm[],
 ): number {
+  if (presets.some(preset => preset.executionClass === "nuspec-expensive")
+      || terms.some(term =>
+        term.descriptor.executionClass === "nuspec-expensive")) {
+    return NUSPEC_EXPENSIVE_QUERY_CANDIDATE_LIMIT;
+  }
   return presets.some(preset => preset.tier === "package-content")
       || terms.some(term => term.descriptor.tier === "package-content")
     ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
@@ -413,7 +429,12 @@ export type TerminalQueryCompletion =
   | { kind: "failed"; reason: string };
 
 export interface QueryProgress {
-  phase: "search" | "manifest" | "package-content" | "assembly";
+  phase:
+    | "search"
+    | "manifest"
+    | "package-content"
+    | "dependency-traversal"
+    | "assembly";
   completed: number;
   limit: number;
 }

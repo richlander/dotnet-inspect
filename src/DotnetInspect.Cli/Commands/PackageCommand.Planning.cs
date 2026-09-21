@@ -38,8 +38,12 @@ public partial class PackageCommand
         "Evidence"
     ];
 
-    internal static DocumentSchema PackageDiscoverySchema()
-        => AddPackageDynamicDiscoveryItems(InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
+    internal static DocumentSchema PackageDiscoverySchema() =>
+        AddPackageDynamicDiscoveryItems(
+            WithDependencyHierarchySchema(
+                InspectionContext.Default
+                    .GetSchemaInfo<InspectionResultView>()!
+                    .ToDocumentSchema()));
 
     internal sealed record AllLibrariesRowSchema(
         string Section,
@@ -171,6 +175,14 @@ public partial class PackageCommand
         }
         if (options.Discover != null)
             return true;
+        if (options.IncludeSections is { Count: > 1 } projectedSections
+            && projectedSections.Contains(
+                PackageSections.DependencyHierarchy))
+        {
+            CommandError.Write(
+                "--columns/--fields with Dependency Hierarchy requires that section to be selected alone.");
+            return false;
+        }
 
         DocumentSchema schema = PackageDiscoverySchema();
         if (packageCount > 1
@@ -414,6 +426,48 @@ public partial class PackageCommand
         return result;
     }
 
+    private static DocumentSchema WithDependencyHierarchySchema(
+        DocumentSchema schema)
+    {
+        var hierarchy =
+            DependsAssetSections.CreateSchema().GetSection(
+                DependsAssetSections.DependencyHierarchy)
+            ?? throw new InvalidOperationException(
+                "The shared Depends hierarchy schema is unavailable.");
+        var result = new DocumentSchema();
+        foreach (string name in schema.SectionNames)
+        {
+            var section =
+                name.Equals(
+                    PackageSections.DependencyHierarchy,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? hierarchy
+                    : schema.GetSection(name);
+            if (section is { Items.Length: > 0 })
+            {
+                result.Add(
+                    name,
+                    section.ItemKind,
+                    section.Items.Select(static item => item.Name).ToArray());
+            }
+            else
+            {
+                result.AddSection(name);
+            }
+        }
+
+        if (!result.SectionNames.Contains(
+                PackageSections.DependencyHierarchy,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            result.Add(
+                PackageSections.DependencyHierarchy,
+                hierarchy.ItemKind,
+                hierarchy.Items.Select(static item => item.Name).ToArray());
+        }
+        return result;
+    }
+
     internal static bool DiscoverRequestsSection(
         string[]? discover,
         string sectionName,
@@ -545,8 +599,13 @@ public partial class PackageCommand
         if (options.Value) conflicts.Add("--value");
         if (options.Urls) conflicts.Add("--urls");
         if (options.Paths) conflicts.Add("--paths");
-        if (options.ShowDependencies) conflicts.Add("--dependencies");
-        else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
+        if (options.Roots) conflicts.Add("--roots");
+        if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
+        if (options.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy) == true)
+        {
+            conflicts.Add("-S \"Dependency Hierarchy\"");
+        }
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -573,9 +632,11 @@ public partial class PackageCommand
             && !options.Print
             && !options.Value
             && !options.Urls
-            && !options.Paths)
+            && !options.Paths
+            && !options.Roots)
         {
-            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
+            CommandError.Write(
+                "--row requires --print, --value, --urls, --paths, or --roots.");
             return false;
         }
 
@@ -615,7 +676,7 @@ public partial class PackageCommand
             if (options.ListLayout) conflicts.Add("--layout");
             if (options.ListTfms) conflicts.Add("--tfms");
             if (options.ListVersions) conflicts.Add("--versions/--version");
-            if (options.ShowDependencies) conflicts.Add("--dependencies");
+            if (options.Roots) conflicts.Add("--roots");
             if (options.PackageLibrary != null) conflicts.Add("--library");
             if (options.AllLibraries) conflicts.Add("--all-libraries");
             if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -631,74 +692,57 @@ public partial class PackageCommand
         return true;
     }
 
-    private static InspectionOptions NormalizeDependencyProjection(InspectionOptions options)
+    private static bool ValidateDependencyHierarchyProjection(
+        InspectionOptions options)
     {
-        if (!options.ShowDependencies)
-            return options;
-
-        var select = options.Select?.ToList() ?? [];
-        if (options.IncludeSections is { Count: > 0 })
-        {
-            foreach (var section in options.IncludeSections)
-            {
-                if (!select.Contains(section, StringComparer.OrdinalIgnoreCase))
-                    select.Add(section);
-            }
-        }
-        if (!select.Contains(PackageSections.Dependencies, StringComparer.OrdinalIgnoreCase))
-            select.Add(PackageSections.Dependencies);
-
-        return options with
-        {
-            Select = [.. select],
-            SelectDefault = false,
-            Tree = true,
-        };
-    }
-
-    private static bool ValidateDependencyTreeProjection(InspectionOptions options)
-    {
-        bool dependencyTreeProjection =
-            options.IncludeSections is { Count: 1 }
-            && options.IncludeSections.Contains(PackageSections.Dependencies);
-        if (!options.Tree
-            || options.Discover != null
-            || (options.Count
-                && !options.ShowDependencies
-                && !dependencyTreeProjection))
-            return true;
-
-        if (!dependencyTreeProjection)
+        bool dependencyHierarchyProjection =
+            options.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy)
+                == true;
+        if (options.DependencyQueryPlan?.MaximumDepth is not null
+            && !dependencyHierarchyProjection)
         {
             CommandError.Write(
-                options.ShowDependencies
-                    ? "--dependencies is an alias for -S Dependencies --tree and cannot be combined with other section selections."
-                    : "--tree requires exactly one tree-shaped section (-S Dependencies).");
+                "--depth requires the Dependency Hierarchy section.");
             return false;
         }
 
-        bool typedDependencyCount = options.ShowDependencies && options.Count;
+        if (options.Discover is not null || !options.Tree)
+            return true;
+
+        dependencyHierarchyProjection =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(
+                PackageSections.DependencyHierarchy);
+
+        if (!dependencyHierarchyProjection)
+        {
+            CommandError.Write(
+                options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.Dependencies)
+                    ? "Dependencies is direct evidence and cannot be rendered as a hierarchy. Use '-S \"Dependency Hierarchy\" --tree'."
+                    : "--tree requires exactly '-S \"Dependency Hierarchy\"'.");
+            return false;
+        }
+
         if (options.Print
             || options.Value
             || options.Urls
             || options.Paths
             || options.Columns is { Length: > 0 }
             || options.Fields is { Length: > 0 }
-            || (!typedDependencyCount
-                && (options.Count
-                    || options.Rows is not null
-                    || options.Bare
-                    || options.JsonOutput
-                    || options.Format != OutputFormat.Markdown
-                    || options.Tabular
-                    || options.Tsv
-                    || options.Jsonl
-                    || options.JsonArray
-                    || options.NoHeader
-                    || options.TabularExplicitlySet)))
+            || options.Count
+            || options.Bare
+            || options.JsonOutput
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.JsonArray
+            || options.NoHeader
+            || options.TabularExplicitlySet)
         {
-            var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
-            CommandError.Write($"{optionName} cannot be combined with row projections or non-Markdown formats.");
+            CommandError.Write(
+                "--tree cannot be combined with count, shape, tabular, JSON, or field/column projections.");
             return false;
         }
 

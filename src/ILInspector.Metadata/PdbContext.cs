@@ -1,10 +1,12 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -222,6 +224,7 @@ public class PdbContext : IDisposable
 
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
+    private ImmutableArray<byte>? _pdbImage;
     private Exception? _deferredDisposalFailure;
     private bool? _isReferenceAssembly;
     private readonly List<IDisposable> _disposables = [];
@@ -275,16 +278,13 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Copies the currently loaded Portable PDB into independent immutable
-    /// content, or returns null when no Portable PDB is loaded.
+    /// Gets independently retained immutable content for the currently loaded
+    /// Portable PDB, or returns null when no Portable PDB is loaded.
     /// </summary>
-    public unsafe ImmutableArray<byte>? GetPortablePdbImage()
+    public ImmutableArray<byte>? GetPortablePdbImage()
     {
         EnsureAlive();
-        return _pdbReader is { } reader
-            ? ImmutableArray.Create(
-                new ReadOnlySpan<byte>(reader.MetadataPointer, reader.MetadataLength))
-            : null;
+        return _pdbImage;
     }
 
     // --- PE/Assembly ---
@@ -808,10 +808,18 @@ public class PdbContext : IDisposable
                     return;
                 }
 
-                provider = MetadataReaderProvider.FromPortablePdbStream(
-                    pdbStream,
-                    MetadataStreamOptions.PrefetchMetadata
-                        | MetadataStreamOptions.LeaveOpen);
+                if (pdbStream.Length > Array.MaxLength)
+                {
+                    throw new IOException(
+                        "Portable PDB content exceeds the maximum managed array length.");
+                }
+
+                byte[] pdbBytes = new byte[(int)pdbStream.Length];
+                pdbStream.ReadExactly(pdbBytes);
+                ImmutableArray<byte> pdbImage =
+                    ImmutableCollectionsMarshal.AsImmutableArray(pdbBytes);
+                provider =
+                    MetadataReaderProvider.FromPortablePdbImage(pdbImage);
                 var reader = provider.GetMetadataReader();
                 pdbStreamReleaseAttempted = true;
                 try
@@ -835,6 +843,7 @@ public class PdbContext : IDisposable
                 _disposables.Add(provider);
                 _pdbProvider = provider;
                 _pdbReader = reader;
+                _pdbImage = pdbImage;
                 retained = true;
 
                 HasPdb = true;
@@ -1951,6 +1960,7 @@ public class PdbContext : IDisposable
         _disposables.Clear();
         _pdbProvider = null;
         _pdbReader = null;
+        _pdbImage = null;
         DisposeOwned(_peReader);
         DisposeOwned(_peStream);
         return failure;
@@ -2084,10 +2094,16 @@ public class PdbContext : IDisposable
                 PdbFormat = "Portable";
                 PdbLocation = "Embedded";
 
-                var provider = _peReader.ReadEmbeddedPortablePdbDebugDirectoryData(entry);
+                ImmutableArray<byte> pdbImage =
+                    ReadEmbeddedPortablePdbImage(
+                        entry,
+                        embeddedPdbBytes);
+                var provider =
+                    MetadataReaderProvider.FromPortablePdbImage(pdbImage);
                 _disposables.Add(provider);
                 _pdbProvider = provider;
                 _pdbReader = provider.GetMetadataReader();
+                _pdbImage = pdbImage;
                 HasPdb = true;
                 PdbVersion++;
 
@@ -2171,6 +2187,95 @@ public class PdbContext : IDisposable
             throw new BadImageFormatException("The embedded portable PDB size is invalid.");
 
         return decompressedSize;
+    }
+
+    private ImmutableArray<byte> ReadEmbeddedPortablePdbImage(
+        DebugDirectoryEntry entry,
+        int decompressedSize)
+    {
+        const int HeaderSize = sizeof(uint) + sizeof(int);
+        int compressedSize = entry.DataSize - HeaderSize;
+        byte[] compressed = new byte[compressedSize];
+
+        if (_peReader.IsLoadedImage)
+        {
+            PEMemoryBlock block =
+                _peReader.GetSectionData(entry.DataRelativeVirtualAddress);
+            if (block.Length < entry.DataSize)
+            {
+                throw new BadImageFormatException(
+                    "The embedded portable PDB data is truncated.");
+            }
+
+            block.GetContent(HeaderSize, compressedSize)
+                .CopyTo(compressed);
+        }
+        else
+        {
+            long dataStart;
+            try
+            {
+                dataStart = checked(
+                    _peImageStart
+                    + entry.DataPointer
+                    + HeaderSize);
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The embedded portable PDB file pointer is invalid.",
+                    ex);
+            }
+
+            long originalPosition = _peStream.Position;
+            try
+            {
+                _peStream.Position = dataStart;
+                _peStream.ReadExactly(compressed);
+            }
+            catch (EndOfStreamException ex)
+            {
+                throw new BadImageFormatException(
+                    "The embedded portable PDB data is truncated.",
+                    ex);
+            }
+            finally
+            {
+                _peStream.Position = originalPosition;
+            }
+        }
+
+        byte[] decompressed = new byte[decompressedSize];
+        try
+        {
+            using var compressedStream =
+                new MemoryStream(compressed, writable: false);
+            using var decompressor =
+                new DeflateStream(
+                    compressedStream,
+                    CompressionMode.Decompress);
+            decompressor.ReadExactly(decompressed);
+            if (decompressor.ReadByte() >= 0)
+            {
+                throw new BadImageFormatException(
+                    "The embedded portable PDB exceeds its declared size.");
+            }
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new BadImageFormatException(
+                "The embedded portable PDB data is invalid.",
+                ex);
+        }
+        catch (EndOfStreamException ex)
+        {
+            throw new BadImageFormatException(
+                "The embedded portable PDB is shorter than its declared size.",
+                ex);
+        }
+
+        return ImmutableCollectionsMarshal.AsImmutableArray(
+            decompressed);
     }
 
     private void TryLoadLocalPdb()

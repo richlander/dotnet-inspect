@@ -45,7 +45,7 @@ The model uses:
   successor;
 - one stale pre-effect work item and one queued maintenance identity; and
 - Navigation's existing semantic revision, action generation, effect epoch,
-  consumer installation, and composite acknowledgement receipt distinctions.
+  consumer posting, and composite acknowledgement receipt distinctions.
 
 Non-success settlement inputs deliberately carry a current inventory different
 from Navigation's retained inventory. `NoEffectChangedInventory` retains the
@@ -78,8 +78,8 @@ or fairness.
 | `CancellationControlCannotReleaseProtection` | `ObservedNoEffect` is control evidence, not mutation settlement |
 | `LocalCancellationCannotAbandonSubmittedEffect` | Local cancellation cannot reopen the state while submitted Scope work remains unsettled |
 | `LaterRefusalPreservesNavigationState` | The actual before/after Scope and Navigation state tuple is unchanged by refusal, excluding diagnostic observation |
-| `QueuedMaintenanceSurvivesProtection` | The queued identity remains ordered and cannot install during protection |
-| `StaleWorkCannotInstallDuringProtection` | Pre-acceptance work cannot replace protected state |
+| `QueuedMaintenanceSurvivesProtection` | The queued identity remains ordered and cannot apply during protection |
+| `StaleWorkCannotReplaceDuringProtection` | Pre-acceptance work cannot replace protected state |
 | `StaleAuthorityCannotExecuteDuringProtection` | Pre-acceptance authority cannot execute a visible effect |
 | `CompleteScopeResultIsConsumed` | Every current settlement publishes its complete snapshot; unavailable evidence remains historical |
 | `MembershipPreparationFailureIsCurrentFailure` | A committed membership change plus failed preparation exposes new membership and failure |
@@ -89,11 +89,11 @@ or fairness.
 | `AuthorizedSuccessorIsExact` | Navigation-owned retention can select only its exact prepared successor |
 | `RevisionAndGenerationRemainDistinct` | Semantic revision follows semantic change while result action publication advances generation |
 | `CurrentEffectAuthorityIsExact` | Effect authority binds session, current revision, protected intent, and epoch |
-| `ConsumerInstallationUsesCurrentAuthority` | Consumer installation copies the complete current publication under that epoch |
-| `AcknowledgementUsesCompositePublication` | Acknowledgement records both revision and generation after installation |
+| `ConsumerPostingUsesCurrentAuthority` | Consumer posting copies the complete current publication under that epoch |
+| `AcknowledgementUsesCompositePublication` | Acknowledgement records both revision and generation after posting |
 | `ScopeBehaviorRefinesOwner` | Every composed Scope-variable transition is an imported owner transition or stutter |
 | `ProtectedAttemptEventuallyReleases` | Fair submitted protected work reaches correlated publication and release |
-| `MaintenanceEventuallyResumes` | The preserved maintenance identity eventually installs after release |
+| `MaintenanceEventuallyResumes` | The preserved maintenance identity eventually applies after release |
 
 `ScopeOwnerSafety` also rechecks the imported one-shot lifecycle, complete
 association, exact requested occurrence, superseder distinction, and typed
@@ -115,7 +115,7 @@ The committed negative controls are:
 | `BrokenSubmitBeforeAcceptance` | Submit the Scope request before Navigation acceptance | `ProtectedAcceptancePrecedesSubmission` |
 | `BrokenForeignSettlement` | Publish an unrelated Scope operation result | `OnlyCorrelatedSettlementPublishes` |
 | `BrokenReleaseOnControlNoEffect` | Release on cancellation `ObservedNoEffect` | `CancellationControlCannotReleaseProtection` |
-| `BrokenStaleWorkInstall` | Let stale work replace the protected current slot | `ProtectionBindsExactScopeAssociation`, `StaleWorkCannotInstallDuringProtection` |
+| `BrokenStaleWorkReplacement` | Let stale work replace the protected current slot | `ProtectionBindsExactScopeAssociation`, `StaleWorkCannotReplaceDuringProtection` |
 | `BrokenStaleEffect` | Execute pre-acceptance authority during protection | `StaleAuthorityCannotExecuteDuringProtection` |
 | `BrokenRefusalSupersedes` | Make a later refusal advance intent, focus, history, and action consumption | `LaterRefusalPreservesNavigationState` |
 | `BrokenOldInventory` | Publish old inventory after committed membership and failed preparation | `CompleteScopeResultIsConsumed`, `MembershipPreparationFailureIsCurrentFailure` |

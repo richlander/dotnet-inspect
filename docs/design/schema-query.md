@@ -16,8 +16,9 @@ generated-schema migration but is not a current owner.
 
 The production consumer is the CLI `-D`/`--discover` surface and the
 field/column projections that use the same schema. This design does not add a
-parallel browser query language; browser adoption requires its own product
-consumer and host contract.
+parallel browser query language. The immutable `DiscoveryDocument` contract is
+host-neutral and Browser/Wasm-compatible; Browser construction and presentation
+still require their own product-consumer adoption.
 
 ## Authority and exact claim
 
@@ -59,6 +60,55 @@ discoverable section.
 The schema is descriptive. It says that a section or item can be addressed by
 the document contract; it does not say that one request will render it, that
 its producer is authorized, or that data exists for the current subject.
+
+### Host-neutral Discovery Document
+
+`DocumentSchema` is construction input and rendering/query substrate.
+`DiscoveryDocument` is the completed, immutable product value handed to hosts.
+It contains:
+
+```text
+DiscoveryDocument
+  catalog identity
+  ordered resource definitions
+    category identity -> section-member identities
+    section identity -> item-member identities
+    item identity = owning section + item kind + item name
+    typed output capabilities
+  ordered catalog entries
+  resolved selection
+    addressed resources
+    projected row identities
+```
+
+Category and section identities combine their resource kind with the
+owner-issued stable name. Item identity additionally contains the owning
+section and item kind. That distinction is required because one section may
+legitimately expose the same name in more than one vocabulary, such as a
+rendered column and a filterable or sortable query key.
+
+Category membership references the one canonical section resource. A section
+that belongs to several categories is not copied. Section-item and
+category-section references must resolve inside the completed Document;
+construction rejects duplicate resource identities, duplicate members, and
+dangling references.
+
+`DiscoveryOutputMode` is the host-neutral semantic capability vocabulary:
+Markdown, plaintext, JSON, table, TSV, JSONL, tree, and Mermaid. Exact CLI
+spellings remain a CLI projection. A Browser host may present or omit a mode
+without renaming the semantic capability in the shared Document.
+
+The resolved selection distinguishes the addressed resources from the row
+identities projected by compact discovery. For example, addressing one
+category retains the category identity while its compact rows are the complete
+member-section identities. This lets `-D`, tree output, temporary detailed
+output, and [Resource Explanation](resource-explanation.md) consume one
+completed value without re-resolving membership.
+
+Presentation still selects the resource kinds defined by its existing shape.
+In particular, a section tree projects structural `field` and `column` items;
+query-only items such as filterable and sortable keys remain available to flat
+discovery and future explanation without entering that tree.
 
 Names use the product's stable section, field, and column vocabulary. Schema
 owners must not derive identity from a rendered heading after formatting or
@@ -196,6 +246,9 @@ The CLI presents schema query results through `DiscoverOutput`.
 | --- | --- |
 | `-D` | Ordered section rows |
 | `-D "Section"` | Ordered item rows for the resolved section |
+| `-D --details` | Top-level discovery rows with owner-issued detail columns |
+| `-D "Section" --details` | One exact section row with owner-issued details |
+| `-D @Category --details` | One exact category and its complete member expansion with owner-issued details |
 | `-D` at eligible detailed presentation | A section/item tree |
 | `-D --count` | The count of discovered rows, not the inspected subject document |
 | `-D` with row selection | The selected discovery rows in their stable order |
@@ -206,6 +259,32 @@ JSON, or plaintext request is not replaced by an automatic tree. `--no-header`
 applies to formats with headers, and `--out` routes the complete discovery
 artifact to its destination instead of also writing it to standard output.
 Only eligible implicit table presentation or Markdown may promote to a tree.
+
+Library detailed discovery is structural and target-free. `--details` implies
+schema discovery and does not acquire or inspect the named target. The first
+adoption reports typed `Name`, `Kind`, and `Formats` rows; `Formats` contains
+the exact CLI spellings accepted for the complete row selection. Bare `-D`
+retains its top-level catalog rows. An exact category result includes the
+category and each expanded member so the reader can move from broad intent to
+an exact compatible section. An exact section reports that section's details;
+omit `--details` to list its fields or columns.
+
+The first Library adoption accepts bare `-D` or one exact category or section.
+Globs, multiple selectors, section selection, effective discovery, and
+field/column or shape projection are rejected rather than silently changing the
+detail question. Table, TSV, JSONL, Markdown, plaintext, and JSON may render the
+discovery rows; tree and Mermaid remain capabilities being described, not
+renderers of this tabular discovery artifact. Other commands require focused
+adoptions before they expose detailed discovery.
+The capability and complete-selection rules are owned by
+[output-shapes.md](output-shapes.md#structural-format-capabilities).
+
+`--details` is a temporary Library-only bridge proven by #7834. It will not
+accumulate additional implicit columns. The
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will present
+Formats and later owner-issued properties from the same `DiscoveryDocument`,
+then remove `--details`.
 
 Section patterns and category doors are resolved against the complete
 owner-issued section vocabulary. Categories, costs, and visibility remain
@@ -253,6 +332,7 @@ not satisfy the owning section.
 | Concern | Owner and boundary |
 | --- | --- |
 | Structural schema types and generated projection | Markout; dotnet-inspect consumes the public owner-issued model. |
+| Completed discovery resource model | `DotnetInspector.Sections`; `DiscoveryDocument` is immutable, Markout-free Content shared by product hosts. |
 | Product schema composition | The command or section owner whose document merges views or adds dynamic structure. |
 | Section order | Markout's default order plus explicit presentation-owner overrides; schema composition retains owner-issued sequence but does not own final presentation order. |
 | Categories, verbosity, explicit-only policy, costs, applicability, and execution | [Progressive disclosure](progressive-disclosure.md), section-pipeline, and operation owners; schema query consumes their section identities and effective outcomes. |
@@ -263,7 +343,11 @@ not satisfy the owning section.
 
 The Markout dependency is existing shared product substrate. This reconciliation
 does not change Markout, introduce a host-specific renderer, add a broad
-rendering domain, or alter Browser/Wasm behavior.
+rendering domain, or alter Browser/Wasm behavior. The focused direct-reference
+gate in `DiscoveryDocumentTests` enforces the user-selected partial absence
+coverage: the compiled `DotnetInspector.Sections` assembly cannot directly
+reference Markout or `DotnetInspect.Cli`; existing Browser/Wasm build gates
+continue to own platform compatibility.
 
 ## Pathological cases
 
@@ -322,6 +406,9 @@ The current Release CLI suite owns the executable contract:
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
 | `InspectionResultTests.PackageInfo_OwnerVocabularyDrivesDiscoverySchema` | The complete package-info discovery vocabulary is derived from the same typed descriptor catalog that drives rendering, with stable order and no duplicate names. |
 | `CloneCandidatesSectionTests.StructuralSchemaUsesGeneratedCandidateColumns`, `FieldsAreRejectedAcrossOutputFormats`, and `SummaryFieldNamesAreRejectedWithoutAliases` | Clone-candidate discovery is generated from the row view, columns remain projectable, and field projection fails visibly without stale-name aliases. |
+| `DiscoveryDocumentTests` | The shared model preserves section identity across category membership, distinguishes same-named section items by item kind, rejects dangling joins, and has no direct CLI or Markout assembly reference. |
+| `DiscoveryDocumentFactoryTests.Catalog_ExposesCategoryAndSectionResourcesInStableOrder`, `CategorySelection_ProjectsDeclaredMembersAndSharedCapabilities`, `SharedSection_HasOneResourceAcrossCategoryMemberships`, `SameNamedItems_RetainOwningSectionIdentity`, and `QueryItems_RetainKindBesideSameNamedColumns` | Synthetic schemas prove stable resource construction and ordering, category capability intersection, canonical shared sections, and section-scoped item identity without depending on a live product inventory. |
+| `DiscoveryDocumentFactoryTests.LibraryDependencyCategory_ExposesEcosystemDependencies`, `CommandExecutionTests.LibraryCommand_DiscoverDetails_*`, `LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog`, `LibraryCommand_DiscoverSchema_GroupsOptInSections`, `LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically`, `LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns`, `LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems`, `LibraryInfo_ListsRecognizedEcosystemsInProductOrder`, and `LibraryEcosystemDependencies_PreserveOverlapAndPairEvidence` | Focused Library conformance plus production-route smoke preserve established discovery output and diagnostics, including ecosystem dependency discovery, category formats, and flat query-item vocabulary without leaking query-only items into trees. |
 
 New schema composition forms require a focused gate that proves their generated,
 merged, augmented, or dynamic vocabulary matches the product document. A

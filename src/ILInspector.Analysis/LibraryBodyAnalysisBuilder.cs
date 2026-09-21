@@ -589,12 +589,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             _declaredSourceResolver.MergeScopeExpansionDiagnostics(
                 accumulator.Build(results),
                 plan);
-        if (!includeMethodEvidence)
-            return analysis;
-        return _declaredSourceResolver
-            .PublishDeclaredSources(
-                analysis,
-                plan);
+        if (includeMethodEvidence)
+        {
+            analysis = _declaredSourceResolver
+                .PublishDeclaredSources(
+                    analysis,
+                    plan);
+        }
+        analysis = PublishResourceOccurrences(analysis, plan, results);
+        return PublishResourceLifecycle(analysis, plan, results);
     }
 
     internal bool HasUnsafeEvidence()

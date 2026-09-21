@@ -89,19 +89,38 @@ through the shared
 Blank package input stays idle. Spotlight owns open-text package discovery; the
 Browser query surface exposes no Gallery search, browse, package-type, or
 source-order gesture.
-The Browser catalog projects `PackageQuery.Terms`; it does not own an
-independent predicate table. Closed options become preset controls carrying the
-explicit product-issued `(key, operator, value)` triple plus label, summary,
-weight, tier, optional resolver selection group, optional preset replacement
-group, and optional display group. Free-input descriptors carry the same key,
-operator, value-kind, and example metadata.
+The Browser catalog projects `PackageQuery.RegisteredTerms`, the
+Package-specific projection of the effective Query Operation route; it does
+not own an independent predicate table. Closed options become preset controls
+carrying the explicit product-issued `(key, operator, value)` triple plus
+label, summary, weight, acquisition tier, execution class, optional resolver
+selection group, optional preset replacement group, and optional display
+group. Free-input descriptors carry the same route-issued key and operators
+plus product-owned value-kind and example metadata.
+
+Acquisition tier and execution class are independent product facts. The former
+authorizes source search metadata, nuspec, or package-content work and retains
+its candidate limits. The latter is the UI taxonomy:
+`search-metadata`, `nuspec`, `nuspec-expensive`, `package-content`, `metadata`,
+or `metadata-expensive`. The Browser preserves the class through its generated
+facade and TypeScript catalog instead of deriving it from acquisition tier.
+For example, `references` has package-content acquisition and metadata
+execution, while `depends-transitive` and its `dependency-depth` qualifier use
+nuspec acquisition with `nuspec-expensive` execution. Selecting either
+transitive control lowers the Browser's candidate bound to five, including
+when a package-content term is also active. The remaining expensive class
+reserves explicit disclosure for future call-graph or decompiler-driven queries
+rather than silently broadening a cheaper class.
 
 ### Active term delivery
 
 The Browser and CLI share the first production vocabulary:
-`dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
+`dependencies=none|cross-prefix`, `dependency-target=all|<tfm>`,
+`depends=<package-id>`,
+`depends starts-with <literal-package-id-prefix>`,
+`depends-ecosystem=<ecosystem-id>`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
-`skill=true`.
+`references=<simple-assembly-name>` and `skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`
 term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
 the Browser's Head stage into one complete Portable Query Intent.
@@ -125,12 +144,14 @@ render resumes.
 Cancel discards a draft, Remove discards the corresponding active editor with
 its term, and leaving Package Query discards all unapplied editor values.
 Package Query remains the authority for vocabulary, NuGet package-ID
-validation, duplicate collapse, compatibility, bounds, and failures; a planning
-rejection is a visible expected query failure and performs no acquisition. The
-shared planner admits at most 22 authored inspection terms before duplicate
-collapse, reserving the two required structural slots in the canonical
-24-term Portable Query payload; Browser transport limits remain outer wire
-shape rather than a parallel product policy.
+validation, canonical ecosystem-ID syntax, duplicate collapse, compatibility,
+bounds, and failures. The Browser package-query facade supplies the
+Ecosystems-owned immutable package-membership snapshot, so unknown and
+known-but-unbound ecosystems are visible planning failures before acquisition.
+The shared planner admits at most 22 authored inspection terms before
+duplicate collapse, reserving the two required structural slots in the
+canonical 24-term Portable Query payload; Browser transport limits remain
+outer wire shape rather than a parallel product policy.
 
 Applied terms are individually editable and removable. Apply or remove
 preserves package input, prerelease selection, and selected terms, and starts
@@ -242,7 +263,10 @@ and
   incompatible with broad `tool=true`. Their product-issued replacement group
   makes the broad and specific presets replace one another without making
   display grouping define compatibility. `skill=true` matches package entries
-  at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively. The rail
+  at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively.
+  `references=<simple-assembly-name>` is a free-input active term over
+  `AssemblyRef` simple names in every admitted managed `ref/` and `lib/` group;
+  result evidence names the matching frameworks and archive paths. The rail
   persistently discloses that package-content terms may download up to 20
   candidate archives.
 - **Active terms and palette**: free-input descriptors such as `depends` add
@@ -609,7 +633,8 @@ and browser-history and focus-return outcomes are proved by
    package-content progress advances before completion without manufacturing
    rows. Confirm semantic completion crosses the Browser boundary only once.
 9. Confirm `tool=true` remains nuspec-only. Select `tool-format=v1`,
-   `tool-format=v2`, or `skill=true`; confirm the request bound drops to 20
+   `tool-format=v2`, `references=<simple-assembly-name>`, or `skill=true`;
+   confirm the request bound drops to 20
    candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content term and confirm the default returns to 200.

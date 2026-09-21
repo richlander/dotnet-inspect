@@ -37,6 +37,25 @@ public sealed record PerformanceTriageOptions
     public static IReadOnlyList<string> SortableFields =>
         PerformanceTriageRowQuery.SortableFields;
 
+    internal static IEnumerable<(string Name, string Kind)> DiscoveryItems()
+    {
+        yield return ("Triage desc", "default-order");
+        foreach (string step in new[]
+                 {
+                     "Priority desc (high > medium > low)",
+                     "Confidence desc (high > medium > low)",
+                     "Weight desc (high > medium > low > none)",
+                     "RootReach desc",
+                 })
+        {
+            yield return (step, "order-step");
+        }
+        foreach (string field in FilterableFields)
+            yield return (field, "filterable");
+        foreach (string field in SortableFields)
+            yield return (field, "sortable");
+    }
+
     public static readonly string[] KnownShapes =
     [
         "allocation-hotspot",
@@ -56,6 +75,7 @@ public sealed record PerformanceTriageOptions
         "span-to-array-copy",
         "stackalloc-candidate",
         "string-build-in-loop",
+        "string-materialization",
         "sync-call-in-async",
         "temporary-byte-array-copy",
     ];
@@ -354,7 +374,7 @@ public sealed record PerformanceTriageOptions
         out RowQueryOperator @operator)
     {
         ArgumentNullException.ThrowIfNull(field);
-        @operator = syntax switch
+        RowQueryOperator? resolved = syntax switch
         {
             RowPredicateOperator.Equals => RowQueryOperator.Equals,
             RowPredicateOperator.NotEquals => RowQueryOperator.NotEquals,
@@ -362,9 +382,11 @@ public sealed record PerformanceTriageOptions
                 RowQueryOperator.GreaterOrEqual,
             RowPredicateOperator.LessOrEqual =>
                 RowQueryOperator.LessOrEqual,
-            _ => throw new InvalidOperationException(
-                $"Unknown row predicate operator '{syntax}'."),
+            _ => null,
         };
+        @operator = resolved.GetValueOrDefault();
+        if (resolved is null)
+            return false;
         return field.Operators.Contains(@operator);
     }
 

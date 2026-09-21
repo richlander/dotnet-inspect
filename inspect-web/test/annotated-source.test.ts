@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  annotatedFocusSelector,
   bindAnnotatedSource,
   renderAnnotatedSource,
   renderAnnotatedSourceModal,
@@ -107,6 +108,15 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       medium: "Il",
     }),
     new FakeElement({ annotatedAction: "inspector-open", factId: "4" }),
+    new FakeElement({ annotatedAction: "relationship-open", factId: "5" }),
+    new FakeElement({
+      annotatedAction: "relationship-occurrences-open",
+      factId: "5",
+    }),
+    new FakeElement({
+      annotatedAction: "relationship-presentation",
+      relationshipPresentation: "Diagram",
+    }),
     new FakeElement({ annotatedAction: "annotation-set", annotatedSet: "All" }),
     new FakeElement({ annotatedAction: "finding-toggle", factId: "4" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "CSharp" }),
@@ -116,6 +126,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       annotatedAction: "destination-open",
       destinationIndex: "2",
       destination: "source",
+    }),
+    new FakeElement({
+      annotatedAction: "relationship-destination-open",
+      relationshipIndex: "3",
+      destination: "member",
     }),
     new FakeElement({
       annotatedAction: "finding-evidence-open",
@@ -146,6 +161,9 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       },
     },
     { kind: "inspector-open", factId: 4 },
+    { kind: "relationship-open", factId: 5 },
+    { kind: "relationship-occurrences-open", factId: 5 },
+    { kind: "relationship-presentation", value: "Diagram" },
     { kind: "annotation-set", value: "All" },
     { kind: "finding-toggle", factId: 4 },
     { kind: "medium-toggle", medium: "CSharp" },
@@ -155,6 +173,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       kind: "destination-open",
       destinationIndex: 2,
       destination: "source",
+    },
+    {
+      kind: "relationship-destination-open",
+      relationshipIndex: 3,
+      destination: "member",
     },
     {
       kind: "finding-evidence-open",
@@ -168,6 +191,12 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
   const elements = [
     new FakeElement({ annotatedAction: "annotation-open", factId: "x" }),
     new FakeElement({ annotatedAction: "inspector-open" }),
+    new FakeElement({ annotatedAction: "relationship-open" }),
+    new FakeElement({ annotatedAction: "relationship-occurrences-open" }),
+    new FakeElement({
+      annotatedAction: "relationship-presentation",
+      relationshipPresentation: "Graph",
+    }),
     new FakeElement({ annotatedAction: "annotation-set", annotatedSet: "Maybe" }),
     new FakeElement({ annotatedAction: "finding-toggle", factId: "-1" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "Other" }),
@@ -175,6 +204,11 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
     new FakeElement({
       annotatedAction: "destination-open",
       destinationIndex: "x",
+      destination: "other",
+    }),
+    new FakeElement({
+      annotatedAction: "relationship-destination-open",
+      relationshipIndex: "x",
       destination: "other",
     }),
     new FakeElement({
@@ -380,6 +414,89 @@ function callCycleRelationshipResult(
       provenance: inertStringFixture("test"),
       contextLimitation: null,
     },
+  };
+}
+
+function repeatedRelationshipResult(): AnnotatedSourceResult {
+  const firstFactId = sampleDocument.facts.length;
+  const secondFactId = firstFactId + 1;
+  return {
+    ...result,
+    document: {
+      ...sampleDocument,
+      facts: [
+        ...sampleDocument.facts,
+        {
+          id: firstFactId,
+          descriptor: "call.edge",
+          category: "Relationship",
+          conditionality: "Always",
+          detail: "Example.Targets.Target(System.Int32)",
+          origin: "Body",
+          source_offset: 0,
+        },
+        {
+          id: secondFactId,
+          descriptor: "call.edge",
+          category: "Relationship",
+          conditionality: "Always",
+          detail: "Example.Targets.Target(System.Int32)",
+          origin: "Body",
+          source_offset: 1,
+        },
+      ],
+      targets: [
+        ...sampleDocument.targets,
+        { fact_id: firstFactId, node_id: 2 },
+        { fact_id: secondFactId, node_id: 3 },
+      ],
+    },
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    callRelationships: [
+      {
+        edgeRow: 7,
+        factId: firstFactId,
+        moduleVersionId: "11111111-1111-1111-1111-111111111111",
+        callerToken: 0x06000001,
+        ilOffset: 0,
+        operandToken: 0x0A000001,
+        kind: "Call",
+        inLoop: false,
+        target: sampleInvocationTarget,
+      },
+      {
+        edgeRow: 7,
+        factId: secondFactId,
+        moduleVersionId: "11111111-1111-1111-1111-111111111111",
+        callerToken: 0x06000001,
+        ilOffset: 1,
+        operandToken: 0x0A000001,
+        kind: "CallVirtual",
+        inLoop: true,
+        target: sampleInvocationTarget,
+      },
+    ],
+  };
+}
+
+function versionDistinctRelationshipResult(): AnnotatedSourceResult {
+  const source = repeatedRelationshipResult();
+  return {
+    ...source,
+    callRelationships: source.callRelationships.map((relationship, index) => ({
+      ...relationship,
+      target: {
+        ...relationship.target,
+        assemblyVersion: index === 0 ? "1.0.0.0" : "2.0.0.0",
+        surfaceAssemblyId: index === 0 ? "surface-v1" : "surface-v2",
+      },
+    })),
   };
 }
 
@@ -729,6 +846,185 @@ test("a selected invocation exposes separate Member and Source destinations", ()
   assert.doesNotMatch(selected, />Navigate</);
 });
 
+test("the Relationships table preserves repeated physical calls and typed actions", () => {
+  const source = repeatedRelationshipResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const session = openModalSession(model, createEmbeddedSession(model)).modal;
+  const hiddenCoordinates = renderAnnotatedSourceModal({
+    result: source,
+    session,
+    escapeHtml,
+  });
+  const visibleCoordinates = renderAnnotatedSourceModal({
+    result: source,
+    session: toggleCoordinates(session).state,
+    escapeHtml,
+  });
+
+  assert.match(hiddenCoordinates, /<p class="section-eyebrow">Relationships<\/p>/);
+  assert.equal(
+    [...hiddenCoordinates.matchAll(/data-relationship-fact-id="([34])"/g)]
+      .map(match => match[1]).join(","),
+    "3,4",
+  );
+  assert.equal(
+    (hiddenCoordinates.match(
+      /<small>edge 7(?: · in loop)?<\/small>/g,
+    ) ?? []).length,
+    2,
+  );
+  assert.match(hiddenCoordinates, />Call<\/strong>/);
+  assert.match(hiddenCoordinates, />Virtual call<\/strong>/);
+  assert.match(hiddenCoordinates, /edge 7 · in loop/);
+  assert.doesNotMatch(hiddenCoordinates, /IL_000[01]<\/small>/);
+  assert.match(
+    hiddenCoordinates,
+    /Example\.Targets\.Target\(System\.Int32\)/,
+  );
+  assert.match(
+    hiddenCoordinates,
+    /data-annotated-action="relationship-destination-open"[\s\S]*data-relationship-index="0"[\s\S]*data-destination="member"/,
+  );
+  assert.match(
+    hiddenCoordinates,
+    /data-annotated-action="relationship-destination-open"[\s\S]*data-relationship-index="1"[\s\S]*data-destination="source"/,
+  );
+  assert.match(
+    hiddenCoordinates,
+    /id="annotated-relationship-3"[\s\S]*data-annotated-action="relationship-open"\s+data-fact-id="3"/,
+  );
+  assert.equal(
+    annotatedFocusSelector({ kind: "relationship", factId: 3 }),
+    "#annotated-relationship-3",
+  );
+  assert.doesNotMatch(
+    hiddenCoordinates,
+    /aria-label="Inspect [^"]*IL_000[01]/,
+  );
+  assert.match(visibleCoordinates, /edge 7 · IL_0000/);
+  assert.match(visibleCoordinates, /edge 7 · in loop · IL_0001/);
+});
+
+test("the Relationships diagram is opt-in and preserves a path to physical calls", () => {
+  const source = repeatedRelationshipResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const tableSession =
+    openModalSession(model, createEmbeddedSession(model)).modal;
+  const diagramSession = {
+    ...tableSession,
+    relationshipPresentation: "Diagram" as const,
+  };
+  const table = renderAnnotatedSourceModal({
+    result: source,
+    session: tableSession,
+    escapeHtml,
+  });
+  const diagram = renderAnnotatedSourceModal({
+    result: source,
+    session: diagramSession,
+    escapeHtml,
+  });
+
+  assert.match(
+    table,
+    /id="annotated-relationships-table"[\s\S]*aria-pressed="true"/,
+  );
+  assert.match(table, /annotated-relationship-table/);
+  assert.doesNotMatch(table, /id="annotated-relationship-diagram"/);
+  assert.match(
+    diagram,
+    /id="annotated-relationships-diagram"[\s\S]*aria-pressed="true"/,
+  );
+  assert.match(diagram, /id="annotated-relationship-diagram"/);
+  assert.doesNotMatch(diagram, /annotated-relationship-table-wrap/);
+  assert.equal(
+    (diagram.match(/class="annotated-relationship-diagram-target"/g) ?? [])
+      .length,
+    1,
+  );
+  assert.match(diagram, />\s*2 call sites\s*<\/button>/);
+  assert.match(
+    diagram,
+    /data-annotated-action="relationship-occurrences-open"\s+data-fact-id="3"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="0"\s+data-destination="member"/,
+  );
+  assert.equal(
+    annotatedFocusSelector({
+      kind: "relationship-presentation",
+      value: "Diagram",
+    }),
+    "#annotated-relationships-diagram",
+  );
+});
+
+test("the Relationships diagram preserves version-distinct typed destinations", () => {
+  const source = versionDistinctRelationshipResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const diagram = renderAnnotatedSourceModal({
+    result: source,
+    session: {
+      ...openModalSession(model, createEmbeddedSession(model)).modal,
+      relationshipPresentation: "Diagram",
+    },
+    escapeHtml,
+  });
+
+  assert.equal(
+    (diagram.match(
+      /class="annotated-relationship-diagram-destination"/g,
+    ) ?? []).length,
+    2,
+  );
+  assert.match(diagram, /Example 1\.0\.0\.0 · surface surface-v1/);
+  assert.match(diagram, /Example 2\.0\.0\.0 · surface surface-v2/);
+  assert.match(
+    diagram,
+    /data-relationship-index="0"\s+data-destination="member"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="1"\s+data-destination="member"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="0"\s+data-destination="source"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="1"\s+data-destination="source"/,
+  );
+});
+
+test("the Relationships table distinguishes available-empty from unavailable", () => {
+  const available = modalHtml({
+    ...result,
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+  });
+  const unavailable = modalHtml();
+
+  assert.match(
+    available,
+    /No direct call relationships were projected for this exact body\./,
+  );
+  assert.doesNotMatch(available, /annotated-relationship-table"/);
+  assert.doesNotMatch(available, /annotated-relationship-presentations/);
+  assert.match(
+    unavailable,
+    /Not projected by the current product query/,
+  );
+  assert.doesNotMatch(unavailable, /annotated-relationship-table"/);
+  assert.doesNotMatch(unavailable, /annotated-relationship-presentations/);
+});
+
 test("C# highlighting crosses product segments without changing source text", () => {
   const source = 'return Widget.Create("x");';
   const highlighter = createCSharpRangeHighlighter(
@@ -923,13 +1219,15 @@ test("modal controls are exactly catalog-supported media and annotatable Finding
   assert.match(html, /id="annotated-source-modal-segment-\d+"/);
 });
 
-test("Selection and Findings are peer inspector sections with a tiled empty state", () => {
+test("Selection, Relationships, and Findings are peer inspector sections", () => {
   const html = modalHtml();
   const selection = html.indexOf('class="section-eyebrow">Selection');
+  const relationships = html.indexOf('class="section-eyebrow">Relationships');
   const findings = html.indexOf('class="section-eyebrow">Findings');
 
   assert.ok(selection >= 0);
-  assert.ok(findings > selection);
+  assert.ok(relationships > selection);
+  assert.ok(findings > relationships);
   assert.match(
     html,
     /class="annotated-selection-empty">\s*<strong>Nothing selected<\/strong>\s*<span>Select addressable source or inspect a Finding\.<\/span>/,
@@ -1189,6 +1487,370 @@ test("Finding detail renders typed synchronous completion without a runtime clai
   assert.doesNotMatch(html, /blocks the current thread awaiting/);
 });
 
+test("Finding detail renders a bounded local throw path without propagation claims", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const loadFunctionFactId = source.document.facts.length;
+  const callFact = source.document.facts[factId];
+  const callRelationship = source.callRelationships[0];
+  assert.ok(callFact);
+  assert.ok(callRelationship);
+  const mixedSource: AnnotatedSourceResult = {
+    ...source,
+    document: {
+      ...source.document,
+      facts: [
+        ...source.document.facts,
+        {
+          ...callFact,
+          id: loadFunctionFactId,
+          detail: "Example.Targets.Forward(System.String)",
+        },
+      ],
+      targets: [
+        ...source.document.targets,
+        { fact_id: loadFunctionFactId, node_id: 1 },
+      ],
+    },
+    callRelationships: [
+      ...source.callRelationships,
+      {
+        ...callRelationship,
+        factId: loadFunctionFactId,
+        operandToken: 0x0A000002,
+        kind: "LoadFunction",
+      },
+    ],
+  };
+  const localThrowResult: AnnotatedSourceResult = {
+    ...mixedSource,
+    viewerCatalog: {
+      ...mixedSource.viewerCatalog,
+      localThrowPaths: {
+        available: true,
+        unavailableReason: null,
+        isComplete: true,
+        boundaries: [],
+        limits: {
+          maximumDepth: 3,
+          maximumNodes: 25,
+          maximumEdges: 100,
+          maximumPaths: 25,
+        },
+        receipt: {
+          destinationSearches: 1,
+          searchNodes: 3,
+          searchedEdges: 2,
+          observedReachablePairs: 1,
+          returnedPaths: 1,
+        },
+        paths: [{
+          factIds: [factId],
+          targets: [
+            {
+              ...sampleInvocationTarget,
+              memberName: "Forward",
+            },
+            {
+              ...sampleInvocationTarget,
+              selectorKey: "method:Throw",
+              memberName: "Throw",
+            },
+          ],
+          terminalThrows: [{
+            exceptionType: "System.ArgumentNullException",
+            definitionModuleVersionId:
+              "11111111-1111-1111-1111-111111111111",
+            definitionToken: 0x02000002,
+            constructionOffset: 2,
+            constructorToken: 0x0A000002,
+            throwOffset: 7,
+          }],
+        }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(localThrowResult);
+  const html = renderAnnotatedSourceModal({
+    result: localThrowResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /<h4>Local throw paths<\/h4>/);
+  assert.match(
+    html,
+    /Selected member → Example\.Targets\.Forward → Example\.Targets\.Throw/);
+  assert.match(
+    html,
+    /System\.ArgumentNullException constructed at IL_0002 and thrown at IL_0007/);
+  assert.match(html, /Static direct-call evidence only/);
+  assert.match(html, /does not prove the selected\s+method throws/);
+  assert.match(html, /or an exception\s+propagates through the path/);
+  assert.doesNotMatch(html, /exception propagates to the selected method/);
+});
+
+test("Finding detail keeps empty incomplete local throw evidence bounded", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const localThrowResult: AnnotatedSourceResult = {
+    ...source,
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      localThrowPaths: {
+        available: true,
+        unavailableReason: null,
+        isComplete: false,
+        boundaries: [{
+          kind: "TraversalBoundary",
+          value: 1,
+        }],
+        limits: {
+          maximumDepth: 3,
+          maximumNodes: 25,
+          maximumEdges: 100,
+          maximumPaths: 25,
+        },
+        receipt: {
+          destinationSearches: 1,
+          searchNodes: 3,
+          searchedEdges: 2,
+          observedReachablePairs: 0,
+          returnedPaths: 0,
+        },
+        paths: [],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(localThrowResult);
+  const html = renderAnnotatedSourceModal({
+    result: localThrowResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /No bounded path to a proven local throw was observed in the retained evidence/);
+  assert.match(html, /Additional paths may be unobserved/);
+  assert.match(html, /callee traversal boundary/);
+  assert.doesNotMatch(html, /cannot throw|does not throw/);
+});
+
+test("Finding detail does not turn one retained shortest path into per-edge absence", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const alternateFactId = source.document.facts.length;
+  const firstFact = source.document.facts[factId];
+  const firstRelationship = source.callRelationships[0];
+  assert.ok(firstFact);
+  assert.ok(firstRelationship);
+  const localThrowResult: AnnotatedSourceResult = {
+    ...source,
+    document: {
+      ...source.document,
+      facts: [
+        ...source.document.facts,
+        {
+          ...firstFact,
+          id: alternateFactId,
+          detail: "Example.Targets.ForwardB(System.String)",
+          source_offset: 1,
+        },
+      ],
+      targets: [
+        ...source.document.targets,
+        { fact_id: alternateFactId, node_id: 1 },
+      ],
+    },
+    callRelationships: [
+      ...source.callRelationships,
+      {
+        ...firstRelationship,
+        edgeRow: 2,
+        factId: alternateFactId,
+        ilOffset: 1,
+        operandToken: 0x0A000002,
+        target: {
+          ...firstRelationship.target,
+          memberName: "ForwardB",
+        },
+      },
+    ],
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      localThrowPaths: {
+        available: true,
+        unavailableReason: null,
+        isComplete: true,
+        boundaries: [],
+        limits: {
+          maximumDepth: 3,
+          maximumNodes: 25,
+          maximumEdges: 100,
+          maximumPaths: 25,
+        },
+        receipt: {
+          destinationSearches: 1,
+          searchNodes: 3,
+          searchedEdges: 4,
+          observedReachablePairs: 1,
+          returnedPaths: 1,
+        },
+        paths: [{
+          factIds: [factId],
+          targets: [
+            {
+              ...sampleInvocationTarget,
+              memberName: "ForwardA",
+            },
+            {
+              ...sampleInvocationTarget,
+              selectorKey: "method:Throw",
+              memberName: "Throw",
+            },
+          ],
+          terminalThrows: [{
+            exceptionType: "Example.LocalThrowPathException",
+            definitionModuleVersionId:
+              "11111111-1111-1111-1111-111111111111",
+            definitionToken: 0x02000002,
+            constructionOffset: 2,
+            constructorToken: 0x0A000003,
+            throwOffset: 7,
+          }],
+        }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(localThrowResult);
+  const html = renderAnnotatedSourceModal({
+    result: localThrowResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId: alternateFactId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /No retained deterministic shortest witness begins with this relationship/);
+  assert.doesNotMatch(
+    html,
+    /No bounded path to a proven local throw was observed/);
+  assert.match(html, /Bounded path search complete/);
+});
+
+test("Finding detail renders allocation exception paths without a runtime claim", () => {
+  const cases = [
+    [
+      "ThrownValue",
+      "Thrown value",
+      "constructs the value used by a throw",
+    ],
+    [
+      "ExceptionHandler",
+      "Exception handler",
+      "occurs in a catch, filter, or fault handler",
+    ],
+  ] as const;
+  for (const [kind, label, statement] of cases) {
+    const exceptionPathResult: AnnotatedSourceResult = {
+      ...result,
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 0,
+            kind,
+          }],
+        },
+      },
+    };
+    const model = createAnnotatedSourceViewerModel(exceptionPathResult);
+    const html = renderAnnotatedSourceModal({
+      result: exceptionPathResult,
+      session: selectFinding(
+        createEmbeddedSession(model),
+        { kind: "inspector", factId: 0 },
+      ),
+      escapeHtml,
+    });
+
+    assert.match(html, /<h4>Exception path<\/h4>/);
+    assert.ok(html.includes(label));
+    assert.ok(html.includes(statement));
+    assert.match(html, /no runtime exception, handler execution, or frequency was measured/);
+    assert.doesNotMatch(html, /exception occurred/);
+  }
+});
+
+test("selected await presents both compiled paths without a runtime path claim", () => {
+  const awaitDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "AwaitExpression" }
+        : node),
+  };
+  const awaitResult: AnnotatedSourceResult = {
+    ...result,
+    document: awaitDocument,
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      awaitCompletionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{ nodeId: 1 }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(awaitResult);
+  const html = renderAnnotatedSourceModal({
+    result: awaitResult,
+    session: selectNode(
+      openModalSession(
+        model,
+        createEmbeddedSession(model),
+      ).modal,
+      1),
+    escapeHtml,
+  });
+
+  assert.match(html, /Compiled await paths/);
+  assert.match(html, /Inline completion/);
+  assert.match(html, /Suspension and resume/);
+  assert.match(html, /completed edge reaches the matching GetResult continuation/);
+  assert.match(html, /correlated resume reaches the same continuation/);
+  assert.match(html, /Compiled structure only/);
+  assert.match(html, /no runtime path, frequency, duration, scheduler, or thread was measured/);
+  assert.doesNotMatch(html, /fast path|slow path|path ran|completed successfully/);
+});
+
 test("Finding detail presents method-level callee evidence without an invented line", () => {
   const source = methodCostEvidenceResult();
   const model = createAnnotatedSourceViewerModel(source);
@@ -1261,6 +1923,25 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         available: false,
         unavailableReason: "NotProjected",
         observations: [],
+      },
+      awaitCompletionPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
+      },
+      allocationExceptionPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
+      },
+      localThrowPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        isComplete: false,
+        boundaries: [],
+        limits: null,
+        receipt: null,
+        paths: [],
       },
     },
     findingEvidenceDocuments: [],
@@ -1393,6 +2074,18 @@ test("Annotated Source composition requires a concrete overload and validated se
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
+
+  const diagramRenderer =
+    /async function renderAnnotatedRelationshipDiagram\(\) \{([\s\S]*?)\n\}/
+      .exec(appSource)?.[1] ?? "";
+  assert.match(
+    diagramRenderer,
+    /createAnnotatedSourceViewerModel\(result\)[\s\S]*buildAnnotatedRelationshipGraphMermaid\(\s*model\.callRelationships\)/,
+  );
+  assert.doesNotMatch(
+    diagramRenderer,
+    /createCallGraphInspectionCoordinator|loadSelectedMemberCallGraph|callGraphInspection\./,
+  );
 });
 
 test("Annotated Source destination actions use typed graph routes and exact sections", () => {
@@ -1404,6 +2097,10 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   assert.match(
     appSource,
     /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+  );
+  assert.match(
+    appSource,
+    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,

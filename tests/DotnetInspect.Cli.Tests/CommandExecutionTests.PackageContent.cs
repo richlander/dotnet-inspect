@@ -139,6 +139,584 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Layout_SemanticTailSelectsTheSameFilesAcrossOutputs()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string[] args =
+            [
+                "package",
+                packagePath,
+                "--layout",
+                "-n",
+                "2",
+                "--tail",
+                "--tips",
+                "q",
+            ];
+
+            var tree = await RunAppAsync(args);
+            var json = await RunAppAsync([.. args, "--json"]);
+            var jsonl = await RunAppAsync([.. args, "--jsonl"]);
+            var count = await RunAppAsync([.. args, "--count"]);
+
+            foreach (var result in new[] { tree, json, jsonl, count })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+            }
+
+            string[] expected =
+            [
+                "lib/net10.0/Latest.Two.dll",
+                "lib/net8.0/Older.dll",
+            ];
+
+            using (JsonDocument document = JsonDocument.Parse(json.Output))
+            {
+                Assert.Equal(
+                    expected,
+                    document.RootElement
+                        .EnumerateArray()
+                        .Select(row => row.GetProperty("path").GetString()!)
+                        .ToArray());
+            }
+
+            Assert.Equal(
+                expected,
+                jsonl.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(
+                        line =>
+                        {
+                            using JsonDocument document =
+                                JsonDocument.Parse(line);
+                            return document.RootElement
+                                .GetProperty("path")
+                                .GetString()!;
+                        })
+                    .ToArray());
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Contains("Latest.Two.dll", tree.Output, StringComparison.Ordinal);
+            Assert.Contains("Older.dll", tree.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Latest.One.dll", tree.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Latest.One.xml", tree.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_WindowSelectsSortedFileIdentities()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--rows",
+                "2..3",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(
+                [
+                    "lib/net10.0/Latest.One.xml",
+                    "lib/net10.0/Latest.Two.dll",
+                ],
+                document.RootElement
+                    .EnumerateArray()
+                    .Select(row => row.GetProperty("path").GetString()!)
+                    .ToArray());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_TfmScopePreservesLibThenToolsBehavior()
+    {
+        var (libPackage, libTempDir) = CreateLocalLibPackage();
+        var (toolsPackage, toolsTempDir) = CreateLocalReadmePackage(
+            "Test.Layout.Tools",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("tools/net9.0/Tool.dll", "tool"),
+            ]);
+        try
+        {
+            var lib = await RunAppAsync(
+                "package",
+                libPackage,
+                "--layout",
+                "--tfm",
+                "net10.0",
+                "--json",
+                "--tips",
+                "q");
+            var tools = await RunAppAsync(
+                "package",
+                toolsPackage,
+                "--layout",
+                "--tfm",
+                "net9.0",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, lib.Exit);
+            Assert.Empty(lib.Error);
+            using (JsonDocument document = JsonDocument.Parse(lib.Output))
+            {
+                Assert.Equal(
+                    [
+                        "net10.0/Latest.One.dll",
+                        "net10.0/Latest.One.xml",
+                        "net10.0/Latest.Two.dll",
+                    ],
+                    document.RootElement
+                        .EnumerateArray()
+                        .Select(row => row.GetProperty("path").GetString()!)
+                        .ToArray());
+            }
+
+            Assert.Equal(0, tools.Exit);
+            Assert.Empty(tools.Error);
+            using (JsonDocument document = JsonDocument.Parse(tools.Output))
+            {
+                JsonElement row = Assert.Single(
+                    document.RootElement.EnumerateArray());
+                Assert.Equal(
+                    "net9.0/Tool.dll",
+                    row.GetProperty("path").GetString());
+            }
+        }
+        finally
+        {
+            Directory.Delete(libTempDir, recursive: true);
+            Directory.Delete(toolsTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_LinesClipsTheRenderedTree()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--lines",
+                "-n",
+                "2",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                2,
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_UnavailableWindowWithholdsOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--rows",
+                "4..5",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Package layout file row selection stage 1 requires row 5, "
+                    + "but only 4 layout file rows are available.",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_RejectsInvalidSelectionBeforePackageResolution()
+    {
+        var legacyCount = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            "--rows",
+            "1",
+            "--json");
+        var jsonLines = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            "--lines",
+            "-n",
+            "1",
+            "--json");
+        var unsupportedRow = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            "--row",
+            "1",
+            "--rows",
+            "1");
+
+        Assert.Equal(1, legacyCount.Exit);
+        Assert.Empty(legacyCount.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, jsonLines.Exit);
+        Assert.Empty(jsonLines.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, unsupportedRow.Exit);
+        Assert.Empty(unsupportedRow.Output);
+        Assert.Contains(
+            "--row requires --print, --value, --urls, --paths, or --roots.",
+            unsupportedRow.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            unsupportedRow.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            unsupportedRow.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "--json-array",
+        null,
+        "--json-array requires --value, --urls, --paths, --roots, or --print.")]
+    [InlineData(
+        "--frontmatter",
+        null,
+        "--frontmatter/--yaml-header and --body require --print or --content.")]
+    [InlineData(
+        "--match",
+        "bogus",
+        "--match must be 'all' or 'first', not 'bogus'.")]
+    public async Task Layout_CompetingIntentRetainsOwnedDiagnosticBeforePackageResolution(
+        string option,
+        string? value,
+        string expectedError)
+    {
+        List<string> args =
+        [
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            option,
+        ];
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["--rows", "1"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    public async Task Layout_EnvironmentTabularFormatRetainsRenderedLineFallback(
+        string format)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+
+            var fallback = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "-n",
+                "1",
+                "--tips",
+                "q");
+            var legacyRows = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, fallback.Exit);
+            Assert.Empty(fallback.Error);
+            Assert.Single(
+                fallback.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(1, legacyRows.Exit);
+            Assert.Empty(legacyRows.Output);
+            Assert.Contains(
+                "Package 'package.that.must.not.resolve'",
+                legacyRows.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                legacyRows.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--bare")]
+    public async Task Layout_ExplicitNonTabularFormatOverridesEnvironmentTable(
+        string formatOption)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "table");
+
+            var (exit, output, error) = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                formatOption,
+                "--rows",
+                "1");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Package.That.Must.Not.Resolve",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_FalseJsonDoesNotOverrideEnvironmentTable()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "table");
+
+            var fallback = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--json=false",
+                "-n",
+                "1",
+                "--tips",
+                "q");
+            var legacyRows = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                "--json=false",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, fallback.Exit);
+            Assert.Empty(fallback.Error);
+            Assert.Single(
+                fallback.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(1, legacyRows.Exit);
+            Assert.Empty(legacyRows.Output);
+            Assert.Contains(
+                "Package 'package.that.must.not.resolve'",
+                legacyRows.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                legacyRows.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table=false")]
+    [InlineData("--tsv=false")]
+    public async Task Layout_FalseTabularFormatRetainsSemanticRows(
+        string formatOption)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                null);
+
+            var (exit, output, error) = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                formatOption,
+                "--rows",
+                "1");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Package.That.Must.Not.Resolve",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Package_UnselectedModeRetainsRenderedLineFallback()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.LineFallback",
+            "README.md",
+            "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-n",
+                "1",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_DiscoverSchema_ListsPackageContentAuditColumns()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -157,31 +735,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_HonorsOutputPath()
+    public async Task Package_DependencyHierarchy_HonorsOutputPath()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         var outputPath = Path.Combine(tempDir, "dependencies.md");
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
-                "--tfm", "net9.0", "--out", outputPath, "--tips", "q");
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tree", "--tfm", "net9.0", "--source", tempDir,
+                "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
             Assert.Empty(error);
             var written = File.ReadAllText(outputPath);
-            Assert.Contains("Test.Dependency.One", written);
-            Assert.Contains("Test.Dependency.Two", written);
+            Assert.Contains("test.dependency.one", written);
+            Assert.Contains("test.dependency.two", written);
 
             var empty = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
+                "package", packagePath, "-S", "Dependency Hierarchy", "--tree",
                 "--tfm", "net10.0", "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, empty.Exit);
             Assert.Empty(empty.Output);
             Assert.Empty(empty.Error);
-            Assert.Contains("No additional dependencies for net10.0", File.ReadAllText(outputPath));
+            Assert.Contains("test.dependencygroups 1.0.0", File.ReadAllText(outputPath));
 
             var (noDependenciesPath, noDependenciesTempDir) =
                 CreateLocalReadmePackage(
@@ -191,14 +770,14 @@ public partial class CommandExecutionTests
             try
             {
                 var noDependencies = await RunAppAsync(
-                    "package", noDependenciesPath, "-S", "Dependencies", "--tree",
+                    "package", noDependenciesPath, "-S", "Dependency Hierarchy", "--tree",
                     "--out", outputPath, "--tips", "q",
                     "-n", "2", "--tail-lines");
 
                 Assert.Equal(0, noDependencies.Exit);
                 Assert.Empty(noDependencies.Output);
                 Assert.Empty(noDependencies.Error);
-                Assert.Contains("No dependencies declared in package", File.ReadAllText(outputPath));
+                Assert.Contains("test.nodependencies 1.0.0", File.ReadAllText(outputPath));
                 Assert.Equal(
                     -1,
                     File.ReadAllBytes(outputPath).AsSpan().IndexOf(
@@ -561,6 +1140,299 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_FileRows_TargetFrameworkMatchesDirectorySegmentsAcrossRoots()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.TargetFramework",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("lib/net8.0/Foo.dll", "lib"),
+                ("ref/NET8.0/Foo.dll", "ref"),
+                ("runtimes/win/lib/net8.0/Foo.dll", "runtime"),
+                ("custom/net8.0/data.bin", "custom"),
+                ("build/net8.0/_._", ""),
+                ("lib/net8.0-windows/Foo.dll", "windows"),
+                ("docs/net8.0.txt", "filename"),
+                ("lib/net6.0/Foo.dll", "older"),
+            ]);
+        try
+        {
+            string[] selectedFiles =
+            [
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--tips", "q",
+            ];
+            var markdown = await RunAppAsync(selectedFiles);
+            var table = await RunAppAsync([.. selectedFiles, "--table"]);
+            var tsv = await RunAppAsync(
+                [.. selectedFiles, "--tsv", "--no-headers"]);
+            var json = await RunAppAsync([.. selectedFiles, "--json"]);
+            var count = await RunAppAsync([.. selectedFiles, "--count"]);
+            var paths = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--paths",
+                "--tips", "q");
+            var roots = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--roots",
+                "--tips", "q");
+            var intersection = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--paths",
+                "--tips", "q");
+            var rootIntersection = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--roots",
+                "--tips", "q");
+            var reversedSelectorPaths = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--path", "build/*",
+                "--paths",
+                "--tips", "q");
+            var reversedSelectorRoots = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--path", "build/*",
+                "--roots",
+                "--tips", "q");
+
+            foreach (var result in new[]
+            {
+                markdown,
+                table,
+                tsv,
+                json,
+                count,
+            })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+            }
+
+            foreach (string output in new[]
+            {
+                markdown.Output,
+                table.Output,
+                tsv.Output,
+            })
+            {
+                Assert.Contains(
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                    output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "lib/net8.0-windows/Foo.dll",
+                    output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "docs/net8.0.txt",
+                    output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "lib/net6.0/Foo.dll",
+                    output,
+                    StringComparison.Ordinal);
+            }
+            using var jsonDocument = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "custom/net8.0/data.bin",
+                    "lib/net8.0/Foo.dll",
+                    "ref/NET8.0/Foo.dll",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                jsonDocument.RootElement
+                    .GetProperty("files")
+                    .EnumerateArray()
+                    .Select(file => file.GetProperty("path").GetString()));
+            Assert.Equal("5", count.Output.Trim());
+
+            Assert.Equal(0, paths.Exit);
+            Assert.Empty(paths.Error);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "custom/net8.0/data.bin",
+                    "lib/net8.0/Foo.dll",
+                    "ref/NET8.0/Foo.dll",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                paths.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, roots.Exit);
+            Assert.Empty(roots.Error);
+            Assert.Equal(
+                ["build", "custom", "lib", "ref", "runtimes"],
+                roots.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, intersection.Exit);
+            Assert.Empty(intersection.Error);
+            Assert.Equal(
+                "runtimes/win/lib/net8.0/Foo.dll",
+                intersection.Output.Trim());
+
+            Assert.Equal(0, rootIntersection.Exit);
+            Assert.Empty(rootIntersection.Error);
+            Assert.Equal("runtimes", rootIntersection.Output.Trim());
+
+            Assert.Equal(0, reversedSelectorPaths.Exit);
+            Assert.Empty(reversedSelectorPaths.Error);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                reversedSelectorPaths.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, reversedSelectorRoots.Exit);
+            Assert.Empty(reversedSelectorRoots.Error);
+            Assert.Equal(
+                ["build", "runtimes"],
+                reversedSelectorRoots.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRoots_SupportStructuredOutputAndSemanticRows()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRoots.Output",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("lib/net8.0/Foo.dll", "lib"),
+                ("ref/net8.0/Foo.dll", "ref"),
+                ("runtimes/win/lib/net8.0/Foo.dll", "runtime"),
+            ]);
+        try
+        {
+            string[] arguments =
+            [
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--roots",
+                "--tips", "q",
+            ];
+            var json = await RunAppAsync([.. arguments, "--json"]);
+            var jsonl = await RunAppAsync([.. arguments, "--jsonl"]);
+            var jsonArray = await RunAppAsync([.. arguments, "--json-array"]);
+            var row = await RunAppAsync([.. arguments, "--row", "last"]);
+
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            using var document = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                ["lib", "ref", "runtimes"],
+                document.RootElement
+                    .EnumerateArray()
+                    .Select(item => item.GetProperty("path").GetString()));
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Empty(jsonl.Error);
+            Assert.Equal(
+                3,
+                jsonl.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+
+            Assert.Equal(0, jsonArray.Exit);
+            Assert.Empty(jsonArray.Error);
+            using var arrayDocument = JsonDocument.Parse(jsonArray.Output);
+            Assert.Equal(3, arrayDocument.RootElement.GetArrayLength());
+
+            Assert.Equal(0, row.Exit);
+            Assert.Empty(row.Error);
+            Assert.Equal("runtimes", row.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileTargetAndRootValidationPrecedesPackageResolution()
+    {
+        var invalidTarget = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "--tfm", "net8.0/hostile",
+            "-S", "Package files",
+            "--paths");
+        var whitespaceTarget = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "--tfm", " ",
+            "-S", "Package files",
+            "--paths");
+        var wrongSection = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Package Info",
+            "--roots");
+        var conflictingShapes = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Package files",
+            "--roots",
+            "--paths");
+
+        Assert.Equal(1, invalidTarget.Exit);
+        Assert.Empty(invalidTarget.Output);
+        Assert.Contains("Invalid --tfm value", invalidTarget.Error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", invalidTarget.Error);
+
+        Assert.Equal(1, whitespaceTarget.Exit);
+        Assert.Empty(whitespaceTarget.Output);
+        Assert.Contains("Invalid --tfm value", whitespaceTarget.Error);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            whitespaceTarget.Error);
+
+        Assert.Equal(1, wrongSection.Exit);
+        Assert.Empty(wrongSection.Output);
+        Assert.Contains(
+            "--roots requires the Package files section.",
+            wrongSection.Error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", wrongSection.Error);
+
+        Assert.Equal(1, conflictingShapes.Exit);
+        Assert.Empty(conflictingShapes.Output);
+        Assert.Contains(
+            "--roots cannot be combined with --paths",
+            conflictingShapes.Error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", conflictingShapes.Error);
     }
 
     [Fact]

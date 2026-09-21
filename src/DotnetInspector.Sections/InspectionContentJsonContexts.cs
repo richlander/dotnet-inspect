@@ -14,6 +14,12 @@ public partial class PackageQueryJsonContext : JsonSerializerContext;
 [JsonSourceGenerationOptions(
     Converters = [typeof(InertStringJsonConverter)],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(LibraryQueryDocument))]
+public partial class LibraryQueryJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PackageAssemblySemanticQueryDocument))]
 [JsonSerializable(
     typeof(PackageAssemblySemanticQueryCandidateOutcome.NoMatch),
@@ -34,4 +40,16 @@ public partial class PackageQueryJsonContext : JsonSerializerContext;
     typeof(PackageAssemblyEvaluationOutcome.Failure),
     TypeInfoPropertyName = "PackageAssemblyEvaluationFailure")]
 public partial class PackageAssemblySemanticQueryJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(ExactTypeInspectionResult))]
+public partial class ExactTypeInspectionJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(ExactLibraryApiInspectionResult))]
+public partial class ExactLibraryApiInspectionJsonContext
     : JsonSerializerContext;

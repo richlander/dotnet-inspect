@@ -3,6 +3,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspector.Libraries;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
@@ -63,6 +65,12 @@ public enum SourceHouseTargetKind
     Member,
 }
 
+public enum SourceHouseMemberSourceForm
+{
+    DeclarationText,
+    DocumentParts,
+}
+
 public abstract class SourceHouseTarget
 {
     private protected SourceHouseTarget(
@@ -101,7 +109,8 @@ public abstract class SourceHouseTarget
         public MemberTarget(
             MetadataTypeDefinitionName type,
             MemberAnchor member,
-            int metadataToken)
+            int metadataToken,
+            SourceHouseMemberSourceForm sourceForm = SourceHouseMemberSourceForm.DeclarationText)
             : base(SourceHouseTargetKind.Member, type)
         {
             ArgumentNullException.ThrowIfNull(member);
@@ -112,13 +121,17 @@ public abstract class SourceHouseTarget
                     nameof(metadataToken),
                     "Authored member source requires one exact MethodDef token.");
             }
+            if (!Enum.IsDefined(sourceForm))
+                throw new ArgumentOutOfRangeException(nameof(sourceForm));
 
             Member = member;
             MetadataToken = metadataToken;
+            SourceForm = sourceForm;
         }
 
         public MemberAnchor Member { get; }
         public int MetadataToken { get; }
+        public SourceHouseMemberSourceForm SourceForm { get; }
     }
 }
 
@@ -133,7 +146,9 @@ public sealed class SourceHouseLimits
         int maximumTargetMappings,
         int maximumCandidateAttempts,
         int maximumSourceBytes,
-        int maximumSourceTextCharacters)
+        int maximumSourceTextCharacters,
+        int maximumAttestationContributions = 16,
+        int maximumPhysicalDeclarationCharacters = 1_000_000)
     {
         ValidateArrayBound(maximumAssemblyBytes, nameof(maximumAssemblyBytes));
         ValidateArrayBound(
@@ -150,6 +165,10 @@ public sealed class SourceHouseLimits
         ValidateArrayBound(maximumSourceBytes, nameof(maximumSourceBytes));
         ArgumentOutOfRangeException.ThrowIfNegative(
             maximumSourceTextCharacters);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumAttestationContributions);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumPhysicalDeclarationCharacters);
 
         MaximumAssemblyBytes = maximumAssemblyBytes;
         MaximumPortablePdbBytes = maximumPortablePdbBytes;
@@ -168,6 +187,10 @@ public sealed class SourceHouseLimits
         MaximumCandidateAttempts = maximumCandidateAttempts;
         MaximumSourceBytes = maximumSourceBytes;
         MaximumSourceTextCharacters = maximumSourceTextCharacters;
+        MaximumAttestationContributions =
+            maximumAttestationContributions;
+        MaximumPhysicalDeclarationCharacters =
+            maximumPhysicalDeclarationCharacters;
     }
 
     public int MaximumAssemblyBytes { get; }
@@ -180,12 +203,62 @@ public sealed class SourceHouseLimits
     public int MaximumCandidateAttempts { get; }
     public int MaximumSourceBytes { get; }
     public int MaximumSourceTextCharacters { get; }
+    public int MaximumAttestationContributions { get; }
+    public int MaximumPhysicalDeclarationCharacters { get; }
 
     internal SourceLinkReadLimits EffectiveSourceLinkReadLimits { get; }
 
     private static void ValidateArrayBound(int value, string parameterName)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(value, parameterName);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            value,
+            Array.MaxLength,
+            parameterName);
+    }
+}
+
+public sealed class SourceHouseDecompilationLimits
+{
+    public SourceHouseDecompilationLimits(
+        int maximumAssemblyBytes,
+        int maximumPortablePdbBytes,
+        ApiSurfaceExtractionBounds targetBounds,
+        SourceLinkReadLimits embeddedPdbReadLimits)
+    {
+        ValidateArrayBound(
+            maximumAssemblyBytes,
+            nameof(maximumAssemblyBytes));
+        ValidateArrayBound(
+            maximumPortablePdbBytes,
+            nameof(maximumPortablePdbBytes));
+        ArgumentNullException.ThrowIfNull(targetBounds);
+        ArgumentNullException.ThrowIfNull(embeddedPdbReadLimits);
+
+        MaximumAssemblyBytes = maximumAssemblyBytes;
+        MaximumPortablePdbBytes = maximumPortablePdbBytes;
+        TargetBounds = targetBounds;
+        EmbeddedPdbReadLimits = new(
+            Math.Min(
+                maximumPortablePdbBytes,
+                embeddedPdbReadLimits.MaxEmbeddedPdbBytes),
+            embeddedPdbReadLimits.MaxMapBytes,
+            embeddedPdbReadLimits.MaxMappings,
+            embeddedPdbReadLimits.EmbeddedPdbBudget);
+    }
+
+    public int MaximumAssemblyBytes { get; }
+    public int MaximumPortablePdbBytes { get; }
+    public ApiSurfaceExtractionBounds TargetBounds { get; }
+    public SourceLinkReadLimits EmbeddedPdbReadLimits { get; }
+
+    private static void ValidateArrayBound(
+        int value,
+        string parameterName)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            value,
+            parameterName);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(
             value,
             Array.MaxLength,
@@ -208,8 +281,11 @@ public sealed record SourceHouseCapabilityObservation
     {
         Code = SourceHouseContractName.Validate(code);
         DetailWasTruncated =
-            detail is { Length: >
-                SourceHouseContractText.MaximumDiagnosticCharacters };
+            detail is
+            {
+                Length: >
+                SourceHouseContractText.MaximumDiagnosticCharacters
+            };
         Detail = detail is null
             ? null
             : SourceHouseContractText.CaptureDiagnostic(detail);
@@ -261,13 +337,16 @@ public abstract class SourceHouseCapabilityOutcome
     {
         public Available(
             ReadOnlySpan<byte> bytes,
+            SourceHousePhysicalSourceInputIdentity? physicalInput = null,
             SourceHouseCapabilityObservation? observation = null)
             : base(observation)
         {
             Bytes = ImmutableArray.CreateRange(bytes.ToArray());
+            PhysicalInput = physicalInput;
         }
 
         public ImmutableArray<byte> Bytes { get; }
+        public SourceHousePhysicalSourceInputIdentity? PhysicalInput { get; }
     }
 
     public sealed class Unavailable : SourceHouseCapabilityOutcome
@@ -416,6 +495,78 @@ public sealed class SourceHouseAuthoredRequest
     public LibraryContentReference SelectedAssembly { get; }
     public SourceHouseTarget Target { get; }
     public SourceHouseOperationPlan Plan { get; }
+}
+
+public sealed class SourceHouseDecompilationPlan
+{
+    public SourceHouseDecompilationPlan(
+        SourceHouseOperationPlanIdentity identity,
+        SourceHousePolicyGeneration policyGeneration,
+        SourceHouseDecompilationLimits limits,
+        IAssemblyBindingPolicy bindingPolicy,
+        PrinterOptions? printerOptions = null,
+        int maximumBodyProjections =
+            CSharpDecompilerService.DefaultMaxBodyProjections)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(policyGeneration);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maximumBodyProjections);
+
+        Identity = identity;
+        PolicyGeneration = policyGeneration;
+        Limits = limits;
+        BindingPolicy = bindingPolicy;
+        PrinterOptions = printerOptions;
+        MaximumBodyProjections = maximumBodyProjections;
+    }
+
+    public SourceHouseOperationPlanIdentity Identity { get; }
+    public SourceHousePolicyGeneration PolicyGeneration { get; }
+    public SourceHouseDecompilationLimits Limits { get; }
+    public IAssemblyBindingPolicy BindingPolicy { get; }
+    public PrinterOptions? PrinterOptions { get; }
+    public int MaximumBodyProjections { get; }
+}
+
+public sealed class SourceHouseDecompilationRequest
+{
+    public SourceHouseDecompilationRequest(
+        SourceHouseRequestIdentity identity,
+        LibraryReference library,
+        LibraryContentReference selectedAssembly,
+        SourceHouseTarget target,
+        SourceHouseDecompilationPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(selectedAssembly);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (target is SourceHouseTarget.TypeTarget
+            {
+                OriginalDocumentPath: not null,
+            })
+        {
+            throw new ArgumentException(
+                "An authored document selection is not a decompilation target.",
+                nameof(target));
+        }
+
+        Identity = identity;
+        Library = library;
+        SelectedAssembly = selectedAssembly;
+        Target = target;
+        Plan = plan;
+    }
+
+    public SourceHouseRequestIdentity Identity { get; }
+    public LibraryReference Library { get; }
+    public LibraryContentReference SelectedAssembly { get; }
+    public SourceHouseTarget Target { get; }
+    public SourceHouseDecompilationPlan Plan { get; }
 }
 
 internal static class SourceHouseContractName

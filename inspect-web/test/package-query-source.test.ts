@@ -56,6 +56,7 @@ const DEPENDS_TERM: QueryTermDescriptor = {
   summary: "Matches a direct dependency in any group.",
   weight: 10,
   tier: "nuspec",
+  executionClass: "nuspec",
   operators: ["eq"],
   valueKind: "package-id",
   example: "Microsoft.Extensions.Hosting",
@@ -436,6 +437,7 @@ test("Browser source dispatches exact and prefix package input with unchanged K"
             value: "true",
             label: "Embedded README",
             tier: "nuspec",
+            executionClass: "nuspec",
           }),
           DEPENDS_TERM,
           "eq",
@@ -1060,6 +1062,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         summary: "Packages with no dependency groups.",
         weight: 20,
         tier: "Nuspec",
+        executionClass: "Nuspec",
         selectionGroupId: null,
         combinesWithinSelectionGroup: false,
         replacementGroupId: null,
@@ -1074,6 +1077,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         summary: "Packages that declare an embedded README.",
         weight: 10,
         tier: "Nuspec",
+        executionClass: "Nuspec",
         selectionGroupId: null,
         combinesWithinSelectionGroup: false,
         replacementGroupId: null,
@@ -1088,6 +1092,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
         summary: "RID-specific .NET tool format.",
         weight: 30,
         tier: "PackageContent",
+        executionClass: "PackageContent",
         selectionGroupId: "tool-format",
         combinesWithinSelectionGroup: true,
         replacementGroupId: "package.query.replacement.dotnet-tool",
@@ -1096,14 +1101,15 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       },
     ],
     terms: [{
-      key: "depends",
-      label: "Direct dependency",
-      summary: "Matches a direct dependency in any group.",
+      key: "references",
+      label: "Assembly reference",
+      summary: "Matches an AssemblyRef simple name.",
       weight: 10,
-      tier: "Nuspec",
+      tier: "PackageContent",
+      executionClass: "Metadata",
       operators: ["eq"],
-      valueKind: "package-id",
-      example: "Microsoft.Extensions.Hosting",
+      valueKind: "assembly simple name",
+      example: "Windows",
     }],
   };
 
@@ -1118,6 +1124,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       summary: "Packages with no dependency groups.",
       weight: 20,
       tier: "nuspec",
+      executionClass: "nuspec",
       selectionGroupId: null,
       combinesWithinSelectionGroup: false,
       replacementGroupId: null,
@@ -1133,6 +1140,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       summary: "Packages that declare an embedded README.",
       weight: 10,
       tier: "nuspec",
+      executionClass: "nuspec",
       selectionGroupId: null,
       combinesWithinSelectionGroup: false,
       replacementGroupId: null,
@@ -1148,6 +1156,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       summary: "RID-specific .NET tool format.",
       weight: 30,
       tier: "package-content",
+      executionClass: "package-content",
       selectionGroupId: "tool-format",
       combinesWithinSelectionGroup: true,
       replacementGroupId: "package.query.replacement.dotnet-tool",
@@ -1156,14 +1165,15 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
     },
   ]);
   assert.deepEqual(projected.terms, [{
-    key: "depends",
-    label: "Direct dependency",
-    summary: "Matches a direct dependency in any group.",
+    key: "references",
+    label: "Assembly reference",
+    summary: "Matches an AssemblyRef simple name.",
     weight: 10,
-    tier: "nuspec",
+    tier: "package-content",
+    executionClass: "metadata",
     operators: ["eq"],
-    valueKind: "package-id",
-    example: "Microsoft.Extensions.Hosting",
+    valueKind: "assembly simple name",
+    example: "Windows",
   }]);
 });
 
@@ -1212,6 +1222,7 @@ test("Browser data source maps package-content rows and visible failures", async
     value: "v2",
     label: "v2",
     tier: "package-content",
+    executionClass: "package-content",
   });
 
   await createBrowserPackageQueryDataSource(engine).run(
@@ -1252,9 +1263,9 @@ test("Browser data source streams matches and failures before terminal completio
     completion: null,
     assessment: null,
     progress: {
-      phase: "Manifest",
+      phase: "DependencyTraversal",
       completed: 1,
-      limit: 200,
+      limit: 5,
     },
   };
   const matchEvent: BrowserPackageQueryEvent = {
@@ -1290,8 +1301,8 @@ test("Browser data source streams matches and failures before terminal completio
       packageId: "Microsoft.Extensions.Bad",
       version: "1.0.0",
       producer: "nuget.org",
-      kind: "ManifestAcquisition",
-      message: "manifest unavailable",
+      kind: "DependencyTraversal",
+      message: "dependency traversal incomplete",
       manifestFailureReason: null,
     },
   };
@@ -1313,12 +1324,13 @@ test("Browser data source streams matches and failures before terminal completio
   const request = withPreset(
     createQueryRequest("Microsoft."),
     {
-      id: "readme:eq:true",
-      key: "readme",
+      id: "dependency-depth:eq:2",
+      key: "dependency-depth",
       operator: "eq",
-      value: "true",
-      label: "Embedded README",
+      value: "2",
+      label: "Depth 2",
       tier: "nuspec",
+      executionClass: "nuspec-expensive",
     });
 
   const completion = await createBrowserPackageQueryDataSource(engine).run(
@@ -1332,8 +1344,8 @@ test("Browser data source streams matches and failures before terminal completio
   assert.equal(typeof receivedArguments[0], "string");
   assert.deepEqual(receivedArguments.slice(1, 7), [
     "Microsoft.",
-    '[{"key":"readme","operator":"eq","value":"true"}]',
-    200,
+    '[{"key":"dependency-depth","operator":"eq","value":"2"}]',
+    5,
     100,
     false,
     20,
@@ -1342,8 +1354,8 @@ test("Browser data source streams matches and failures before terminal completio
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
     failures,
-    ["Microsoft.Extensions.Bad@1.0.0: manifest unavailable"]);
-  assert.deepEqual(progress, ["manifest:1/200"]);
+    ["Microsoft.Extensions.Bad@1.0.0: dependency traversal incomplete"]);
+  assert.deepEqual(progress, ["dependency-traversal:1/5"]);
   assert.deepEqual(completion, { kind: "exhausted" });
 });
 

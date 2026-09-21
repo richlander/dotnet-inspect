@@ -93,7 +93,7 @@ public class SharedOptions
         Description = "Performance Triage: include only shape(s), comma-separated or repeated; run -S \"Performance Triage\" to see shapes",
         AllowMultipleArgumentsPerToken = false
     };
-    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Performance Triage: show the top N ranked rows" };
+    public Option<int?> PerformanceTriageTop { get; } = new("--top") { Description = "Show the top N ranked rows for a supported query surface" };
     public Option<string[]> RowWhere { get; } = new("--where")
     {
         Description = "Filter selected section rows with a field predicate, e.g. --where \"Allocation=boxed *\" or --where \"RootReach>=10\"",
@@ -768,11 +768,11 @@ public class SharedOptions
     public bool IsFormatFlagExplicitlySet(ParseResult parseResult)
     {
         if (IsTableFlagExplicitlySet(parseResult)) return true;
-        if (parseResult.GetResult(Json) is { Implicit: false }) return true;
-        if (parseResult.GetResult(Markdown) is { Implicit: false }) return true;
-        if (parseResult.GetResult(PlainText) is { Implicit: false }) return true;
-        if (parseResult.GetResult(Mermaid) is { Implicit: false }) return true;
-        if (parseResult.GetResult(Bare) is { Implicit: false }) return true;
+        if (IsExplicitTrue(parseResult, Json)) return true;
+        if (IsExplicitTrue(parseResult, Markdown)) return true;
+        if (IsExplicitTrue(parseResult, PlainText)) return true;
+        if (IsExplicitTrue(parseResult, Mermaid)) return true;
+        if (IsExplicitTrue(parseResult, Bare)) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
         return false;
     }
@@ -783,7 +783,27 @@ public class SharedOptions
             && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl);
 
     public bool IsTableFlagExplicitlySet(ParseResult parseResult) =>
-        IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, Jsonl);
+        IsExplicitTrue(parseResult, Table)
+        || IsExplicitTrue(parseResult, Tsv)
+        || IsExplicitTrue(parseResult, Jsonl);
+
+    internal bool IsTableOrTsvOutput(CommandResult result)
+    {
+        if (IsExplicitTrue(result, Table)
+            || IsExplicitTrue(result, Tsv))
+        {
+            return true;
+        }
+
+        if (IsExplicitTrue(result, Jsonl)
+            || IsNonTabularFormatExplicitlySet(result))
+        {
+            return false;
+        }
+
+        return OutputFormatResolver.GetEnvironmentOverride()
+            is OutputFormat.Table or OutputFormat.Tsv;
+    }
 
     /// <summary>
     /// Parses select list from parse result.
@@ -889,16 +909,30 @@ public class SharedOptions
     private static bool IsExplicit(ParseResult parseResult, Option<bool> option) =>
         parseResult.GetResult(option) is { Implicit: false };
 
+    private static bool IsExplicit(CommandResult result, Option<bool> option) =>
+        result.GetResult(option) is { Implicit: false };
+
     private static bool IsExplicitTrue(ParseResult parseResult, Option<bool> option) =>
         IsExplicit(parseResult, option) && parseResult.GetValue(option);
 
+    private static bool IsExplicitTrue(CommandResult result, Option<bool> option) =>
+        IsExplicit(result, option) && result.GetValue(option);
+
     private bool IsNonTabularFormatExplicitlySet(ParseResult parseResult) =>
-        IsExplicit(parseResult, Json)
-        || IsExplicit(parseResult, Markdown)
-        || IsExplicit(parseResult, PlainText)
-        || IsExplicit(parseResult, Mermaid)
-        || IsExplicit(parseResult, Bare)
+        IsExplicitTrue(parseResult, Json)
+        || IsExplicitTrue(parseResult, Markdown)
+        || IsExplicitTrue(parseResult, PlainText)
+        || IsExplicitTrue(parseResult, Mermaid)
+        || IsExplicitTrue(parseResult, Bare)
         || parseResult.GetResult(Verbosity) is { Implicit: false };
+
+    private bool IsNonTabularFormatExplicitlySet(CommandResult result) =>
+        IsExplicitTrue(result, Json)
+        || IsExplicitTrue(result, Markdown)
+        || IsExplicitTrue(result, PlainText)
+        || IsExplicitTrue(result, Mermaid)
+        || IsExplicitTrue(result, Bare)
+        || result.GetResult(Verbosity) is { Implicit: false };
 
     private bool ShouldSuppressEnvironmentTabularFormat(
         ParseResult parseResult,
@@ -906,7 +940,7 @@ public class SharedOptions
         bool explicitNonTabularFormat) =>
         !tabularFlag
         && !explicitNonTabularFormat
-        && IsExplicit(parseResult, Bare)
+        && IsExplicitTrue(parseResult, Bare)
         && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
 
     private static readonly char[] ListSeparators = [',', ';'];

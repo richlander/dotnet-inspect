@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -56,6 +57,27 @@ public class LibraryInspection
 
     [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
+
+    [JsonIgnore]
+    internal AssemblyReferencesResult? AssemblyReferencesQueryResult { get; set; }
+
+    [JsonIgnore]
+    public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
+        EcosystemDependencyRecognitionInspection { get; set; }
+
+    /// <summary>
+    /// Presentation-selected ecosystem-dependency pairs. Null retains the
+    /// complete recognized population from the recognition Document.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+        EcosystemDependencyRows { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
+        EcosystemDependencyRecognitionJson.Create(
+            EcosystemDependencyRecognitionInspection,
+            EcosystemDependencyRows);
 
     [JsonIgnore]
     public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
@@ -325,6 +347,20 @@ public class LibraryInspection
             _assemblyReferenceInspection = value;
             ResetFindingProjectionCaches();
         }
+    }
+
+    [JsonIgnore]
+    internal IReadOnlyList<AssemblyReference>? AssemblyReferenceDisplayOrder
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal DependsAssetProjection? ReferenceHierarchyProjection
+    {
+        get;
+        set;
     }
 
     private FindingInspection<SourceDocumentObservation>? _sourceDocumentInspection;
@@ -1531,6 +1567,10 @@ public sealed class PerformanceProjection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? Enumerators { get; set; }
 
+    [JsonPropertyName("strings")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Strings { get; set; }
+
     [JsonPropertyName("loop_hot_paths")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<OptimizationOpportunitySummary>? LoopHotPaths { get; set; }
@@ -1568,6 +1608,7 @@ public sealed class PerformanceProjection
                 SectionNames.PerformanceArrays => projection.Arrays ??= [],
                 SectionNames.PerformanceClosures => projection.ClosuresAndDelegates ??= [],
                 SectionNames.PerformanceEnumerators => projection.Enumerators ??= [],
+                SectionNames.PerformanceStrings => projection.Strings ??= [],
                 SectionNames.PerformanceLoops => projection.LoopHotPaths ??= [],
                 SectionNames.PerformanceHotspots => projection.AllocationHotspots ??= [],
                 SectionNames.PerformanceAsync => projection.Async ??= [],
@@ -1617,6 +1658,8 @@ public sealed record LibraryIntegrationSummaryJson(string Integration, int Count
 public sealed record VersionJson(string Version);
 
 public sealed record PackageTfmJson(string Tfm);
+
+public sealed record PackageLayoutFileJson(string Path);
 
 public sealed record VersionListingJson(string Version, string Listing);
 

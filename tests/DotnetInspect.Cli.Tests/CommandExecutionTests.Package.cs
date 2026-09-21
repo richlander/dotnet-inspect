@@ -288,7 +288,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependenciesCount_OwnsItsTypedEmptyProjection()
+    public async Task Package_DependencyHierarchyCount_OwnsItsTypedEmptyProjection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.EmptyDependencies",
@@ -299,7 +299,8 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--dependencies",
+                "-S",
+                "Dependency Hierarchy",
                 "--count",
                 "--rows",
                 "2..2",
@@ -308,7 +309,8 @@ public partial class CommandExecutionTests
             var json = await RunAppAsync(
                 "package",
                 packagePath,
-                "--dependencies",
+                "-S",
+                "Dependency Hierarchy",
                 "--count",
                 "--json",
                 "--tips",
@@ -595,8 +597,9 @@ public partial class CommandExecutionTests
     [InlineData("--value", null, "--value is not available with --tfms")]
     [InlineData("--urls", null, "--urls is not available with --tfms")]
     [InlineData("--paths", null, "--paths is not available with --tfms")]
-    [InlineData("--json-array", null, "--json-array requires --value, --urls, --paths, or --print.")]
-    [InlineData("--row", "1", "--row requires --print, --value, --urls, or --paths.")]
+    [InlineData("--roots", null, "--tfms cannot be combined with --roots.")]
+    [InlineData("--json-array", null, "--json-array requires --value, --urls, --paths, --roots, or --print.")]
+    [InlineData("--row", "1", "--row requires --print, --value, --urls, --paths, or --roots.")]
     [InlineData("--columns", "count", "--fields/--columns are not available with --tfms")]
     [InlineData("--fields", "count", "--fields/--columns are not available with --tfms")]
     [InlineData("--envelope", null, "--envelope cannot be combined with --tfms.")]
@@ -1013,11 +1016,12 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--tree", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-D", "Package Info",
+                "--tree", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("Package Info", output);
             Assert.Contains("Authors", output);
             Assert.DoesNotContain("README.md", output);
         }
@@ -1028,33 +1032,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyAlias_DiscoveryMatchesCanonicalProjection()
+    public async Task Package_DependencyHierarchy_DiscoveryUsesDistinctSchemaAndObsoleteInputFails()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
         {
+            string missingSource = Path.Combine(
+                tempDir,
+                "missing-source");
             var effective = await RunAppAsync(
-                "package", packagePath, "-D", "-S", "Dependencies", "--tree", "--tips", "q");
-            var effectiveAlias = await RunAppAsync(
+                "package", packagePath, "-D", "Dependency Hierarchy",
+                "--source", missingSource, "--tips", "q");
+            var tree = await RunAppAsync(
+                "package", packagePath, "-D", "Dependency Hierarchy",
+                "--tree", "--source", missingSource, "--tips", "q");
+            var obsolete = await RunAppAsync(
                 "package", packagePath, "-D", "--dependencies", "--tips", "q");
             var schema = await RunAppAsync(
-                "package", "-D", "--schema", "-S", "Dependencies", "--tree", "--tips", "q");
-            var schemaAlias = await RunAppAsync(
-                "package", "-D", "--schema", "--dependencies", "--tips", "q");
+                "package", "-D", "Dependency Hierarchy", "--schema",
+                "--tips", "q");
 
             Assert.Equal(0, effective.Exit);
             Assert.Empty(effective.Error);
-            Assert.Equal(effective.Output, effectiveAlias.Output);
-            Assert.Equal(effective.Error, effectiveAlias.Error);
-            Assert.Contains("Dependencies", effective.Output);
+            Assert.Contains("Occurrence", effective.Output);
+
+            Assert.Equal(0, tree.Exit);
+            Assert.Empty(tree.Error);
+            Assert.Contains("Occurrence", tree.Output);
+            Assert.Contains("Parent Occurrence", tree.Output);
+            Assert.DoesNotContain(
+                "test.dependency.one",
+                tree.Output,
+                StringComparison.OrdinalIgnoreCase);
 
             Assert.Equal(0, schema.Exit);
             Assert.Empty(schema.Error);
-            Assert.Equal(schema.Output, schemaAlias.Output);
-            Assert.Equal(schema.Error, schemaAlias.Error);
-            Assert.Contains("Dependencies", schema.Output);
+            Assert.Contains("Occurrence", schema.Output);
+            Assert.Contains("Edge ID", schema.Output);
             Assert.DoesNotContain("Manifest", schema.Output);
             Assert.DoesNotContain("Package Info", schema.Output);
+
+            Assert.Equal(1, obsolete.Exit);
+            Assert.Empty(obsolete.Output);
+            Assert.Contains(
+                "--dependencies has been removed",
+                obsolete.Error);
         }
         finally
         {
@@ -1069,7 +1091,10 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tfm", "net9.0", "--tips", "q");
+                "package", packagePath, "-S", "Dependencies",
+                "--tfm", "net9.0",
+                "--source", Path.Combine(tempDir, "missing-feed"),
+                "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1085,23 +1110,130 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencySection_TreeRendersTheLegacyTransitiveProjection()
+    public async Task Package_DependencyHierarchy_PreservesDependsContentAndProjectsTree()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
         {
-            var selected = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree", "--tfm", "net9.0", "--tips", "q");
-            var legacy = await RunAppAsync(
-                "package", packagePath, "--dependencies", "--tfm", "net9.0", "--tips", "q");
+            var package = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir, "--json",
+                "--tips", "q");
+            var depends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy", "--json");
+            var tree = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir, "--tree",
+                "--tips", "q");
 
-            Assert.Equal(0, selected.Exit);
-            Assert.Empty(selected.Error);
-            Assert.Equal(0, legacy.Exit);
-            Assert.Equal(legacy.Output, selected.Output);
-            Assert.Contains("Test.Dependency.One", selected.Output);
-            Assert.Contains("Test.Dependency.Two", selected.Output);
-            Assert.DoesNotContain("## Dependencies", selected.Output);
+            Assert.Equal(0, package.Exit);
+            Assert.Empty(package.Error);
+            Assert.Equal(0, depends.Exit);
+            Assert.Empty(depends.Error);
+            Assert.Equal(0, tree.Exit);
+            Assert.Empty(tree.Error);
+            using JsonDocument packageJson =
+                JsonDocument.Parse(package.Output);
+            using JsonDocument dependsJson =
+                JsonDocument.Parse(depends.Output);
+            JsonElement packageHierarchy =
+                packageJson.RootElement.GetProperty(
+                    "dependency_hierarchy");
+            Assert.True(JsonElement.DeepEquals(
+                packageHierarchy.GetProperty("summary"),
+                dependsJson.RootElement.GetProperty("summary")));
+            Assert.True(JsonElement.DeepEquals(
+                packageHierarchy.GetProperty("roots"),
+                dependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("roots")));
+            Assert.True(JsonElement.DeepEquals(
+                packageHierarchy.GetProperty("occurrences"),
+                dependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences")));
+            JsonElement[] sharedOccurrences =
+            [
+                .. packageHierarchy.GetProperty("occurrences")
+                    .EnumerateArray()
+                    .Where(occurrence =>
+                        occurrence.GetProperty("target_identity")
+                            .GetProperty("package")
+                            .GetProperty("id")
+                            .GetString()
+                        == "test.dependency.shared"),
+            ];
+            Assert.Equal(2, sharedOccurrences.Length);
+            Assert.Equal(
+                2,
+                sharedOccurrences
+                    .Select(occurrence =>
+                        occurrence.GetProperty("parent_occurrence_id")
+                            .GetInt32())
+                    .Distinct()
+                    .Count());
+            Assert.Contains(
+                sharedOccurrences,
+                occurrence =>
+                    occurrence.GetProperty("disposition").GetString()
+                    == "Expanded");
+            Assert.Contains(
+                sharedOccurrences,
+                occurrence =>
+                    occurrence.GetProperty("disposition").GetString()
+                    == "Revisit");
+            Assert.Contains("test.dependency.one", tree.Output);
+            Assert.Contains("test.dependency.two", tree.Output);
+            Assert.Contains("test.dependency.shared", tree.Output);
+            Assert.Contains(
+                "(revisit) test.dependency.shared",
+                tree.Output);
+            Assert.DoesNotContain("## Dependencies", tree.Output);
+
+            var boundedPackage = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Dependency Hierarchy",
+                "--depth", "1",
+                "--tfm", "net9.0",
+                "--source", tempDir,
+                "--json",
+                "--tips", "q");
+            var boundedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "-S", "Dependency Hierarchy",
+                "--depth", "1",
+                "--tfm", "net9.0",
+                "--source", tempDir,
+                "--json");
+            Assert.Equal(0, boundedPackage.Exit);
+            Assert.Empty(boundedPackage.Error);
+            Assert.Equal(0, boundedDepends.Exit);
+            Assert.Empty(boundedDepends.Error);
+            using JsonDocument boundedPackageJson =
+                JsonDocument.Parse(boundedPackage.Output);
+            using JsonDocument boundedDependsJson =
+                JsonDocument.Parse(boundedDepends.Output);
+            JsonElement boundedPackageOccurrences =
+                boundedPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement boundedDependsOccurrences =
+                boundedDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.True(JsonElement.DeepEquals(
+                boundedPackageOccurrences,
+                boundedDependsOccurrences));
+            Assert.DoesNotContain(
+                boundedPackageOccurrences.EnumerateArray(),
+                occurrence =>
+                    occurrence.GetProperty("target_identity")
+                        .GetProperty("package")
+                        .GetProperty("id")
+                        .GetString()
+                    == "test.dependency.shared");
         }
         finally
         {
@@ -1110,7 +1242,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyAlias_RejectsAlternateLenses()
+    public async Task Package_ObsoleteDependenciesInputAlwaysUsesRemovalDiagnostic()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
@@ -1130,7 +1262,10 @@ public partial class CommandExecutionTests
 
                 Assert.Equal(1, exit);
                 Assert.Empty(output);
-                Assert.Contains($"--dependencies cannot be combined with {lens}", error);
+                Assert.Contains("--dependencies has been removed", error);
+                Assert.DoesNotContain(
+                    $"cannot be combined with {lens}",
+                    error);
             }
         }
         finally
@@ -1140,51 +1275,249 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_RejectsNonMarkdownFormats()
+    public async Task Package_DependencyHierarchy_SupportsStructuredLowerings()
     {
-        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
         {
-            var canonical = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree", "--plaintext", "--tips", "q");
-            var alias = await RunAppAsync(
-                "package", packagePath, "--dependencies", "--plaintext", "--tips", "q");
+            var table = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--table", "--rows", "2", "--tips", "q");
+            var json = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2", "--tips", "q");
+            var plaintext = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--plaintext", "--rows", "2..3", "--tips", "q");
+            var dependsPlaintext = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--plaintext", "--rows", "2..3");
+            var composedPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2..4", "-n", "2", "--tips", "q");
+            var composedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--json", "--rows", "2..4", "-n", "2");
+            var composedMultiSection = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info,Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--plaintext", "--rows", "2..4", "-n", "2",
+                "--tips", "q");
+            var clampedPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--rows", "2..6", "--tips", "q");
+            var clampedDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--count", "--rows", "2..6");
+            var tailPackage = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--json", "--rows", "2", "--tail", "--tips", "q");
+            var tailDepends = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--json", "--rows", "2", "--tail");
+            var directDependencyTail = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--rows", "1", "--tail", "--tips", "q");
 
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "plaintext");
-            var environmentAlias = await RunAppAsync(
-                "package", packagePath, "--dependencies", "--tips", "q");
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
-            var mermaidAlias = await RunAppAsync(
-                "package", packagePath, "--dependencies", "--tips", "q");
-            var explicitMarkdown = await RunAppAsync(
-                "package", packagePath, "--dependencies", "--markdown",
-                "--tfm", "net9.0", "--tips", "q");
-            var noHeader = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
-                "--no-header", "--markdown", "--tips", "q");
-
-            Assert.Equal(1, canonical.Exit);
-            Assert.Empty(canonical.Output);
-            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", canonical.Error);
-            Assert.Equal(1, alias.Exit);
-            Assert.Empty(alias.Output);
-            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", alias.Error);
-            Assert.Equal(1, environmentAlias.Exit);
-            Assert.Empty(environmentAlias.Output);
-            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", environmentAlias.Error);
-            Assert.Equal(1, mermaidAlias.Exit);
-            Assert.Empty(mermaidAlias.Output);
-            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", mermaidAlias.Error);
-            Assert.Equal(0, explicitMarkdown.Exit);
-            Assert.Contains("Test.Dependency.One", explicitMarkdown.Output);
-            Assert.Equal(1, noHeader.Exit);
-            Assert.Empty(noHeader.Output);
-            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", noHeader.Error);
+            Assert.Empty(table.Error);
+            Assert.Equal(0, table.Exit);
+            Assert.Contains("Parent Occurrence", table.Output);
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            using JsonDocument document = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                2,
+                document.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences")
+                    .GetArrayLength());
+            Assert.Equal(0, plaintext.Exit);
+            Assert.Empty(plaintext.Error);
+            Assert.Equal(0, dependsPlaintext.Exit);
+            Assert.Empty(dependsPlaintext.Error);
+            Assert.Empty(composedPackage.Error);
+            Assert.Equal(0, composedPackage.Exit);
+            Assert.Equal(0, composedDepends.Exit);
+            Assert.Empty(composedDepends.Error);
+            Assert.Equal(0, composedMultiSection.Exit);
+            Assert.Empty(composedMultiSection.Error);
+            Assert.Equal(0, clampedPackage.Exit);
+            Assert.Empty(clampedPackage.Error);
+            Assert.Equal("3", clampedPackage.Output.Trim());
+            Assert.Equal(clampedPackage, clampedDepends);
+            Assert.Empty(tailPackage.Error);
+            Assert.Equal(0, tailPackage.Exit);
+            Assert.Empty(tailDepends.Error);
+            Assert.Equal(0, tailDepends.Exit);
+            Assert.Equal(0, directDependencyTail.Exit);
+            Assert.Empty(directDependencyTail.Error);
+            Assert.Equal("1", directDependencyTail.Output.Trim());
+            Assert.Equal(
+                2,
+                plaintext.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length - 1);
+            Assert.Equal(
+                dependsPlaintext.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length,
+                plaintext.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length);
+            using JsonDocument composedPackageJson =
+                JsonDocument.Parse(composedPackage.Output);
+            using JsonDocument composedDependsJson =
+                JsonDocument.Parse(composedDepends.Output);
+            JsonElement packageOccurrences =
+                composedPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement dependsOccurrences =
+                composedDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.Equal(2, packageOccurrences.GetArrayLength());
+            Assert.True(JsonElement.DeepEquals(
+                packageOccurrences,
+                dependsOccurrences));
+            using JsonDocument tailPackageJson =
+                JsonDocument.Parse(tailPackage.Output);
+            using JsonDocument tailDependsJson =
+                JsonDocument.Parse(tailDepends.Output);
+            JsonElement tailPackageOccurrences =
+                tailPackageJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            JsonElement tailDependsOccurrences =
+                tailDependsJson.RootElement
+                    .GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences");
+            Assert.Equal(2, tailPackageOccurrences.GetArrayLength());
+            Assert.True(JsonElement.DeepEquals(
+                tailPackageOccurrences,
+                tailDependsOccurrences));
+            Assert.Equal(
+                2,
+                composedMultiSection.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length - 1);
         }
         finally
         {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyHierarchy_RowPositionUsesOptionIdentity()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        string rowsDirectory = Path.Combine(tempDir, "rows");
+        Directory.CreateDirectory(rowsDirectory);
+        foreach (string source in Directory.GetFiles(tempDir, "*.nupkg"))
+        {
+            File.Copy(
+                source,
+                Path.Combine(rowsDirectory, Path.GetFileName(source)));
+        }
+
+        string relativePackage =
+            Path.Combine("rows", Path.GetFileName(packagePath));
+        string absolutePackage =
+            Path.Combine(rowsDirectory, Path.GetFileName(packagePath));
+        try
+        {
+            var relative = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", relativePackage,
+                "--source", "rows",
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count", "--tips", "q");
+            var absolute = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", absolutePackage,
+                "--source", rowsDirectory,
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count", "--tips", "q");
+            var relativeDepends = await RunAppInDirectoryAsync(
+                tempDir,
+                "depends", "--package", relativePackage,
+                "--source", "rows",
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count");
+            var absoluteDepends = await RunAppInDirectoryAsync(
+                tempDir,
+                "depends", "--package", absolutePackage,
+                "--source", rowsDirectory,
+                "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0",
+                "-n", "1", "--rows", "2..2",
+                "--count");
+
+            Assert.Equal(absolute, relative);
+            Assert.Equal(0, relative.Exit);
+            Assert.Empty(relative.Error);
+            Assert.Equal("0", relative.Output.Trim());
+            Assert.Equal(absoluteDepends, relativeDepends);
+            Assert.Equal(0, relativeDepends.Exit);
+            Assert.Empty(relativeDepends.Error);
+            Assert.Equal("0", relativeDepends.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependenciesCategory_ComposesDirectAndHierarchyResults()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var rendered = await RunAppAsync(
+                "package", packagePath, "-S", "@Dependencies",
+                "--tfm", "net9.0", "--source", tempDir, "--tips", "q");
+            var counted = await RunAppAsync(
+                "package", packagePath, "-S", "@Dependencies",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--count", "--tips", "q");
+
+            Assert.Equal(0, rendered.Exit);
+            Assert.Empty(rendered.Error);
+            Assert.Contains("## Dependencies", rendered.Output);
+            Assert.Contains("## Dependency Hierarchy", rendered.Output);
+            Assert.Contains("test.dependency.shared", rendered.Output);
+
+            Assert.Equal(0, counted.Exit);
+            Assert.Empty(counted.Error);
+            Assert.Contains("| Dependencies | 2 |", counted.Output);
+            Assert.Contains("| Dependency Hierarchy | 4 |", counted.Output);
+        }
+        finally
+        {
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -1209,7 +1542,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, rendered.ExitCode);
             Assert.Empty(rendered.Output);
-            Assert.Contains("--dependencies is an alias for -S Dependencies --tree", rendered.Error);
+            Assert.Contains("--dependencies has been removed", rendered.Error);
         }
         finally
         {
@@ -1279,7 +1612,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_OutputFilePreservesWindowsAndInfo()
+    public async Task Package_DependencyHierarchy_OutputFilePreservesWindowsAndInfo()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         var outputPath = Path.Combine(tempDir, "dependencies.md");
@@ -1294,15 +1627,17 @@ public partial class CommandExecutionTests
                 var baseline = await RunAppInDirectoryAsync(
                     tempDir,
                     [
-                        "package", packagePath, "-S", "Dependencies", "--tree",
-                        "--tfm", "net9.0", "--tips", "q",
+                        "package", packagePath, "-S", "Dependency Hierarchy",
+                        "--tree", "--tfm", "net9.0", "--source", tempDir,
+                        "--tips", "q",
                         .. lineWindow,
                     ]);
                 var redirected = await RunAppInDirectoryAsync(
                     tempDir,
                     [
-                        "package", packagePath, "-S", "Dependencies", "--tree",
-                        "--tfm", "net9.0", "--tips", "q",
+                        "package", packagePath, "-S", "Dependency Hierarchy",
+                        "--tree", "--tfm", "net9.0", "--source", tempDir,
+                        "--tips", "q",
                         .. lineWindow,
                         "--out", outputPath,
                     ]);
@@ -1324,12 +1659,14 @@ public partial class CommandExecutionTests
 
             var infoBaseline = await RunAppInDirectoryAsync(
                 tempDir,
-                "package", packagePath, "-S", "Dependencies", "--tree",
-                "--tfm", "net9.0", "--info");
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tree", "--tfm", "net9.0", "--source", tempDir,
+                "--info");
             var infoRedirected = await RunAppInDirectoryAsync(
                 tempDir,
-                "package", packagePath, "-S", "Dependencies", "--tree",
-                "--tfm", "net9.0", "--info", "--out", outputPath);
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tree", "--tfm", "net9.0", "--source", tempDir,
+                "--info", "--out", outputPath);
 
             Assert.Equal(0, infoBaseline.Exit);
             Assert.Equal(infoBaseline.Exit, infoRedirected.Exit);
@@ -1358,6 +1695,52 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--table", null)]
+    [InlineData("--tsv", null)]
+    [InlineData("--jsonl", null)]
+    [InlineData("--columns", "Target,Disposition")]
+    public async Task Package_DependencyHierarchy_ProjectionHonorsOutputFile(
+        string projection,
+        string? value)
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        var outputPath = Path.Combine(tempDir, "dependencies.out");
+        try
+        {
+            List<string> arguments =
+            [
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                projection,
+            ];
+            if (value is not null)
+                arguments.Add(value);
+            arguments.AddRange(["--tips", "q"]);
+
+            var baseline = await RunAppInDirectoryAsync(
+                tempDir,
+                [.. arguments]);
+            var redirected = await RunAppInDirectoryAsync(
+                tempDir,
+                [.. arguments, "--out", outputPath]);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Empty(baseline.Error);
+            Assert.NotEmpty(baseline.Output);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Equal(baseline.Error, redirected.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(
+                baseline.Output.ReplaceLineEndings("\n"),
+                File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_DependencyAlias_PrintUsesAliasDiagnostic()
     {
@@ -1369,7 +1752,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", error);
+            Assert.Contains("--dependencies has been removed", error);
             Assert.DoesNotContain("-S/--select", error);
         }
         finally
@@ -1392,7 +1775,7 @@ public partial class CommandExecutionTests
                         Tree = true,
                         IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                         {
-                            PackageSections.Dependencies,
+                            PackageSections.DependencyHierarchy,
                         },
                         ListLayout = true,
                     }));
@@ -1409,14 +1792,14 @@ public partial class CommandExecutionTests
                         Tree = true,
                         IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                         {
-                            PackageSections.Dependencies,
+                            PackageSections.DependencyHierarchy,
                         },
                         Tsv = true,
                     }));
 
             Assert.Equal(1, rowFormat.ExitCode);
             Assert.Empty(rowFormat.Output);
-            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", rowFormat.Error);
+            Assert.Contains("--tree cannot be combined with count, shape, tabular, JSON, or field/column projections", rowFormat.Error);
         }
         finally
         {
@@ -1425,7 +1808,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_TreeRequiresDependenciesSelection()
+    public async Task Package_TreeRequiresDependencyHierarchySelection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.TreeAlias",
@@ -1440,13 +1823,13 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--dependencies", "-S", "Manifest", "--tips", "q");
 
             Assert.Equal(1, exit);
-            Assert.Contains("--tree requires exactly one tree-shaped section (-S Dependencies)", error);
+            Assert.Contains("--tree requires exactly '-S \"Dependency Hierarchy\"'", error);
             Assert.DoesNotContain("--layout", error);
             Assert.Equal(1, categoryExit);
-            Assert.Contains("--tree requires exactly one tree-shaped section (-S Dependencies)", categoryError);
+            Assert.Contains("--tree requires exactly '-S \"Dependency Hierarchy\"'", categoryError);
             Assert.DoesNotContain("--layout", categoryError);
             Assert.Equal(1, aliasExit);
-            Assert.Contains("--dependencies is an alias for -S Dependencies --tree", aliasError);
+            Assert.Contains("--dependencies has been removed", aliasError);
             Assert.DoesNotContain("--tree requires", aliasError);
         }
         finally
@@ -1456,17 +1839,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_RejectsRowProjection()
+    public async Task Package_DependencyHierarchy_RejectsRowProjection()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree", "--count", "--tips", "q");
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tree", "--count", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", error);
+            Assert.Contains("--tree cannot be combined with count, shape, tabular, JSON, or field/column projections", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_RejectDependencyHierarchy()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Dependency Hierarchy", "--json", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot include Dependency Hierarchy",
+                error);
         }
         finally
         {

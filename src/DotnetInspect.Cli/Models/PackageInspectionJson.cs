@@ -1,4 +1,9 @@
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
+using DotnetInspect.Cli.Views;
+using DotnetInspector.Ecosystems;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using InertText;
@@ -12,14 +17,26 @@ internal sealed class PackageInspectionJson
 {
     private readonly InspectionResult _data;
     private readonly PackageInspectionText _text;
+    private readonly RowWindow? _rows;
+    private readonly bool _dependencyHierarchyRowsSelected;
 
-    private PackageInspectionJson(InspectionResult data)
+    private PackageInspectionJson(
+        InspectionResult data,
+        RowWindow? rows,
+        bool dependencyHierarchyRowsSelected)
     {
         _data = data;
         _text = new PackageInspectionText(data);
+        _rows = rows;
+        _dependencyHierarchyRowsSelected =
+            dependencyHierarchyRowsSelected;
     }
 
-    public static PackageInspectionJson Create(InspectionResult data) => new(data);
+    public static PackageInspectionJson Create(
+        InspectionResult data,
+        RowWindow? rows = null,
+        bool dependencyHierarchyRowsSelected = false) =>
+        new(data, rows, dependencyHierarchyRowsSelected);
 
     public string PackageName => _text.PackageName.ToString();
     public string? ManifestVersion => Render(_text.ManifestVersion);
@@ -38,6 +55,10 @@ internal sealed class PackageInspectionJson
     public long? VersionDownloads => _data.VersionDownloads;
     public int? VersionCount => _data.VersionCount;
     public long? PackageSize => _data.PackageSize;
+    public PackageInfoMeasurementsJson? PackageInfoMeasurements =>
+        _data.PackageInfoMeasurementInspection is { } inspection
+            ? new(inspection.Content)
+            : null;
     public bool? IsVerified => _data.IsVerified;
     public bool? Listed => _data.Listed;
     public List<string>? Owners => Render(_text.Owners);
@@ -72,6 +93,16 @@ internal sealed class PackageInspectionJson
     public List<PackageDependencyGroupJson>? DependencyGroups => _text.DependencyGroups?
         .Select(value => new PackageDependencyGroupJson(value))
         .ToList();
+    public PackageDependencyHierarchyJson? DependencyHierarchy =>
+        _data.DependencyHierarchyProjection is { } projection
+            ? PackageDependencyHierarchyJson.Create(
+                projection,
+                _dependencyHierarchyRowsSelected ? null : _rows)
+            : null;
+    public EcosystemDependencyRecognitionJson? EcosystemDependencies =>
+        EcosystemDependencyRecognitionJson.Create(
+            _data.EcosystemDependencyRecognitionInspection,
+            _data.EcosystemDependencyRows);
     public List<PackageDependencyJson>? RuntimeDependencies => _text.RuntimeDependencies?
         .Select(value => new PackageDependencyJson(value))
         .ToList();
@@ -107,6 +138,180 @@ internal sealed class PackageInspectionJson
 
     private static List<string>? Render(List<InertString>? values)
         => values?.Select(value => value.ToString()).ToList();
+}
+
+public sealed class EcosystemDependencyRecognitionJson
+{
+    public required string Status { get; init; }
+
+    public required int IssueCount { get; init; }
+
+    public required string[] Ecosystems { get; init; }
+
+    public required EcosystemDependencyJson[] Dependencies { get; init; }
+
+    internal static EcosystemDependencyRecognitionJson? Create(
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome>? inspection,
+        IReadOnlyList<EcosystemDependencyRecognitionEntry>? selectedRows)
+    {
+        if (inspection?.Content is not { } outcome)
+        {
+            return null;
+        }
+
+        EcosystemDependencyRecognitionDocument? document = outcome switch
+        {
+            EcosystemDependencyRecognitionOutcome.Complete complete =>
+                complete.Document,
+            EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                incomplete.Document,
+            _ => null,
+        };
+        int issueCount = outcome switch
+        {
+            EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                incomplete.Document.InputIssues.Length,
+            EcosystemDependencyRecognitionOutcome.Unavailable unavailable =>
+                unavailable.InputIssues.Length,
+            _ => 0,
+        };
+        IReadOnlyList<EcosystemDependencyRecognitionEntry> entries =
+            selectedRows
+            ?? document?.Classification.Recognized
+            ?? [];
+
+        return new EcosystemDependencyRecognitionJson
+        {
+            Status = outcome switch
+            {
+                EcosystemDependencyRecognitionOutcome.Complete => "complete",
+                EcosystemDependencyRecognitionOutcome.Incomplete =>
+                    "incomplete",
+                EcosystemDependencyRecognitionOutcome.Unavailable =>
+                    "unavailable",
+                _ => throw new InvalidOperationException(
+                    $"Unknown ecosystem recognition outcome {outcome.GetType().Name}."),
+            },
+            IssueCount = issueCount,
+            Ecosystems = document?.Classification.RecognizedEcosystems
+                .Select(static ecosystem => ecosystem.Title)
+                .ToArray()
+                ?? [],
+            Dependencies = document is null
+                ? []
+                : entries
+                    .Select(entry =>
+                        PackageEcosystemDependencyRow.Create(entry, document))
+                    .Select(EcosystemDependencyJson.Create)
+                    .ToArray(),
+        };
+    }
+}
+
+public sealed class EcosystemDependencyJson
+{
+    public required string Ecosystem { get; init; }
+
+    public required string Kind { get; init; }
+
+    public required string Dependency { get; init; }
+
+    public required string DeclaredBy { get; init; }
+
+    public string? Coverage { get; init; }
+
+    public required string MatchingBases { get; init; }
+
+    public string? VersionOrRange { get; init; }
+
+    public required int Occurrence { get; init; }
+
+    public string? RequestedTargetFramework { get; init; }
+
+    public string? SelectedTargetFramework { get; init; }
+
+    public int? SelectedGroup { get; init; }
+
+    internal static EcosystemDependencyJson Create(
+        PackageEcosystemDependencyRow row) =>
+        new()
+        {
+            Ecosystem = row.Ecosystem,
+            Kind = row.Kind,
+            Dependency = row.Dependency,
+            DeclaredBy = row.DeclaredBy,
+            Coverage = row.Coverage,
+            MatchingBases = row.MatchingBases,
+            VersionOrRange = row.VersionOrRange,
+            Occurrence = row.Occurrence,
+            RequestedTargetFramework = row.RequestedTargetFramework,
+            SelectedTargetFramework = row.SelectedTargetFramework,
+            SelectedGroup = row.SelectedGroup,
+        };
+}
+
+internal sealed class PackageInfoMeasurementsJson(
+    PackageInfoMeasurements measurements)
+{
+    public string Status => measurements.Status.ToString();
+
+    public long? CompressedPackageBytes =>
+        measurements.CompressedPackageBytes;
+
+    public string? SelectedTargetFramework =>
+        measurements.SelectedTargetFramework?.ToString();
+
+    public List<string>? AvailableTargetFrameworks =>
+        Render(measurements.AvailableTargetFrameworks);
+
+    public List<string>? SelectedTargetFrameworkFolders =>
+        Render(measurements.SelectedTargetFrameworkFolders);
+
+    public long? SelectedLibraryPayloadBytes =>
+        measurements.SelectedLibraryPayloadBytes;
+
+    public int? SelectedLibraryCount =>
+        measurements.SelectedLibraryCount;
+
+    public string? Detail => measurements.Detail?.ToString();
+
+    public string? UnavailableReason =>
+        measurements.UnavailableReason?.ToString();
+
+    private static List<string>? Render(
+        IReadOnlyList<InertString>? values) =>
+        values?.Select(static value => value.ToString()).ToList();
+}
+
+internal sealed record PackageDependencyHierarchyJson(
+    DependsAssetSummaryJson Summary,
+    DependencyHierarchyJsonRoot[] Roots,
+    DependencyHierarchyJsonOccurrence[] Occurrences,
+    DependencyHierarchyJsonDepthBoundary[] DepthBoundaries,
+    DependencyGraphJsonPackageProjection[] PackageProjections)
+{
+    internal static PackageDependencyHierarchyJson Create(
+        DependsAssetProjection projection,
+        RowWindow? rows)
+    {
+        var sections = new HashSet<string>(
+            [DependsAssetSections.DependencyHierarchy],
+            StringComparer.OrdinalIgnoreCase);
+        DependsAssetDocument document = DependsAssetDocument.Create(
+            projection,
+            sections,
+            rows);
+        DependencyHierarchyJsonDocument hierarchy =
+            document.DependencyHierarchy
+            ?? throw new InvalidOperationException(
+                "The Package dependency hierarchy projection was not created.");
+        return new PackageDependencyHierarchyJson(
+            document.Summary,
+            hierarchy.Roots,
+            hierarchy.Occurrences,
+            hierarchy.DepthBoundaries,
+            hierarchy.PackageProjections);
+    }
 }
 
 internal sealed class PackageDeprecationJson(PackageDeprecationText text)

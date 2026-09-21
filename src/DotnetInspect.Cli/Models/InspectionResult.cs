@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGetFetch;
@@ -75,6 +77,22 @@ public class InspectionResult
     [JsonIgnore]
     public InspectionEnvelope<PackageInfoMeasurements>?
         PackageInfoMeasurementInspection { get; set; }
+
+    /// <summary>
+    /// Product ecosystem recognition over the Package's direct declarations
+    /// and selected compile-Library references.
+    /// </summary>
+    [JsonIgnore]
+    public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
+        EcosystemDependencyRecognitionInspection { get; set; }
+
+    /// <summary>
+    /// Presentation-selected ecosystem-dependency pairs. Null retains the
+    /// complete recognized population from the recognition Document.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<EcosystemDependencyRecognitionEntry>?
+        EcosystemDependencyRows { get; set; }
 
     /// <summary>
     /// Whether the package owner is verified by NuGet.org.
@@ -193,6 +211,12 @@ public class InspectionResult
     public List<string>? LibraryFiles { get; set; }
 
     public List<DependencyGroup>? DependencyGroups { get; set; }
+
+    /// <summary>
+    /// The shared Depends operation projected for this resolved Package subject.
+    /// </summary>
+    [JsonIgnore]
+    internal DependsAssetProjection? DependencyHierarchyProjection { get; set; }
 
     public List<PackageDependency>? RuntimeDependencies { get; set; }
 

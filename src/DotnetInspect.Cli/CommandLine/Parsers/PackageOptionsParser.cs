@@ -39,6 +39,7 @@ public static class PackageOptionsParser
         Option<bool> FrontmatterOption,
         Option<bool> BodyOption,
         Option<string?> TfmOption,
+        Option<string?> DepthOption,
         Option<string?> TypeFilterOption,
         Option<string?> VersionOption,
         Option<bool> LinesOption,
@@ -46,7 +47,11 @@ public static class PackageOptionsParser
         Option<string?> OutOption,
         Option<string?> PathMatchOption,
         Option<bool> SkipEmptyOption,
-        Option<bool> NoHeaderOption);
+        Option<bool> RootsOption,
+        Option<bool> NoHeaderOption,
+        Option<string?> WorkspaceOption,
+        Option<string?> ShareOption,
+        Option<string?>? EvidenceEnvelopeOption);
 
     /// <summary>
     /// Result of parsing package command options.
@@ -90,6 +95,7 @@ public static class PackageOptionsParser
             Value = result.GetValue(opts.Value),
             Urls = result.GetValue(opts.Urls),
             Paths = result.GetValue(opts.Paths),
+            Roots = result.GetValue(args.RootsOption),
             ShowDependencies = result.GetValue(args.DependenciesOption),
             Tree = result.GetValue(opts.Tree),
             Discover = opts.ParseDiscover(result),
@@ -179,8 +185,34 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsPackageLayout =
+            IsPackageLayoutRowSelection(
+                parseResult,
+                opts,
+                args);
         bool selectsPackageTfms =
             IsPackageTfmRowSelection(
+                parseResult,
+                opts,
+                args);
+        bool selectsEcosystemDependencies =
+            IsEcosystemDependencyRowSelection(
+                parseResult,
+                opts,
+                args);
+        if (opts.IsJsonDocumentOutput(parseResult)
+            && IsMultiSectionEcosystemDependencySelection(
+                parseResult.CommandResult,
+                opts,
+                args)
+            && HasExplicitRowSelection(parseResult, opts))
+        {
+            return new InvalidArguments(
+                "Rendered-line selection cannot be combined with JSON output.");
+        }
+
+        bool selectsCloneCandidateRows =
+            IsCloneCandidateRowSelection(
                 parseResult,
                 opts,
                 args);
@@ -220,6 +252,18 @@ public static class PackageOptionsParser
                 packageFileRowSelectionError!);
         }
 
+        RowSelectionIntent<string>? packageLayoutRowSelection = null;
+        if (selectsPackageLayout
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package layout file",
+                out packageLayoutRowSelection,
+                out string? packageLayoutRowSelectionError))
+        {
+            return new InvalidArguments(
+                packageLayoutRowSelectionError!);
+        }
+
         RowSelectionIntent<string>? packageTfmRowSelection = null;
         if (selectsPackageTfms
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -230,6 +274,71 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageTfmRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? ecosystemDependencyRowSelection = null;
+        if (selectsEcosystemDependencies
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package ecosystem dependency",
+                out ecosystemDependencyRowSelection,
+                out string? ecosystemDependencyRowSelectionError))
+        {
+            return new InvalidArguments(
+                ecosystemDependencyRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? cloneCandidateRowSelection = null;
+        if (selectsCloneCandidateRows
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Clone Candidates",
+                out cloneCandidateRowSelection,
+                out string? cloneCandidateRowSelectionError))
+        {
+            return new InvalidArguments(
+                cloneCandidateRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? packageSectionRowSelection = null;
+        if (!selectsVersionPopulation
+            && !selectsSourceLinkFiles
+            && !selectsPackageFiles
+            && !selectsPackageLayout
+            && !selectsPackageTfms
+            && !selectsCloneCandidateRows
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package section",
+                out packageSectionRowSelection,
+                out string? packageSectionRowSelectionError))
+        {
+            return new InvalidArguments(
+                packageSectionRowSelectionError!);
+        }
+        packageSectionRowSelection =
+            DependencyQueryOptions.AppendLegacyRows(
+                parseResult,
+                opts,
+                packageSectionRowSelection,
+                out int? legacyHierarchyWindowStageIndex);
+        int? dependencyDepth =
+            int.TryParse(
+                parseResult.GetValue(args.DepthOption),
+                out int parsedDependencyDepth)
+                ? parsedDependencyDepth
+                : null;
+        if (!DependencyQueryOptions.TryResolve(
+                DependencyQueryRouteKind.PackageHierarchy,
+                [],
+                null,
+                packageSectionRowSelection,
+                dependencyDepth,
+                out DependencyQueryPlan dependencyQueryPlan,
+                out OptionError dependencyQueryError))
+        {
+            return new InvalidArguments(
+                dependencyQueryError.Message);
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -270,8 +379,19 @@ public static class PackageOptionsParser
         {
             PackageArgs = packageArgs,
             ExplicitVersion = explicitVersion,
+            WorkspacePacket = parseResult.GetValue(args.WorkspaceOption),
+            ShareFormat = WorkspaceShareOption.Parse(
+                parseResult,
+                args.ShareOption),
+#if DEBUG
+            EvidenceEnvelopePath =
+                parseResult.GetValue(args.EvidenceEnvelopeOption!),
+#endif
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
+            DependencyQueryPlan = dependencyQueryPlan,
+            DependencyHierarchyLegacyWindowStageIndex =
+                legacyHierarchyWindowStageIndex,
             TypeFilter = typeFilter,
             PackageLibrary = packageLibrary,
             AllLibraries = parseResult.GetValue(args.AllLibrariesOption),
@@ -295,6 +415,7 @@ public static class PackageOptionsParser
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
             Paths = parseResult.GetValue(opts.Paths),
+            Roots = parseResult.GetValue(args.RootsOption),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             ShowContent = parseResult.GetValue(args.ContentOption),
             ContentScope = contentScope,
@@ -305,7 +426,11 @@ public static class PackageOptionsParser
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
+            PackageLayoutRowSelection = packageLayoutRowSelection,
             PackageTfmRowSelection = packageTfmRowSelection,
+            EcosystemDependencyRowSelection =
+                ecosystemDependencyRowSelection,
+            CloneCandidateRowSelection = cloneCandidateRowSelection,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
             Bare = bareOutput,
@@ -332,7 +457,10 @@ public static class PackageOptionsParser
             Rows = selectsVersionPopulation
                 || selectsSourceLinkFiles
                 || selectsPackageFiles
+                || selectsPackageLayout
                 || selectsPackageTfms
+                || selectsEcosystemDependencies
+                || selectsCloneCandidateRows
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
@@ -513,6 +641,182 @@ public static class PackageOptionsParser
             Views.PackageSections.Files);
     }
 
+    internal static bool IsEcosystemDependencyRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args) =>
+        IsEcosystemDependencyRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsEcosystemDependencyRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        if (!IsOrdinaryPackageInspection(result, opts, args))
+            return false;
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sections = catalog.Sections;
+        var resolved =
+            SelectResolver.ResolveSelectAsSections(
+                selectors,
+                sections.SelectableSectionNames,
+                sections.InfoSectionNames,
+                sections.SelectionCategoryMap,
+                selectDefault: false);
+        return !resolved.HasError
+            && resolved.Sections is { Count: 1 } selected
+            && selected.Contains(
+                Views.PackageSections.EcosystemDependencies);
+    }
+
+    internal static bool IsMultiSectionEcosystemDependencySelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        if (!IsOrdinaryPackageInspection(result, opts, args))
+            return false;
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sections = catalog.Sections;
+        var resolved =
+            SelectResolver.ResolveSelectAsSections(
+                selectors,
+                sections.SelectableSectionNames,
+                sections.InfoSectionNames,
+                sections.SelectionCategoryMap,
+                selectDefault: false);
+        return !resolved.HasError
+            && resolved.Sections is { Count: > 1 } selected
+            && selected.Contains(
+                Views.PackageSections.EcosystemDependencies);
+    }
+
+    private static bool IsOrdinaryPackageInspection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        return packageArgs.Length == 1
+            && result.GetResult(opts.Discover)
+                is not { Implicit: false }
+            && !result.GetValue(args.DependenciesOption)
+            && !result.GetValue(args.LayoutOption)
+            && result.GetResult(args.PathOption)
+                is not { Implicit: false }
+            && !result.GetValue(args.TfmsOption)
+            && result.GetResult(args.LibraryOption)
+                is not { Implicit: false }
+            && !result.GetValue(args.AllLibrariesOption)
+            && !result.GetValue(args.VersionsOption)
+            && !result.GetValue(args.VersionsWithFeedOption)
+            && !result.GetValue(args.ContentOption)
+            && (result.GetResult(args.VersionOption)
+                is not { Implicit: false }
+                || result.GetValue(args.VersionOption) is not null);
+    }
+
+    private static bool HasExplicitRowSelection(
+        ParseResult result,
+        SharedOptions opts) =>
+        result.GetResult(opts.Limit) is { Implicit: false }
+        || result.GetResult(opts.Rows) is { Implicit: false }
+        || result.GetResult(opts.Head) is { Implicit: false }
+        || result.GetResult(opts.Tail) is { Implicit: false }
+        || result.GetResult(opts.Lines) is { Implicit: false }
+        || result.GetResult(opts.TailLines) is { Implicit: false };
+
+    internal static bool IsPackageLayoutRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => IsPackageLayoutRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsPackageLayoutRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || !result.GetValue(args.LayoutOption)
+            || HasCompetingPackageLayoutIntent(result, opts, args))
+        {
+            return false;
+        }
+
+        string packageReference = packageArgs[0];
+        if (!File.Exists(packageReference))
+        {
+            bool isRange = PackageVersionRange.TryParse(
+                packageReference,
+                out _,
+                out string? rangeError);
+            if (isRange || rangeError is not null)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasCompetingPackageLayoutIntent(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => result.GetResult(opts.Discover) is { Implicit: false }
+            || result.GetResult(opts.Select) is { Implicit: false }
+            || result.GetValue(opts.Tree)
+            || result.GetValue(opts.Schema)
+            || result.GetValue(opts.Envelope)
+            || result.GetValue(opts.Print)
+            || result.GetResult(opts.Row) is { Implicit: false }
+            || result.GetValue(opts.Value)
+            || result.GetValue(opts.Urls)
+            || result.GetValue(opts.Paths)
+            || result.GetValue(args.RootsOption)
+            || result.GetValue(opts.JsonArray)
+            || result.GetValue(opts.PreferRenderedUrls)
+            || opts.IsTableOrTsvOutput(result)
+            || result.GetValue(args.NoHeaderOption)
+            || result.GetResult(opts.Fields) is { Implicit: false }
+            || result.GetResult(opts.Columns) is { Implicit: false }
+            || result.GetValue(args.DependenciesOption)
+            || result.GetValue(args.TfmsOption)
+            || result.GetResult(args.PathOption) is { Implicit: false }
+            || result.GetResult(args.PathMatchOption) is { Implicit: false }
+            || result.GetValue(args.SkipEmptyOption)
+            || result.GetResult(args.TypeFilterOption) is { Implicit: false }
+            || result.GetResult(args.LibraryOption) is { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetValue(args.VersionsOption)
+            || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.IncludeUnlistedOption)
+            || result.GetValue(args.ContentOption)
+            || result.GetValue(args.FrontmatterOption)
+            || result.GetValue(args.BodyOption)
+            || (result.GetResult(args.VersionOption) is { Implicit: false }
+                && result.GetValue(args.VersionOption) is null);
+
     internal static bool IsPackageTfmRowSelection(
         ParseResult parseResult,
         SharedOptions opts,
@@ -550,6 +854,40 @@ public static class PackageOptionsParser
         return true;
     }
 
+    internal static bool IsCloneCandidateRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => IsCloneCandidateRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsCloneCandidateRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || result.GetResult(args.LibraryOption)
+                is not { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetResult(opts.Discover)
+                is { Implicit: false })
+        {
+            return false;
+        }
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.CloneCandidates,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool HasCompetingPackageTfmIntent(
         CommandResult result,
         SharedOptions opts,
@@ -564,6 +902,7 @@ public static class PackageOptionsParser
             || result.GetValue(opts.Value)
             || result.GetValue(opts.Urls)
             || result.GetValue(opts.Paths)
+            || result.GetValue(args.RootsOption)
             || result.GetValue(opts.JsonArray)
             || result.GetValue(opts.PreferRenderedUrls)
             || (!result.GetValue(opts.Count)

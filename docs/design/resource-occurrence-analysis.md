@@ -84,6 +84,31 @@ Resource Occurrence Analysis receives no path, image, reader, resolver,
 Workspace, or host state. Its detached
 `ResourceOccurrenceAnalysisResult` is not added to `LibraryBodyIndex`.
 
+Before resolved-effect binding, the service losslessly narrows the direct-call
+resolution population to calls whose member shape can match an admitted exact
+member selector. The shape check covers metadata or explicit-interface-suffix
+name, generic arity, instance/static and constructor shape, calling convention,
+and parameter count without requiring the concrete declaring type to equal a
+declared interface. Exact declaring-type and interface implementation proof
+remains the resolver's responsibility. For lifecycle requests, acquisition,
+authority, and resource declarations remain unconditional candidates; other
+exact-selector calls enter effect resolution only when their receiver or an
+argument carries a candidate acquisition result. An unresolved boundary in a
+method with a resource root remains a typed occurrence limitation through the
+full direct-call population. Occurrence-only requests retain every
+exact-selector candidate. Consequently, calls that cannot affect a lifecycle
+root do not consume its aggregate effect-resolution budget or make Lifecycle
+Analysis incomplete.
+
+Selection is parameterized rather than represented by an unbound feature bit:
+`LibraryBodyAnalysisRequest.CreateResourceOccurrences` requires one admitted
+resource-effect set. Resource Occurrence therefore does not participate in
+`LibraryBodyAnalysisFeatures.All` and cannot silently select the product-shipped
+ArrayPool model. The plan enables the existing shared call-value-flow pass,
+retains each exact `MethodBodyAnalysisContext` only through effect resolution
+and occurrence projection, and discards every context before the execution
+returns.
+
 The producer is a stateless callable boundary, not a retained coordinator,
 service-provider registration, or generic producer framework. Every
 behavior-bearing fact arrives in the invocation. The producer retains no
@@ -93,9 +118,15 @@ observation after returning.
 
 An **ownership root** is one of:
 
-- one exact acquisition occurrence that creates a terminal obligation; or
+- one exact acquisition occurrence whose target resolves to the call result
+  and creates a terminal obligation; or
 - one incoming method parameter whose carried obligation is established by
   applicable resolved effects or later interprocedural composition.
+
+Version 1 does not rebase a receiver- or parameter-target acquisition onto the
+target's later value provenance. Such an effect remains a visible method-level
+value-flow limitation and does not create an acquisition root. The lifecycle
+consumer decides whether later work needs that richer rebasing contract.
 
 An **occurrence** joins one root to one physical method-body operation. Its
 identity preserves the method generation, IL coordinate, and root. A direct
@@ -140,7 +171,11 @@ Method completeness is the conjunction of:
 A limitation associated with one root cannot make an unrelated root
 incomplete. A method-level limitation cannot be projected as root-local
 evidence by guessing from type, display name, or the presence of another
-resource in the method.
+resource in the method. Once a method has a retained root, an unresolved
+ordinary call-boundary, storage, or return value remains method-level
+incompleteness because the value-flow substrate intentionally carries no
+partial provenance from which the producer could soundly prove that the value
+is unrelated.
 
 Positive occurrence evidence survives unrelated limitations. Unsupported or
 incomplete evidence does not become a successful empty result. Resolution
@@ -161,9 +196,14 @@ method-incomplete.
 
 The result carries no decoded instructions, block graph, reaching-definition
 state, metadata reader, resolver, or live service authority. It may participate
-in one service execution receipt with other focused results, but lifecycle,
-Research, sections, and other consumers receive it through its own type rather
-than through `LibraryBodyIndex` or a generic result bag.
+in one service execution receipt with other focused results.
+`LibraryResourceOccurrenceAnalysisResult` associates the shared receipt with
+the ordered method results and any acquisition-wide limitations; lifecycle,
+Research, sections, and other consumers receive those method results through
+that focused type rather than through `LibraryBodyIndex` or a generic result
+bag. [Resource Lifecycle Analysis](resource-lifecycle-analysis.md) consumes
+the occurrence evidence with same-execution path facts and preserves its
+root-local associations in lifecycle outcomes.
 
 The result is not yet the compact Research ownership-path contract. That
 consumer defines its required interprocedural summary under #6732. The
@@ -245,8 +285,8 @@ This owner is step 7 of the 26-step #6544 adoption plan:
    bespoke `ResourceOccurrenceAnalysisResult` published by
    `LibraryBodyAnalysisService`.
 2. #6731 consumes it with Analysis-owned control-flow and exception facts to
-   produce `ResourceLifecycleAnalysisResult` and migrate the Resource Triage
-   section directly to that type.
+   produce `LibraryResourceLifecycleAnalysisResult` and migrate the Resource
+   Triage section directly to that type.
 3. #6732 defines the compact interprocedural summary required by the Research
    call-graph consumer.
 4. ArrayPool parity is evaluated after those consumers exist. The

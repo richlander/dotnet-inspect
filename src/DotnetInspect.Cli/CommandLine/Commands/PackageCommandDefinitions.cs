@@ -30,8 +30,28 @@ public static class PackageCommandDefinitions
             Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
             Arity = ArgumentArity.ZeroOrMore
         };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description =
+                "Source: canonical Base64URL Workspace packet string",
+        };
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit the resolved Package scenario as a canonical Workspace packet or complete URL");
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched Package envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+#endif
 
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S Dependencies --tree (tip: use 'depends --package' instead)" };
+        var dependenciesOption = new Option<bool>("--dependencies")
+        {
+            Description = "Obsolete Package dependency-tree spelling",
+            Hidden = true,
+        };
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         var pathOption = new Option<string[]>("--path")
         {
@@ -41,6 +61,11 @@ public static class PackageCommandDefinitions
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
         var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };
+        var rootsOption = new Option<bool>("--roots")
+        {
+            Description =
+                "Project ordered distinct top-level roots represented by selected Package files rows"
+        };
         var tfmsOption = new Option<bool>("--tfms")
         {
             Description =
@@ -76,15 +101,36 @@ public static class PackageCommandDefinitions
         var bodyOption = new Option<bool>("--body") { Description = "When printing markdown content, output only content after YAML frontmatter" };
         var outOption = SharedOptions.CreateOutputPathOption();
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
+        var depthOption = new Option<string?>("--depth")
+        {
+            Description =
+                "With -S \"Dependency Hierarchy\": maximum dependency traversal depth"
+        };
+        depthOption.Validators.Add(result =>
+        {
+            string? value = result.GetValue(depthOption);
+            if (value is not null
+                && (!int.TryParse(value, out int depth)
+                    || depth <= 0))
+            {
+                result.AddError("--depth must be a positive integer.");
+            }
+        });
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
         packageCommand.Arguments.Add(packageNameArg);
+        packageCommand.Options.Add(workspaceOption);
+        packageCommand.Options.Add(shareOption);
+#if DEBUG
+        packageCommand.Options.Add(evidenceEnvelopeOption);
+#endif
         packageCommand.Options.Add(dependenciesOption);
         packageCommand.Options.Add(layoutOption);
         packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(pathMatchOption);
         packageCommand.Options.Add(skipEmptyOption);
+        packageCommand.Options.Add(rootsOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
@@ -98,6 +144,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(frontmatterOption);
         packageCommand.Options.Add(bodyOption);
         packageCommand.Options.Add(tfmOption);
+        packageCommand.Options.Add(depthOption);
         packageCommand.Options.Add(typeFilterOption);
         packageCommand.Options.Add(versionOption);
         packageCommand.Options.Add(opts.PreferRenderedUrls);
@@ -107,9 +154,16 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption,
+            tfmOption, depthOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, opts.NoHeaders);
+            skipEmptyOption, rootsOption, opts.NoHeaders,
+            workspaceOption, shareOption,
+#if DEBUG
+            evidenceEnvelopeOption
+#else
+            null
+#endif
+            );
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
@@ -128,7 +182,20 @@ public static class PackageCommandDefinitions
                     result,
                     opts,
                     commandArgs)
+                && !PackageOptionsParser.IsPackageLayoutRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && !PackageOptionsParser.IsPackageTfmRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                && !PackageOptionsParser
+                    .IsEcosystemDependencyRowSelection(
+                        result,
+                        opts,
+                        commandArgs)
+                && !PackageOptionsParser.IsCloneCandidateRowSelection(
                     result,
                     opts,
                     commandArgs));
@@ -145,7 +212,7 @@ public static class PackageCommandDefinitions
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, typeFilterOption, versionOption);
+            tfmOption, depthOption, typeFilterOption, versionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
@@ -199,6 +266,98 @@ public static class PackageCommandDefinitions
 
         });
 
+        // Register this fallback first: the registry prepends, so the
+        // established package populations below retain short-limit ownership.
+        var legacyPackageSectionRows =
+            new Option<string?>(
+                "--unavailable-package-section-semantic-rows")
+            {
+                Hidden = true,
+            };
+        var legacyPackageSectionHead =
+            new Option<bool>(
+                "--unavailable-package-section-semantic-head")
+            {
+                Hidden = true,
+            };
+        var legacyPackageSectionTail =
+            new Option<bool>(
+                "--unavailable-package-section-semantic-tail")
+            {
+                Hidden = true,
+            };
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                result.GetResult(opts.Select)
+                    is { Implicit: false }
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                legacyPackageSectionHead,
+                legacyPackageSectionTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                result.GetResult(opts.Select)
+                    is { Implicit: false }
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => PackageOptionsParser.IsCloneCandidateRowSelection(
+                result,
+                opts,
+                commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
@@ -232,10 +391,19 @@ public static class PackageCommandDefinitions
                     result,
                     opts,
                     commandArgs)
+                || PackageOptionsParser.IsPackageLayoutRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 || PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
-                    commandArgs),
+                    commandArgs)
+                || PackageOptionsParser
+                    .IsEcosystemDependencyRowSelection(
+                        result,
+                        opts,
+                        commandArgs),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

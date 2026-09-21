@@ -415,11 +415,13 @@ provide the phase distinction and non-retention boundary.
 `ArtifactAssemblyInspection.Project` consumes `ArtifactAdmissionContentView`.
 `ArtifactAssemblyInspection.Execute<TResult>` consumes
 `ArtifactQueryContentView`, the published projection, and a synchronous
-producer over `AssemblyInspectionSession`. Each operation pins the borrowed
-span only for its reader lifetime; query session disposal also occurs inside
-that pin. This adapts the owner's retained image without another full-image
-copy or a source reopen. The producer must return materialized results rather
-than deferred work or session-bound objects.
+producer over `AssemblyInspectionSession`. Each operation uses the view's
+zero-copy seekable-stream adapter only for its reader lifetime; query session
+disposal also occurs inside that adapter callback. The adapter disposes the
+stream and drops its image reference before returning. This adapts the owner's
+retained image without another full-image copy or a source reopen. The producer
+must return materialized results rather than deferred work or session-bound
+objects.
 
 The outer composition calls
 `ArtifactAssemblyProjectionOutcome.FromAccess` or
@@ -1119,7 +1121,10 @@ the content and diagnostics while projecting a derived packet from the complete
 definition; it must not rerun Type inspection.
 
 The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
-view for an explicit package version and TFM. Explicit sections, alternate
+view and its complete unprojected JSON boundary for an explicit package version
+and TFM. `--json` serializes `ExactTypeInspectionResult`; `--envelope` emits the
+same Content with result kind `exact-type`, Share, and ordered diagnostics.
+`--compact` controls either JSON boundary. Explicit sections, alternate
 formats, filters, `--all`, normal/detailed verbosity, documentation/source work,
 and every non-package source shape remain on the compatibility path because
 their richer facts are outside this result contract. Browser/Wasm embeds the
@@ -1219,10 +1224,14 @@ Platform Library Overview is outside this package-Root operation. It retains
 the existing Platform projection and does not invoke `QueryLibraryApi`.
 
 Initial CLI adoption is limited to a pinned NuGet package, explicit non-`all`
-TFM, explicit Library, and the ordinary type-listing catalog. Documentation,
-source/PDB, clone candidates, performance, decompilation, direct-file, project,
-Platform, package ranges, and Type/member-detail requests remain on named
-compatibility paths. Inspect Web adopts only Library Overview public counts and
+TFM, explicit Library, and the ordinary quiet/minimal type-listing catalog.
+Unprojected `--json` serializes `ExactLibraryApiInspectionResult`;
+`--envelope` emits the same Content with result kind `exact-library-api`, Share,
+and ordered diagnostics. `--compact` controls either JSON boundary.
+Documentation, source/PDB, clone candidates, performance, decompilation,
+direct-file, project, Platform, package ranges, Type/member-detail requests,
+and normal/detailed presentation remain on named compatibility paths.
+Inspect Web adopts only Library Overview public counts and
 facets; package-wide browsing and non-public navigation retain their separately
 owned package projection.
 
@@ -1898,8 +1907,9 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
    path is the smallest (single assembly, no package fan-out) — and confirm the CLI loses its
    `System.Reflection.Metadata` / `PortableExecutable` usings for that path.
 6. **Method-body seam.** Apply the same query → session → producer → final-shape pattern one
-   level down. `ILOffsetProjectionProducer` establishes it for coordinates; migrate
-   `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
+   level down. `ILOffsetProjectionProducer` establishes it for coordinates;
+   `MemberProjectionProducer` now owns member Research composition, with
+   `MemberCodeProvider` and the L1 member queries invoking it directly (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
 During the current migration, provenance breadth is resolved by

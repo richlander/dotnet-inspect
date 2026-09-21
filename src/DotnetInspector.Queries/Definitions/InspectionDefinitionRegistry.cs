@@ -519,6 +519,30 @@ public sealed class InspectionDefinitionRegistry
                         StringComparer.Ordinal));
     }
 
+    internal static IReadOnlyDictionary<string, GroupNavigationSource>
+        ResolveGroupNavigationSources(
+            WorkspaceDefinition workspace,
+            InspectionDefinitionRecord? navigation,
+            NavigationTargetMatchMode targetMatchMode)
+    {
+        if (navigation is null)
+            return new ReadOnlyDictionary<string, GroupNavigationSource>(
+                new Dictionary<string, GroupNavigationSource>());
+
+        return new ReadOnlyDictionary<string, GroupNavigationSource>(
+            ResolveNavigationSources(workspace, navigation, targetMatchMode)
+                .Where(static pair =>
+                    pair.Value.EffectiveCoordinate is null
+                    && pair.Value.MemberIndex is null)
+                .ToDictionary(
+                    static pair => pair.Key,
+                    pair => new GroupNavigationSource(
+                        pair.Value.ContextIndex,
+                        workspace.Contexts[pair.Value.ContextIndex].Members.Count,
+                        pair.Value.RuntimeIdentifier),
+                    StringComparer.Ordinal));
+    }
+
     internal static IReadOnlyList<PackageNavigationSource>
         ResolvePackageNavigationSourcePositions(
             WorkspaceDefinition workspace,
@@ -1500,6 +1524,61 @@ public sealed class InspectionDefinitionRegistry
                 .Select(context => ResolveContextInput(workspace, context))
                 .ToArray());
 
+    internal static WorkspacePlan CreateCompleteRestorationWorkspacePlan(
+        WorkspaceDefinition workspace) =>
+        new(
+            [.. workspace.Registrations],
+            workspace.Contexts
+                .Select(context =>
+                    ResolveCompleteRestorationContextInput(workspace, context))
+                .ToArray());
+
+    private static WorkspaceContextInput ResolveCompleteRestorationContextInput(
+        WorkspaceDefinition workspace,
+        WorkspaceContextDefinition context)
+    {
+        if (string.IsNullOrWhiteSpace(context.Subscribe))
+            return ResolveContextInput(workspace, context);
+
+        NavigationTarget target = EffectiveContextTarget(context);
+        if (target.Framework is null
+            || !WorkspaceSharePacketCodec.TryParseGroupExpression(
+                context.Subscribe,
+                out IReadOnlyList<GroupExpressionPin> pins)
+            || pins is not [{ SegmentIndex: 0 } pin]
+            || pin.SeparatorIndex != ":Platform".Length
+            || pin.ValueStart + pin.ValueLength != context.Subscribe.Length
+            || !context.Subscribe.StartsWith(
+                ":Platform@",
+                StringComparison.Ordinal))
+        {
+            throw new InspectionDefinitionException(
+                $"Workspace '{workspace.Id}' context '{context.Name}' uses "
+                    + $"unsupported complete-restoration group "
+                    + $"'{context.Subscribe}'. A single pinned :Platform group "
+                    + "with an effective framework is required.");
+        }
+
+        string version = context.Subscribe.Substring(
+            pin.ValueStart,
+            pin.ValueLength);
+        return new WorkspaceContextInput
+        {
+            Framework = target.Framework,
+            RuntimeIdentifier = target.RuntimeIdentifier,
+            Members =
+            [
+                // Package navigation indexes refer to the original member order.
+                .. context.Members.Select(
+                    DefinitionCoordinateLowering.ToWorkspaceMember),
+                WorkspaceMemberCoordinate.Platform(
+                    "runtime",
+                    version: version,
+                    framework: target.Framework),
+            ],
+        };
+    }
+
     private static ResolvedNavigation ResolveNavigation(
         NavigationDefinition navigation)
     {
@@ -1585,6 +1664,11 @@ internal sealed record PackageNavigationSource(
     int ContextIndex,
     int MemberIndex,
     DefinitionMemberCoordinate.PackageCoordinate EffectiveCoordinate);
+
+internal sealed record GroupNavigationSource(
+    int ContextIndex,
+    int MemberIndex,
+    string? RuntimeIdentifier);
 
 internal sealed record ScenarioRecordComposition(
     ScenarioDefinition Scenario,

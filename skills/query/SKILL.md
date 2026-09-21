@@ -15,10 +15,10 @@ field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
-projection across its dependency graph and evidence sections. Positional
-`depends <type>` also has a separate complete-service `--envelope` path
-described below. Other relationship commands may still expose fixed output.
-Discover the shape first where available, then select and project.
+projection across its dependency graph and evidence sections. Several commands
+also expose a separate complete-service `--envelope` path described below.
+Other relationship commands may still expose fixed output. Discover the shape
+first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -41,29 +41,32 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-Positional `depends <type>`, single-Library API `diff`, Package Activity, and
-ordinary or `--library-literal` Package Query support presence-only
-`--envelope`. It implies JSON and emits the complete service value with
+`--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
-For dependencies, `content` is semantically identical to the owner-issued camelCase
-`TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
-whitespace and property order may differ. `--compact`, `--depth`, and semantic
-relationship row selection remain available. Presentation formats,
-Discover/schema/effective modes, `-S`, explicit `-v`, Count, field/column or
-scalar projection, decoration, and rendered-line clipping are incompatible.
-For Library API Diff, unprojected `--json` and envelope `content` both serialize
-the complete `LibraryApiDiffOutcome` using result kind `library-api-diff`.
-`--all` and `--compact` remain admitted; Type/classification filters, sections,
-explicit verbosity, row/line controls, and non-API modes are incompatible with
-envelope output. Explicitly projected Diff JSON retains its presentation
-schema. Load `skill compatibility` for outcome and scope details.
-Package Activity uses `ecosystem-change-report`; ordinary Package Query uses
-`package-query`; and assembly-semantic Package Query uses
-`package-assembly-semantic-query`. Their unprojected `--json` uses the same
-Content serializer. Query controls remain admitted, while Count, row or section
-selection, projection, discovery, and competing formats are incompatible.
-Asset-mode `depends`, other command routes, internal sub-operations, and
-`--evidence-envelope` remain unadopted.
+Workspace coordinate replacement is the exception: request
+`--json --envelope` together. An envelope is not a presentation format above
+`--json`: use it only when Share or service diagnostics are part of the answer.
+
+| Route | Why the envelope can matter |
+| ----- | --------------------------- |
+| `type` / `member ... --match` | Carries the exact API-coordinate correspondence outcome and diagnostics; ordered match endpoints currently make Share non-projectable. |
+| `depends <type>` | Carries complete dependency Content, semantic relationship selection, diagnostics, and an available Share for an exact projectable NuGet.org package/TFM request. |
+| Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
+| `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
+| `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| `library query` | Carries complete Library-grain query Content, population/evaluation failures, and completion; Library Query Share is currently non-projectable. |
+| Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
+| Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
+| Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
+
+For adopted routes whose unprojected `--json` is complete Content, that JSON is
+semantically identical to `--envelope`'s `content`; whitespace and property
+order may differ. Package version JSON is the exception noted above.
+`--compact` minifies supported JSON boundaries. Post-service presentation
+formats, sections, fields, projections, and row/count controls are generally
+incompatible unless the route explicitly defines them as semantic inputs.
+Asset-mode `depends`, Member `Call Graph`, other command routes, internal
+sub-operations, and `--evidence-envelope` remain unadopted.
 
 On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
@@ -96,11 +99,16 @@ format.
 discover sections and fields, `-S` to select exact names, categories, compatible
 aliases, or wildcards, `-Q` to discover query facets and operators, and
 `--columns`/`--fields` to project values. Discover first instead of guessing names.
+On `library`, add `--details` to bare `-D` or one exact category or section to
+include supported presentation modes without acquiring the target.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -D "Member Index" --tsv
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
+dnx dotnet-inspect -y -- library System.Text.Json -D --details
+dnx dotnet-inspect -y -- library System.Text.Json -D @Dependencies --details
+dnx dotnet-inspect -y -- library System.Text.Json -D "Reference Hierarchy" --details
 ```
 
 Structural discovery describes authored membership without running producers;
@@ -111,10 +119,17 @@ effective discovery probes for data. Package and library differ:
 | Orient to a target | `package X -D` — effective base catalog. | `library X -D` — cheap target-aware base catalog. |
 | Inspect a category | `package X -D @Category` — effective members. | `library X -D @Category` — structural members; add `--effective` for populated members. |
 | Inspect section fields | `package X -D Section` — effective fields. | `library X -D Section` — structural fields; add `--effective` for rendered fields. |
+| Inspect output formats | Not yet adopted. | `library X -D --details` or `library X -D <exact-category-or-section> --details` — structural complete-selection capabilities. |
 | Read the static graph | `package -D --schema` | `library -D --schema` |
 
 On library, `-D --effective` runs full probes and remains scoped to base
 evidence unless a category is named.
+
+For an exact category, detailed discovery reports both the complete category
+and its members. It does not choose a compatible member or narrow the category.
+For an exact section, `--details` reports the section row; omit it to drill into
+fields or columns. After discovery, use exact `-S` section selection for
+single-result formats such as tree or Mermaid.
 
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |
@@ -128,6 +143,7 @@ evidence unless a category is named.
 | `ecosystem` | `@Ecosystem` | none |
 | `graph libraries` | `@Libraries` | none |
 | `package query` | `@Query` | none |
+| `library query` | `@Query` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -150,6 +166,8 @@ composes the pair-wide call-site, summary, and direct-use cluster projections;
 coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
 section. Package Query `@Query` composes `Packages` and `Query Summary`;
 ordinary output remains adaptive and bare `-S` retains `Packages`.
+Library Query `@Query` composes `Libraries` and `Query Summary`; ordinary
+output remains adaptive and bare `-S` retains `Libraries`.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
@@ -173,7 +191,7 @@ kinds and adds `Kind` when multiple kinds have rows.
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
 target. It is available on `library`, `type`, `member`, `package`,
-`package query`, and `find`.
+`package query`, `library query`, `find`, `depends`, and `graph libraries`.
 Use it before constructing filters; displayed columns do not imply support for
 `--where`, `--order-by`, or `--top`.
 
@@ -182,6 +200,8 @@ dnx dotnet-inspect -y -- library -Q
 dnx dotnet-inspect -y -- type -Q "Body Shapes"
 dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
 dnx dotnet-inspect -y -- library -Q @Performance
+dnx dotnet-inspect -y -- depends -Q "Dependency Graph"
+dnx dotnet-inspect -y -- package -Q "Dependency Hierarchy"
 ```
 
 Bare `-Q` lists query-capable sections. Named `-Q` lists exact facet keys,
@@ -215,7 +235,51 @@ dnx dotnet-inspect -y -- package query Newtonsoft.Json \
 dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+  --where "depends starts-with Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
+dnx dotnet-inspect -y -- package query 'Azure.*' \
+  --where "dependencies=cross-prefix"
+dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
+dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "dependency-target=net10.0" \
+  --where "dependency-depth=2" --take 1
 ```
+
+`library query -Q Libraries` exposes direct assembly-reference qualification
+for an explicit top-level DLL directory or platform reference pack:
+
+```bash
+dnx dotnet-inspect -y -- library query -Q Libraries --json
+dnx dotnet-inspect -y -- library query ./bin \
+  --where "references=System.Text.Json"
+dnx dotnet-inspect -y -- library query --platform runtime \
+  --where "references=System.Text.Json" --take 256 -n 10
+```
+
+Repeated `references` terms are ANDed at Library grain. `--take` bounds
+candidate Metadata inspection; `-n` and `--rows` select matching Library rows
+afterward. Missing or malformed Metadata remains visible and can prevent an
+exact Count.
+
+The positional-Type Dependency route exposes Source, Target, and Kind
+predicates, field and Traversal ordering, Top ranking, row stages, and Depth:
+
+```bash
+dnx dotnet-inspect -y -- depends Int128 \
+  --where "Kind=Interface" --order-by "Target desc" --top 5
+dnx dotnet-inspect -y -- package System.Text.Json@10.0.0 \
+  -S "Dependency Hierarchy" --depth 2
+```
+
+Traversal is a sequence order and cannot rank `--top`. Asset-mode `depends`
+and Package `Dependency Hierarchy` share the rooted-hierarchy profile: Depth
+limits traversal work, while row selection is applied afterward.
 
 `--where` repeats select product terms, not arbitrary package-field
 expressions. Independent terms are ANDed; the broad `tool=true` term identifies
@@ -224,14 +288,32 @@ the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 formats are ORed. `license=any|MIT|OSMF` is nuspec-only: `any` tests declaration
 presence, `MIT` matches the exact SPDX expression, and `OSMF` matches the
 declared `OSMFEULA.*` basename without reading the file. Query rows represent
-individual packages with exact versions, semantic answers, and structured
-evidence. Queries retrieve values and counts; hosts render any explanatory
-text. Dependency predicates
-inspect all nuspec groups
+individual packages with exact versions and semantic answers. Structured
+evidence remains available in unprojected JSON and the inspection envelope.
+Queries retrieve values and counts; hosts render any explanatory text.
+Dependency predicates inspect all nuspec groups
 by default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope
 `all` remains distinct from a manifest's `any` group and does not request
-traversal. `--take` bounds candidate work, while `-n` and `--rows` select final
+traversal. `dependencies=cross-prefix` matches a direct declaration whose first
+dot-delimited package-ID segment differs from the package's own segment.
+`depends starts-with <literal-package-id-prefix>` matches direct dependencies
+using case-insensitive literal prefix semantics. Include a trailing `.` to
+require a dot-delimited family boundary; repeat the term to require every
+prefix.
+`depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
+registered exact packages and package prefixes for one canonical ecosystem;
+repeat it to require every named ecosystem.
+`depends-transitive=<package-id>` requires an exact
+`dependency-target=<TFM>` and `dependency-depth=2|3|4`. It matches only
+source-authorized declaration reachability at depth 2 or greater, not direct
+dependencies or a NuGet restore graph. The query admits at most five package
+candidates; incomplete traversal remains a visible failure.
+`references=<simple-assembly-name>` scans the managed `ref/` and `lib/`
+assemblies from every target-framework group, matches `AssemblyRef` simple
+names case-insensitively, and reports framework/path evidence without resolving
+or traversing the reference.
+`--take` bounds candidate work, while `-n` and `--rows` select final
 matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
 execution: direct package rows use an effective candidate bound of N, while
 filtered queries scan until N matches or their default candidate bound.
@@ -344,34 +426,83 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Arrays" \
 global field-ranked prefix; use `--top N` for the curated global rank, or
 select one concrete kind when a specific field controls the order.
 
-## Limit output
+## Select and count items
 
-Prefer built-in limits to shell pipes:
+Prefer product selection to shell pipes. Every active command or lens has one
+effective item sequence:
 
-- `-n N` and numeric shorthand like `-6` select semantic rows when the active
-  command or lens declares them; otherwise they select rendered lines.
-- Add `--tail` for the last N items. Use `--lines` to switch a semantic command
-  to rendered lines or `--tail-lines` for trailing rendered lines.
-- `--rows N` takes the first N data rows per table on commands that retain the
-  legacy row window, preserving headings and headers; add `--tail` for the last
-  N. On adopted semantic-row surfaces, use `-n N` instead.
-- On commands retaining the legacy row window, `--rows 2..10` is an absolute
-  1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
-  and `10..` runs from row 10 to the end. A legacy range rejects
-  `--head`/`--tail` when no `-n` is present. Legacy `--rows` composes with an
-  inferred or explicit rendered-line `-n`; in that composition, `--head` or
-  `--tail` modifies `-n`.
-- `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
-  it selects one displayed row, not a compacted projection position.
-  `first`/`last` mean rendered endpoints; missing payloads fail instead of
-  sliding. `-n N` may still limit the result.
-- `--count` counts rows in one selected table.
+1. A declared semantic sequence uses complete packages, types, dependencies,
+   graph edges, or other domain rows.
+2. A route without semantic adoption uses rendered lines.
+3. `--lines` explicitly selects rendered lines even when semantic rows exist.
+
+`-n N` and bare `-N` keep the first N items. Add `--tail` for the last N;
+`--head` makes the default direction explicit. `--tail-lines` is the compact
+rendered-line form.
+
+On adopted semantic routes, `--rows` is a strict one-based inclusive window:
+`A..B`, `A..`, or `..B`. A missing required position fails instead of silently
+shortening the result. `-n` and `--rows` are ordered stages, so argument order
+is observable. `--head` and `--tail` modify `-n`, not the range.
+
+Legacy `--rows` composes with an inferred or explicit rendered-line `-n`, but
+not in argument order: the command-owned row window runs before outer line
+clipping.
+
+Member `Call Graph` is the current exception: its legacy command-owned
+`--rows` window clamps an unavailable end to the available edges. It produces
+an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `package query`, package activity, package `--versions` /
-`--versions-with-feed`, and `demo list` use semantic rows. `-n N` selects
-complete items; `-n N --lines` instead clips rendered output. Where supported,
-`--rows` accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows` compose as
-stages in argv order. `--head` and `--tail` modify `-n`, not the range. On
-`package query`, `--take N` separately bounds package work before semantic row
-selection.
+`timeline`, `match --similar`, `package query`, `library query`, package activity, package
+`--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
+Integration graph edges, selected package file/SourceLink inventories,
+selected Project document inventories, explicit-source Type catalogs, and
+exact Member `Calls` and `Callers` have semantic adoption in their supported
+modes.
+Partially adopted modes fall back to rendered lines.
+
+Where a route supports it, `--count` is a terminal projection over the selected
+semantic rows. On sectioned output, select one concrete table for a scalar
+count. Count does not mean “count the unselected input,” and it does not by
+itself authorize unbounded work; incomplete population evidence can prevent an
+exact count.
+
+`--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`, it
+selects one displayed row; `first` and `last` mean the rendered endpoints.
+Missing payloads fail rather than sliding to another row.
+
+Keep work bounds and ranking separate: Package Query `--take N` bounds
+candidate work before final row selection, and Library Query `--take N` bounds
+its explicit Library population before final row selection, while `--top N`
+requires a ranking order. None is another spelling of `-n`.
+
+## Use a URL as part of the answer
+
+Inspect Web consumes the same inspection and portable-query contracts. For a
+supported envelope, inspect `share.kind`; `available` means the request is
+projectable, not that the browser has adopted its packet format. Do not turn
+`nonProjectable` into an approximate link.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --package System.Text.Json@10.0.0 Serialize:1 \
+  --tfm net10.0 --share url
+dnx dotnet-inspect -y -- depends \
+  --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
+```
+
+These browser-restorable format-1 URLs carry canonical datapackets, not
+captured output. The receiving Inspect Web host re-runs the represented member
+or package-dependency operation. Format-1 packets are not accepted by CLI
+complete restoration. For formats 2–4, pass opaque packet text to
+`workspace --packet "$packet"`; it rejects URL input. The CLI can issue
+Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
+Inspect Web rejects both formats. Keep them as packet strings for supported
+CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
+Web does not yet restore query-bearing packets. Keep Package Query answers in
+Content rather than manufacturing a link. Inspect Web directly adopts Library
+Query in the current package's Library navigation by sending the same portable
+`references` intent to the shared envelope and filtering with returned asset
+IDs; it does not infer matches from display names.
+Offer a URL only for a browser-restorable scenario selection.

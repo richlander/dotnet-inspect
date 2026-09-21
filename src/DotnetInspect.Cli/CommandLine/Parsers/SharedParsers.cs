@@ -161,11 +161,13 @@ public static class SharedParsers
         SourceSelectionInputs inputs,
         NuGetSourceOptions? sourceOptions,
         bool verbose,
-        bool tryQualifiedTypeName)
+        bool tryQualifiedTypeName,
+        string? platformFramework = null)
     {
         var source = await SourceResolver.ResolveAsync(
             inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
-            sourceOptions, verbose, tryQualifiedTypeName).ConfigureAwait(false);
+            sourceOptions, verbose, tryQualifiedTypeName, platformFramework)
+            .ConfigureAwait(false);
 
         return new SourceSelection(
             inputs.Args,
@@ -331,20 +333,18 @@ public static class SharedParsers
     }
 
     /// <summary>
-    /// Parses member filter values where a single numeric value means limit,
-    /// otherwise values are treated as filter names.
+    /// Parses member filter values as filter names.
     /// </summary>
     /// <param name="values">The member filter values from -m option.</param>
-    /// <returns>A tuple of (filter set, limit). One will be empty/null.</returns>
-    public static (HashSet<string> Filter, int? Limit) ParseMemberFilter(string[] values)
+    /// <returns>The normalized member filter set.</returns>
+    public static HashSet<string> ParseMemberFilter(string[] values)
     {
         if (values.Length == 0)
-            return ([], null);
+            return [];
 
-        if (values.Length == 1 && int.TryParse(values[0], out var limit))
-            return ([], limit);
-
-        return (new HashSet<string>(values.Select(FqnParser.NormalizeMemberName), StringComparer.OrdinalIgnoreCase), null);
+        return new HashSet<string>(
+            values.Select(FqnParser.NormalizeMemberName),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

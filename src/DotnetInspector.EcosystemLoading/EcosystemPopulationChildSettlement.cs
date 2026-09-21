@@ -1,4 +1,5 @@
 using DotnetInspector.Libraries;
+using Inspector.Artifacts.Workspaces;
 using Inspector.Resources;
 
 namespace DotnetInspector.EcosystemLoading;
@@ -8,6 +9,7 @@ public enum EcosystemPopulationChildSettlementKind
 {
     Completed,
     Unavailable,
+    Ambiguous,
     Incomplete,
     Rejected,
     Failed,
@@ -60,7 +62,7 @@ public sealed class EcosystemPopulationChildReceiptIdentity
 }
 
 /// <summary>
-/// Resource-free exact adjacent-owner request and terminal receipt identities.
+/// Resource-free exact adjacent-owner request and terminal receipt evidence.
 /// </summary>
 public sealed class EcosystemPopulationChildSettlement
 {
@@ -69,7 +71,8 @@ public sealed class EcosystemPopulationChildSettlement
         EcosystemPopulationChildRequestIdentity childRequest,
         EcosystemPopulationChildReceiptIdentity childReceipt,
         EcosystemPopulationChildSettlementKind kind,
-        EcosystemPopulationChildCompletionKind? completionKind)
+        EcosystemPopulationChildCompletionKind? completionKind,
+        EcosystemPlatformPopulationChildEvidence? platformEvidence = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(childRequest);
@@ -106,6 +109,7 @@ public sealed class EcosystemPopulationChildSettlement
         Receipt = childReceipt;
         Kind = kind;
         CompletionKind = completionKind;
+        PlatformEvidence = platformEvidence;
     }
 
     internal EcosystemPopulationLoadRequestIdentity ParentRequest { get; }
@@ -113,6 +117,10 @@ public sealed class EcosystemPopulationChildSettlement
     public EcosystemPopulationChildReceiptIdentity Receipt { get; }
     public EcosystemPopulationChildSettlementKind Kind { get; }
     public EcosystemPopulationChildCompletionKind? CompletionKind { get; }
+    public EcosystemPlatformPopulationChildEvidence? PlatformEvidence
+    {
+        get;
+    }
 }
 
 /// <summary>Roles one loaded Library has in its Ecosystem population.</summary>
@@ -165,6 +173,14 @@ public sealed class EcosystemPopulationCompletedChild
     public EcosystemPopulationCompletedChild(
         EcosystemPopulationChildSettlement settlement,
         IEnumerable<EcosystemPopulationLibraryOwnership> libraries)
+        : this(settlement, libraries, artifactSession: null)
+    {
+    }
+
+    internal EcosystemPopulationCompletedChild(
+        EcosystemPopulationChildSettlement settlement,
+        IEnumerable<EcosystemPopulationLibraryOwnership> libraries,
+        ArtifactSetSession? artifactSession)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(libraries);
@@ -196,6 +212,7 @@ public sealed class EcosystemPopulationCompletedChild
                             ownership.Roles,
                             settlement))
                 .ToArray());
+        ArtifactSession = artifactSession;
     }
 
     public EcosystemPopulationChildSettlement Settlement { get; }
@@ -206,6 +223,7 @@ public sealed class EcosystemPopulationCompletedChild
 
     internal IReadOnlyList<EcosystemPopulationLibraryOwnership> Ownerships =>
         _ownerships;
+    internal ArtifactSetSession? ArtifactSession { get; }
 }
 
 /// <summary>Resource-free projection of one loaded Library contribution.</summary>

@@ -204,9 +204,13 @@ call-site view or bare `-S`, preserving current output and cost expectations.
 
 Each row exposes the directed pair, cluster ordinal and anchor tokens,
 structural footprint counts, and one-based `Call Site Rows` references into the
-unchanged exact call-site table. Normal section discovery, row windows, Count,
-table, TSV, JSONL, JSON, Markdown, and plain-text lowering apply through the
-existing generated Markout context.
+unchanged exact call-site table. Exact section selection, after
+case-insensitive deduplication of repeated identical selectors, applies
+semantic Head/Tail and strict Window stages to the complete Query-issued cluster
+vector after optional `Cluster=N` scoping. Count, table, TSV, JSONL, JSON,
+Markdown, and plain-text lowering then consume the same selected cluster
+identities through the existing generated Markout context. Explicit Lines
+remains rendered-text selection.
 
 `--where "Cluster=N"` is the drill-down gesture for one pair-wide cluster
 ordinal. `Cluster` is a typed equality predicate over the logical pair
@@ -223,14 +227,22 @@ equality operator. A dedicated `--cluster` flag is intentionally not minted:
 the ordinal is existing typed row data, not a new coordinate currency. This
 follows [Output shapes](output-shapes.md#coordinate-carriers-sit-before-the-ladder),
 which prefers a section, category, or `--where` predicate before adding a
-carrier. `graph libraries -Q "Call Sites"` and the other three projection
-names expose the same `Cluster` binding without inspecting the library pair.
+carrier. `graph libraries -Q "Call Sites"` and the other four section names expose the
+same `Cluster` binding without inspecting the library pair.
 
 `AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster` owns the
 host-neutral transformation from a complete-pair projection to that
 occurrence-scoped pair and remapped cluster receipt. The CLI and future
 Browser/Wasm consumers share it rather than reconstructing selection from
 rendered row text.
+
+`GraphLibrariesQuery` owns the executable query registration above that
+transformation. It registers the Cluster binder once, resolves canonical
+portable intent into `GraphLibrariesQueryPlan`, and exposes one command route
+plus one route for each existing Graph Libraries row set. CLI `-Q` discovery
+and `--where` lowering consume those routes; the five sections do not maintain
+another facet inventory. This registration changes no cluster identity,
+assignment, scope transformation, output row, or failure behavior.
 
 The intended CLI journey is:
 

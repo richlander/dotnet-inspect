@@ -1056,7 +1056,7 @@ public class ConstructorOverloadView
 public record ConstructorParameterRow(string Parameter, string Type, string Notes);
 
 /// <summary>
-/// View model for type shape output (--shape).
+/// View model for type tree output.
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(FullName))]
 public class TypeShapeView
@@ -1285,11 +1285,13 @@ public class MemberCodeView
 
     /// <summary>
     /// Hides the Callers "Source" column when every caller comes from a single assembly
-    /// (the default single-assembly scan), keeping that output unchanged. The column appears
-    /// only when a caller scope (<c>--bin</c>/<c>--project</c>) brings in additional assemblies.
+    /// (the default single-source result), keeping that output unchanged. A semantic selection
+    /// preserves the completed vector's decision when it narrows multi-source rows to one source.
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
-        => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
+        => rows is null
+            || (rows.All(row => !row.SourceColumnRequired)
+                && rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1);
 
     public static bool CallerEvidenceMethodIsEmpty(List<CallerSiteRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
@@ -1349,6 +1351,31 @@ public class MemberCodeView
 
 }
 
+[MarkoutSerializable(AutoFields = false)]
+public sealed class EmptyMemberCallsView
+{
+    [MarkoutSection(Name = SectionNames.Calls)]
+    [MarkoutIgnoreInTable]
+    public MarkoutTable Calls { get; } = new(
+        [
+            "IL Offset",
+            "Opcode",
+            "Call Kind",
+            "Callee",
+            "Operand Token",
+            "Return Address",
+        ],
+        [
+            "il_offset",
+            "opcode",
+            "call_kind",
+            "callee",
+            "operand_token",
+            "return_address",
+        ],
+        []);
+}
+
 [MarkoutContext(typeof(TypeShapeView))]
 public partial class TypeViewContext : MarkoutSerializerContext
 {
@@ -1365,6 +1392,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ExplicitInterfaceImplementationsView))]
 [MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
+[MarkoutContext(typeof(EmptyMemberCallsView))]
 [MarkoutContext(typeof(CallSiteRow))]
 [MarkoutContext(typeof(ExceptionRegionRow))]
 [MarkoutContext(typeof(CallerSiteRow))]
@@ -1564,6 +1592,10 @@ public record CallerSiteRow(
     public string Source { get; init; } = Source;
 
     public string Caller { get; init; } = Caller;
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public bool SourceColumnRequired { get; init; }
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Evidence Method")]
@@ -1868,6 +1900,7 @@ public record ImplementationProfileRow(
     int ConditionalBranches,
     int Switches,
     int SwitchTargets,
+    int NormalFlowComplexity,
     int Loops,
     int Exceptions,
     int CatchRegions,
@@ -1928,6 +1961,10 @@ public record ImplementationProfileRow(
 
     [MarkoutPropertyName("Switch Targets")]
     public int SwitchTargets { get; init; } = SwitchTargets;
+
+    [MarkoutPropertyName("Normal-Flow Cyclomatic Complexity")]
+    public int NormalFlowComplexity { get; init; } =
+        NormalFlowComplexity;
 
     public int Loops { get; init; } = Loops;
 

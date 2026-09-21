@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
+using DotnetInspector.SourceSelection;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -11,6 +12,14 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public record LibraryOptions : IProjectionOptions
 {
+    /// <summary>
+    /// Typed declaration of the one source selected for this inspection.
+    /// Empty preserves compatibility for callers that still provide the
+    /// legacy source fields below.
+    /// </summary>
+    internal SourceIntent SourceIntent { get; init; } =
+        SourceIntent.Empty;
+
     /// <summary>
     /// Assembly name within a package (positional argument).
     /// Null when inspecting via --package, --platform, or direct file path.
@@ -28,14 +37,9 @@ public record LibraryOptions : IProjectionOptions
     public bool IncludeReferences { get; init; }
 
     /// <summary>
-    /// Legacy CLI request for the References tree projection.
+    /// Removed legacy CLI request for the reference hierarchy.
     /// </summary>
     public bool IncludeDependencies { get; init; }
-
-    /// <summary>
-    /// Internal execution demand for the resolved transitive reference tree.
-    /// </summary>
-    internal bool CollectReferenceTree { get; init; }
 
     /// <summary>
     /// Internal execution demand for the identifier audit's resolved transitive scope.
@@ -45,10 +49,10 @@ public record LibraryOptions : IProjectionOptions
     internal bool CollectIdentifierConfusionReferenceTree { get; init; }
 
     /// <summary>
-    /// Maximum reference-tree depth, where 1 includes direct references only.
+    /// Maximum reference-hierarchy depth, where 1 includes direct references only.
     /// Null traverses the complete resolvable graph.
     /// </summary>
-    public int? ReferenceTreeDepth { get; init; }
+    public int? ReferenceHierarchyDepth { get; init; }
 
     /// <summary>
     /// Path to a NuGet package to extract the assembly from.
@@ -233,6 +237,11 @@ public record LibraryOptions : IProjectionOptions
     public string[]? Discover { get; init; }
 
     /// <summary>
+    /// Include additional structural discovery metadata.
+    /// </summary>
+    public bool DiscoverDetails { get; init; }
+
+    /// <summary>
     /// Run the producers needed to establish actual section effectiveness during discovery.
     /// </summary>
     public bool Effective { get; init; }
@@ -297,6 +306,22 @@ public record LibraryOptions : IProjectionOptions
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for the globally ranked Clone Candidates section.
+    /// </summary>
+    public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for direct assembly references.
+    /// </summary>
+    public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one Library's ecosystem-dependency pairs.
+    /// </summary>
+    public RowSelectionIntent<string>?
+        EcosystemDependencyRowSelection { get; init; }
 
     /// <summary>
     /// Row predicates for the Performance Triage section.

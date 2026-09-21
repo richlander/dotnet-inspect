@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  renderPackageOverviewContent,
   renderOverviewSurface,
   type OverviewSurfaceOptions,
 } from "../src/overview-surface.ts";
@@ -24,14 +25,14 @@ function overview(overrides: Partial<OverviewSurfaceOptions> = {}): string {
     activeFramework: "net10.0",
     totalTypes: 3,
     totalMembers: 12,
-    coordinateFieldsHtml: '<select id="package-version"></select><select id="framework"></select>',
-    contentHtml: '<section class="document-section"><h2>Libraries</h2></section>',
+    coordinateFieldsHtml: '<select id="package-version"></select>',
+    contentHtml: '<section class="document-section"><h2>Package info</h2></section>',
     escapeHtml,
     ...overrides,
   });
 }
 
-test("Overview puts counts, controls, content, and coordinates in one working surface", () => {
+test("Overview puts counts, version, content, and coordinates in one working surface", () => {
   const html = overview();
   assert.match(html, /aria-labelledby="package-overview-title"/);
   assert.match(html, /<h1 id="package-overview-title">Example\.Package<\/h1>/);
@@ -39,10 +40,25 @@ test("Overview puts counts, controls, content, and coordinates in one working su
   assert.match(html, /overview-identity[\s\S]*subject-icon[\s\S]*Example\.Package/);
   assert.match(html, /3 types &middot; 12 members/);
   assert.match(html,
-    /overview-controls[\s\S]*id="package-version"[\s\S]*id="framework"[\s\S]*overview-scroll[\s\S]*<h2>Libraries<\/h2>[\s\S]*overview-surface-footer/);
+    /overview-controls[\s\S]*id="package-version"[\s\S]*overview-scroll[\s\S]*<h2>Package info<\/h2>[\s\S]*overview-surface-footer/);
+  assert.doesNotMatch(html, /id="framework"/);
   assert.match(html, /title="Example.Package@10.0.0">Example.Package@10.0.0<\/span>/);
   assert.match(html, /title="net10.0">net10.0<\/span>/);
   assert.doesNotMatch(html, /type-heading|package-coordinate-editor/);
+});
+
+test("Package Overview composes Package info without a Library inventory", () => {
+  const html = renderPackageOverviewContent({
+    packageInfoHtml: "<section><h2>Package info</h2></section>",
+    comparisonHtml: "<section><h2>Comparison</h2></section>",
+    documentsHtml: "<section><h2>Documents</h2></section>",
+  });
+
+  assert.match(html, /package-overview-summary[\s\S]*Package info/);
+  assert.match(html, /package-overview-resources[\s\S]*Documents[\s\S]*Comparison/);
+  assert.doesNotMatch(
+    html,
+    /library-list|data-lib-scope|<h2>Libraries<\/h2>|data-library-query-form|library-query-status/);
 });
 
 test("Overview retains zero totals and supplied document navigation", () => {

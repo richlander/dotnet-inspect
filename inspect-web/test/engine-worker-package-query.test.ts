@@ -79,9 +79,9 @@ const progressEvent: EngineWorkerPackageQueryDurableEvent = {
   failure: null,
   completion: null,
   progress: {
-    phase: "Manifest",
+    phase: "DependencyTraversal",
     completed: 1,
-    limit: 20,
+    limit: 5,
   },
   assessment: null,
 };
@@ -164,9 +164,9 @@ const failureEvent: EngineWorkerPackageQueryDurableEvent = {
     packageId: "Contoso.Broken",
     version: "1.0.0",
     producer: "manifest",
-    kind: "ManifestAcquisition",
-    message: "manifest unavailable",
-    manifestFailureReason: "InvalidDependencyContract",
+    kind: "DependencyTraversal",
+    message: "dependency traversal incomplete",
+    manifestFailureReason: null,
   },
   completion: null,
   progress: null,
@@ -947,6 +947,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
       value: "true",
       label: "Verified",
       tier: "nuspec",
+      executionClass: "nuspec",
     }],
     terms: [{
       descriptor: {
@@ -955,6 +956,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
         summary: "Matches a direct dependency in any group.",
         weight: 10,
         tier: "nuspec",
+        executionClass: "nuspec",
         operators: ["eq"],
         valueKind: "package-id",
         example: "Microsoft.Extensions.Hosting",

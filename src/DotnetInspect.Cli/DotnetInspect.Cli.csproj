@@ -10,6 +10,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DotnetInspectRuntimeFlavor>true</DotnetInspectRuntimeFlavor>
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
@@ -103,6 +104,15 @@
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse.Execution.Installed\DotnetInspector.PlatformHouse.Execution.Installed.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse.Execution.Packages\DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse.Installed\DotnetInspector.PlatformHouse.Installed.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse.Packages\DotnetInspector.PlatformHouse.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse\DotnetInspector.PlatformHouse.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Platforms.Installed\DotnetInspector.Platforms.Installed.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
     <ProjectReference Include="..\DotnetInspector.DocumentationHouse.Direct\DotnetInspector.DocumentationHouse.Direct.csproj" />
     <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />

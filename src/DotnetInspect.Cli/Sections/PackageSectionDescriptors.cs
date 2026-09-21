@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspect.Cli.Views;
 
@@ -80,7 +81,13 @@ public static class PackageSectionDescriptors
                 SourceAvailabilityQuery.Definition,
                 HasLibraries)
             .Add<Signature>()
+            // Effective discovery advertises the authored hierarchy schema without acquiring
+            // transitive dependency evidence; rendering remains gated by CanRender.
+            .Add<DependencyHierarchy>(static _ => true)
             .Add<Dependencies>()
+            // Discovery advertises the pair-grain schema before PackageHouse realization;
+            // rendering remains gated by EcosystemDependencies.CanRender.
+            .Add<EcosystemDependencies>(static _ => true)
             .Add<Vulnerabilities>()
             .Add<Manifest>()
             .Add<RuntimeDependencies>()
@@ -97,6 +104,7 @@ public static class PackageSectionDescriptors
                 PackageSections.TargetFrameworks,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Vulnerabilities,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies,
@@ -107,7 +115,9 @@ public static class PackageSectionDescriptors
             .AddBaseCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
             .AddCategory(
                 SectionCategoryNames.Dependencies,
+                PackageSections.DependencyHierarchy,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.RuntimeDependencies)
             .AddCategory(
                 SectionCategoryNames.Audit,
@@ -236,7 +246,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.TargetFrameworks;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.TargetFrameworks is { Count: > 0 };
     }
@@ -245,7 +255,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.FilesSkills;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesSkills);
     }
@@ -265,8 +275,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.FilesNuspec;
         public static bool IsExpensive => false;
-        // Exactly one row for every package that has a manifest.
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesNuspec);
     }
@@ -332,7 +341,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.Vulnerabilities;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Moderated;
         public static bool CanRender(InspectionResult model)
             => model.Vulnerabilities is { Count: > 0 };
@@ -340,20 +349,52 @@ public static class PackageSectionDescriptors
 
     // ===== Offline sections =====
 
+    public sealed class DependencyHierarchy :
+        ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.DependencyHierarchy;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(InspectionResult model) =>
+            model.DependencyHierarchyProjection is not null;
+    }
+
     public sealed class Dependencies : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Dependencies;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.DependencyGroups is { Count: > 0 };
+    }
+
+    public sealed class EcosystemDependencies :
+        ISectionDescriptor<InspectionResult>
+    {
+        public static string Name =>
+            PackageSections.EcosystemDependencies;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(InspectionResult model) =>
+            model.EcosystemDependencyRecognitionInspection?.Content
+                is EcosystemDependencyRecognitionOutcome.Complete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    }
+                or EcosystemDependencyRecognitionOutcome.Incomplete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    };
     }
 
     public sealed class Manifest : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Manifest;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => !string.IsNullOrWhiteSpace(model.PackageName)
                || !string.IsNullOrWhiteSpace(model.Version)
@@ -366,7 +407,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.RuntimeDependencies;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(InspectionResult model)
             => model.RuntimeDependencies is { Count: > 0 };
     }

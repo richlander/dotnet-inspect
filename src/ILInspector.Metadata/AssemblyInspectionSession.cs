@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Inspector.Resources;
 using ILInspector.MetadataPrimitives;
@@ -85,6 +86,23 @@ public sealed class AssemblyInspectionSession :
     /// </summary>
     public static AssemblyInspectionSession Borrow(PdbContext context)
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
+
+    internal MetadataDeclarationSession CreateDeclarationSession(
+        MetadataOperationContext operationContext)
+    {
+        ArgumentNullException.ThrowIfNull(operationContext);
+        _image.EnsureAlive();
+        return new MetadataDeclarationSession(this, operationContext);
+    }
+
+    internal void EnsureAliveForDeclarationSession() =>
+        _image.EnsureAlive();
+
+    internal MetadataReader GetMetadataReaderForDeclarationSession()
+    {
+        _image.EnsureAlive();
+        return _image.GetMetadataReader();
+    }
 
     /// <inheritdoc />
     /// <remarks>
@@ -225,8 +243,14 @@ public sealed class AssemblyInspectionSession :
     public ApiSurfaceExtractionResult BoundedApiSurface(
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
-        bool typesOnly = false)
-        => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
+        => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader,
+            scope,
+            bounds,
+            typesOnly,
+            includeCompilerGenerated);
 
     /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
     public ApiSurfaceExtractionResult BoundedApiSurface(

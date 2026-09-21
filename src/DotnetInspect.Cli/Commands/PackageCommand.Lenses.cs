@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -21,6 +22,7 @@ using DotnetInspect.Cli.Views;
 using InertText;
 using Inspector.Findings;
 using Markout;
+using Markout.Formatting;
 using System.Buffers;
 using System.Globalization;
 using System.Text;
@@ -57,6 +59,28 @@ public partial class PackageCommand
         }
     }
 
+    private static bool TryValidatePackageTargetFramework(
+        InspectionOptions options)
+    {
+        if (!HasTargetFrameworkFileFilter(options)
+            || !RequestsPackageFileRows(options))
+        {
+            return true;
+        }
+
+        try
+        {
+            _ = PackageHouseTargetContext.Exact(options.Tfm!);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            CommandError.Write(
+                $"Invalid --tfm value '{options.Tfm}': expected a bounded ASCII target moniker.");
+            return false;
+        }
+    }
+
     private static bool TryCreatePackageInfoTargetContext(
         InspectionOptions options,
         InspectionOptions producerOptions,
@@ -70,7 +94,9 @@ public partial class PackageCommand
             || options.ShowContent
             || options.PackageLibrary is not null
             || options.AllLibraries
-            || !RequestsPackageInfoMeasurements(producerOptions, pipeline))
+            || !RequestsPackageHouseCompileRealization(
+                producerOptions,
+                pipeline))
         {
             return true;
         }
@@ -115,27 +141,181 @@ public partial class PackageCommand
                 .Contains(PackageSections.PackageInfo);
     }
 
-    private static void ApplyPackageInfoMeasurements(
+    private static bool RequestsPackageHouseCompileRealization(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline) =>
+        RequestsPackageInfoMeasurements(options, pipeline)
+        || RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.EcosystemDependencies,
+            pipeline);
+
+    private static bool RequestsPackageEcosystemDependencies(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline) =>
+        RequestsPackageInfoMeasurements(options, pipeline)
+        || RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.EcosystemDependencies,
+            pipeline);
+
+    private static NuspecData? FindPackageNuspecForInspection(
+        string extractPath,
+        PackageExtractionResult resolution,
+        bool ecosystemRecognitionRequested)
+    {
+        try
+        {
+            return NuspecParser.FindAndParse(extractPath);
+        }
+        catch (NuspecParseException) when (
+            ecosystemRecognitionRequested
+            && CanAttributePackageEcosystemRecognition(resolution))
+        {
+            return null;
+        }
+    }
+
+    private static bool CanAttributePackageEcosystemRecognition(
+        PackageExtractionResult resolution) =>
+        resolution.HouseSettlement is PackageHouseSettlement.Acquired
+        || PackageEcosystemDependencyRecognitionInspection
+            .TryCreateUnavailableWithoutAcquiredSettlement(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ProducerKey,
+                out _);
+
+    private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
         long? fallbackPackageSize,
+        string? requestedTargetFramework,
         Action<string>? log)
     {
+        InspectionEnvelope<PackageInfoMeasurements>? inspection = null;
         if (resolution.HouseSettlement
+                is PackageHouseSettlement.Acquired toolSettlement
+            && await PackageToolDeclarationEvidence.TryCreateAsync(
+                toolSettlement.Payload) is { } declaration)
+        {
+            inspection =
+                PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                    toolSettlement,
+                    declaration,
+                    requestedTargetFramework?.Equals(
+                        "all",
+                        StringComparison.OrdinalIgnoreCase) == true
+                            ? null
+                            : requestedTargetFramework);
+        }
+        else if (resolution.HouseSettlement
             is PackageHouseSettlement.Acquired settlement)
         {
-            InspectionEnvelope<PackageInfoMeasurements> inspection =
+            inspection =
                 PackageInfoMeasurementInspection.Project(settlement);
-            result.PackageInfoMeasurementInspection = inspection;
-            result.PackageSize =
-                inspection.Content.CompressedPackageBytes;
-            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
-                log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
-            return;
         }
 
-        result.PackageSize = fallbackPackageSize;
+        if (inspection is not null)
+            ApplyPackageInfoMeasurementInspection(result, inspection, log);
+        else
+            result.PackageSize = fallbackPackageSize;
     }
+
+    private static void ApplyPackageInfoMeasurementInspection(
+        InspectionResult result,
+        InspectionEnvelope<PackageInfoMeasurements> inspection,
+        Action<string>? log)
+    {
+        result.PackageInfoMeasurementInspection = inspection;
+        result.PackageSize = inspection.Content.CompressedPackageBytes;
+        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+            log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
+    }
+
+    private static async Task ApplyPackageEcosystemDependenciesAsync(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        bool discloseEmptyDetailDiagnostics,
+        Action<string>? log)
+    {
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection;
+        if (resolution.HouseSettlement
+            is not PackageHouseSettlement.Acquired settlement)
+        {
+            if (!PackageEcosystemDependencyRecognitionInspection
+                    .TryCreateUnavailableWithoutAcquiredSettlement(
+                        result.PackageName,
+                        result.Version,
+                        resolution.ProducerKey,
+                        out InspectionEnvelope<
+                            EcosystemDependencyRecognitionOutcome>?
+                            unavailableInspection)
+                && !PackageEcosystemDependencyRecognitionInspection
+                    .TryCreateUnavailableWithoutAcquiredSettlement(
+                        resolution.PackageName,
+                        resolution.Version,
+                        resolution.ProducerKey,
+                        out unavailableInspection))
+            {
+                throw new InvalidOperationException(
+                    "Package ecosystem recognition cannot attribute the "
+                    + "acquired package to an exact canonical package "
+                    + "coordinate.");
+            }
+
+            inspection = unavailableInspection;
+        }
+        else
+        {
+            inspection =
+                await PackageEcosystemDependencyRecognitionInspection
+                    .ExecuteAsync(settlement)
+                    .ConfigureAwait(false);
+        }
+
+        ApplyPackageEcosystemDependencies(
+            result,
+            inspection,
+            discloseEmptyDetailDiagnostics,
+            log);
+    }
+
+    private static void ApplyPackageEcosystemDependencies(
+        InspectionResult result,
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection,
+        bool discloseEmptyDetailDiagnostics,
+        Action<string>? log)
+    {
+        result.EcosystemDependencyRecognitionInspection = inspection;
+        bool discloseDiagnostics =
+            discloseEmptyDetailDiagnostics
+            && inspection.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized.IsEmpty,
+                EcosystemDependencyRecognitionOutcome.Unavailable => true,
+                _ => false,
+            };
+        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+        {
+            string message = $"{diagnostic.Code}: {diagnostic.Summary}";
+            if (discloseDiagnostics)
+            {
+                CommandError.WriteWarning(message);
+            }
+            else
+            {
+                log?.Invoke(message);
+            }
+        }
+    }
+
+    private static bool RequiresPackageEcosystemDiagnosticDisclosure(
+        InspectionOptions options) =>
+        options.IncludeSections is { } sections
+        && sections.Contains(PackageSections.EcosystemDependencies)
+        && !sections.Contains(PackageSections.PackageInfo);
 
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
     {
@@ -145,13 +325,20 @@ public partial class PackageCommand
         // Scope to a specific TFM if requested
         if (!string.IsNullOrEmpty(options.Tfm))
         {
-            string libDir = Path.Combine(extractPath, "lib", options.Tfm);
-            string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
+            string? scope = options.ScopeLib
+                ? "lib"
+                : options.ScopeTools
+                    ? "tools"
+                    : null;
+            string scopedDirectory =
+                Path.Combine(extractPath, scope ?? "lib", options.Tfm);
+            string toolsDirectory =
+                Path.Combine(extractPath, "tools", options.Tfm);
 
-            if (Directory.Exists(libDir))
-                searchPath = libDir;
-            else if (Directory.Exists(toolsDir))
-                searchPath = toolsDir;
+            if (Directory.Exists(scopedDirectory))
+                searchPath = scopedDirectory;
+            else if (scope is null && Directory.Exists(toolsDirectory))
+                searchPath = toolsDirectory;
             else
             {
                 CommandError.Write($"TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
@@ -176,18 +363,54 @@ public partial class PackageCommand
         string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
 
         var relativePaths = files
-            .Select(f => Path.GetRelativePath(relativeBase, f))
+            .Select(
+                f => Path.GetRelativePath(relativeBase, f)
+                    .Replace('\\', '/'))
             .Where(p => !PackageFileLister.IsPlumbing(
-                p.Replace('\\', '/')))
+                p))
             .OrderBy(p => p);
 
-        var results = options.Limit.HasValue
-            ? relativePaths.Take(options.Limit.Value).ToList()
-            : relativePaths.ToList();
-        var visibleResults = RowWindow.Apply(options.Rows, results);
+        var results = relativePaths.ToList();
+        if (!SemanticRowSelection.TrySelectOrApplyLegacy(
+                options.PackageLayoutRowSelection,
+                options.Rows,
+                results,
+                "Package layout files",
+                failure =>
+                    $"Package layout file row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} layout file rows are available.",
+                out IReadOnlyList<string> visibleResults))
+        {
+            return 1;
+        }
 
         if (LensProjection.TryProject(options, "--layout", visibleResults.Count, out var projectionExitCode))
             return projectionExitCode;
+
+        if (options.JsonOutput)
+        {
+            Console.Out.WriteLine(
+                JsonSerializer.Serialize(
+                    visibleResults
+                        .Select(path => new PackageLayoutFileJson(path))
+                        .ToList(),
+                    JsonContext.Default.ListPackageLayoutFileJson));
+            return 0;
+        }
+
+        if (options.Jsonl)
+        {
+            OutputFormatter.WriteStringList(
+                visibleResults,
+                "Path",
+                "path",
+                tsv: false,
+                jsonl: true,
+                output: Console.Out);
+            return 0;
+        }
 
         PackageOutputFormatter.WriteFileTree([.. visibleResults]);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
@@ -255,136 +478,77 @@ public partial class PackageCommand
         return 0;
     }
 
-    private static async Task<int> ShowDependencyTreeAsync(
-        HttpClient client,
-        string packageReference,
-        InspectionOptions options,
-        VerboseLogger logger)
+    private static bool IsSingleDependencyHierarchySelection(
+        InspectionOptions options) =>
+        options.IncludeSections is { Count: 1 }
+        && options.IncludeSections.Contains(
+            PackageSections.DependencyHierarchy);
+
+    private static void WritePackageDependencyHierarchyTree(
+        InspectionResult result,
+        InspectionOptions options)
     {
-        PackageDependencyGraphResult result =
-            await DependencyGraphService.BuildPackageDependencyTreeAsync(
-                client,
-                packageReference,
-                options.Tfm,
-                options.SourceOptions,
-                logger,
-                includePrerelease: options.IncludePrerelease,
-                allowCompatibleFallbackForRequestedTfm: false);
-
-        if (result is PackageDependencyGraphResult.Error error)
-        {
-            CommandError.Write(
-                error.Message,
-                error.Detail is null ? [] : [error.Detail]);
-            return 1;
-        }
-        if (result is PackageDependencyGraphResult.Empty empty)
-        {
-            if (LensProjection.TryProject(
-                    options,
-                    "--dependencies",
-                    rowCount: 0,
-                    out var projectionExit,
-                    ["Package", "Version", "Author"]))
-            {
-                return projectionExit;
-            }
-            var packageName =
-                new InertString(
-                    TextPolicy.Field,
-                    empty.ManifestPackageName);
-            var version =
-                new InertString(
-                    TextPolicy.Field,
-                    empty.ManifestVersion);
-            var description =
-                new InertString(TextPolicy.Field, empty.Message);
-            var emptyView = new EmptyDepsView
-            {
-                Title = InertString.Format(
-                    TextPolicy.Field,
-                    $"{packageName} ({version})").ToString(),
-                Description = description.ToString()
-            };
-            OutputDestination.Write(
-                options.OutputPath,
-                options.Rows,
-                writer => MarkoutSerializer.Serialize(
-                    emptyView,
-                    writer,
-                    InspectionContext.Default));
-            return 0;
-        }
-
-        var graph = (PackageDependencyGraphResult.Graph)result;
-        var visibleCount = WindowedCount(
-            TreeRowWindow.Count(graph.Dependencies, node => node.Children),
-            options.Rows);
-        if (LensProjection.TryProject(
-                options,
-                "--dependencies",
-                visibleCount,
-                out var countExit,
-                ["Package", "Version", "Author"]))
-        {
-            return countExit;
-        }
-
-        var visibleNodes = TreeRowWindow.Apply(
-            graph.Dependencies,
-            options.Rows,
-            node => node.Children,
-            (node, children) => node with { Children = children });
-        var packageText =
-            new InertString(
-                TextPolicy.Field,
-                graph.ManifestPackageName);
-        var versionText =
-            new InertString(
-                TextPolicy.Field,
-                graph.ManifestVersion);
-        var view = new PackageDependenciesView
-        {
-            Title = InertString.Format(
-                TextPolicy.Field,
-                $"{packageText} {versionText}").ToString(),
-            Dependencies = ToTreeNodes(visibleNodes)
-        };
-
+        DependsAssetProjection projection =
+            result.DependencyHierarchyProjection
+            ?? throw new InvalidOperationException(
+                "The Package dependency hierarchy was not acquired.");
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> rows =
+            !options.DependencyHierarchyRowsSelected
+            && options.Rows is { IsUnlimited: false } window
+                ? window.Apply(projection.HierarchyRows)
+                : projection.HierarchyRows;
         OutputDestination.Write(
             options.OutputPath,
             options.Rows,
-            writer => MarkoutSerializer.Serialize(
-                view,
-                writer,
-                PackageDependenciesContext.Default));
-        return 0;
+            writer =>
+            {
+                var markout = new MarkoutWriter(
+                    writer,
+                    new PlainTextFormatter());
+                markout.WriteGraph(
+                    DependencyHierarchyOutputAdapter.ToGraph(
+                        projection.Hierarchy,
+                        rows,
+                        markWindowedFragments: true));
+                markout.Flush();
+            });
     }
 
-    /// <summary>
-    /// Builds the dependency tree's labels.
-    /// </summary>
-    /// <remarks>
-    /// Every part of a label -- id, version, and author -- is nuspec text
-    /// chosen by whoever built the package, and a tree label sits in a gutter
-    /// where a line terminator forges a sibling node. Containment happens on
-    /// the composed label, after the parts are joined, so the separators cannot
-    /// be split apart either (issue #3319).
-    /// </remarks>
-    private static List<TreeNode> ToTreeNodes(List<DependencyNode> nodes)
+    private static bool WritePackageDependencyHierarchyProjection(
+        InspectionResult result,
+        InspectionOptions options)
     {
-        return nodes.Select(n =>
+        DependsAssetProjection projection =
+            result.DependencyHierarchyProjection
+            ?? throw new InvalidOperationException(
+                "The Package dependency hierarchy was not acquired.");
+        var projectionOptions = new DependsOptions
         {
-            var packageId = new InertString(TextPolicy.Field, n.PackageId);
-            var version = new InertString(TextPolicy.Field, n.Version);
-            var label = !string.IsNullOrEmpty(n.Author)
-                ? InertString.Format(
-                    TextPolicy.Field,
-                    $"{packageId} {version} [{new InertString(TextPolicy.Field, n.Author)}]")
-                : InertString.Format(TextPolicy.Field, $"{packageId} {version}");
-            return n.Children.Count > 0
-                ? new TreeNode(label.ToString()) { Children = ToTreeNodes(n.Children) }
-                : new TreeNode(label.ToString());
-        }).ToList();
+            Format = options.Format,
+            Rows = options.DependencyHierarchyRowsSelected
+                ? null
+                : options.Rows,
+            Tabular = options.Tabular,
+            Tsv = options.Tsv,
+            Jsonl = options.Jsonl,
+            NoHeader = options.NoHeader,
+            Columns = options.Columns,
+            Fields = options.Fields,
+        };
+        bool success = false;
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                success = DependsCommand.WriteAssetProjection(
+                    projection,
+                    projectionOptions,
+                    new HashSet<string>(
+                        [DependsAssetSections.DependencyHierarchy],
+                        StringComparer.OrdinalIgnoreCase),
+                    output);
+            });
+        return success;
     }
 }

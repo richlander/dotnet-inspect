@@ -29,7 +29,7 @@ public sealed class DiffHistoryApiMemberInspectionRequest
 {
     public DiffHistoryApiMemberInspectionRequest(
         PackageHouseVersionPopulationResult.Available population,
-        IEnumerable<PackageVersionAddress> evaluationSelection,
+        DiffHistoryEvaluationPlan evaluationPlan,
         PackageHouseOperation operation,
         PackageHouseTargetContext targetContext,
         DiffHistoryEvaluationLimits evaluationLimits,
@@ -37,10 +37,11 @@ public sealed class DiffHistoryApiMemberInspectionRequest
         DateTimeOffset workspaceDeadline,
         PackageVersionCellApiInspectionRequest apiInspection,
         ApiDiffOptions? comparisonOptions = null,
-        int matchAcceptanceThreshold = 100)
+        int matchAcceptanceThreshold = 100,
+        DiffHistoryPackageReplayContext? replayContext = null)
     {
         ArgumentNullException.ThrowIfNull(population);
-        ArgumentNullException.ThrowIfNull(evaluationSelection);
+        ArgumentNullException.ThrowIfNull(evaluationPlan);
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(targetContext);
         ArgumentNullException.ThrowIfNull(evaluationLimits);
@@ -64,22 +65,39 @@ public sealed class DiffHistoryApiMemberInspectionRequest
             throw new ArgumentOutOfRangeException(
                 nameof(matchAcceptanceThreshold));
         }
+        if (evaluationPlan is DiffHistoryEvaluationPlan.AdaptiveBisect
+            && population.Vector.Addresses.Length < 2)
+        {
+            throw new ArgumentException(
+                "Adaptive Diff History requires at least two population versions.",
+                nameof(evaluationPlan));
+        }
 
         ImmutableArray<PackageVersionAddress> selected =
-        [
-            .. evaluationSelection,
-        ];
-        if (selected.IsEmpty)
+            evaluationPlan switch
+            {
+                DiffHistoryEvaluationPlan.FullPopulation =>
+                    population.Vector.Addresses,
+                DiffHistoryEvaluationPlan.ExplicitCheckpoints explicitPlan =>
+                    explicitPlan.Addresses,
+                DiffHistoryEvaluationPlan.AdaptiveBisect =>
+                [
+                    population.Vector.Addresses[0],
+                    population.Vector.Addresses[^1],
+                ],
+                _ => throw new ArgumentException(
+                    "Unknown Diff History evaluation plan.",
+                    nameof(evaluationPlan)),
+            };
+        int authorizedEvaluations = evaluationPlan
+            is DiffHistoryEvaluationPlan.AdaptiveBisect adaptivePlan
+                ? adaptivePlan.MaximumProbes
+                : selected.Length;
+        if (authorizedEvaluations > evaluationLimits.MaximumEvaluations)
         {
             throw new ArgumentException(
-                "Diff History requires at least one evaluation address.",
-                nameof(evaluationSelection));
-        }
-        if (selected.Length > evaluationLimits.MaximumEvaluations)
-        {
-            throw new ArgumentException(
-                "The Diff History evaluation selection exceeds its work limit.",
-                nameof(evaluationSelection));
+                "The Diff History evaluation plan exceeds its work limit.",
+                nameof(evaluationPlan));
         }
         foreach (PackageVersionAddress address in selected)
         {
@@ -88,7 +106,7 @@ public sealed class DiffHistoryApiMemberInspectionRequest
             {
                 throw new ArgumentException(
                     "A Diff History evaluation address belongs to another population.",
-                    nameof(evaluationSelection));
+                    nameof(evaluationPlan));
             }
         }
         if (selected
@@ -97,11 +115,12 @@ public sealed class DiffHistoryApiMemberInspectionRequest
         {
             throw new ArgumentException(
                 "A Diff History evaluation address cannot be selected more than once.",
-                nameof(evaluationSelection));
+                nameof(evaluationPlan));
         }
 
         Population = population;
-        EvaluationSelection =
+        EvaluationPlan = evaluationPlan;
+        InitialEvaluationSelection =
         [
             .. selected.OrderBy(static address => address.Position),
         ];
@@ -113,11 +132,17 @@ public sealed class DiffHistoryApiMemberInspectionRequest
         ApiInspection = apiInspection;
         ComparisonOptions = comparisonOptions ?? ApiDiffOptions.Default;
         MatchAcceptanceThreshold = matchAcceptanceThreshold;
+        ReplayContext = replayContext;
     }
 
     public PackageHouseVersionPopulationResult.Available Population { get; }
 
-    public ImmutableArray<PackageVersionAddress> EvaluationSelection { get; }
+    public DiffHistoryEvaluationPlan EvaluationPlan { get; }
+
+    internal ImmutableArray<PackageVersionAddress> InitialEvaluationSelection
+    {
+        get;
+    }
 
     public PackageHouseOperation Operation { get; }
 
@@ -134,6 +159,8 @@ public sealed class DiffHistoryApiMemberInspectionRequest
     public ApiDiffOptions ComparisonOptions { get; }
 
     public int MatchAcceptanceThreshold { get; }
+
+    public DiffHistoryPackageReplayContext? ReplayContext { get; }
 }
 
 /// <summary>
@@ -495,13 +522,27 @@ public sealed record DiffHistoryChangedVersionAssessment<T>
 /// Completion evidence retained when Changed Versions cannot supply an exact
 /// Count for the requested logical prefix.
 /// </summary>
+public sealed record DiffHistoryChangedVersionCountAssessment(
+    PackageVersionAddress Predecessor,
+    PackageVersionAddress Destination,
+    DiffHistoryChangedVersionState State)
+{
+    public PackageVersionAddress Predecessor { get; } =
+        Predecessor
+        ?? throw new ArgumentNullException(nameof(Predecessor));
+
+    public PackageVersionAddress Destination { get; } =
+        Destination
+        ?? throw new ArgumentNullException(nameof(Destination));
+}
+
 public sealed class DiffHistoryChangedVersionCountEvidence
 {
     internal DiffHistoryChangedVersionCountEvidence(
         int totalAssessmentCount,
         int establishedAssessmentCount,
         int? requiredChangedVersionPrefix,
-        DiffHistoryChangedVersionAssessment<ApiMemberHandle>?
+        DiffHistoryChangedVersionCountAssessment?
             firstUnestablishedAssessment)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(totalAssessmentCount);
@@ -529,7 +570,7 @@ public sealed class DiffHistoryChangedVersionCountEvidence
 
     public int? RequiredChangedVersionPrefix { get; }
 
-    public DiffHistoryChangedVersionAssessment<ApiMemberHandle>?
+    public DiffHistoryChangedVersionCountAssessment?
         FirstUnestablishedAssessment { get; }
 }
 
@@ -542,18 +583,24 @@ public sealed class DiffHistoryApiMemberDocument
         PackageVersionVector population,
         string typeFullName,
         ApiSurfaceScope scope,
+        PackageHouseTargetContext targetContext,
         DiffHistoryEvaluationLimits evaluationLimits,
+        DiffHistoryEvaluationPlan evaluationPlan,
         PackageVersionCellWorkspaceLimits workspaceLimits,
         ApiSurfaceProjectionLimits projectionLimits,
         ImmutableArray<PackageVersionAddress> evaluationSelection,
         ImmutableArray<DiffHistoryApiMemberEvaluation> evaluations,
+        ImmutableArray<DiffHistoryApiMemberProbe> probes,
         FindingCensusCorrelation<ApiMemberHandle> correlation,
         ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions,
         ImmutableArray<
             DiffHistoryChangedVersionAssessment<ApiMemberHandle>>
             changedVersionAssessments,
+        DiffHistoryTerminalOutcome terminalOutcome,
+        ImmutableArray<DiffHistoryNextAction> nextActions,
         ApiDiffOptions comparisonOptions,
-        int matchAcceptanceThreshold)
+        int matchAcceptanceThreshold,
+        DiffHistoryPackageReplayContext? replayContext)
     {
         Population =
             population ?? throw new ArgumentNullException(nameof(population));
@@ -562,27 +609,53 @@ public sealed class DiffHistoryApiMemberDocument
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
         Scope = scope;
+        TargetContext = targetContext
+            ?? throw new ArgumentNullException(nameof(targetContext));
         EvaluationLimits = evaluationLimits
             ?? throw new ArgumentNullException(nameof(evaluationLimits));
+        EvaluationPlan = evaluationPlan
+            ?? throw new ArgumentNullException(nameof(evaluationPlan));
         WorkspaceLimits = workspaceLimits
             ?? throw new ArgumentNullException(nameof(workspaceLimits));
         ProjectionLimits = projectionLimits
             ?? throw new ArgumentNullException(nameof(projectionLimits));
         if (evaluationSelection.IsDefault
             || evaluations.IsDefault
+            || probes.IsDefault
             || transitions.IsDefault
-            || changedVersionAssessments.IsDefault)
+            || changedVersionAssessments.IsDefault
+            || nextActions.IsDefault)
         {
             throw new ArgumentException(
                 "Diff History document arrays must be initialized.");
         }
+        if (probes.Length != evaluations.Length)
+        {
+            throw new ArgumentException(
+                "Every Diff History evaluation requires one probe receipt.",
+                nameof(probes));
+        }
+        for (int i = 0; i < probes.Length; i++)
+        {
+            if (probes[i].Step != i + 1
+                || !evaluations.Contains(probes[i].Evaluation))
+            {
+                throw new ArgumentException(
+                    "Diff History probe receipts must be chronological and retain completed evaluations.",
+                    nameof(probes));
+            }
+        }
 
         EvaluationSelection = evaluationSelection;
         Evaluations = evaluations;
+        Probes = probes;
         Correlation = correlation
             ?? throw new ArgumentNullException(nameof(correlation));
         Transitions = transitions;
         ChangedVersionAssessments = changedVersionAssessments;
+        TerminalOutcome = terminalOutcome
+            ?? throw new ArgumentNullException(nameof(terminalOutcome));
+        NextActions = nextActions;
         ComparisonOptions = comparisonOptions
             ?? throw new ArgumentNullException(nameof(comparisonOptions));
         if (matchAcceptanceThreshold is < 0 or > 100)
@@ -591,6 +664,7 @@ public sealed class DiffHistoryApiMemberDocument
                 nameof(matchAcceptanceThreshold));
         }
         MatchAcceptanceThreshold = matchAcceptanceThreshold;
+        ReplayContext = replayContext;
         UnevaluatedAddresses =
         [
             .. population.Addresses.Where(address =>
@@ -617,7 +691,18 @@ public sealed class DiffHistoryApiMemberDocument
 
     public ApiSurfaceScope Scope { get; }
 
+    public PackageHouseTargetContext TargetContext { get; }
+
     public DiffHistoryEvaluationLimits EvaluationLimits { get; }
+
+    public DiffHistoryEvaluationPlan EvaluationPlan { get; }
+
+    public int? AuthorizedProbeCount =>
+        EvaluationPlan is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive
+            ? adaptive.MaximumProbes
+            : null;
+
+    public int UsedProbeCount => Probes.Length;
 
     public PackageVersionCellWorkspaceLimits WorkspaceLimits { get; }
 
@@ -626,6 +711,8 @@ public sealed class DiffHistoryApiMemberDocument
     public ImmutableArray<PackageVersionAddress> EvaluationSelection { get; }
 
     public ImmutableArray<DiffHistoryApiMemberEvaluation> Evaluations { get; }
+
+    public ImmutableArray<DiffHistoryApiMemberProbe> Probes { get; }
 
     public FindingCensusCorrelation<ApiMemberHandle> Correlation { get; }
 
@@ -638,9 +725,15 @@ public sealed class DiffHistoryApiMemberDocument
         DiffHistoryChangedVersionAssessment<ApiMemberHandle>>
         ChangedVersionAssessments { get; }
 
+    public DiffHistoryTerminalOutcome TerminalOutcome { get; }
+
+    public ImmutableArray<DiffHistoryNextAction> NextActions { get; }
+
     public ApiDiffOptions ComparisonOptions { get; }
 
     public int MatchAcceptanceThreshold { get; }
+
+    public DiffHistoryPackageReplayContext? ReplayContext { get; }
 
     public ImmutableArray<PackageVersionAddress> UnevaluatedAddresses { get; }
 
@@ -655,7 +748,7 @@ public sealed class DiffHistoryApiMemberDocument
 }
 
 /// <summary>One producer-specific document arm of shared Diff History.</summary>
-public abstract record DiffHistoryDocument
+public abstract partial record DiffHistoryDocument
 {
     private protected DiffHistoryDocument()
     {
@@ -698,5 +791,23 @@ public abstract record DiffHistoryOutcome
         public SectionCountOutcome<
             DiffHistoryCountCohort,
             DiffHistoryChangedVersionCountEvidence>? Count { get; }
+    }
+
+    public sealed record ExactApiMemberUnavailable : DiffHistoryOutcome
+    {
+        internal ExactApiMemberUnavailable(
+            DiffHistoryExactApiMemberSelection selection)
+        {
+            if (selection.State
+                == DiffHistoryExactApiMemberSelectionState.Selected)
+            {
+                throw new ArgumentException(
+                    "Unavailable exact-Member History requires selection non-success.",
+                    nameof(selection));
+            }
+            Selection = selection;
+        }
+
+        public DiffHistoryExactApiMemberSelection Selection { get; }
     }
 }

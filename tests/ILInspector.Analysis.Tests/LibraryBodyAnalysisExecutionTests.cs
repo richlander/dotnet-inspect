@@ -19,11 +19,27 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Receipt);
         Assert.Same(
             execution.Receipt,
+            execution.Allocations.Receipt);
+        Assert.Same(
+            execution.Receipt,
             execution.ImplementationProfiles.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.Optimization.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.CallGraph.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.Leverage.Receipt);
         Assert.False(
             execution.Safety.Evidence.IsDefault);
         Assert.True(
             execution.Safety.WasRequested);
+        Assert.False(
+            execution.Allocations.WasRequested);
+        Assert.Empty(
+            execution.Allocations.Occurrences);
         Assert.True(
             execution.ImplementationProfiles.WasRequested);
         Assert.True(
@@ -36,11 +52,38 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities));
+        Assert.False(
+            execution.Optimization.WasRequested);
+        Assert.True(
+            execution.CallGraph
+                .HasProjectedPhysicalDirectCalls);
+        Assert.True(
+            execution.CallGraph
+                .HasProjectedMethodSignals);
+        Assert.Empty(
+            execution.Optimization.Opportunities);
+        Assert.Empty(
+            execution.Optimization
+                .AllocationFanoutOpportunities);
+        Assert.True(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.NotEmpty(
             execution.ImplementationProfiles.Profiles);
         Assert.NotEmpty(
             execution.ImplementationProfiles
                 .OverloadRelationships);
+        Assert.Same(
+            execution.ImplementationProfiles
+                .GeneratedFrameworkTypes,
+            execution.Leverage.GeneratedFrameworkTypes);
+        Assert.Same(
+            execution.ImplementationProfiles
+                .GeneratedFrameworkTypes,
+            execution.Optimization.GeneratedFrameworkTypes);
+        Assert.Same(
+            execution.CallGraph.DeclaredMethodMap,
+            execution.Optimization.DeclaredMethodMap);
     }
 
     [Fact]
@@ -56,6 +99,12 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.WasRequested);
         Assert.Empty(
             execution.Safety.Evidence);
+        Assert.Empty(
+            execution.Safety.Occurrences);
+        Assert.False(
+            execution.Allocations.WasRequested);
+        Assert.Empty(
+            execution.Allocations.Occurrences);
     }
 
     [Fact]
@@ -101,6 +150,73 @@ public sealed class LibraryBodyAnalysisExecutionTests
             index.OverloadRelationships());
         Assert.True(
             execution.ImplementationProfiles
+                .GeneratedFrameworkTypes.SetEquals(
+                    index.GeneratedFrameworkTypes));
+    }
+
+    [Fact]
+    public void CompatibilityIndex_DelegatesCallGraphAndLeverageResults()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+        LibraryBodyIndex index =
+            execution.CompatibilityIndex();
+        int rootToken =
+            execution.CallGraph.Methods[0].MetadataToken;
+
+        Assert.Same(
+            execution.CallGraph,
+            index.CallGraphAnalysis);
+        Assert.Same(
+            execution.Leverage,
+            index.LeverageAnalysis);
+        Assert.Equal(
+            execution.CallGraph.BuildCallTree(rootToken),
+            index.BuildCallTree(rootToken));
+        Assert.Equal(
+            execution.CallGraph.BuildCallerTree(rootToken),
+            index.BuildCallerTree(rootToken));
+        Assert.Equal(
+            execution.Leverage.Top(int.MaxValue),
+            index.TopLeverage(int.MaxValue));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompatibilityIndex_PreservesFocusedOptimizationResults()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                typeof(LibraryBodyAnalysisExecutionTests)
+                    .Assembly.Location,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+
+        LibraryBodyIndex index =
+            execution.CompatibilityIndex();
+
+        Assert.True(execution.Optimization.WasRequested);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
+        Assert.NotEmpty(
+            execution.Optimization.Opportunities);
+        Assert.True(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
+        Assert.Equal(
+            execution.Optimization.Opportunities,
+            index.OptimizationOpportunities);
+        Assert.Equal(
+            execution.Optimization
+                .AllocationFanoutOpportunities,
+            index.AllocationFanoutOpportunities);
+        Assert.True(
+            execution.Optimization
                 .GeneratedFrameworkTypes.SetEquals(
                     index.GeneratedFrameworkTypes));
     }

@@ -395,13 +395,16 @@ test("typed package controls own framework and version selection bindings", () =
     ?? "";
   assert.match(
     packageControlsCreation,
-    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
+    /selectFramework: \(framework, source\) => \{[\s\S]*contentFrameUsesPush\(\)[\s\S]*contentFramePane = "detail"[\s\S]*observeAsync\(\s*switchPackageFramework\(\s*framework,\s*source === "legacy" \? "framework" : "package-framework"\),\s*"Switching the package framework"\);[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
     packageControlsSource,
-    /export function bindPackageSelections\([\s\S]*#framework[\s\S]*#package-version/);
+    /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageCoordinateFields\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
+    /function packageVersionField\(\)[\s\S]*id="package-version"/);
+  assert.doesNotMatch(
+    appSource,
+    /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -557,7 +560,33 @@ test("typed package view owns package navigation bindings", () => {
     /if \(!library\) return;[\s\S]*if \(!selectLibrarySubject\(library\)\) return;[\s\S]*if \(kind\) \{\s*state\.atLibraryRoot = false;\s*state\.kindFilter = kind;/);
   assert.match(
     appSource,
-    /function selectLibrarySubject\(key: string,[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+    /function selectLibrarySubject\([\s\S]*preserveLens\?: boolean[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(!options\.preserveLens\) state\.libraryLens = "overview";[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+  assert.match(
+    appSource,
+    /function bindLibrarySubjectNavEvents\(\) \{[\s\S]*selectAggregateLibrarySubject\(\{ preserveLens: true \}\)[\s\S]*selectLibrarySubject\(id, \{ preserveLens: true \}\)/);
+  assert.match(
+    appSource,
+    /function enterMemberScope\([\s\S]*preserveAggregate\?: boolean[\s\S]*options\.preserveAggregate \?\? aggregateLibrarySubjectIsActive\(\);[\s\S]*if \(!preserveAggregate\)\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+  assert.match(
+    appSource,
+    /function enterRetainedLibrarySubject\([\s\S]*state\.libraryScope === null[\s\S]*selectAggregateLibrarySubject\(options\)[\s\S]*selectLibrarySubject\(selectedLibrary\(\)\?\.id \?\? "", options\)/);
+  assert.match(
+    appSource,
+    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember[\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)/);
+  for (const spotlightEntry of [
+    appSource.match(/async function pickSpotlightMember[\s\S]*?\n}/)?.[0] ?? "",
+    appSource.match(/async function pickSpotlight\([\s\S]*?\n}/)?.[0] ?? "",
+  ]) {
+    assert.doesNotMatch(
+      spotlightEntry,
+      /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
+  }
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
@@ -599,7 +628,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     ?? "";
   assert.match(
     libraryControlsSource,
-    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*\[data-library-query-form\][\s\S]*\[data-library-query-reference\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
   for (const lens of [
     "integrations",
     "analysis",
@@ -627,6 +656,12 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onLibraryJump: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
+  assert.match(
+    binding,
+    /onLibraryQueryClear: \(\) => \{\s*clearLibraryQuery\(\);[\s\S]*renderPreservingContentFrameFocus\(\)/);
+  assert.match(
+    binding,
+    /onLibraryQuerySubmit: reference =>\s*observeAsync\(\s*runLibraryQuery\(reference\),\s*"Qualifying package libraries"\)/);
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack, \{ inPlace: true \}\),\s*"Opening a platform library"\)/);
@@ -856,6 +891,9 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   const typeGraph =
     appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
     ?? "";
+  const annotatedRelationshipGraph =
+    appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]
+    ?? "";
   const dependencyGraph =
     appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
     ?? "";
@@ -894,10 +932,16 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /unavailableLabel:[\s\S]*not uniquely available in the loaded Workspace surfaces/);
   assert.match(
     appSource,
-    /function navigateToWorkspaceType\([\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target\)/);
+    /function navigateToWorkspaceType\([\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target, \{ preserveAggregate \}\)/);
+  assert.match(
+    appSource,
+    /function navigateToType\([\s\S]*preserveAggregate\?: boolean[\s\S]*enterTypeSubject\(target, options\)/);
   assert.match(
     typeGraph,
     /const candidate = graphNode\.role === "self"[\s\S]*\{ pkg: currentPackage\(\), type: currentType \}[\s\S]*uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>\([\s\S]*state\.packages,[\s\S]*fullName\)/);
+  assert.match(
+    annotatedRelationshipGraph,
+    /buildAnnotatedRelationshipGraphMermaid\(\s*model\.callRelationships\)[\s\S]*bindGraphPanZoom\(targetContainer, viewport, \{ keybindings \}\)/);
   assert.match(
     dependencyGraph,
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
@@ -937,10 +981,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 4);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
-    `${typeGraph}\n${dependencyGraph}\n${callGraph}`,
+    `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${callGraph}`,
     /\.addEventListener\(|querySelectorAll<SVGGElement>\("g\.node"\)/);
   assert.doesNotMatch(
     appSource,
@@ -1104,7 +1148,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
   assert.match(
     binding,
-    /onCopyMemberSource: \(\) => \{[\s\S]*state\.memberSource\.status === "ready"[\s\S]*void copyText\(state\.memberSource\.source\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
+    /onCopyMemberSource: \(\) => \{[\s\S]*sourceResultForSignature\([\s\S]*memberSourceText\([\s\S]*memberSourcePartSelector\.current\(signature, source\)[\s\S]*"source copied"[\s\S]*onMemberSourcePartSelect: part => \{[\s\S]*memberSourcePartSelector\.select\(signature, source, part\)[\s\S]*render\(\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
@@ -1227,7 +1271,7 @@ test("typed scope bar owns its rendered control bindings", () => {
                 if: 'target === "library"',
                 whenTrue: [
                   {
-                    if: '!selectLibrarySubject(selectedLibrary()?.id ?? "", { preserveView: true })',
+                    if: "!enterRetainedLibrarySubject({ preserveView: true })",
                     whenTrue: ["statement:ReturnStatement:return;"],
                     whenFalse: [],
                   },

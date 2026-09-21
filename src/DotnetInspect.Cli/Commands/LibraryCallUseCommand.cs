@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -99,7 +100,7 @@ public static class LibraryCallUseCommand
             return 1;
         }
 
-        if (options.Cluster is not null
+        if (options.QueryPlan.Cluster is not null
             && options.Discover is not null)
         {
             CommandError.Write(
@@ -151,7 +152,7 @@ public static class LibraryCallUseCommand
         bool requiresPublicRootPaths =
             selectedNameSet.Contains(PublicRootPathsSection);
         if (requiresPublicRootPaths
-            && options.Cluster is null)
+            && options.QueryPlan.Cluster is null)
         {
             CommandError.Write(
                 "'Public Root Paths' requires exactly one "
@@ -243,7 +244,7 @@ public static class LibraryCallUseCommand
                         group.Participants[0].Assembly,
                         group.Participants[1].Assembly);
                     bool requiresClusters =
-                        options.Cluster is not null
+                        options.QueryPlan.Cluster is not null
                         || selectedNameSet.Contains(
                             DirectUseClustersSection);
                     allClusters = requiresClusters
@@ -252,11 +253,12 @@ public static class LibraryCallUseCommand
                         : new(result, []);
                     selectedResult = result;
                     selectedClusters = allClusters;
-                    if (options.Cluster is int clusterOrdinal)
+                    if (options.QueryPlan.Cluster is int clusterOrdinal)
                     {
                         AssemblyPairDirectUseClusterProjection? selected =
-                            allClusters.ScopeToObservedCluster(
-                                clusterOrdinal);
+                            GraphLibrariesQuery.Apply(
+                                options.QueryPlan,
+                                allClusters);
                         if (selected is null)
                         {
                             unavailableCluster = clusterOrdinal;
@@ -316,6 +318,49 @@ public static class LibraryCallUseCommand
 
         AssemblyPairCallUseProjection projection =
             AssemblyPairCallUseProjection.Create(selectedResult!);
+        IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
+            selectedResult!.Occurrences;
+        bool selectsDirectUseClusterRows =
+            options.RowSelection is not null
+            && selectedNames.Length == 1
+            && selectedNames[0].Equals(
+                DirectUseClustersSection,
+                StringComparison.OrdinalIgnoreCase);
+        if (selectsDirectUseClusterRows)
+        {
+            if (!CliSemanticRowSelection.TrySelect(
+                    options.RowSelection,
+                    selectedClusters!.Clusters,
+                    "Library direct-use clusters",
+                    failure =>
+                        $"Library direct-use cluster row selection stage "
+                        + $"{failure.Failure.StageNumber} requires cluster "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} direct-use clusters are available.",
+                    out IReadOnlyList<AssemblyPairDirectUseCluster>
+                        selectedClusterRows))
+            {
+                return 1;
+            }
+
+            selectedClusters = selectedClusters with
+            {
+                Clusters = [.. selectedClusterRows],
+            };
+        }
+        else if (!CliSemanticRowSelection.TrySelect(
+                     options.RowSelection,
+                     selectedResult.Occurrences,
+                     "Library call sites",
+                     failure =>
+                         $"Library call-site row selection stage "
+                         + $"{failure.Failure.StageNumber} requires call site "
+                         + $"{failure.Failure.RequiredPosition}, but only "
+                         + $"{failure.Failure.AvailableCount} call sites are available.",
+                     out selectedOccurrences))
+        {
+            return 1;
+        }
         Write(
             selectedResult!,
             projection,
@@ -323,7 +368,8 @@ public static class LibraryCallUseCommand
             rootPathInspection,
             options,
             selectedNames,
-            defaultCallSiteView);
+            defaultCallSiteView,
+            selectedOccurrences);
         if (rootPathInspection is { Content.IsComplete: false })
         {
             CommandError.Write(
@@ -458,11 +504,15 @@ public static class LibraryCallUseCommand
             rootPathInspection,
         LibraryCallUseOptions options,
         string[] selectedNames,
-        bool defaultCallSiteView)
+        bool defaultCallSiteView,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences)
     {
         if (defaultCallSiteView)
         {
-            WriteDefaultCallSites(result, options);
+            WriteDefaultCallSites(
+                result,
+                occurrences,
+                options);
             return;
         }
 
@@ -472,17 +522,19 @@ public static class LibraryCallUseCommand
             clusters,
             rootPathInspection,
             options,
-            selectedNames);
+            selectedNames,
+            occurrences);
     }
 
     static void WriteDefaultCallSites(
         AssemblyPairCallUseResult result,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
         LibraryCallUseOptions options)
     {
         List<LibraryCallUseCallSiteRow> rows =
-            CreateCallSiteRows(result.Occurrences);
+            CreateCallSiteRows(occurrences);
         IReadOnlyList<AssemblyPairCallUseOccurrence> selectedOccurrences =
-            RowWindow.Apply(options.Rows, result.Occurrences);
+            RowWindow.Apply(options.Rows, occurrences);
         var view = new LibraryCallUseCallSitesView
         {
             Title = "Library Call Use",
@@ -573,7 +625,8 @@ public static class LibraryCallUseCommand
         InspectionEnvelope<AssemblyPairClusterRootPathResult>?
             rootPathInspection,
         LibraryCallUseOptions options,
-        IReadOnlyCollection<string> selectedNames)
+        IReadOnlyCollection<string> selectedNames,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences)
     {
         DocumentSchema schema = CreateSchema();
         string[]? projectedColumns =
@@ -593,7 +646,8 @@ public static class LibraryCallUseCommand
             CreateSelectedView(
                 projection,
                 clusters,
-                rootPathInspection?.Content);
+                rootPathInspection?.Content,
+                occurrences);
         IReadOnlyList<string> sectionOrder =
             LibraryCallUseSections.Catalog.AlphabeticalSectionOrder;
         var writerOptions =
@@ -697,7 +751,8 @@ public static class LibraryCallUseCommand
             options,
             renderedNames,
             humanColumns,
-            includeDocumentHeading: selectedNames.Count > 1);
+            includeDocumentHeading: selectedNames.Count > 1,
+            occurrences);
     }
 
     static void WriteSelectedHuman(
@@ -708,7 +763,8 @@ public static class LibraryCallUseCommand
         LibraryCallUseOptions options,
         IReadOnlySet<string> renderedNames,
         string[]? columns,
-        bool includeDocumentHeading)
+        bool includeDocumentHeading,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences)
     {
         IMarkoutFormatter formatter =
             options.Format == OutputFormat.PlainText
@@ -784,6 +840,7 @@ public static class LibraryCallUseCommand
                     MarkoutSerializer.Serialize(
                         CreateSelectedCallSitesView(
                             projection,
+                            occurrences,
                             options.Rows,
                             options.Cluster),
                         Console.Out,
@@ -809,7 +866,8 @@ public static class LibraryCallUseCommand
     static LibraryCallUseSelectedView CreateSelectedView(
         AssemblyPairCallUseProjection projection,
         AssemblyPairDirectUseClusterProjection clusters,
-        AssemblyPairClusterRootPathResult? rootPaths) =>
+        AssemblyPairClusterRootPathResult? rootPaths,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences) =>
         new()
         {
             ConsumerUseSites =
@@ -819,7 +877,7 @@ public static class LibraryCallUseCommand
             DirectUseClusters =
                 [.. clusters.Clusters.Select(
                     CreateDirectUseClusterRow)],
-            CallSites = CreateCallSiteRows(projection.Pair.Occurrences),
+            CallSites = CreateCallSiteRows(occurrences),
             PublicRootPaths = rootPaths is null
                 ? []
                 : CreatePublicRootPathRows(rootPaths),
@@ -873,11 +931,12 @@ public static class LibraryCallUseCommand
 
     static LibraryCallUseCallSitesView CreateSelectedCallSitesView(
         AssemblyPairCallUseProjection projection,
+        IReadOnlyList<AssemblyPairCallUseOccurrence> occurrences,
         RowWindow? rows,
         int? cluster)
     {
         List<LibraryCallUseCallSiteRow> values =
-            CreateCallSiteRows(projection.Pair.Occurrences);
+            CreateCallSiteRows(occurrences);
         return new()
         {
             Title = CallSitesSection,

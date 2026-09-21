@@ -24,13 +24,14 @@ internal sealed class WorkspaceProjectionContractAudit
     internal static readonly IReadOnlyDictionary<Type, int> RequiredUnions = new Dictionary<Type, int>
     {
         [typeof(TypeResolutionOutcome)] = 6,
-        [typeof(TypeResolutionFailure)] = 16,
+        [typeof(TypeResolutionFailure)] = 18,
         [typeof(TypeResolutionAmbiguity)] = 2,
         [typeof(ResolutionPlanRequest)] = 2,
         [typeof(TypeResolutionStart)] = 4,
         [typeof(AssemblyBindingTarget)] = 2,
         [typeof(AssemblyBindingOrigin)] = 2,
         [typeof(TypeDeclarationCandidate)] = 3,
+        [typeof(MetadataTypeDefinitionKindFailure)] = 3,
         [typeof(AssemblyResolutionProvenance)] = 6,
     };
 
@@ -279,20 +280,20 @@ internal sealed class WorkspaceProjectionContractAudit
     {
         for (Type? current = type; current is not null && current != typeof(object)
             && current != typeof(ValueType); current = current.BaseType)
-        foreach (FieldInfo field in current.GetFields(DeclaredInstance))
-        {
-            if (field.IsPublic)
+            foreach (FieldInfo field in current.GetFields(DeclaredInstance))
             {
-                Assert.Contains(field.Name, claimed);
-                continue;
+                if (field.IsPublic)
+                {
+                    Assert.Contains(field.Name, claimed);
+                    continue;
+                }
+                PropertyInfo? property = current.GetProperties(PublicInstance | BindingFlags.DeclaredOnly)
+                    .SingleOrDefault(property => field.Name == $"<{property.Name}>k__BackingField");
+                Assert.True(property is not null
+                    && field.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute))
+                    && claimed.Contains(property.Name) && property.PropertyType == field.FieldType,
+                    $"Unclaimed destination storage {type.FullName}.{field.Name}.");
             }
-            PropertyInfo? property = current.GetProperties(PublicInstance | BindingFlags.DeclaredOnly)
-                .SingleOrDefault(property => field.Name == $"<{property.Name}>k__BackingField");
-            Assert.True(property is not null
-                && field.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute))
-                && claimed.Contains(property.Name) && property.PropertyType == field.FieldType,
-                $"Unclaimed destination storage {type.FullName}.{field.Name}.");
-        }
     }
 
     internal void Compare(

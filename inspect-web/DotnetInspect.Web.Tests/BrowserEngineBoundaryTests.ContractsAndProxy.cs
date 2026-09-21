@@ -122,6 +122,62 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void TransitivePackageQueryPlanner_IsReachableFromBrowserConsumer()
+    {
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Microsoft.Extensions.Http",
+                    [
+                        new PortableQueryTerm(
+                            PackageQuery.DependsTransitiveTermKey,
+                            PortableQueryOperator.Equal,
+                            "Microsoft.Extensions.Primitives"),
+                        new PortableQueryTerm(
+                            PackageQuery.DependencyTargetTermKey,
+                            PortableQueryOperator.Equal,
+                            "net10.0"),
+                        new PortableQueryTerm(
+                            PackageQuery.DependencyDepthTermKey,
+                            PortableQueryOperator.Equal,
+                            "2"),
+                    ],
+                    MaximumCandidates: 1))).Plan;
+
+        Assert.True(plan.RequiresDependencyTraversal);
+        Assert.Equal(2, plan.DependencyDepth);
+        Assert.Contains(
+            PackageQuery.Terms,
+            term => term.Key == PackageQuery.DependsTransitiveTermKey
+                && term.ExecutionClass
+                    == PackageQueryExecutionClass.NuspecExpensive);
+    }
+
+    [Fact]
+    public void DependencyStartsWithPlanner_IsReachableFromBrowserConsumer()
+    {
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Microsoft.Extensions.Http",
+                    [
+                        new PortableQueryTerm(
+                            PackageQuery.DependsTermKey,
+                            PortableQueryOperator.StartsWith,
+                            "Microsoft.Extensions."),
+                    ],
+                    MaximumCandidates: 1))).Plan;
+
+        BoundPackageQueryTerm term = Assert.Single(plan.BoundTerms);
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            term.Predicate.PackagePrefix!.Prefix);
+        Assert.Equal(
+            PackageQueryExecutionClass.Nuspec,
+            term.Descriptor.ExecutionClass);
+    }
+
+    [Fact]
     public async Task QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
     {
         const string artifactText = "Artifact\u202e";

@@ -52,6 +52,7 @@ import {
   renderPackageOverviewContent,
 } from "../src/overview-surface.ts";
 import { renderPackageNav } from "../src/package-view.ts";
+import { renderLibrarySubjectNav } from "../src/library-subject-nav.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
 import { renderPackageComparisonTargets } from "../src/package-comparison-targets.ts";
 import { allocationFactsFixture, analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
@@ -370,15 +371,29 @@ function scopeBarHtml() {
   });
 }
 
-const contentNavigationLabel = packageOverviewMode
-  ? "Libraries"
+const contentNavigationLabel = activeScope === "package"
+  ? "Frameworks"
+  : activeScope === "library"
+    ? "Libraries"
   : memberMode ? "Members" : "Types";
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
-  : packageOverviewMode
+  : activeScope === "package"
     ? renderPackageNav({
-        libraries: [{ id: "example", name: "Example.Library", types: 32, members: 1234 }],
-        selectedLibrary: "example",
+        frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
+        activeFramework: "net10.0",
+        escapeHtml,
+      })
+  : activeScope === "library"
+    ? renderLibrarySubjectNav({
+        libraries: [{
+          id: "System.Text.Json",
+          name: "System.Text.Json",
+          asset: "lib/net10.0/System.Text.Json.dll",
+          types: emptyMode ? 0 : 81,
+          members: emptyMode ? 0 : 932,
+        }],
+        selectedLibraryId: "System.Text.Json",
         escapeHtml,
       })
   : `<aside id="content-navigation-pane" class="type-browser${memberMode ? " member-nav" : ""}" aria-label="${contentNavigationLabel}">
@@ -424,20 +439,16 @@ function detailHtml() {
     const name = longMode
       ? `Example.${"LongNamespace.".repeat(12)}Library`
       : libraryOverviewMode ? "System.Text.Json" : "Example.Library";
-    const libraries = emptyMode ? "" : Array.from(
-      { length: longMode ? 30 : 2 },
-      (_, index) => `<button class="library-row as-button" data-lib-scope="${name}${index}">
-        <span class="library-row-head">
-          <span class="library-name">${name}${index}</span>
-          <span class="library-metric">16 types · 617 members</span>
-        </span>
-        <span class="library-asset">lib/net10.0/${name}${index}.dll</span>
-      </button>`,
-    ).join("");
-    const inventoryHtml = `
+    const packageInfoHtml = `
       <section class="document-section">
-        <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} admitted</span></div>
-        <div class="library-list">${libraries}</div>
+        <div class="section-title"><h2>Package info</h2></div>
+        <p>${emptyMode ? "Package metadata is unavailable." : `${name} package metadata and provenance.`}</p>
+        ${longMode
+          ? Array.from(
+              { length: 24 },
+              (_, index) => `<p>${name} package fact ${index + 1}</p>`,
+            ).join("")
+          : ""}
       </section>`;
     const comparisonPackage = {
       id: "System.Text.Json",
@@ -519,12 +530,10 @@ function detailHtml() {
       totalTypes: emptyMode ? 0 : libraryOverviewMode && !longMode ? 81 : 32,
       totalMembers: emptyMode ? 0 : libraryOverviewMode && !longMode ? 932 : 1234,
       coordinateFieldsHtml: packageOverviewMode ? `
-        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
-        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>` : "",
+        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>` : "",
       contentHtml: packageOverviewMode
         ? renderPackageOverviewContent({
-            inventoryHtml,
-            packageInfoHtml: "",
+            packageInfoHtml,
             comparisonHtml,
             documentsHtml,
           })
@@ -546,10 +555,6 @@ function detailHtml() {
           <label class="version-select">
             <span>Version</span>
             <select id="package-version"><option selected>10.0.0</option></select>
-          </label>
-          <label class="framework-select">
-            <span>Framework</span>
-            <select id="framework"><option selected>net10.0</option></select>
           </label>
         </div>
       </section>
@@ -690,9 +695,9 @@ function detailHtml() {
     const documentation = memberDocumentationMode === "summary"
       ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
       : memberDocumentationMode === "loading"
-        ? '<p class="docs-loading">Loading package documentation…</p>'
+        ? '<p class="docs-loading">Loading compiled documentation…</p>'
         : memberDocumentationMode === "error"
-          ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
+          ? '<p class="docs-unavailable">Documentation query failed: The compiled documentation could not be read.</p>'
           : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     const documentationStatus = memberDocumentationMode === "loading"
       ? "loading"
@@ -810,7 +815,6 @@ function detailHtml() {
       <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
       <div class="package-coordinate-fields">
         <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
       </div>
     </section>`;
 }

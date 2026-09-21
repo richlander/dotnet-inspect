@@ -24,10 +24,17 @@ public abstract record PackagePlatformHouseResult<T> where T : notnull
     public sealed record NotSucceeded : PackagePlatformHouseResult<T>
     {
         internal NotSucceeded(
-            PackagePlatformSourceDiagnostic diagnostic, PlatformSourceContribution contribution)
-            : base(contribution) => Diagnostic = diagnostic;
+            PackagePlatformSourceDiagnostic diagnostic,
+            PlatformSourceContribution contribution,
+            PlatformHouseConsumedWork? sourceWork = null)
+            : base(contribution)
+        {
+            Diagnostic = diagnostic;
+            SourceWork = sourceWork;
+        }
 
         public PackagePlatformSourceDiagnostic Diagnostic { get; }
+        public PlatformHouseConsumedWork? SourceWork { get; }
     }
 }
 
@@ -46,37 +53,95 @@ public sealed class PackagePlatformHouseAdapter
         ReferenceRealization = PlatformSourceCapabilityIdentity.Create(capabilityName + "-reference-realization");
         ImplementationRealization = PlatformSourceCapabilityIdentity.Create(
             capabilityName + "-implementation-realization");
+        AssociationRoute =
+            PlatformSourceAssociationRouteIdentity.Create(
+                capabilityName + "-association-route");
     }
 
     public PlatformSourceCapabilityIdentity TargetDiscovery { get; }
     public PlatformSourceCapabilityIdentity ReferenceRealization { get; }
     public PlatformSourceCapabilityIdentity ImplementationRealization { get; }
+    public PlatformSourceAssociationRouteIdentity AssociationRoute { get; }
 
     /// <summary>Consumes one Package Source operation authorized for this House request.</summary>
     public Task<PackagePlatformHouseResult<PackagePlatformTargetInventory>> DiscoverTargetsAsync(
-        PlatformHouseRequest request, PackageSourceOperationLease operation)
+        PlatformHouseRequest request,
+        PackageSourceOperationLease operation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return DiscoverTargetsAsync(request, request.Work, operation);
+    }
+
+    public Task<PackagePlatformHouseResult<PackagePlatformTargetInventory>>
+        DiscoverTargetsAsync(
+            PlatformHouseRequest request,
+            PlatformHouseWorkBudget remainingWork,
+            PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
         bool transferred = false;
         try
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (request.Target is not PlatformTargetDemand.Selecting selecting)
-                throw new ArgumentException("Target discovery requires a selecting House target.", nameof(request));
+            ArgumentNullException.ThrowIfNull(remainingWork);
+            PlatformFamily family;
+            PlatformTargetFramework targetFramework;
+            PlatformTargetDiscoveryBudget discoveryWork;
+            bool demandAuthorizes;
+            switch (request.Target)
+            {
+                case PlatformTargetDemand.Selecting selecting:
+                    family = selecting.Family;
+                    targetFramework = selecting.TargetFramework;
+                    discoveryWork = selecting.Work;
+                    demandAuthorizes =
+                        selecting.DiscoveryCapabilities.Any(
+                            capability => ReferenceEquals(
+                                capability,
+                                TargetDiscovery));
+                    break;
+                case PlatformTargetDemand.FamilyDefault familyDefault
+                    when familyDefault.Policy.Fallback.Capabilities.Any(
+                        capability => ReferenceEquals(
+                            capability,
+                            TargetDiscovery))
+                    && familyDefault.Policy.Fallback.Scope
+                        is PlatformTargetDiscoveryScope.ExactFramework exact:
+                    family = familyDefault.Family;
+                    targetFramework = exact.TargetFramework;
+                    discoveryWork = familyDefault.Work;
+                    demandAuthorizes = true;
+                    break;
+                case PlatformTargetDemand.FamilyDefault:
+                    return Task.FromResult(Stop<PackagePlatformTargetInventory>(
+                        request, PlatformSourceFacet.TargetDiscovery, null,
+                        "Package-backed family-default discovery requires the exact-framework fallback stage."));
+                default:
+                    throw new ArgumentException(
+                        "Target discovery requires a selecting House target.",
+                        nameof(request));
+            }
             request.CancellationToken.ThrowIfCancellationRequested();
             if (!request.Sources.Authorizes(PlatformSourceFacet.TargetDiscovery, TargetDiscovery)
-                || !selecting.DiscoveryCapabilities.Contains(TargetDiscovery))
+                || !demandAuthorizes)
                 return Task.FromResult(Stop<PackagePlatformTargetInventory>(
                     request, PlatformSourceFacet.TargetDiscovery, null,
                     "The package-backed target-discovery capability is not authorized."));
-            if (request.Work.MaxSourceOperations == 0 || request.Work.MaxDuration == TimeSpan.Zero)
+            if (remainingWork.MaxSourceOperations == 0
+                || remainingWork.MaxDuration == TimeSpan.Zero)
                 return Task.FromResult(Stop<PackagePlatformTargetInventory>(
                     request, PlatformSourceFacet.TargetDiscovery, null,
                     "The House work allowance does not permit target discovery.", incomplete: true));
-            ValidateOperation(request, operation);
+            ValidateOperation(
+                request,
+                operation,
+                remainingWork.MaxDuration);
             Task<PackagePlatformSourceOutcome<PackagePlatformTargetInventory>> pending =
-                _source.DiscoverAsync(new(selecting.Family, selecting.TargetFramework,
-                    Math.Min(selecting.Work.MaxCandidates, request.Work.MaxTargetCandidates)), operation);
+                _source.DiscoverAsync(new(family, targetFramework,
+                    Math.Min(
+                        discoveryWork.MaxCandidates,
+                        remainingWork.MaxTargetCandidates)),
+                    operation);
             transferred = true;
             return ProjectDiscoveryAsync(request, pending);
         }
@@ -91,7 +156,29 @@ public sealed class PackagePlatformHouseAdapter
     public Task<PackagePlatformHouseResult<PackageReferenceRealization>> RealizeReferenceAsync(
         PlatformHouseRequest request,
         PackageSourceOperationLease operation) =>
-        RealizeReference(request, null, null, operation, fromDiscovery: false);
+        RealizeReference(
+            request,
+            null,
+            null,
+            selectedTarget: null,
+            request.Work,
+            operation,
+            fromDiscovery: false);
+
+    public Task<PackagePlatformHouseResult<PackageReferenceRealization>>
+        RealizeSelectedReferenceAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseWorkBudget remainingWork,
+            PackageSourceOperationLease operation) =>
+        RealizeReference(
+            request,
+            null,
+            null,
+            target,
+            remainingWork,
+            operation,
+            fromDiscovery: false);
 
     /// <summary>Contributes the explicitly selected source candidate without settling a House target.</summary>
     public Task<PackagePlatformHouseResult<PackageReferenceRealization>> RealizeReferenceAsync(
@@ -99,12 +186,36 @@ public sealed class PackagePlatformHouseAdapter
         PackagePlatformHouseResult<PackagePlatformTargetInventory>.Succeeded discovery,
         PackagePlatformTargetSelection selection,
         PackageSourceOperationLease operation) =>
-        RealizeReference(request, discovery, selection, operation, fromDiscovery: true);
+        RealizeSelectedReferenceAsync(
+            request,
+            discovery,
+            selection,
+            request.Work,
+            operation);
+
+    public Task<PackagePlatformHouseResult<PackageReferenceRealization>>
+        RealizeSelectedReferenceAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackagePlatformTargetInventory>.Succeeded discovery,
+            PackagePlatformTargetSelection selection,
+            PlatformHouseWorkBudget remainingWork,
+            PackageSourceOperationLease operation) =>
+        RealizeReference(
+            request,
+            discovery,
+            selection,
+            selectedTarget: null,
+            remainingWork,
+            operation,
+            fromDiscovery: true);
 
     Task<PackagePlatformHouseResult<PackageReferenceRealization>> RealizeReference(
         PlatformHouseRequest request,
         PackagePlatformHouseResult<PackagePlatformTargetInventory>.Succeeded? discovery,
         PackagePlatformTargetSelection? selection,
+        PlatformFamilyTarget? selectedTarget,
+        PlatformHouseWorkBudget workAllowance,
         PackageSourceOperationLease operation,
         bool fromDiscovery)
     {
@@ -119,19 +230,35 @@ public sealed class PackagePlatformHouseAdapter
                 ArgumentNullException.ThrowIfNull(discovery);
                 ArgumentNullException.ThrowIfNull(selection);
                 exact = selection.Target;
-                if (request.Target is not PlatformTargetDemand.Selecting
-                    || request.Target.Family != exact.Family
-                    || request.Target.TargetFramework != exact.TargetFramework)
+                bool corresponds = request.Target switch
+                {
+                    PlatformTargetDemand.Selecting selecting =>
+                        selecting.Family == exact.Family
+                        && selecting.TargetFramework
+                            == exact.TargetFramework,
+                    PlatformTargetDemand.FamilyDefault familyDefault =>
+                        familyDefault.Family == exact.Family,
+                    _ => false,
+                };
+                if (!corresponds)
                     throw new ArgumentException(
-                        "The selected target must correspond to this selecting House request.", nameof(selection));
+                        "The selected target must correspond to this discovery House request.", nameof(selection));
             }
             else
             {
-                if (request.Target is not PlatformTargetDemand.Exact target)
-                    throw new ArgumentException(
-                        "A selecting House request requires its paired discovery and an explicit source selection.",
-                        nameof(request));
-                exact = target.Target;
+                exact = request.Target switch
+                {
+                    PlatformTargetDemand.Exact target
+                        when selectedTarget is null => target.Target,
+                    PlatformTargetDemand.FamilyDefault familyDefault
+                        when selectedTarget is not null
+                            && familyDefault.Family
+                                == selectedTarget.Family =>
+                        selectedTarget,
+                    _ => throw new ArgumentException(
+                        "A discovery House request requires either its paired source selection or a corresponding external selected target.",
+                        nameof(request)),
+                };
             }
             request.CancellationToken.ThrowIfCancellationRequested();
             if (!request.Sources.Authorizes(PlatformSourceFacet.Reference, ReferenceRealization))
@@ -150,7 +277,8 @@ public sealed class PackagePlatformHouseAdapter
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
                     "An opaque Platform library identity has no package-member correspondence."));
-            if (request.Work.MaxSourceOperations == 0 || request.Work.MaxDuration == TimeSpan.Zero)
+            if (workAllowance.MaxSourceOperations == 0
+                || workAllowance.MaxDuration == TimeSpan.Zero)
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
                     "The House work allowance does not permit reference realization.", incomplete: true));
@@ -163,7 +291,7 @@ public sealed class PackagePlatformHouseAdapter
                     PlatformLibraryContentDemand
                         .CompiledXmlDocumentation);
             if (includeCompiledXmlDocumentation
-                && request.Work.MaxXmlDocuments == 0)
+                && workAllowance.MaxXmlDocuments == 0)
             {
                 return Task.FromResult(
                     Stop<PackageReferenceRealization>(
@@ -173,7 +301,10 @@ public sealed class PackagePlatformHouseAdapter
                         "The House work allowance does not permit compiled XML realization.",
                         incomplete: true));
             }
-            ValidateOperation(request, operation);
+            ValidateOperation(
+                request,
+                operation,
+                workAllowance.MaxDuration);
 
             if (fromDiscovery
                 && (!ReferenceEquals(discovery!.Contribution.Request, request.Snapshot)
@@ -190,7 +321,9 @@ public sealed class PackagePlatformHouseAdapter
                 PlatformPopulationDemand.CompletePopulation => new PackageReferencePopulationDemand.CompletePopulation(),
                 _ => throw new InvalidOperationException("Unknown Platform population demand."),
             };
-            var work = new PackageReferenceWorkBudget(request.Work.MaxAssemblies, request.Work.MaxBytes);
+            var work = new PackageReferenceWorkBudget(
+                workAllowance.MaxAssemblies,
+                workAllowance.MaxBytes);
             Task<PackagePlatformSourceOutcome<PackageReferenceRealization>> pending = !fromDiscovery
                 ? _source.RealizeAsync(
                     new PackageReferencePackCoordinate(exact),
@@ -226,6 +359,34 @@ public sealed class PackagePlatformHouseAdapter
         RealizeImplementationAsync(
             PlatformHouseRequest request,
             string runtimeIdentifier,
+            PackageSourceOperationLease operation) =>
+        RealizeImplementation(
+            request,
+            selectedTarget: null,
+            request.Work,
+            runtimeIdentifier,
+            operation);
+
+    public Task<PackagePlatformHouseResult<PackageImplementationRealization>>
+        RealizeSelectedImplementationAsync(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget target,
+            PlatformHouseWorkBudget remainingWork,
+            string runtimeIdentifier,
+            PackageSourceOperationLease operation) =>
+        RealizeImplementation(
+            request,
+            target,
+            remainingWork,
+            runtimeIdentifier,
+            operation);
+
+    Task<PackagePlatformHouseResult<PackageImplementationRealization>>
+        RealizeImplementation(
+            PlatformHouseRequest request,
+            PlatformFamilyTarget? selectedTarget,
+            PlatformHouseWorkBudget workAllowance,
+            string runtimeIdentifier,
             PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -233,14 +394,18 @@ public sealed class PackagePlatformHouseAdapter
         try
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (request.Target is not PlatformTargetDemand.Exact target)
+            PlatformFamilyTarget exact = request.Target switch
             {
-                throw new ArgumentException(
-                    "Package-backed implementation realization requires an exact House target.",
-                    nameof(request));
-            }
-
-            PlatformFamilyTarget exact = target.Target;
+                PlatformTargetDemand.Exact target
+                    when selectedTarget is null => target.Target,
+                PlatformTargetDemand.FamilyDefault familyDefault
+                    when selectedTarget is not null
+                        && familyDefault.Family == selectedTarget.Family =>
+                    selectedTarget,
+                _ => throw new ArgumentException(
+                    "Package-backed implementation realization requires an exact or corresponding selected House target.",
+                    nameof(request)),
+            };
             request.CancellationToken.ThrowIfCancellationRequested();
             if (!request.Sources.Authorizes(
                     PlatformSourceFacet.Implementation,
@@ -273,10 +438,10 @@ public sealed class PackagePlatformHouseAdapter
                         exact,
                         "An opaque Platform library identity has no runtime-package member correspondence."));
             }
-            if (request.Work.MaxSourceOperations == 0
-                || request.Work.MaxDuration == TimeSpan.Zero
-                || request.Work.MaxAssemblies == 0
-                || request.Work.MaxBytes == 0)
+            if (workAllowance.MaxSourceOperations == 0
+                || workAllowance.MaxDuration == TimeSpan.Zero
+                || workAllowance.MaxAssemblies == 0
+                || workAllowance.MaxBytes == 0)
             {
                 return Task.FromResult(
                     Stop<PackageImplementationRealization>(
@@ -286,7 +451,10 @@ public sealed class PackagePlatformHouseAdapter
                         "The House work allowance does not permit implementation realization.",
                         incomplete: true));
             }
-            ValidateOperation(request, operation);
+            ValidateOperation(
+                request,
+                operation,
+                workAllowance.MaxDuration);
 
             PackageImplementationPlatformCoordinate coordinate;
             try
@@ -312,10 +480,10 @@ public sealed class PackagePlatformHouseAdapter
                 limits.MaxManifestLibraries,
                 limits.MaxManifestAssets,
                 Math.Min(
-                    request.Work.MaxAssemblies,
+                    workAllowance.MaxAssemblies,
                     limits.MaxAssemblies),
                 Math.Min(
-                    request.Work.MaxBytes,
+                    workAllowance.MaxBytes,
                     limits.MaxBytes));
             Task<PackagePlatformSourceOutcome<PackageImplementationRealization>>
                 pending = _source.RealizeImplementationAsync(
@@ -336,10 +504,14 @@ public sealed class PackagePlatformHouseAdapter
         }
     }
 
-    static void ValidateOperation(PlatformHouseRequest request, PackageSourceOperationLease operation)
+    static void ValidateOperation(
+        PlatformHouseRequest request,
+        PackageSourceOperationLease operation,
+        TimeSpan? maxDuration = null)
     {
         if (operation.CancellationToken != request.CancellationToken
-            || operation.OperationTimeout > request.Work.MaxDuration)
+            || operation.OperationTimeout
+                > (maxDuration ?? request.Work.MaxDuration))
             throw new ArgumentException(
                 "The Package Source operation must carry the House cancellation token and a deadline within its duration allowance.",
                 nameof(operation));
@@ -441,8 +613,23 @@ public sealed class PackagePlatformHouseAdapter
                             PlatformSourceGeneration.Create(
                                 outcome.Generation.Name),
                             target,
-                            PlatformSourceUnavailabilityKind.Absent));
+                            PlatformSourceUnavailabilityKind.Absent),
+                        RealizationWork(success.Value));
             }
+
+            static PlatformHouseConsumedWork RealizationWork(
+                PackageImplementationRealization realization) =>
+                new(
+                    sourceOperations: 0,
+                    targetCandidates: 0,
+                    assemblies: realization.Libraries.Length,
+                    xmlDocuments: 0,
+                    portablePdbs: 0,
+                    sourceDocuments: 0,
+                    bytes: realization.ConsumedBytes,
+                    forwardingHops: 0,
+                    targetComparisons: 0,
+                    elapsed: TimeSpan.Zero);
 
             return new PackagePlatformHouseResult<
                 PackageImplementationRealization>.Succeeded(

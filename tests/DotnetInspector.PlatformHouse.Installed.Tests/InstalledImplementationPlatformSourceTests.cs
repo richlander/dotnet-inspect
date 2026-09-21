@@ -59,6 +59,14 @@ public sealed class InstalledImplementationPlatformSourceTests
         Assert.DoesNotContain(
             succeeded.Value.Libraries,
             library => library.ManifestCoordinate.FileName == "Unlisted.dll");
+        Assert.Equal(
+            new FileInfo(first).Length
+            + new FileInfo(second).Length
+            + new FileInfo(
+                Path.Combine(
+                    directory,
+                    "Microsoft.NETCore.App.deps.json")).Length,
+            succeeded.Value.ConsumedBytes);
 
         File.Delete(first);
         File.Delete(second);
@@ -128,6 +136,9 @@ public sealed class InstalledImplementationPlatformSourceTests
                 Assert.Equal(
                     "Microsoft.NETCore.App",
                     framework.Name.Value);
+                Assert.Equal(
+                    PlatformFamily.DotNetRuntime,
+                    framework.Family);
                 Assert.Equal("11.0.1", framework.Version.Value);
             },
             framework =>
@@ -135,6 +146,9 @@ public sealed class InstalledImplementationPlatformSourceTests
                 Assert.Equal(
                     "Microsoft.AspNetCore.App",
                     framework.Name.Value);
+                Assert.Equal(
+                    PlatformFamily.AspNetCore,
+                    framework.Family);
                 Assert.Equal("11.0.0", framework.Version.Value);
             });
         Assert.Equal(2, succeeded.Value.Libraries.Count);
@@ -247,6 +261,7 @@ public sealed class InstalledImplementationPlatformSourceTests
             Assert.Single(
                 succeeded.Value.Frameworks,
                 framework => framework.Name.Value == "Framework.C");
+        Assert.Null(frameworkC.Family);
         Assert.Equal("1.2.0", frameworkC.Version.Value);
         Assert.Equal(
             [

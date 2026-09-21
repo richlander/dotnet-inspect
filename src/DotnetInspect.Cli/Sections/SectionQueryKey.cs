@@ -9,4 +9,5 @@ public sealed record SectionQueryKey(
     ImmutableArray<string> Comparisons,
     string ValueKind,
     ImmutableArray<string> Values,
-    string Example);
+    string Example,
+    string? ExecutionClass = null);

@@ -16,6 +16,9 @@ import {
   registerEngineWorkerOrdinaryOperations,
   type EngineWorkerOrdinaryFacades,
 } from "../src/engine-worker-ordinary.ts";
+import type {
+  RetainedWorkspaceActivationClient,
+} from "../src/retained-workspace-activation.ts";
 import {
   FakeWorkerRuntime,
   ManualWorkerRuntimeEnvironment,
@@ -23,10 +26,22 @@ import {
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
+import type {
+  BrowserRetainedWorkspaceActivationResult,
+  BrowserRetainedWorkspaceDefinitionState,
+  BrowserRetainedWorkspacePackageAdmissionResult,
+  BrowserRetainedWorkspacePlatformAdmissionResult,
+  BrowserRetainedWorkspacePosting,
+} from "../src/facades/inspect-web-catalog.d.ts";
 import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserMemberSource,
+  BrowserSource,
+} from "../src/facades/inspect-web-source.d.ts";
 
 type FacadeOverrides = {
   readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
@@ -65,9 +80,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
+    queryPlatformMemberDocumentation: () =>
+      unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
     queryPackagePruning: () =>
@@ -139,10 +157,26 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    abandonRetainedWorkspaceNavigation: () =>
+      unexpected("abandonRetainedWorkspaceNavigation"),
+    acknowledgeRetainedWorkspaceNavigation: () =>
+      unexpected("acknowledgeRetainedWorkspaceNavigation"),
+    admitRetainedWorkspacePackage: () =>
+      unexpected("admitRetainedWorkspacePackage"),
+    admitRetainedWorkspacePlatform: () =>
+      unexpected("admitRetainedWorkspacePlatform"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
+    cancelRetainedWorkspaceActivation: () =>
+      unexpected("cancelRetainedWorkspaceActivation"),
     canonicalizeWorkspaceSharePacket: () =>
       unexpected("canonicalizeWorkspaceSharePacket"),
+    commitRetainedWorkspaceActivation: () =>
+      unexpected("commitRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceActivation: () =>
+      unexpected("completeRetainedWorkspaceActivation"),
+    completeRetainedWorkspaceDeactivation: () =>
+      unexpected("completeRetainedWorkspaceDeactivation"),
     deactivateRetainedWorkspaceDefinition: () =>
       unexpected("deactivateRetainedWorkspaceDefinition"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
@@ -152,7 +186,13 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("encodeWorkspaceShareState"),
     observeRetainedWorkspaceSettlement: () =>
       unexpected("observeRetainedWorkspaceSettlement"),
+    prepareRetainedWorkspaceDefinition: () =>
+      unexpected("prepareRetainedWorkspaceDefinition"),
+    recordRetainedWorkspaceNavigationPosting: () =>
+      unexpected("recordRetainedWorkspaceNavigationPosting"),
     runHomeDemo: () => unexpected("runHomeDemo"),
+    validateRetainedWorkspaceNavigationAuthority: () =>
+      unexpected("validateRetainedWorkspaceNavigationAuthority"),
   },
 };
 
@@ -238,6 +278,76 @@ function fixture(overrides: FacadeOverrides = {}) {
   };
 }
 
+function retainedDetailSurface(
+  packageId: string,
+  typeId: string,
+  platformPack: string | null,
+): BrowserPackageSurface {
+  const assemblyName = `${packageId}.dll`;
+  return {
+    package: packageId,
+    version: "10.0.0",
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    icon: {
+      mediaType: "image/png",
+      base64: "AA==",
+    },
+    defaultAssemblyId: assemblyName,
+    compileLibrary: {
+      status: "Selected",
+      targetFramework: "net10.0",
+      message: null,
+    },
+    assemblies: [{
+      id: assemblyName,
+      name: assemblyName,
+      version: "10.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+      asset: `lib/net10.0/${assemblyName}`,
+      publicTypes: 1,
+      publicMembers: 2,
+      platformPack,
+    }],
+    types: [{
+      id: typeId,
+      definitionId: typeId,
+      queryId: typeId,
+      metadataId: typeId,
+      name: typeId.split(".").at(-1) ?? typeId,
+      displayName: typeId,
+      namespace: typeId.split(".").slice(0, -1).join("."),
+      kind: "class",
+      accessibility: "public",
+      accessibilityId: "public",
+      assembly: assemblyName,
+      assemblyId: assemblyName,
+      assemblyName,
+      members: 2,
+      signature: `public class ${typeId}`,
+      api: [],
+      platformPack,
+    }],
+    accessibility: [{
+      id: "public",
+      label: "Public",
+      order: 0,
+      isDefault: true,
+      count: 1,
+    }],
+    totalMembers: 2,
+    documents: [{
+      kind: "readme",
+      name: "README.md",
+      path: "README.md",
+      size: 128,
+    }],
+    inspectionErrors: ["Retained inspection notice."],
+    inspectionError: null,
+  };
+}
+
 test("format 3 packet remains opaque across Browser Worker transport", async () => {
   const packet =
     "eyJmIjozLCJ0IjpbXSwiZyI6W10sInIiOltbInAiLCJNaWNyb3NvZnQuRXh0ZW5zaW9ucy4iXV0sImEiOm51bGwsIngiOm51bGwsInYiOlt7InQiOm51bGwsInUiOnsiayI6IndvcmtzcGFjZSJ9fV19";
@@ -268,6 +378,307 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
   state.host.dispose();
 });
 
+test("retained Catalog transport preserves compact posting and bounded Package and Platform detail", async () => {
+  const definition = {
+    tabs: [],
+    contexts: [],
+    registrations: [{
+      kind: "packagePrefix",
+      exactLibrary: null,
+      packagePrefix: "Microsoft.Extensions.",
+      ecosystem: null,
+    }],
+    activeTabId: null,
+    selectedContextId: null,
+  } satisfies BrowserRetainedWorkspaceDefinitionState;
+  const posting = {
+    retainedDefinitionId: "definition-exact",
+    label: "Example",
+    canonicalLocation: "/inspect/example",
+    canonicalPacket: "packet-exact",
+    realizationId: "realization-exact",
+    publicationOrdinal: 7,
+    definition,
+    navigation: {
+      operation: "Initialize",
+      request: "request-exact",
+      snapshot: {
+        generation: "generation-exact",
+        scope: {
+          kind: "Current",
+          runtimeFailure: null,
+        },
+        workspace: {
+          id: "workspace-exact",
+          kind: "Workspace",
+          label: "Example",
+          summary: null,
+          parent: null,
+        },
+        activePackage: null,
+        activeSubject: {
+          id: "workspace-exact",
+          kind: "Workspace",
+          label: "Example",
+          summary: null,
+          parent: null,
+        },
+        typeInventoryLibraryContext: null,
+        packages: [],
+        hierarchy: [],
+        libraries: [],
+        types: [],
+        members: [],
+        lenses: [],
+        lensOutcome: {
+          kind: "Applied",
+          basis: "Recommendation",
+          subject: {
+            id: "workspace-exact",
+            kind: "Workspace",
+            label: "Example",
+            summary: null,
+            parent: null,
+          },
+          effectiveLens: null,
+          request: null,
+          preferredRole: null,
+          policyFailure: null,
+          resolution: null,
+          suspension: null,
+        },
+        diagnostics: [],
+      },
+      outcome: {
+        kind: "Applied",
+        rejection: null,
+        failureSource: null,
+        message: null,
+        request: null,
+        resolution: null,
+        scope: null,
+        diagnostics: [],
+        coordinateRetention: null,
+      },
+      synchronization: "SynchronizationRequired",
+      authority: {
+        session: "session-exact",
+        revision: "revision-exact",
+        intent: "intent-exact",
+        epoch: "epoch-exact",
+      },
+    },
+    packages: [{
+      navigationId: "package-navigation",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      summary: {
+        selectedCompileFramework: null,
+        libraryCount: 1,
+        typeCount: 1,
+        memberCount: 2,
+        documentCount: 1,
+        hasInspectionNotices: true,
+      },
+    }],
+    platforms: [{
+      navigationId: "platform-navigation",
+      contextIndex: 1,
+      family: "Microsoft.NETCore.App",
+      runtimeIdentifier: "linux-x64",
+      summary: {
+        selectedCompileFramework: "net10.0",
+        libraryCount: 1,
+        typeCount: 1,
+        memberCount: 2,
+        documentCount: 1,
+        hasInspectionNotices: true,
+      },
+    }],
+    predecessor: null,
+    cleanup: null,
+  } satisfies BrowserRetainedWorkspacePosting;
+  const activation = {
+    status: "activated",
+    posting,
+    failure: null,
+  } satisfies BrowserRetainedWorkspaceActivationResult;
+  const packageSurface = retainedDetailSurface(
+    "Microsoft.Extensions.Logging",
+    "Microsoft.Extensions.Logging.ILogger",
+    null,
+  );
+  const admittedPackage = {
+    status: "admitted",
+    package: {
+      navigationId: "package-navigation",
+      contextIndex: 0,
+      consumerPackageSubjectId: "package-subject",
+      surface: packageSurface,
+      typePage: {
+        offset: 0,
+        totalTypes: 2,
+        nextOffset: 1,
+      },
+    },
+    message: null,
+  } satisfies BrowserRetainedWorkspacePackageAdmissionResult;
+  const supersededPackage = {
+    status: "superseded",
+    package: null,
+    message: null,
+  } satisfies BrowserRetainedWorkspacePackageAdmissionResult;
+  const platformSurface = retainedDetailSurface(
+    "Microsoft.NETCore.App",
+    "System.String",
+    "Microsoft.NETCore.App.Ref",
+  );
+  const admittedPlatform = {
+    status: "admitted",
+    platform: {
+      navigationId: "platform-navigation",
+      contextIndex: 1,
+      family: "Microsoft.NETCore.App",
+      runtimeIdentifier: "linux-x64",
+      surface: platformSurface,
+      typePage: {
+        offset: 0,
+        totalTypes: 2,
+        nextOffset: 1,
+      },
+    },
+    message: null,
+  } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const supersededPlatform = {
+    status: "superseded",
+    platform: null,
+    message: null,
+  } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const unavailablePlatform = {
+    status: "unavailable",
+    platform: null,
+    message: "Retained Platform detail exceeds the Worker JSON bound.",
+  } satisfies BrowserRetainedWorkspacePlatformAdmissionResult;
+  const packageArguments: (readonly unknown[])[] = [];
+  const platformArguments: (readonly unknown[])[] = [];
+  const state = fixture({
+    catalog: {
+      activateRetainedWorkspaceDefinition: async () => activation,
+      admitRetainedWorkspacePackage: async (...args) => {
+        packageArguments.push(args);
+        return args[1] === "old-realization"
+          ? supersededPackage
+          : admittedPackage;
+      },
+      admitRetainedWorkspacePlatform: async (...args) => {
+        platformArguments.push(args);
+        return args[3] === 1
+          ? supersededPlatform
+          : args[2] === "oversized-navigation"
+          ? unavailablePlatform
+          : admittedPlatform;
+      },
+    },
+  });
+
+  const activationResult =
+    state.client.catalog.activateRetainedWorkspaceDefinition(
+      "definition-exact",
+      "Example",
+      "/inspect/example",
+      "packet-exact",
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(await activationResult, activation);
+
+  const packageResult =
+    state.client.catalog.admitRetainedWorkspacePackage(
+      "definition-exact",
+      "realization-exact",
+      "package-navigation",
+      0,
+    );
+  const supersededResult =
+    state.client.catalog.admitRetainedWorkspacePackage(
+      "definition-exact",
+      "old-realization",
+      "package-navigation",
+      0,
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(await packageResult, admittedPackage);
+  assert.deepEqual(await supersededResult, supersededPackage);
+
+  const platformResult =
+    state.client.catalog.admitRetainedWorkspacePlatform(
+      "definition-exact",
+      "realization-exact",
+      "platform-navigation",
+      0,
+    );
+  await state.environment.flushAsync();
+  const firstPlatformPage = await platformResult;
+  assert.deepEqual(firstPlatformPage, admittedPlatform);
+  const nextOffset = firstPlatformPage.platform?.typePage.nextOffset;
+  if (nextOffset === null || nextOffset === undefined)
+    throw new Error("Expected a retained Platform continuation page.");
+  assert.equal(nextOffset, 1);
+
+  const stalePlatformPage =
+    state.client.catalog.admitRetainedWorkspacePlatform(
+      "definition-exact",
+      "realization-exact",
+      "platform-navigation",
+      nextOffset,
+    );
+  const unavailableResult =
+    state.client.catalog.admitRetainedWorkspacePlatform(
+      "definition-exact",
+      "realization-exact",
+      "oversized-navigation",
+      0,
+    );
+  await state.environment.flushAsync();
+  assert.deepEqual(await stalePlatformPage, supersededPlatform);
+  assert.deepEqual(await unavailableResult, unavailablePlatform);
+
+  assert.equal("surface" in posting.packages[0]!, false);
+  assert.equal("icon" in posting.packages[0]!, false);
+  assert.equal("types" in posting.packages[0]!, false);
+  assert.equal("surface" in posting.platforms[0]!, false);
+  assert.equal("icon" in posting.platforms[0]!, false);
+  assert.equal("types" in posting.platforms[0]!, false);
+  assert.deepEqual(packageArguments, [[
+    "definition-exact",
+    "realization-exact",
+    "package-navigation",
+    0,
+  ], [
+    "definition-exact",
+    "old-realization",
+    "package-navigation",
+    0,
+  ]]);
+  assert.deepEqual(platformArguments, [[
+    "definition-exact",
+    "realization-exact",
+    "platform-navigation",
+    0,
+  ], [
+    "definition-exact",
+    "realization-exact",
+    "platform-navigation",
+    1,
+  ], [
+    "definition-exact",
+    "realization-exact",
+    "oversized-navigation",
+    0,
+  ]]);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("ordinary transport preserves sync, async DTO, void, null, and arguments", async () => {
   const searchResult = [{
     key: "System.String",
@@ -286,6 +697,8 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let pruningArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
+  let platformDocumentationArguments: readonly unknown[] = [];
+  let libraryQueryArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -299,6 +712,45 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       },
       queryMemberDocumentation: async () =>
         contractViolation(null),
+      queryLibraries: (...args) => {
+        libraryQueryArguments = args;
+        return Promise.resolve({
+          content: {
+            results: [{
+              assetId: "compile:ref/net11.0/Example.dll",
+              library: "Example",
+              path: "ref/net11.0/Example.dll",
+              source: "Example.Package",
+              version: "1.0.0.0",
+              sourceKind: "Package",
+              targetFramework: "net11.0",
+              matchedReferences: ["System.Runtime"],
+            }],
+            failures: [],
+            summary: {
+              populationCandidates: 1,
+              candidateLimit: 256,
+              candidates: 1,
+              matches: 1,
+              failures: 0,
+              incompleteReasons: "None",
+              isComplete: true,
+            },
+          },
+          share: {
+            kind: "Available",
+            fullUrl: null,
+            packet: "packet",
+            path: null,
+            reason: null,
+          },
+          diagnostics: [],
+        });
+      },
+      queryPlatformMemberDocumentation: (...args) => {
+        platformDocumentationArguments = args;
+        return Promise.resolve(contractViolation(null));
+      },
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
@@ -357,6 +809,21 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const libraryQuery = state.client.package.queryLibraries(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  );
+  const platformDocumentation =
+    state.client.package.queryPlatformMemberDocumentation(
+      "net11.0",
+      "11.0.0",
+      "System.Runtime.dll",
+      "netcore.app",
+      "M:System.String.Clone",
+    );
   const classified = state.client.package.classifyPackageGraphIdentities(
     "Example.Root",
     ["Example.Root", "Other"],
@@ -393,6 +860,31 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual((await libraryQuery).content.results, [{
+    assetId: "compile:ref/net11.0/Example.dll",
+    library: "Example",
+    path: "ref/net11.0/Example.dll",
+    source: "Example.Package",
+    version: "1.0.0.0",
+    sourceKind: "Package",
+    targetFramework: "net11.0",
+    matchedReferences: ["System.Runtime"],
+  }]);
+  assert.deepEqual(libraryQueryArguments, [
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "[\"compile:ref/net11.0/Example.dll\"]",
+    "[\"System.Runtime\"]",
+  ]);
+  assert.equal(await platformDocumentation, null);
+  assert.deepEqual(platformDocumentationArguments, [
+    "net11.0",
+    "11.0.0",
+    "System.Runtime.dll",
+    "netcore.app",
+    "M:System.String.Clone",
+  ]);
   assert.deepEqual(await classified, ["Inspected", "External"]);
   assert.deepEqual(classificationArguments, [
     "Example.Root",
@@ -591,6 +1083,74 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
   state.host.dispose();
 });
 
+test("ordinary source transport preserves member parts and flat graph source", async () => {
+  const flat = {
+    provider: "pdb",
+    provenance: inertStringFixture("SourceLink"),
+    url: "https://example.test/source.cs",
+    pdbSourceLimitation: null,
+    text: "public void M() { }",
+  } satisfies BrowserSource;
+  const member = {
+    source: flat,
+    parts: [{
+      kind: "Member",
+      spans: [{
+        start: 0,
+        length: flat.text.length,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: flat.text.length,
+      }],
+    }, {
+      kind: "Body",
+      spans: [{
+        start: 16,
+        length: 3,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: 19,
+      }],
+    }],
+  } satisfies BrowserMemberSource;
+  const state = fixture({
+    source: {
+      queryMemberSource: async () => member,
+      queryTypeMemberSource: async () => flat,
+    },
+  });
+
+  const memberResult = state.client.source.queryMemberSource(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "Example.dll",
+    "Example.C",
+    "M",
+    "selector",
+    0x06000001,
+    "[]",
+  );
+  const graphResult = state.client.source.queryTypeMemberSource(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "Example.dll",
+    "Example.C",
+    "M",
+    "selector",
+    0x06000001,
+    "[]",
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await memberResult, member);
+  assert.deepEqual(await graphResult, flat);
+  state.host.dispose();
+});
+
 test("Platform graph transport preserves retained context selection and ordinary null", async () => {
   const selections: (string | null)[] = [];
   const node = {
@@ -743,6 +1303,114 @@ test("malformed and oversized generated results reject only their calls", async 
   assert.equal((await neighbor).residentBytes, 64);
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
+  state.host.dispose();
+});
+
+test("oversized prepared activation is cancelled before rejection", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinition: async () =>
+        contractViolation({
+          status: "prepared",
+          receipt: "receipt-oversized",
+          preparation: {
+            label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          },
+          posting: null,
+          failure: null,
+        }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return {
+          status: "superseded",
+          posting: null,
+          failure: null,
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinition(
+      "definition",
+      "Definition",
+      "/definition",
+      "packet",
+    );
+  await state.environment.flushAsync();
+  await assert.rejects(
+    preparation,
+    new RegExp(
+      `exceeds ${engineWorkerOrdinaryMaximumJsonCharacters} characters`,
+    ),
+  );
+  assert.deepEqual(cancellations, ["receipt-oversized"]);
+  assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
+test("retained Workspace Navigation lifecycle crosses ordinary transport", async () => {
+  const calls: string[] = [];
+  const state = fixture({
+    catalog: {
+      validateRetainedWorkspaceNavigationAuthority: () => {
+        calls.push("validate");
+        return true;
+      },
+      recordRetainedWorkspaceNavigationPosting: () => {
+        calls.push("record");
+        return "accepted";
+      },
+      acknowledgeRetainedWorkspaceNavigation: () => {
+        calls.push("acknowledge");
+        return "accepted";
+      },
+      abandonRetainedWorkspaceNavigation: () => {
+        calls.push("abandon");
+        return "accepted";
+      },
+    },
+  });
+  const authority = [
+    "realization-1",
+    1,
+    "session-1",
+    "revision-1",
+    "intent-1",
+    "epoch-1",
+  ] as const;
+  const client: RetainedWorkspaceActivationClient = state.client.catalog;
+
+  const results = Promise.all([
+    client.validateRetainedWorkspaceNavigationAuthority(
+      ...authority,
+    ),
+    client.recordRetainedWorkspaceNavigationPosting(
+      ...authority,
+    ),
+    client.acknowledgeRetainedWorkspaceNavigation(
+      ...authority,
+    ),
+    client.abandonRetainedWorkspaceNavigation(
+      ...authority,
+    ),
+  ]);
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await results, [
+    true,
+    "accepted",
+    "accepted",
+    "accepted",
+  ]);
+  assert.deepEqual(calls, [
+    "validate",
+    "record",
+    "acknowledge",
+    "abandon",
+  ]);
+  assert.equal(state.host.snapshot().phase, "ready");
   state.host.dispose();
 });
 
@@ -913,8 +1581,10 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "matchPackageDependencyCoordinate",
       "packageCacheStats",
       "prefetchPlatformPacks",
+      "queryLibraries",
       "queryLibraryApi",
       "queryMemberDocumentation",
+      "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
       "queryPackagePruning",
@@ -963,14 +1633,25 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "abandonRetainedWorkspaceNavigation",
+      "acknowledgeRetainedWorkspaceNavigation",
+      "admitRetainedWorkspacePackage",
+      "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
+      "cancelRetainedWorkspaceActivation",
       "canonicalizeWorkspaceSharePacket",
+      "commitRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceActivation",
+      "completeRetainedWorkspaceDeactivation",
       "deactivateRetainedWorkspaceDefinition",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
+      "prepareRetainedWorkspaceDefinition",
+      "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
+      "validateRetainedWorkspaceNavigationAuthority",
     ],
   } as const;
   const expectedKinds = [
@@ -985,7 +1666,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 59);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 72);
 
   const state = fixture();
   const groups = [

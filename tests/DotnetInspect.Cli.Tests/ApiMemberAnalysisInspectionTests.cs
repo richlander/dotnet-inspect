@@ -84,7 +84,7 @@ public class ApiMemberAnalysisInspectionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void CallGraphBodyIndexes_IncludeOpportunityEnabledCalleeScopes()
+    public void CallGraphOptimizationResults_IncludeOpportunityEnabledCalleeScopes()
     {
         var inspection = new ApiMemberAnalysisInspection(
             SelfPath,
@@ -103,8 +103,8 @@ public class ApiMemberAnalysisInspectionTests
         ILInspector.CallGraph.CallGraphProjection projection =
             inspection.BuildCallGraph(root);
         ILInspector.Analysis.OptimizationOpportunity opportunity =
-            inspection.CallGraphBodyIndexes
-                .SelectMany(index => index.OptimizationOpportunities)
+            inspection.CallGraphOptimizationResults
+                .SelectMany(result => result.Opportunities)
                 .Single(candidate =>
                     candidate.Shape == "sync-call-in-async"
                     && candidate.Method.DeclaringType.Name
@@ -113,16 +113,16 @@ public class ApiMemberAnalysisInspectionTests
             ILInspector.CallGraph.CallGraphNodeMatch.Found,
             projection.FindNode(opportunity.Method, out _));
         Assert.All(
-            inspection.CallGraphBodyIndexes,
-            index =>
+            inspection.CallGraphOptimizationResults,
+            result =>
             {
-                Assert.True(index.Features.HasFlag(
+                Assert.True(result.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .AsyncSiblingOpportunities));
-                Assert.False(index.Features.HasFlag(
+                Assert.False(result.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .Allocations));
-                Assert.False(index.Features.HasFlag(
+                Assert.False(result.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities));
             });
@@ -148,16 +148,15 @@ public class ApiMemberAnalysisInspectionTests
             nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
 
         _ = inspection.BuildCallGraph(root);
-        ILInspector.Analysis.LibraryBodyIndex cliIndex =
-            inspection.CallGraphBodyIndexes.Single(index =>
-                index.DeclaredMethods.Any(method =>
-                    method.DeclaringType.Name == nameof(DiffCommand)));
+        ILInspector.Analysis.LibraryOptimizationAnalysisResult cliResult =
+            inspection.CallGraphOptimizationResults.Single(result =>
+                result.Receipt.SourceName == CliPath);
 
         Assert.NotEmpty(inspection.BodyIndex.OptimizationOpportunities);
         Assert.True(inspection.BodyIndex.Features.HasFlag(
             ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
-        Assert.Empty(cliIndex.OptimizationOpportunities);
-        Assert.False(cliIndex.Features.HasFlag(
+        Assert.Empty(cliResult.Opportunities);
+        Assert.False(cliResult.Receipt.Features.HasFlag(
             ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations));
     }
 
@@ -180,18 +179,17 @@ public class ApiMemberAnalysisInspectionTests
             nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
 
         _ = inspection.BuildCallGraph(root);
-        ILInspector.Analysis.LibraryBodyIndex cliIndex =
-            inspection.CallGraphBodyIndexes.Single(index =>
-                index.DeclaredMethods.Any(method =>
-                    method.DeclaringType.Name == nameof(DiffCommand)));
+        ILInspector.Analysis.LibraryOptimizationAnalysisResult cliResult =
+            inspection.CallGraphOptimizationResults.Single(result =>
+                result.Receipt.SourceName == CliPath);
 
         Assert.True(inspection.HasCallGraphFieldProjection);
         Assert.Empty(inspection.CallGraphFields);
         Assert.False(inspection.IncludesCallGraphOpportunities);
-        Assert.Empty(cliIndex.OptimizationOpportunities);
+        Assert.Empty(cliResult.Opportunities);
         Assert.All(
-            inspection.CallGraphBodyIndexes,
-            index => Assert.False(index.Features.HasFlag(
+            inspection.CallGraphOptimizationResults,
+            result => Assert.False(result.Receipt.Features.HasFlag(
                 ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
@@ -220,8 +218,8 @@ public class ApiMemberAnalysisInspectionTests
         _ = inspection.BuildCallGraph(root);
 
         Assert.All(
-            inspection.CallGraphBodyIndexes,
-            index => Assert.False(index.Features.HasFlag(
+            inspection.CallGraphOptimizationResults,
+            result => Assert.False(result.Receipt.Features.HasFlag(
                 ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
@@ -246,8 +244,8 @@ public class ApiMemberAnalysisInspectionTests
         _ = inspection.BuildCallGraph(root);
 
         Assert.All(
-            inspection.CallGraphBodyIndexes,
-            index => Assert.True(index.Features.HasFlag(
+            inspection.CallGraphOptimizationResults,
+            result => Assert.True(result.Receipt.Features.HasFlag(
                 ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations)));
     }
 
@@ -270,31 +268,57 @@ public class ApiMemberAnalysisInspectionTests
             "ProjectInspectionFailures");
 
         _ = inspection.BuildCallGraph(root);
-        ILInspector.Analysis.LibraryBodyIndex cliIndex =
-            inspection.CallGraphBodyIndexes.Single(index =>
-                index.DeclaredMethods.Any(method =>
-                    method.DeclaringType.Name == nameof(DiffCommand)));
+        ILInspector.Analysis.LibraryOptimizationAnalysisResult cliResult =
+            inspection.CallGraphOptimizationResults.Single(result =>
+                result.Receipt.SourceName == CliPath);
 
         Assert.Contains(
-            cliIndex.OptimizationOpportunities,
+            cliResult.Opportunities,
             opportunity =>
                 opportunity.Shape == "sync-call-in-async"
                 && opportunity.Method.DeclaringType.Name
                     == nameof(DiffCommand));
         Assert.All(
-            inspection.CallGraphBodyIndexes,
-            index =>
+            inspection.CallGraphOptimizationResults,
+            result =>
             {
-                Assert.True(index.Features.HasFlag(
+                Assert.True(result.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .AsyncSiblingOpportunities));
-                Assert.False(index.Features.HasFlag(
+                Assert.False(result.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .Allocations));
-                Assert.False(index.Features.HasFlag(
+                Assert.False(result.Receipt.Features.HasFlag(
                     ILInspector.Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities));
             });
+    }
+
+    [Fact]
+    public void CallGraphScopeAndProjection_DoNotCreateCompatibilityIndex()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        var inspection = Create(target, [caller]);
+        int root = TokenOf(target, "Api", "Ping");
+
+        _ = inspection.CallerScopes(includeAllocations: false);
+        _ = inspection.BuildCallGraph(root);
+
+        var session = Assert.IsType<MethodBodyInspectionSession>(
+            typeof(ApiMemberAnalysisInspection)
+                .GetField(
+                    "_session",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(inspection));
+        Assert.Null(
+            typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
+                .GetField(
+                    "_compatibilityIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(session.AnalysisExecution));
     }
 
     [Fact]

@@ -30,8 +30,10 @@ type PackageOperations =
   | "matchPackageDependencyCoordinate"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
+  | "queryLibraries"
   | "queryLibraryApi"
   | "queryMemberDocumentation"
+  | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageRoot"
   | "queryPackageDependencies"
@@ -84,16 +86,27 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "admitRetainedWorkspacePackage"
+  | "admitRetainedWorkspacePlatform"
+  | "abandonRetainedWorkspaceNavigation"
+  | "acknowledgeRetainedWorkspaceNavigation"
   | "activateRetainedWorkspaceDefinition"
+  | "cancelRetainedWorkspaceActivation"
   | "canonicalizeWorkspaceSharePacket"
+  | "commitRetainedWorkspaceActivation"
+  | "completeRetainedWorkspaceActivation"
+  | "completeRetainedWorkspaceDeactivation"
   | "deactivateRetainedWorkspaceDefinition"
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "listHomeDemos"
   | "listVocabulary"
   | "observeRetainedWorkspaceSettlement"
+  | "prepareRetainedWorkspaceDefinition"
+  | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
-  | "runHomeDemo";
+  | "runHomeDemo"
+  | "validateRetainedWorkspaceNavigationAuthority";
 
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;

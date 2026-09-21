@@ -485,6 +485,15 @@ export function retainWorkspacePackage<T extends PackageIdentity>(
 
 export interface RemoveWorkspacePackageInput extends PackageIdentity {
   isRuntimePack?: boolean;
+  runtimeIdentifier?: string | null;
+}
+
+export function workspacePackageRemovalKey(
+  pkg: RemoveWorkspacePackageInput | null | undefined,
+): string {
+  const packageKey = packageIdentityKey(pkg);
+  if (!packageKey || !pkg?.runtimeIdentifier) return packageKey;
+  return `${packageKey}|${encodeURIComponent(pkg.runtimeIdentifier.toLowerCase())}`;
 }
 
 export interface RemoveWorkspacePackageResult<T> {
@@ -498,14 +507,15 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
   activePackage: T | null,
   packageKey: string,
 ): RemoveWorkspacePackageResult<T> {
-  const index = packages.findIndex(item => packageIdentityKey(item) === packageKey);
+  const index = packages.findIndex(item =>
+    workspacePackageRemovalKey(item) === packageKey);
   const closed = index >= 0 ? packages[index] : undefined;
   if (!closed || closed.isRuntimePack) {
     return { packages: [...packages], active: activePackage, closed: null };
   }
 
   const remaining = packages.filter((_, candidate) => candidate !== index);
-  const active = packageIdentityKey(activePackage) === packageKey
+  const active = workspacePackageRemovalKey(activePackage) === packageKey
     ? remaining[Math.min(index, remaining.length - 1)] ?? null
     : activePackage;
   return { packages: remaining, active, closed };

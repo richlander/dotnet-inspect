@@ -903,6 +903,8 @@ public sealed class BrowserManagedOperationBridgeTests
                         millisecondsTimeout: 5_000,
                         _cancellationToken))
                 {
+                    if (task.IsCompleted)
+                        break;
                     throw new TimeoutException(
                         "The single-threaded operation did not make progress.");
                 }

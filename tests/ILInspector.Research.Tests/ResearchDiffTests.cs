@@ -2081,6 +2081,681 @@ public class ResearchDiffTests
                 && change.Kind == ResearchChangeKind.Changed));
     }
 
+    [Fact]
+    public void ImplementationDiff_ReportsNormalFlowComplexityChanges()
+    {
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        var oldInput = IdentityInput(
+            File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath()),
+            File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath()),
+            features);
+        var newInput = IdentityInput(
+            File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath()),
+            File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath()),
+            features);
+
+        var result = ImplementationDiff.Compare([oldInput], [newInput]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        var change = Assert.Single(
+            result.Complexity.Changes,
+            candidate => candidate.Subject.MemberName == "RegressesAllocInLoop");
+        Assert.Equal(
+            ImplementationComplexityChangeKind.Changed,
+            change.Kind);
+        Assert.Equal(1, change.OldValue);
+        Assert.Equal(2, change.NewValue);
+        Assert.Equal(1, change.Delta);
+        Assert.True(change.OldIsComplete);
+        Assert.True(change.NewIsComplete);
+
+        // The retained profiles expose the full structural evidence behind
+        // the single complexity number: V2 adds a loop wrapping the second
+        // allocation (fixtures/diff/DiffFixtures.V2/DiffSample.cs), so the
+        // loop and allocation counts each increase by one alongside the
+        // conditional-branch increase already reflected in Delta.
+        var oldProfile = change.OldProfile;
+        var newProfile = change.NewProfile;
+        Assert.NotNull(oldProfile);
+        Assert.NotNull(newProfile);
+        Assert.Equal(1, newProfile.LoopCount - oldProfile.LoopCount);
+        Assert.Equal(1, newProfile.AllocationCount - oldProfile.AllocationCount);
+        Assert.Equal(
+            change.Delta,
+            newProfile.NormalFlowCyclomaticComplexity
+                - oldProfile.NormalFlowCyclomaticComplexity);
+        var structuralChange = Assert.IsType<ImplementationStructuralChange>(
+            change.StructuralChange);
+        Assert.Equal(13, structuralChange.InstructionDelta);
+        Assert.Equal(1, structuralChange.ComplexityDelta);
+        Assert.Equal(1, structuralChange.LoopDelta);
+        Assert.Equal(1, structuralChange.AllocationDelta);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Instructions);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Complexity);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Loops);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Increased,
+            structuralChange.Signature.Allocations);
+        Assert.NotNull(change.StructuralCohortContext);
+        Assert.True(change.StructuralCohortContext.PopulationSize > 0);
+        Assert.InRange(
+            change.StructuralCohortContext.CohortSize,
+            1,
+            change.StructuralCohortContext.PopulationSize);
+
+        // The delta also carries a population context ranking it against
+        // every other delta-bearing change in this same comparison request.
+        Assert.NotNull(change.PopulationContext);
+        Assert.True(change.PopulationContext.PopulationSize > 0);
+        Assert.InRange(change.PopulationContext.PercentileRank, 0.0, 100.0);
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_ReportsUnavailableWithoutBothEndpoints()
+    {
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([], []));
+
+        Assert.False(result.IsAvailable);
+        Assert.Empty(result.Changes);
+        Assert.Contains("both", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_AssemblyAddedOrRemoved_ReportsAddedAndRemovedRows()
+    {
+        // Regression coverage: comparing assembly-name sets used to Intersect
+        // them, so an assembly present on only one side contributed zero
+        // Added/Removed complexity rows even though its profiles were
+        // available (IsAvailable stayed true, but the assembly's methods
+        // were silently dropped).
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        byte[] removedImage = BuildIdentityAssembly("RemovedAssembly", Guid.NewGuid(), returnValue: 1);
+        byte[] addedImage = BuildIdentityAssembly("AddedAssembly", Guid.NewGuid(), returnValue: 2);
+        var oldAssembly = IdentityInput(removedImage, removedImage, features);
+        var newAssembly = IdentityInput(addedImage, addedImage, features);
+
+        var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        var removed = Assert.Single(
+            result.Complexity.Changes,
+            change => change.Kind == ImplementationComplexityChangeKind.Removed
+                && change.Subject.MemberName == "Read");
+        Assert.NotNull(removed.OldProfile);
+        Assert.Null(removed.NewProfile);
+        var added = Assert.Single(
+            result.Complexity.Changes,
+            change => change.Kind == ImplementationComplexityChangeKind.Added
+                && change.Subject.MemberName == "Read");
+        Assert.Null(added.OldProfile);
+        Assert.NotNull(added.NewProfile);
+    }
+
+    [Fact]
+    public void ImplementationDiff_MismatchedProfileAnalysisIdentity_ThrowsArgumentException()
+    {
+        // Regression coverage: only BodyIndex identity was validated against
+        // the opened assembly; a caller-supplied ProfileAnalysis for a
+        // different assembly passed through unchecked.
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        byte[] image = BuildIdentityAssembly("Mismatched", Guid.NewGuid(), returnValue: 1);
+        byte[] otherImage = BuildIdentityAssembly("Other", Guid.NewGuid(), returnValue: 2);
+        var mismatched = IdentityInput(image, image, features) with
+        {
+            ProfileAnalysis = LibraryBodyAnalysisService.ExecuteImage(
+                "mismatched-profile-analysis.dll",
+                [.. otherImage],
+                LibraryBodyAnalysisRequest.Create(features))
+                .ImplementationProfiles,
+        };
+
+        var error = Assert.Throws<ArgumentException>(
+            () => ImplementationDiff.Compare([mismatched], [mismatched]));
+
+        Assert.Contains(
+            "implementation profile analysis",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_ScopedProfileAnalysis_ReportsUnavailable()
+    {
+        // Regression coverage: only WasRequested (the feature flag) was
+        // checked. A body-scoped/type-scoped execution still sets that flag,
+        // so a partial population used to be misread as a complete one.
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        byte[] image = BuildIdentityAssembly("Scoped", Guid.NewGuid(), returnValue: 1);
+        var oldAssembly = ScopedIdentityInput(image, image, features);
+        var newAssembly = ScopedIdentityInput(image, image, features);
+
+        var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
+
+        Assert.False(result.Complexity.IsAvailable);
+        Assert.Contains(
+            "unscoped",
+            result.Complexity.UnavailableReason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_MultiplePhysicalBodiesPerLogicalMember_ReportsIncomplete()
+    {
+        // Regression coverage: a logical member with more than one physical
+        // evidence method (most commonly multiple lambda/state-machine
+        // bodies) was paired purely by the physical evidence method's
+        // generated name. That name's ordinal shifts when lambdas are
+        // inserted, removed, or reordered, so a same-name match across
+        // versions is not a trustworthy correspondence and used to be
+        // reported as a confident (and possibly wrong) Changed/Added/
+        // Removed row instead of Incomplete.
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var logical = FakeMethod("Widget", "M", token: 0x06000001);
+        var oldLambdaA = FakeMethod("Widget+<>c", "<M>b__0_0", token: 0x06000010);
+        var oldLambdaB = FakeMethod("Widget+<>c", "<M>b__0_1", token: 0x06000011);
+        // A lambda inserted before the existing ones in source shifts
+        // ordinals: the physical body that used to be b__0_0 is now b__0_1,
+        // and vice versa, even though neither lambda's own shape changed.
+        var newLambdaA = FakeMethod("Widget+<>c", "<M>b__0_0", token: 0x06000010);
+        var newLambdaB = FakeMethod("Widget+<>c", "<M>b__0_1", token: 0x06000011);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(logical, oldLambdaA, conditionalBranchCount: 0),
+            FakeProfile(logical, oldLambdaB, conditionalBranchCount: 1));
+        var newProfiles = ImmutableArray.Create(
+            FakeProfile(logical, newLambdaA, conditionalBranchCount: 1),
+            FakeProfile(logical, newLambdaB, conditionalBranchCount: 0));
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([oldResult], [newResult]));
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(2, result.Changes.Count);
+        Assert.All(
+            result.Changes,
+            change => Assert.Equal(ImplementationComplexityChangeKind.Incomplete, change.Kind));
+        // Incomplete rows still retain both sides' profiles: the pairing is
+        // untrustworthy, not the underlying evidence.
+        Assert.All(
+            result.Changes,
+            change =>
+            {
+                Assert.NotNull(change.OldProfile);
+                Assert.NotNull(change.NewProfile);
+                Assert.Null(change.StructuralChange);
+                Assert.Null(change.StructuralCohortContext);
+            });
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_GroupsExactStructuralDirectionCohorts()
+    {
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity(
+                    "Fake",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var methodA = FakeMethod(
+            "Widget",
+            "SameDirectionsA",
+            token: 0x06000001);
+        var methodB = FakeMethod(
+            "Widget",
+            "SameDirectionsB",
+            token: 0x06000002);
+        var methodC = FakeMethod(
+            "Widget",
+            "InstructionOnly",
+            token: 0x06000003);
+        var methodD = FakeMethod(
+            "Widget",
+            "Unchanged",
+            token: 0x06000004);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(methodA, methodA),
+            FakeProfile(methodB, methodB),
+            FakeProfile(
+                methodC,
+                methodC,
+                instructionCount: 3),
+            FakeProfile(methodD, methodD));
+        var newProfiles = ImmutableArray.Create(
+            FakeProfile(
+                methodA,
+                methodA,
+                conditionalBranchCount: 1,
+                instructionCount: 3,
+                loopCount: 1,
+                catchCount: 1,
+                directCallCount: 2,
+                allocationCount: 1,
+                async: true),
+            FakeProfile(
+                methodB,
+                methodB,
+                conditionalBranchCount: 2,
+                instructionCount: 5,
+                loopCount: 3,
+                finallyCount: 2,
+                directCallCount: 1,
+                allocationCount: 4,
+                async: true),
+            FakeProfile(
+                methodC,
+                methodC,
+                instructionCount: 2),
+            FakeProfile(methodD, methodD));
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        ImplementationComplexityDiff result =
+            ImplementationComplexityService.Execute(
+                new ImplementationComplexityComparisonRequest(
+                    [oldResult],
+                    [newResult]));
+
+        ImplementationComplexityChange sameDirectionsA = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "SameDirectionsA");
+        ImplementationComplexityChange sameDirectionsB = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "SameDirectionsB");
+        ImplementationComplexityChange instructionOnly = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "InstructionOnly");
+        ImplementationComplexityChange unchanged = Assert.Single(
+            result.Changes,
+            change => change.Subject.MemberName == "Unchanged");
+
+        Assert.NotEqual(
+            sameDirectionsA.StructuralChange,
+            sameDirectionsB.StructuralChange);
+        Assert.Equal(
+            sameDirectionsA.StructuralChange?.Signature,
+            sameDirectionsB.StructuralChange?.Signature);
+        Assert.Equal(
+            1,
+            sameDirectionsA.StructuralChange?.ExceptionRegionDelta);
+        Assert.Equal(
+            2,
+            sameDirectionsB.StructuralChange?.ExceptionRegionDelta);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Decreased,
+            (sameDirectionsA.StructuralChange! with
+            {
+                InstructionDelta = -1
+            }).Signature.Instructions);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 2),
+            sameDirectionsA.StructuralCohortContext);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 2),
+            sameDirectionsB.StructuralCohortContext);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 1),
+            instructionOnly.StructuralCohortContext);
+        Assert.Equal(
+            ImplementationStructuralChangeDirection.Decreased,
+            instructionOnly.StructuralChange?.Signature.Instructions);
+        Assert.Equal(
+            new ImplementationStructuralChangeCohortContext(4, 1),
+            unchanged.StructuralCohortContext);
+        Assert.Equal(
+            new ImplementationStructuralChangeSignature(
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged,
+                ImplementationStructuralChangeDirection.Unchanged),
+            unchanged.StructuralChange?.Signature);
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_RanksDeltaAgainstLocalPopulation()
+    {
+        // Six independent methods with complexity deltas 1, 2, 2, 2, 3, and
+        // 5. The three-value tie is positioned so a binary search's initial
+        // matching midpoint is not the tie group's upper bound.
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var methodA = FakeMethod("Widget", "SmallestDelta", token: 0x06000001);
+        var methodB = FakeMethod("Widget", "SmallDelta", token: 0x06000002);
+        var methodC = FakeMethod("Widget", "MediumDelta", token: 0x06000003);
+        var methodD = FakeMethod("Widget", "LargestDelta", token: 0x06000004);
+        var methodE = FakeMethod("Widget", "TiedSmallDelta", token: 0x06000005);
+        var methodF = FakeMethod("Widget", "AnotherTiedSmallDelta", token: 0x06000006);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(methodA, methodA, conditionalBranchCount: 0),
+            FakeProfile(methodB, methodB, conditionalBranchCount: 0),
+            FakeProfile(methodC, methodC, conditionalBranchCount: 0),
+            FakeProfile(methodD, methodD, conditionalBranchCount: 0),
+            FakeProfile(methodE, methodE, conditionalBranchCount: 0),
+            FakeProfile(methodF, methodF, conditionalBranchCount: 0));
+        var newProfiles = ImmutableArray.Create(
+            FakeProfile(methodA, methodA, conditionalBranchCount: 1),
+            FakeProfile(methodB, methodB, conditionalBranchCount: 2),
+            FakeProfile(methodC, methodC, conditionalBranchCount: 3),
+            FakeProfile(methodD, methodD, conditionalBranchCount: 5),
+            FakeProfile(methodE, methodE, conditionalBranchCount: 2),
+            FakeProfile(methodF, methodF, conditionalBranchCount: 2));
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([oldResult], [newResult]));
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(6, result.Changes.Count);
+        Assert.All(
+            result.Changes,
+            change => Assert.Equal(6, change.PopulationContext?.PopulationSize));
+        AssertPercentile(result, "SmallestDelta", 100.0 * 1 / 6);
+        AssertPercentile(result, "SmallDelta", 100.0 * 4 / 6);
+        AssertPercentile(result, "TiedSmallDelta", 100.0 * 4 / 6);
+        AssertPercentile(result, "AnotherTiedSmallDelta", 100.0 * 4 / 6);
+        AssertPercentile(result, "MediumDelta", 100.0 * 5 / 6);
+        AssertPercentile(result, "LargestDelta", 100.0);
+
+        static void AssertPercentile(
+            ImplementationComplexityDiff result, string memberName, double expected)
+        {
+            var change = Assert.Single(
+                result.Changes,
+                candidate => candidate.Subject.MemberName == memberName);
+            Assert.Equal(expected, change.PopulationContext?.PercentileRank);
+        }
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_AddedOrRemovedRows_HaveNoPopulationContext()
+    {
+        // Added/Removed rows have no delta to rank, so they carry no
+        // population context even when other rows in the same comparison do.
+        byte[] removedImage = BuildIdentityAssembly("RemovedAssembly", Guid.NewGuid(), returnValue: 1);
+        byte[] addedImage = BuildIdentityAssembly("AddedAssembly", Guid.NewGuid(), returnValue: 2);
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        var oldAssembly = IdentityInput(removedImage, removedImage, features);
+        var newAssembly = IdentityInput(addedImage, addedImage, features);
+
+        var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        Assert.All(
+            result.Complexity.Changes,
+            change =>
+            {
+                Assert.Null(change.PopulationContext);
+                Assert.Null(change.StructuralChange);
+                Assert.Null(change.StructuralCohortContext);
+            });
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_EndpointDiagnostic_ReportsUnavailable()
+    {
+        // Regression coverage: a recoverable per-method Analysis failure
+        // (surfaced as a receipt diagnostic) leaves that method's profile
+        // missing without any marker distinguishing it from a genuine
+        // addition/removal. Comparing by profile presence alone used to
+        // report such a method as a confident (and possibly wrong)
+        // Added/Removed row instead of flagging the coverage as incomplete.
+        var cleanReceipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var diagnosticReceipt = cleanReceipt with
+        {
+            Diagnostics =
+            [
+                new AnalysisDiagnostic(
+                    0x06000099,
+                    "Widget.Failing()",
+                    "InvalidOperationException: could not decode body"),
+            ],
+        };
+        var method = FakeMethod("Widget", "M", token: 0x06000001);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(method, method, conditionalBranchCount: 0));
+        var newProfiles = ImmutableArray<MethodImplementationProfile>.Empty;
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            diagnosticReceipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            cleanReceipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([oldResult], [newResult]));
+
+        Assert.False(result.IsAvailable);
+        Assert.Empty(result.Changes);
+        Assert.Contains(
+            "diagnostic-free",
+            result.UnavailableReason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ImplementationDiff_PdbSourceComparisons_PreservesComplexityLane()
+    {
+        // Regression coverage: WithPdbSourceComparisons rebuilt the result
+        // through FromResearchComparison, which resets Complexity to its
+        // Unavailable default, silently discarding an already computed
+        // complexity lane whenever broad PDB-source enrichment ran.
+        var complexitySubject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member, "widget.m", "Widget.M()", "Widget", "M");
+        var complexityChange = new ImplementationComplexityChange(
+            complexitySubject,
+            ImplementationComplexityChangeKind.Changed,
+            OldValue: 1,
+            NewValue: 2,
+            Delta: 1,
+            OldIsComplete: true,
+            NewIsComplete: true);
+        var sourceSubject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member, "M~1234567890", "Sample.M()", "Sample", "M");
+        var initial = new ImplementationDiffResult(
+            [],
+            new ResearchComparison([]))
+        {
+            Complexity = new ImplementationComplexityDiff(true, null, [complexityChange]),
+        };
+
+        var result = ImplementationDiff.WithPdbSourceComparisons(
+            initial,
+            [
+                new PdbSourceComparisonInput(
+                    sourceSubject,
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "old source unavailable"),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new source unavailable"))
+            ]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        var change = Assert.Single(result.Complexity.Changes);
+        Assert.Equal(complexitySubject.Id, change.Subject.Id);
+        Assert.Equal(ImplementationComplexityChangeKind.Changed, change.Kind);
+    }
+
+    [Fact]
+    public void ImplementationDiffResult_IsEmpty_ReflectsComplexityLane()
+    {
+        // Regression coverage: IsEmpty only checked Members, so a diff whose
+        // only observation was a Complexity change reported IsEmpty == true.
+        var research = new ResearchComparison(ImmutableArray<ResearchChange>.Empty);
+        var change = new ImplementationComplexityChange(
+            new ResearchSubjectKey(ResearchSubjectKind.Member, "widget.m", "Widget.M()", "Widget", "M"),
+            ImplementationComplexityChangeKind.Changed,
+            OldValue: 1,
+            NewValue: 2,
+            Delta: 1,
+            OldIsComplete: true,
+            NewIsComplete: true);
+        var result = new ImplementationDiffResult([], research)
+        {
+            Complexity = new ImplementationComplexityDiff(true, null, [change]),
+        };
+
+        Assert.False(result.IsEmpty);
+    }
+
+    static ImplementationAssemblyInput ScopedIdentityInput(
+        byte[] image,
+        byte[] indexedImage,
+        LibraryBodyAnalysisFeatures features)
+    {
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        AssemblyReferenceIdentity identity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(pe.GetMetadataReader());
+        var reference = ResolvedAssemblyReference.Create(
+            identity, "display-only.dll",
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("Research body-index identity fixture"));
+        return new(
+            reference,
+            DecompilerMetadataSource.DefaultAssemblyReferenceResolver(
+                FixtureCatalog.DiffPair.OldAssemblyPath()),
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "unrelated-index-label.dll", [.. indexedImage], features),
+            LibraryBodyAnalysisService.ExecuteImage(
+                "profile-analysis.dll",
+                [.. image],
+                LibraryBodyAnalysisRequest.Create(features, bodyTypeScope: static _ => true))
+                .ImplementationProfiles);
+    }
+
+    static MethodIdentity FakeMethod(string typeName, string methodName, int token)
+        => new(
+            "Fake",
+            Guid.Empty,
+            TypeRef.Definition("Fake", "Sample", typeName),
+            methodName,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MetadataToken: token,
+            IsStatic: true);
+
+    static MethodImplementationProfile FakeProfile(
+        MethodIdentity logicalMethod,
+        MethodIdentity evidenceMethod,
+        int conditionalBranchCount = 0,
+        int instructionCount = 1,
+        int loopCount = 0,
+        int catchCount = 0,
+        int filterCount = 0,
+        int finallyCount = 0,
+        int faultCount = 0,
+        int directCallCount = 0,
+        int allocationCount = 0,
+        bool async = false)
+        => new(
+            logicalMethod,
+            evidenceMethod,
+            ILBytes: 1,
+            InstructionCount: instructionCount,
+            DistinctOpcodeCount: 1,
+            BasicBlockCount: 1,
+            BranchCount: 0,
+            ConditionalBranchCount: conditionalBranchCount,
+            SwitchCount: 0,
+            SwitchTargetCount: 0,
+            LoopCount: loopCount,
+            CatchCount: catchCount,
+            FilterCount: filterCount,
+            FinallyCount: finallyCount,
+            FaultCount: faultCount,
+            LocalCount: 0,
+            DirectCallCount: directCallCount,
+            DistinctCalleeCount: 0,
+            AllocationCount: allocationCount,
+            ThrowCount: 0,
+            Async: async,
+            Unsafe: false,
+            ReflectionCallCount: 0,
+            IncomingOverloadCallerCount: 0,
+            OutgoingOverloadTargetCount: 0,
+            IsComplete: true,
+            IncompleteReasons: []);
+
     static ImplementationAssemblyInput IdentityInput(
         byte[] image,
         byte[] indexedImage,
@@ -2098,7 +2773,15 @@ public class ResearchDiffTests
             DecompilerMetadataSource.DefaultAssemblyReferenceResolver(
                 FixtureCatalog.DiffPair.OldAssemblyPath()),
             LibraryBodyIndex.OpenFromPrefetchedImage(
-                "unrelated-index-label.dll", [.. indexedImage], features));
+                "unrelated-index-label.dll", [.. indexedImage], features),
+            features.HasFlag(
+                LibraryBodyAnalysisFeatures.ImplementationProfiles)
+                ? LibraryBodyAnalysisService.ExecuteImage(
+                    "profile-analysis.dll",
+                    [.. image],
+                    LibraryBodyAnalysisRequest.Create(features))
+                    .ImplementationProfiles
+                : null);
     }
 
     static byte[] BuildIdentityAssembly(

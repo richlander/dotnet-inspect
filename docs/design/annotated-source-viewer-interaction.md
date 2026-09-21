@@ -75,6 +75,8 @@ not use chip styling.
   Finding's detail.
 - A **Finding inspector action** is the persistent modal opener for a Finding.
   It opens the same detail without changing annotation membership.
+- A **relationship call-site action** opens the exact `call.edge` Finding
+  detail for one physical source occurrence. It does not navigate.
 - A **destination action** names the destination, such as **Member** or
   **Source**. A generic **Navigate** action is prohibited.
 - **Explore** opens the modal. **Close** dismisses it.
@@ -92,6 +94,8 @@ destinations appear interchangeable.
 | Finding annotation chip | Default rendered Findings | Rendered Findings | Makes that Finding primary and opens detail |
 | Finding toggle chip | No | Every annotatable Finding | Adds or removes one active annotation |
 | Finding inspector action | No | Every Finding | Makes that Finding primary and opens detail |
+| Relationship call site | No | Every projected physical call | Opens the exact `call.edge` Finding detail without changing annotations |
+| Relationship target destination | No | Typed target capability | Requests **Member** or **Source** for that exact target |
 | Node selection chip | No | Selected/related nodes | Selects or focuses that exact node |
 | Medium toggle | No | Each document-supported medium | Shows or hides that medium; rejects hiding the last visible medium |
 | Coordinate toggle | No | Product coordinates available | Shows or hides offsets and source ranges |
@@ -168,7 +172,8 @@ Modal dismissal destroys modal-local state. It derives the embedded primary
 from the modal primary using the same default-and-C# eligibility rule, closes
 detail, and leaves the embedded reader at its fixed presentation. A later
 **Explore** starts fresh; it does not resurrect the dismissed modal's
-annotation, media, coordinate, node, or detail state.
+annotation, media, coordinate, relationship-presentation, node, or detail
+state.
 
 The modal is opened and dismissed through
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
@@ -190,10 +195,46 @@ inspector actions but are not annotation instances. The browser must not
 invent coordinates to include them in **Default**, **All**, **Clear**, or
 **Custom**.
 
-The modal inspector presents **Selection** and **Findings** as peer sections.
-It does not add a second heading that renames the Findings section. With no
-primary selection, **Selection** renders a non-action **Nothing selected** tile
-in the same content position that selected-node tiles occupy.
+The modal inspector presents **Selection**, **Relationships**, and
+**Findings** as peer sections. It does not add a second heading that renames
+the Findings section. With no primary selection, **Selection** renders a
+non-action **Nothing selected** tile in the same content position that
+selected-node tiles occupy.
+
+**Relationships** offers **Table** and **Diagram** presentations over the
+producer-issued typed relationship sidecar. Every fresh modal session starts in
+**Table**. The table renders one row per physical call occurrence, not one row
+per logical edge, and preserves the shared stable edge row when repeated call
+sites target the same edge. The call-site action opens the existing exact
+`call.edge` Finding detail. Separate **Member** and **Source** actions consume
+the row's typed target. Selecting or inspecting a row never silently navigates.
+Coordinate disclosure adds the method-relative IL offset; the browser does not
+parse source text or labels to recover it.
+
+**Diagram** is opt-in and lazy. It lowers only the already retained current-body
+relationship rows and performs no graph or source acquisition. The current body
+is the visual root. One visual edge represents each producer-issued stable edge
+row, and its label discloses repeated physical-occurrence count and loop state.
+One stable edge may retain multiple occurrence-specific typed destinations,
+including version-distinct assembly identities. Companion target entries keep
+each such destination's **Member** and **Source** actions explicit rather than
+choosing one, and provide an explicit **call site(s)** action that returns to
+**Table** and focuses the first exact physical row for that logical edge. The
+diagram itself is not a navigation surface: Mermaid labels and node identifiers
+never select a target or recover identity.
+
+Changing **Table** or **Diagram** preserves primary selection, Finding detail,
+annotation membership, visible media, and coordinate visibility. Focus remains
+on the activated presentation control, except the explicit **call site(s)**
+action focuses the first matching physical table row. Modal dismissal destroys
+the presentation choice; a later **Explore** starts again in **Table**.
+
+The table does not participate in **Default**, **All**, **Clear**, or
+**Custom** because those sets own source annotations, not inspector rows.
+When the relationship capability is available with no rows, the section says
+that no direct relationships were projected for this exact body. That is not a
+whole-program or runtime absence claim. When the capability is unavailable,
+the section renders its typed reason rather than an empty table.
 
 Targets on a medium unsupported by the current document do not make a Finding
 annotatable and do not produce a toggle. The default set is the
@@ -209,7 +250,9 @@ Allocation, Unsafety, Cost, Semantics, and Lifetime are current default
 Finding families. The browser consumes that catalog; it does not classify
 Findings from source text. Direct call relationships use the Relationship
 family and remain opt-in: **All** reveals their exact call-site annotations,
-while **Default** preserves the focused Finding-first reader.
+while **Default** preserves the focused Finding-first reader. The modal
+**Relationships** table remains available independently because inspecting a
+typed sidecar row does not activate or draw its source annotation.
 
 The modal exposes:
 
@@ -303,6 +346,28 @@ that the operation may block the current thread when the task is incomplete and
 that no runtime blocking or duration was measured. The browser does not infer
 this evidence from a member label or source spelling, and it renders no negative
 claim when the relationship has no such observation.
+
+The same detail may show Research-composed bounded local-throw paths that begin
+with the selected physical relationship. Each observation is an ordered typed
+member path ending at a method whose Analysis evidence proves a construction-fed
+local `throw`, followed by the qualified exception type and the construction
+and throw IL offsets. Repeated source calls sharing one logical first edge keep
+their separate Finding identities while displaying the same witness.
+
+The detail describes only a static direct-call path to a method containing a
+local throw. It explicitly does not say that the selected method throws, that
+the terminal throw executes or escapes, that an exception propagates through
+the path, or that any handler intercepts it. Positive paths remain visible
+under incomplete evidence. Empty incomplete evidence says no path was observed
+within the available bounds; only a complete bounded result may say none was
+observed within those bounds. Path labels and exception spelling are
+presentation, never identity.
+
+The path operation retains one deterministic shortest witness per
+root/destination pair, not one witness per possible first relationship. If
+another retained witness exists but none begins with the selected relationship,
+detail says only that no retained deterministic shortest witness begins there;
+it does not make a per-relationship absence claim.
 
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a

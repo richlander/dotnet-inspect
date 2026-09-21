@@ -174,8 +174,6 @@ public class MarkoutRowContainmentTests
         "CostFactRow.Operation",
         "DiscoveryRow.Kind",
         "DiscoveryRow.Name",
-        "EmptyDepsView.Description",
-        "EmptyDepsView.Title",
         "EnumValueRow.Description",
         "EnumValueRow.Name",
         "EnumValueRow.Value",
@@ -297,7 +295,6 @@ public class MarkoutRowContainmentTests
         "OptimizationOpportunityRow.Token",
         "OptimizationOpportunityRow.UnknownPaths",
         "OptimizationOpportunityRow.Weight",
-        "PackageDependenciesView.Title",
         "PropertySummaryRow.Accessors",
         "PropertySummaryRow.Decode",
         "PropertySummaryRow.Name",
@@ -371,11 +368,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt249MembersAcross53Types()
+    public void ResidualCensus_IsPinnedAt246MembersAcross51Types()
     {
-        Assert.Equal(249, NotSelfContaining.Length);
+        Assert.Equal(246, NotSelfContaining.Length);
         Assert.Equal(
-            53,
+            51,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
@@ -469,6 +466,10 @@ public class MarkoutRowContainmentTests
             3,
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspect.Cli.Views.PackageQueryRow)));
+        Assert.Equal(
+            6,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspect.Cli.Views.LibraryQueryRow)));
 
         Assert.Equal(OutOfReach, declined.Order(StringComparer.Ordinal).ToArray());
 
@@ -642,6 +643,19 @@ public class MarkoutRowContainmentTests
         if (type == typeof(PackageQueryMatch))
         {
             return PackageQueryCliTests.ContainmentMatch(Hostile);
+        }
+
+        if (type == typeof(LibraryQueryMatch))
+        {
+            var text = new InertString(TextPolicy.Field, Hostile);
+            return new LibraryQueryMatch(
+                text,
+                text,
+                text,
+                text,
+                DotnetInspector.Services.AssemblySetSourceKind.Directory,
+                text,
+                [text]);
         }
 
         if (type == typeof(InertString))

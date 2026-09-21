@@ -140,6 +140,354 @@ unsafe" is answerable cheaply, before any IR import — and those same
 offset-keyed facts are what Research joins onto a body to answer "which
 *regions*."
 
+## Selected property accessor source
+
+The Decompiler body-composition boundary owns the selected-accessor envelope:
+when the selected MethodDef belongs to a non-indexed property and its body can
+retain its existing bindings inside an accessor, compose that body with a
+property declaration. Metadata's PropertyDef/MethodSemantics association is
+the authority, not the method's display name. CSharp still owns declaration
+spelling, and CSharpText owns expression/block layout.
+
+The real motivating witness is .NET 11 RC1
+`System.Data.SqlTypes.SqlBytes.get_MaxLength`: the faithful switch-expression
+body should appear as `public long MaxLength => ...`, not as a `get_MaxLength`
+method. This is declaration recovery, not a new body raise or an IL-fidelity
+improvement. Existing whole-property composition and CSharp's typed
+property/accessor bodies provide the analogous implementation boundaries.
+
+Only the selected getter, setter, or init body participates. Selection and
+native evidence remain addressed by the original MethodDef. The property
+envelope uses that accessor's physical accessibility and modifiers, not its
+sibling's aggregate accessibility. Thus selecting a private setter produces
+a private setter-only property, not an incomplete `public` property with an
+illegal lone `private set`. This intentionally presents one accessor, not the
+entire original property. Attributes on the accessor remain on the accessor;
+they must not migrate to its enclosing property.
+
+Static virtual interface properties retain static virtual dispatch. Their CLR
+Virtual/ReuseSlot flags must not be spelled as a C# `override`; CSharp owns
+that context-sensitive declaration lowering, not the body printer.
+The .NET 11 RC1 `System.Numerics.IBinaryNumber<TSelf>.AllBitsSet` getter is a
+real declaration witness. Its body is outside this modifier-spelling claim.
+
+Interface declaration spelling preserves dispatch, not a one-to-one copy of
+CLR-derived flags. A non-virtual instance accessor needs `sealed` when C# would
+otherwise make it implicitly virtual. Private interface members already default
+to non-virtual and retain their private spelling. Metadata's final-override
+`IsSealed` flag is not the sole reason CSharp may need the `sealed` keyword.
+
+An overriding accessor with narrower accessibility than its property's
+declaration retains method form. For example, a protected setter cannot become
+a protected override property when the inherited property is public, and a
+lone `protected set` cannot preserve that accessibility inside a public
+property. Metadata's accessor-accessibility facts establish this boundary.
+The existing lowered method representation is not a compilable property
+reconstruction; this slice neither promotes accessibility nor invents a sibling.
+Public override accessors and non-overriding narrowed accessors remain supported.
+
+Genuine accessor-like methods, actual indexers, and event accessors retain their
+existing representation. Unsupported compiler backing storage retains method
+form: existing body projection can spell that storage as a property access, and
+changing only the envelope would introduce recursion. The getter-only
+auto-property subset below is the first independently supported storage slice;
+other backing-storage recovery and indexer parameter coordination require
+separate body/binding work. No rendered expression establishes storage identity.
+An unnamed or differently named setter parameter retains method form, rather
+than inventing an implicit `value` binding. If body projection subsequently
+changes a supported accessor's parameter bindings, composition fails visibly
+instead of substituting text.
+
+The single adoption slice covers CLI Decompiled Source, Annotated Source and
+overlays, and the shared member-source producer used by Source Diff and
+Browser/Wasm. It replaces the producer's separate explicit-property envelope
+with the same composition boundary; no second host property formatter is
+introduced. Body-level structural and native evidence remains useful but does
+not establish declaration correctness: the gates must also observe the actual
+selected-member source and compile product-composed artifacts.
+
+`SelectedPropertySourceTests` is the PR-fast Release gate for the real
+`SqlBytes` witness, get/set/init selection, physical modifiers, attribute
+attachment, product-composed source compilation, and the decline boundaries.
+Its narrowed-override fixtures cover both getter and setter declines and
+compile the neighboring public overrides and non-overriding narrowed accessors.
+Static-interface fixtures compile the unchanged product artifact and assert its
+static/virtual symbols, with non-virtual static, sealed-instance, private-instance
+and virtual-instance neighbors. Sealed getters and setters must remain
+non-virtual after compilation; compilation success alone is insufficient. The
+runtime `AllBitsSet` case gates declaration spelling, not whole-body validity.
+It is `Speed=Slow` (measured 3.5 seconds), covered by daily Deep Inspect and
+the focused pre-merge gate rather than the PR-fast leg.
+`CSharpDeclarationWriterTests.ExplicitPropertyDeclaration_PreservesReadonlyModifier`
+gates the CSharp formatter's existing physical-modifier obligation. The CLI
+`MemberCallGraphSectionTests` selected-accessor cases gate actual presentation;
+the four-view real-library case is `Speed=Slow` (measured above two seconds)
+and runs in daily Deep Inspect plus this slice's focused pre-merge gate.
+`Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` also retains
+the unnamed setter control in its lowered method form.
+
+### Getter-only automatic storage
+
+The same composition owner may replace a selected, proven getter-only
+auto-property body with `get;`. The motivating runtime witness is .NET 11 RC1
+`System.Diagnostics.CodeAnalysis.NotNullIfNotNullAttribute.ParameterName`.
+Its original source is `public string ParameterName { get; }`; retaining the
+lowered `return this.ParameterName` inside a property would recurse.
+
+The proof consumes the complete getter body, not its printed spelling or the
+mere presence of a compiler-shaped field. Metadata must associate the selected
+getter with a non-indexed property without a setter and a matching private,
+readonly compiler-generated backing field. The existing whole-property
+auto-accessor proof supplies association, field-type, staticness, and
+compiler-marker checks. Its exact field definition remains the identity for
+storage signature, flags and attributes; a same-name field cannot supply those
+facts. Required and optional custom modifiers, including nested modifiers,
+are outside the automatic-storage subset.
+Complete IL must contain only the current receiver
+load (for instance storage), one exact backing-field load, and return, with
+optional no-ops but no locals or exception regions. A generic field reference
+must retain the declaring type's own ordered type arguments, not another
+instantiation's static storage. Explicit storage layout, nonstandard field
+flags, and custom field contracts are outside this subset, including an
+explicit debugger-browsing state other than the compiler's `Never` default.
+
+This consumes no external edge or sibling body: the admitted body has one
+straight-line return and no branches, handlers, temporaries, nested functions,
+or extra calls. The C# compiler recreates its private readonly storage and
+getter. Static and instance storage remain distinct. Initializer/constructor
+reconstruction is not inferred from an accessor; selected source remains a
+member projection, not a reconstructed object initialization lifecycle.
+
+The convention is ordinary C# getter-only automatic-property syntax, as
+described by the [C# auto-property guide][automatic-properties]. The repository's
+whole-property composition is the analogous implementation; selected-member
+composition deliberately does not invent a setter to make a mutable field
+look automatic. Mutable/init properties, unsafe storage, and unproven shapes
+retain the prior method representation. Non-trivial getter-only field expressions
+have the separate binding contract below.
+Issue #7748 tracks those remaining storage/binding slices.
+
+The materialized decision belongs to member composition, not the body printer.
+Annotation and overlay comments remain attached to the automatic accessor;
+comment layout does not authorize the replacement. Body-only documents retain
+their existing body and therefore cannot establish the new declaration's
+correctness. The shared composer adopts this behavior in one slice for the
+CLI's four C# views and the member-source/Source Diff path consumed by
+Browser/Wasm; neither host adds a second recognition or formatting path.
+
+`SelectedPropertySourceTests.GetterOnlyAutoPropertyPreservesBackingStorage`
+compiles unchanged product-owned projections in Release and checks that each
+getter has its own readonly storage and no invented setter. Compiler-produced
+instance, static, generic, struct, virtual/override and keyword-name neighbors
+exercise that gate. `UnsupportedBackingStorageRetainsMethodForm` gates the
+mutable/init and field-attribute boundaries.
+`AutomaticGetterRetainsAccessorAttributes` gates attribute attachment.
+`ExplicitAutomaticGetterKeepsItsInterfaceBinding` compiles the interface
+implementation. `AutomaticGetterRequiresItsOwnReadonlyGenericStorage` supplies
+the metadata-only foreign-instantiation, mutable-storage, and same-name
+different-field-type boundaries.
+`AutomaticGetterDeclinesModifiedStorage` gates required/optional field
+modifiers at both the outer signature and the array-element boundary.
+The real-library case is `Speed=Slow` (measured 5.4 seconds in isolation),
+covered by focused pre-merge validation and daily Deep Inspect.
+The CLI four-view case also requires the original
+IL comments to remain visible. The shared-query gate
+`MemberSourceInspection_SelectedAutoGetterUsesSharedStorageComposition`
+exercises the completed Source operation consumed by Browser/Wasm.
+A changed getter load target, additional
+operation lost to `get;`, lost storage readonly/staticness, or newly recursive
+property is a falsifier. Native compile-back evidence is measured separately
+from these source-artifact and binding gates.
+
+[automatic-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/auto-implemented-properties
+
+### Getter-only field expressions
+
+Selected composition may retain a non-trivial getter body while expressing its
+own compiler backing-storage reads with C#'s accessor-scoped `field` keyword.
+This is a binding decision, not a substitution over rendered source. The
+physical getter remains the selection and body-evidence identity.
+
+The motivating published witness is **docopt.net 0.8.3**,
+`DocoptNet.Internals.ReadOnlyList<T>.List`, a private property on a readonly
+struct. Its [release source][docopt-field-getter] reads
+`IList<T> List { get => field ?? Array.Empty<T>(); } = list;`.
+The `netstandard2.1` getter reads its own field, tests null and calls
+`Array.Empty<T>()` only on the null path; its constructor performs initialization
+separately. The property projection does not reconstruct that initializer.
+
+The supported lowering is an ordinary C# 14 getter-only field-backed property
+compiled in Release. Its complete body reads the exact private compiler field
+at the declaring type's own instantiation, through the current receiver or as
+static storage. A field-bodied getter normally has mutable storage even when
+the getter only reads it; `get;` would incorrectly invent readonly storage.
+Readonly instance storage is supported only in a readonly containing struct,
+where C# preserves that storage contract.
+
+The language convention is C#'s [field-backed property syntax][field-properties].
+The existing automatic-storage proof above supplies the analogous exact-field
+association and declaration composition; the non-trivial subset deliberately
+retains the computation instead of folding it to `get;`.
+
+The replacement consumes no blocks, edges, or sibling methods. Every admitted
+storage read retains its typed field, receiver, and IL provenance; the shared
+composition owner materializes its accessor binding before raising. The printer
+spells the materialized binding without recognizing storage or accessor names.
+Composition also establishes the accessor's `field` binding as reserved in the
+body's lexical scope. Existing type-qualifier disambiguation must preserve a
+helper type named `field` rather than capture it as the backing value. This
+uses global qualification for concrete types and contextual escaping for a type
+parameter, which has no globally qualified form. This scope does not apply to
+independently imported body-only documents.
+Unchanged arithmetic and branches remain the responsibility of the existing
+body pipeline. Body-only documents do not opt into this declaration-scoped
+spelling. A body consumer that constructs the owning property may explicitly
+pass its selected-property descriptor to typed body production, applying the
+same binding before raising. Selected composition separately materializes the
+complete automatic-getter body proof: a compiler marker alone cannot authorize
+discarding a computed body in favor of `get;`. That body proof requires the
+complete trivial getter, exact private compiler field, matching staticness,
+readonly storage and own ordered generic instantiation. Selected-source
+declaration eligibility is a separate question: its unsafe-signature, storage
+layout, field-flag and attribute restrictions do not change the body decision.
+Native reconstruction retains its existing automatic getter-body handling when
+the native shell can represent the declaration, including pointer and function-
+pointer automatic properties. This does not expand selected-source recovery or
+claim reconstruction of custom field attributes or explicit storage layout.
+
+Native compile-back adopts this explicit context for the selected getter under
+both Selected and Full body policies. It consumes the shared storage and
+automatic-getter proofs; it does not recognize backing fields or rewrite source
+to implement this binding. Its owning property shell remains a CSharp product
+artifact. This adoption fixes the compiler-marked `get => field + 1` case that
+previously lost its addition, and the published docopt getter that previously
+called its own property instead of reading storage. It does not expand getter
+proof eligibility. The bounded construction companion below extends native
+Selected artifacts without requesting the Full policy's unrelated bodies.
+The containing shell consumes the existing readonly type and field metadata
+facts: a readonly struct cannot become an ordinary struct without changing the
+compiler-generated field flags. A bound accessor load does not request a
+separate field declaration from native closure planning; C# synthesizes that
+storage as part of the property.
+
+Stores, addresses, other field targets or receivers, foreign generic storage,
+nested functions, exception regions, unsupported field signatures/attributes,
+and conflicting `field` local bindings decline to the prior method form.
+Selected accessor projection does not reconstruct lazy initialization,
+constructors, mutable/init properties, or sibling accessors. Native
+construction has the bounded extension below; issue #7748 retains the broader
+follow-ups.
+
+The one adoption slice covers the CLI's four C# views and the shared member
+producer consumed by Source Diff and Browser/Wasm. Existing CSharp declaration,
+CSharpText layout, and Markout presentation boundaries remain unchanged.
+`SelectedPropertySourceTests.ComputedGetterPreservesItsFieldAndComputation`
+compiles unchanged product projections and checks the resulting storage contract.
+Its arithmetic cases also compare getter opcodes and non-field operands against
+the inspected input. Compiler-produced branches, checked arithmetic, repeated
+reads, generic/static storage, readonly structs, overrides, explicit interface
+implementation and accessor attributes exercise the supported boundary.
+`FieldGetterRequiresOnlyOrdinaryReadsOfItsOwnStorage` gates other receivers,
+addresses, volatile reads, additional fields and incompatible readonly storage.
+`FieldNamedPdbLocalRetainsMethodForm` covers the contextual-keyword collision.
+`FieldKeywordTypeQualifierKeepsItsStaticCallTarget` compiles unchanged product
+artifacts and compares resolved call targets and getter instructions. Its
+static helper has a same-named instance-method neighbor: compilation success
+alone would accept a changed callee. Integer, static-property, generic-type and
+constrained type-parameter neighbors cover the adjacent qualifier forms.
+`PublishedDocoptGetterKeepsItsFieldAndNullFallback` exercises the pinned published
+`netstandard2.1` image, acquired at restore time rather than over the network
+during the test. It gates selected declaration/body spelling, not whole-type
+compile-back or constructor recovery.
+The existing exact-field/generic-instantiation and custom-modifier gates also
+exercise non-trivial getters. Unsupported writes, lazy initialization, sibling
+accessors, nested functions and exception regions retain method form.
+The CLI `SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews` and
+`SelectedProperty_FieldBindingDoesNotReachBodyOnlyDocument` gates cover the four
+declaration views and the independent body-document lens.
+`MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition` gates
+the completed Source operation consumed by Browser/Wasm, not a browser session.
+The Browser Source export retains the selected MethodDef when Metadata projects
+an accessor from its owning API row; it does not select a default getter or
+expand a sibling. `BrowserSourceComparisonOperationTests.MemberSourceExport_PreservesSelectedAccessor`
+gates the actual managed export for computed and automatic getters, the still-
+lowered writing getter, and a setter-only neighbor.
+These focused cases are PR-fast; native and population comparisons remain
+separate pre-merge evidence.
+Losing a getter operation, changing the field target or flags, introducing
+recursion, or printing `field` outside its property envelope falsifies the claim.
+Native compile-back remains a separate evidence lens.
+`MemberBodyProducerTypedBodyTests.ProduceBody_OptsIntoProvenGetterStorageOnlyWithPropertyContext`
+gates explicit body binding and unchanged independent production.
+`ReturnToSenderPrototypeTests.NativeGetterRetainsItsStorageAndComputation`
+and `PublishedDocoptNativeGetterRetainsItsStorageAndNullFallback` run native
+reconstruction with repair floors disabled, comparing complete getter opcodes,
+resolved operands and storage flags in the emitted artifact. They inherit the
+native suite's Slow classification and run as focused pre-merge evidence.
+`NativeAutomaticGetterPreservesBodyWhenSelectedDeclarationDeclines` covers
+instance/static pointer and function-pointer automatic properties plus an
+explicit-layout integer neighbor in the C# legacy-rules compiler fixture.
+`ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility`
+keeps the corresponding selected-source declines while retaining the complete
+automatic-body decision.
+
+#### Native constructor/getter pairing
+
+Issue #7898 extends bounded native Selected artifacts with one construction claim:
+a proven constructor assignment and the selected getter must refer to the same
+backing storage, preserving the supplied argument rather than replacing
+initialized state with its default. The motivating docopt constructor stores
+its `list` argument into the field read by `List`. Its existing product body is
+`this.List = list;`; C# permits this assignment to a getter-only field-backed
+property from the owning constructor. Recovering `= list` is not required.
+
+The supported boundary is a value type with one instance field, already proven
+as the selected getter's compiler backing field, and one instance constructor
+with one parameter. Its complete body directly stores that argument through
+`this` into the exact field at the owning generic instantiation, then returns.
+No other operation, branch, local, exception region, conversion or constructor
+chain is consumed. Additional storage or constructors decline this association.
+Explicit-interface properties also decline constructor pairing: their accessor
+storage cannot be assigned through the constructor-side property syntax used
+by this bounded composition. Their existing getter-only reconstruction remains
+available; recovering their initializer is a separate source-form concern.
+The source, constructor and field identities come from the same metadata reader;
+display names and printed bodies do not establish the join.
+
+Native composition includes the proven constructor as a bounded construction
+companion through the existing typed declaration and body producers. An
+automatic getter's explicit property context also binds its storage, so
+closure planning does not invent a second field requiring extra constructor
+initialization. Unsupported constructor shapes retain the prior getter-only
+artifact; the consumer must not invent a partial assignment or claim a
+constructor-pair result for them. Independent body-only production and CLI and
+Browser/Wasm selected-member output remain unchanged.
+
+This single native adoption follows the approved construction/getter slice
+after #7856. Full remains the existing broader body policy, not the path to
+this bounded pair: it may include other fields and members and retains its
+independent completeness limitations. This extension does not claim full-type
+recovery or change the requested target getter's comparison scope.
+
+`PropertyInitializationConstructorUsesExactStorage` is the PR-fast product
+association gate. `NativeGetterRetainsInitialization` and
+`PublishedDocoptNativeGetterRetainsInitialization` compare the actual
+product-generated constructor and getter instructions, resolved operands and
+field flags with repair floors disabled. These inherit the native suite's
+Slow classification and run as focused pre-merge evidence. Constructor-pair
+evidence is separate from the target getter's `Exact` verdict: unrelated
+members, original accessibility, custom attributes, layout and whole-object
+semantics remain outside this claim.
+`NativeGetterDeclinesUnprovenInitialization` gates unchanged getter-only
+artifacts for constructor computation, branches, overloads, additional storage
+and unused-parameter neighbors.
+`PropertyInitializationConstructorDeclinesExplicitInterface` and
+`NativeExplicitGetterDeclinesInitialization` gate automatic and computed
+explicit-interface properties without adding an unassignable constructor.
+
+[field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
+[docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32
+
 ## Address: identity, not an ordinal
 
 Every experience addresses a member, and the substrate replaces the positional

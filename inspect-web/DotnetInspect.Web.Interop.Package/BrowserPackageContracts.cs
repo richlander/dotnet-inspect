@@ -335,6 +335,17 @@ public enum BrowserPackageQueryAcquisitionTier
     Assembly,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryExecutionClass>))]
+public enum BrowserPackageQueryExecutionClass
+{
+    SearchMetadata,
+    Nuspec,
+    NuspecExpensive,
+    PackageContent,
+    Metadata,
+    MetadataExpensive,
+}
+
 public sealed record BrowserPackageQueryPresetDescriptor(
     string Key,
     string Operator,
@@ -343,6 +354,7 @@ public sealed record BrowserPackageQueryPresetDescriptor(
     string Summary,
     int Weight,
     BrowserPackageQueryAcquisitionTier Tier,
+    BrowserPackageQueryExecutionClass ExecutionClass,
     string? SelectionGroupId,
     bool CombinesWithinSelectionGroup,
     string? ReplacementGroupId,
@@ -359,6 +371,7 @@ public sealed record BrowserPackageQueryTermDescriptor(
     string Summary,
     int Weight,
     BrowserPackageQueryAcquisitionTier Tier,
+    BrowserPackageQueryExecutionClass ExecutionClass,
     string[] Operators,
     string ValueKind,
     string Example);
@@ -458,6 +471,7 @@ public enum BrowserPackageQueryFailureKind
     InvalidManifest,
     PackageContentAcquisition,
     PackageContentEvaluation,
+    DependencyTraversal,
     AssemblyAcquisition,
     AssemblyEvaluation,
 }
@@ -493,6 +507,7 @@ public enum BrowserPackageQueryProgressPhase
     Search,
     Manifest,
     PackageContent,
+    DependencyTraversal,
     Assembly,
 }
 
@@ -1021,6 +1036,43 @@ public sealed record BrowserPackageDependencies(
     string? DependencyGroupError,
     BrowserCompileLibraryAvailability CompileLibrary);
 
+public sealed record BrowserLibraryQueryInspection(
+    BrowserLibraryQueryDocument Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserLibraryQueryDocument(
+    BrowserLibraryQueryRow[] Results,
+    BrowserLibraryQueryFailure[] Failures,
+    BrowserLibraryQuerySummary Summary);
+
+public sealed record BrowserLibraryQueryRow(
+    string AssetId,
+    string Library,
+    string Path,
+    string Source,
+    string? Version,
+    string SourceKind,
+    string? TargetFramework,
+    string[] MatchedReferences);
+
+public sealed record BrowserLibraryQueryFailure(
+    string? AssetId,
+    string? Library,
+    string? Path,
+    string? Source,
+    string Kind,
+    string Message);
+
+public sealed record BrowserLibraryQuerySummary(
+    int PopulationCandidates,
+    int CandidateLimit,
+    int Candidates,
+    int Matches,
+    int Failures,
+    string IncompleteReasons,
+    bool IsComplete);
+
 public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
 
 public sealed record BrowserAssemblyReferenceList(
@@ -1180,6 +1232,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserLibraryQueryInspection))]
 [JsonSerializable(typeof(BrowserPackagePruningRequest))]
 [JsonSerializable(typeof(BrowserPackagePruningResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

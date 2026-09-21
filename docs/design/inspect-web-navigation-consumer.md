@@ -1,7 +1,7 @@
 # Inspect Web Navigation Consumer
 
 This document owns the browser-side navigation-result consumer model: the
-single session-scoped holder of returned effect authority that installs a
+single session-scoped holder of returned effect authority that posts a
 product navigation result, commits canonical location and browser history,
 resolves focus, announces status, and tracks synchronization debt. It is the
 sole authority for what happens after
@@ -10,22 +10,32 @@ dedicated synchronization request returns a typed outcome. It does not decide
 which subject, coordinate, or lens is rendered; that is
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md).
 
+## Status
+
+Accepted design. The retained-realization posting handoff is implemented, but
+the location-intent arbitration defined below remains implementation work under
+[#7705](https://github.com/richlander/dotnet-inspect/issues/7705). Complete
+Saved Workspace Open and production entry-point adoption remain
+[#7709](https://github.com/richlander/dotnet-inspect/issues/7709).
+
 ## Ownership and boundaries
 
 This owner defines:
 
 - canonical location composition and browser refresh/shared-link restoration;
+- the session-scoped location-intent identity that authorizes one browser
+  history effect;
 - browser-history push, replace, and adopt classification, including
-  non-installing traversal realignment;
+  non-posting traversal realignment;
 - the product transition lifecycle: semantic outcome and synchronization
-  disposition, atomic installation, and the persistent shell live region;
+  disposition, atomic posting, and the persistent shell live region;
 - effect-authority validation for every deferred focus and announcement
   callback;
 - synchronization debt, dedicated-request identity, and request/lifetime
   correlation across remount;
 - destination-lifetime tracking: mounting, replacement, destruction, and
   remount as they bound consumer authority;
-- installation, focus, announcement, acknowledgement, and abandonment
+- posting, focus, announcement, acknowledgement, and abandonment
   ordering; and
 - the model-checked evidence for this consumer lifecycle.
 
@@ -69,6 +79,154 @@ This document consumes, without redefining:
   classification defined by
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md).
 
+### Retained-realization posting handoff
+
+A successful retained-Workspace restoration supplies one complete initial
+Navigation result and the detached Browser presentation projected from the
+same restoration invocation. The projection is ordered by the product
+Navigation package descriptors and correlates each descriptor's opaque subject
+identity with its exact package Root binding and already-evaluated API surface.
+The Browser does not retain the restoration Workspace, Scope, package Root, or
+evaluation after the callback returns, and it does not repeat package analysis
+to reconstruct the presentation later.
+
+Cutover publishes one indivisible posting identity:
+
+- the host-issued realization ID associated with the exact active
+  `InspectionWorkspaceIdentity`,
+- its page-session publication ordinal, and
+- the opaque effect authority carried by the initial Navigation result.
+
+The realization identity admits managed operations, the ordinal rejects
+out-of-order Browser delivery, and the effect authority governs posting
+and later visible effects. None substitutes for another. A retained-definition
+identity, package coordinate, display label, URL, or equal snapshot contents
+cannot authorize posting.
+
+After managed cutover, the Browser synchronously posts the complete returned
+snapshot and its correlated package presentation. It then records consumer
+posting against the exact current tuple, completes every required visible
+effect, and acknowledges the same authority. Posting or effect failure
+abandons that authority and surfaces the failure. It does not reactivate the
+predecessor realization: cutover has already transferred managed authority.
+A stale tuple or lower publication ordinal is supersession, changes no current
+presentation, and cannot acknowledge a newer result.
+
+Selecting the already active retained definition returns the existing
+posting as `NoEffect`. It neither reposts presentation nor records or
+acknowledges the consumed initialization authority again.
+
+Before publishing the successor posting, the retained-realization owner
+retires the predecessor Navigation state slot. Retirement first invalidates
+the slot and abandons its current authority, then cancels outstanding work.
+A cancellation callback failure is visible cleanup evidence attached to the
+successful successor publication; it cannot turn completed cutover into a
+failed activation or restore predecessor authority.
+
+### Location intent and publication ownership
+
+The motivating production scenario uses real
+`System.Text.Json@9.0.4` Workspaces A and B. While B is crossing an
+irreversible retained-realization cutover, the person selects Back to A. The
+browser has already selected A's entry when it dispatches `popstate`; B must
+still complete its accepted posting, but B must not replace A's selected entry
+or truncate the forward entry. The neighboring case starts a newer explicit
+Saved Open while an older asynchronous operation is still waiting; the older
+completion cannot reacquire publication authority.
+
+The conventional single-page-application rule is that a newer navigation
+supersedes an older asynchronous navigation and stale results do not commit.
+This design follows that rule, consistent with
+[React Router's race-condition handling](https://reactrouter.com/explanation/race-conditions).
+It deliberately diverges after retained-realization consumer acceptance:
+cutover is then irreversible under
+[Inspect Web Retained Workspace
+Realization](inspect-web-retained-workspace-realization.md#acceptance-and-completion-ownership),
+so a later browser traversal cannot cancel it. The traversal instead takes
+location-publication ownership while the accepted posting and matching
+completion finish without writing history.
+
+The Navigation Consumer issues one opaque, page-session
+**location-intent identity** synchronously when it observes a browser-selected
+entry or admits a non-browser navigation source. This identity is the
+consumer-owned join currency among:
+
+- the source event and its captured browser entry, when one exists;
+- the asynchronous request submitted for that source;
+- the exact result or retained-realization posting installed for it; and
+- the one history effect permitted by the source and typed result.
+
+The identity is neither a product Navigation intent token, effect authority,
+retained-definition identity, realization identity, publication ordinal, nor
+activation receipt. Those owner-issued values retain their existing roles.
+For a managed posting, location publication additionally requires the exact
+retained-definition/realization/publication/authority association supplied by
+the retained-realization handoff. A display label, canonical URL, equal
+snapshot, or completion order cannot recreate either identity.
+
+A location-intent declaration has one of two sources:
+
+- **Browser-selected entry.** Initial activation, refresh, Back, or Forward
+  captures the selected URL, page-session history state, retained-definition
+  identity when present, and the installed incumbent association before any
+  engine readiness, cutover barrier, packet decode, acquisition, or Worker
+  wait. Back and Forward additionally identify the one selected entry that may
+  be adopted or realigned.
+- **Non-browser intent.** An explicit action, maintenance request, dedicated
+  synchronization request, retained selection or deletion, or another
+  product-triggering Browser gesture captures its intended push, replace, or
+  no-write policy before its first asynchronous prerequisite. A returned
+  result carries that originating identity; completion cannot mint a newer
+  identity or derive one from then-current UI state.
+
+Only the current location-intent identity may publish location. A newer browser
+selection replaces any older unresolved browser selection because the browser
+has already selected the newer entry. Before the consumer admits a newer
+non-browser intent while the selected entry is unresolved, it synchronously
+realigns that entry to the exact installed incumbent and closes the older
+location obligation. Only then may the newer intent become current. If
+realignment fails, the failure remains visible and the newer intent is not
+admitted.
+
+Every location effect is produced by one pure classification from the current
+location-intent declaration, the typed semantic outcome and synchronization
+disposition, and the exact installed association:
+
+| Current source and result | Permitted location effect |
+| ------------------------- | ------------------------- |
+| Exact browser-selected restoration | Adopt the already selected entry |
+| Browser-selected restoration that posts changed current state | Replace the selected entry |
+| Browser-selected `Current` failure or unavailable result without replacement | Realign the selected entry to the installed incumbent |
+| Applied non-browser intent declared as push | Push its installed location |
+| Applied non-browser intent declared as replace | Replace with its installed location |
+| Non-applied or dedicated result with `Synchronization required` | Replace with the posted canonical location |
+| Current result requiring no location change | No write |
+| Stale or foreign location intent | No write |
+
+This classification is the only path to push, replace, adopt, or realign.
+Retained selection, managed-to-compatibility selection, active deletion with
+either successor kind, Saved Open, package-row actions, and ordinary
+Navigation do not add branch-specific history guards.
+
+A browser traversal observed during an accepted retained cutover captures its
+entry and becomes the current location intent immediately, then waits for the
+cutover barrier. The accepted result still installs and reports matching
+completion under its retained-realization authority, but its staged history
+effect becomes `No write`. After the barrier releases, only the captured
+traversal may restore, adopt, replace, or realign that selected entry. The same
+rule applies while managed deactivation completes for compatibility selection
+or active deletion.
+
+If a current browser restoration fails before cutover, the incumbent remains
+installed and that exact traversal realigns only its selected entry to the
+incumbent canonical location. It does not push, remove forward entries, or
+repair an entry owned by a newer traversal. If a history operation fails after
+irreversible cutover, the successor installation remains authoritative and the
+location obligation remains explicitly unresolved with visible failure.
+Neither the Navigation Consumer nor the retained-realization owner rolls back
+to the predecessor. A later non-browser admission must first realign the
+selected entry to that installed successor.
+
 ## Canonical location and refresh
 
 For a package-backed workspace, the visible URL keeps only a human-readable
@@ -111,17 +269,17 @@ Browser history uses the same classification:
 - replace the current entry for committed filter changes and portable overload,
   body, or source-target refinements, plus maintenance, dedicated
   synchronization, or non-applied outcomes whose `Synchronization required`
-  disposition installs refreshed or reconciled state; and
+  disposition posts refreshed or reconciled state; and
 - adopt the browser-selected entry without calling `pushState` or
   `replaceState` when initial shared-link activation, refresh, Back, or Forward
-  restores the exact requested state. If that restoration instead installs a
+  restores the exact requested state. If that restoration instead posts a
   changed unavailable, synchronized, or reconciled snapshot, replace the
   selected entry with the returned canonical state. If Back or Forward returns
   a `Current` unavailable-without-replacement, rejected, failed, or aborted
-  result, replace the browser-selected entry with the installed snapshot's
+  result, replace the browser-selected entry with the posted snapshot's
   canonical location, surface and announce the exact outcome, and focus the
   retained destination heading or persistent shell fallback. If the same
-  semantic outcome is `Synchronization required`, install its complete
+  semantic outcome is `Synchronization required`, post its complete
   snapshot and replace the selected entry with that snapshot's canonical
   location before presenting the outcome. Neither case writes a new entry, and
   both let a later traversal continue past the failed location; and
@@ -129,8 +287,8 @@ Browser history uses the same classification:
   disclosure animation, or incidental scroll position.
 
 The session-scoped location adapter tracks whether the browser-selected entry
-is aligned with the installed snapshot. A Back or Forward event records one
-UI-local unresolved traversal serial and the installed snapshot's retained
+is aligned with the posted snapshot. A Back or Forward event records one
+UI-local unresolved traversal serial and the posted snapshot's retained
 canonical location before submitting product restoration. This serial is
 presentation bookkeeping, not product intent or effect authority.
 
@@ -142,7 +300,7 @@ retained canonical location and marks it aligned. The later intent then uses
 its ordinary push, replace, or no-write classification. A synchronization
 request is not a product navigation intent, but it uses this same pre-request
 alignment rule because its response carries no traversal serial. Exact
-restoration adoption, changed-snapshot installation, or current-authority
+restoration adoption, changed-snapshot posting, or current-authority
 location realignment also marks the matching traversal aligned. Product-side
 discard or stale-authority abandonment performs no history write; its successor
 has already replaced the traversal obligation, realigned the selected entry
@@ -152,7 +310,7 @@ Destination destruction does not clear an unresolved traversal. Before a
 replacement destination renders after remount, the location adapter
 synchronously replaces the still-selected entry with the retained canonical
 location and marks that traversal aligned. This repair is independent of
-snapshot-synchronization debt: a `Current` non-installing restoration can
+snapshot-synchronization debt: a `Current` non-posting restoration can
 require it even though the product acknowledgement receipt is already current.
 
 A future packet projection does not decide its own history granularity. It
@@ -189,36 +347,36 @@ outcome decides what the UI presents:
 | Superseded | Receive no consumer result or authority and produce no visible effect |
 
 Its synchronization disposition decides whether the complete returned snapshot
-must be installed:
+must be posted:
 
 | Disposition | UI obligation |
 | ----------- | ------------- |
-| Current | Use the already installed snapshot and perform only the semantic outcome's remaining effects |
-| Synchronization required | Install and render the complete returned snapshot under the current effect authority before presenting the semantic outcome or acknowledging |
+| Current | Use the already posted snapshot and perform only the semantic outcome's remaining effects |
+| Synchronization required | Post and render the complete returned snapshot under the current effect authority before presenting the semantic outcome or acknowledging |
 
 Outcome names do not authorize the UI to infer whether product and consumer
 state agree. In particular, unavailable-without-semantic-replacement, rejected,
-failed, and aborted results may still require installation because an earlier
+failed, and aborted results may still require posting because an earlier
 result advanced the retained product session before the consumer acknowledged
 it. The UI neither compares snapshot revisions nor reconstructs the missing
-state. It consumes the typed disposition and installs only the complete
+state. It consumes the typed disposition and posts only the complete
 snapshot carried by that result.
 
-Installation is one atomic consumer effect: it commits the returned snapshot,
-its rendered content, and the UI-owned canonical URL and history-commit
-classification. The semantic outcome remains visible after installation; a
+Posting is one atomic consumer effect: it makes the returned snapshot,
+its rendered content, and the UI-owned canonical URL and history
+classification current together. The semantic outcome remains visible after posting; a
 failed synchronization does not become an applied navigation result merely
 because it carried newer state. A `Current` unavailable-without-replacement,
-rejected, failed, or aborted result retains the installed snapshot, URL, and
+rejected, failed, or aborted result retains the posted snapshot, URL, and
 ordinary history classification. Superseded work never reaches the consumer.
 
-The non-installing rules above describe `Current` results whose initiating UI
+The non-posting rules above describe `Current` results whose initiating UI
 action has not already changed the browser entry. After Back or Forward selects
-an entry, such a result instead replaces that selected entry with the installed
+an entry, such a result instead replaces that selected entry with the posted
 snapshot's canonical location as defined by the browser-history classification.
-This is location realignment, not a snapshot installation or successful
-restoration. A `Synchronization required` result instead installs its complete
-snapshot and aligns the selected entry with that installed state.
+This is location realignment, not a snapshot posting or successful
+restoration. A `Synchronization required` result instead posts its complete
+snapshot and aligns the selected entry with that posted state.
 
 Location realignment is a required consumer effect. Immediately before the
 history write, the consumer validates both the returned authority and the
@@ -240,31 +398,31 @@ replacement rules supersede an initiating adopt classification and never push
 an entry for a subject or lens the user did not activate.
 
 A dedicated synchronization result has no semantic navigation change. When no
-new browser traversal has selected an entry since its request, it installs the
+new browser traversal has selected an entry since its request, it posts the
 complete current snapshot under fresh authority and replaces the current entry
 with that snapshot's canonical location. The request carries no traversal
 serial. If Back or Forward selects an entry after the request and before the
 result is consumed, the result is foreign to that newer selection: the consumer
-abandons its authority without installation or history mutation, preserves
+abandons its authority without posting or history mutation, preserves
 synchronization debt, and lets the traversal's current result or a later fresh
 request discharge it. A consumed synchronization result preserves surviving
 focus and announces only a visible change; after remount, detached-focus
 recovery uses the new destination heading or persistent shell fallback.
 
 Product-initiated maintenance results use the same disposition-driven,
-authority-validated installation and acknowledgement lifecycle. A
+authority-validated posting and acknowledgement lifecycle. A
 `Synchronization required` maintenance result replaces the current history
 entry and updates the canonical URL from the returned projectable state; a
 `Current` result performs no snapshot or history write. Maintenance does not
-move focus merely because evidence refreshed. If installation removes the
+move focus merely because evidence refreshed. If posting removes the
 focused element, the focus-preservation rule below applies. The live region
 announces a maintenance result only when it changes visible status, the active
 subject, or the effective lens.
 
-Before installation or location realignment, the UI asks the session whether
+Before posting or location realignment, the UI asks the session whether
 the returned effect authority is current. Rendering may schedule later focus
 and status-announcement callbacks; each callback repeats the authority check at
-execution time. Validation performed for installation or realignment is not
+execution time. Validation performed for posting or realignment is not
 continuing authority for a later effect. A callback that finds stale or foreign
 authority changes neither focus, visible status, active panel, canonical URL,
 nor history.
@@ -273,7 +431,7 @@ The persistent `dotnet-inspect` shell owns one polite live region outside
 replaceable destination renderers, with `role="status"`, `aria-live="polite"`,
 and `aria-atomic="true"`. It is mounted empty before a destination renderer and
 survives renderer replacement; a current-authority announcement callback
-changes its text only after any required installation. An applied result
+changes its text only after any required posting. An applied result
 announces the returned active subject and effective lens. An unavailable,
 rejected, failed, or aborted result announces the same visible reason or
 diagnostic shown by the surface. Superseded work reaches no consumer and
@@ -283,15 +441,15 @@ different hidden explanation.
 
 Receiving a `Synchronization required` result sets the session-scoped
 synchronization-debt marker. After all required location-realignment,
-installation, focus, and announcement effects complete, the UI acknowledges
+posting, focus, and announcement effects complete, the UI acknowledges
 the authority. A `Synchronization required` result cannot be acknowledged
-merely because its snapshot equals locally rendered state: installation must
+merely because its snapshot equals locally rendered state: posting must
 have completed under that result's exact current effect authority. Successful
 acknowledgement is the only consumer action that clears the marker.
 
 If authority becomes stale before completion, the UI abandons it. Abandoning a
 `Synchronization required` result preserves the marker whether abandonment
-occurred before installation or after installation but before acknowledgement.
+occurred before posting or after posting but before acknowledgement.
 A later current result may discharge the debt through its own disposition and
 authority. Otherwise, once no current result can complete it, the
 session-scoped consumer requests dedicated synchronization from Inspection
@@ -326,14 +484,14 @@ request after the prior one settles; the UI imposes no retry ceiling.
 Superseded work requires neither acknowledgement nor abandonment because the
 product session discards it without publishing effect authority.
 
-When current-authority installation replaces a destination renderer, the
+When current-authority posting replaces a destination renderer, the
 consumer atomically abandons every other returned authority associated with the
-outgoing lifetime before transferring the installing operation and its later
+outgoing lifetime before transferring the posting operation and its later
 callbacks to the new lifetime. Replacement does not merely make old callbacks
 eventually stale; it settles their authority before the old renderer is
 discarded.
 
-The common installation, focus, announcement, acknowledgement, abandonment,
+The common posting, focus, announcement, acknowledgement, abandonment,
 and destination-lifetime obligations are modeled by
 [`UiEffectLifecycle.tla`](models/inspect-web-navigation-consumer/UiEffectLifecycle.tla).
 The model assumes that the product session supplies opaque authority, a
@@ -346,8 +504,8 @@ work, synchronization debt, bounded request identity, old-lifetime response
 abandonment, and fresh remount requests without modeling product revisions. TLC
 exhaustively checked 166,998 generated states and 117,928 distinct states at
 depth 20. Separate mutation configurations produced a counterexample when
-current-authority validation, disposition-driven installation,
-install-before-focus ordering, deferred-focus separation, complete-effect
+current-authority validation, disposition-driven posting,
+post-before-focus ordering, deferred-focus separation, complete-effect
 acknowledgement, acknowledgement debt clearing, destruction abandonment,
 abandonment debt preservation, remount synchronization, request/lifetime
 correlation, bounded request admission, persistent focus safety, or replacement
@@ -362,6 +520,25 @@ entry realignment. The named restoration and synchronization gates carry those
 additional conformance claims. This proves the finite design model; the
 implementation gates below establish conformance in Inspect Web.
 
+The retained-realization boundary is composed separately by
+[`InspectWebRetainedNavigationHandoff.tla`](models/inspect-web-retained-navigation-handoff/InspectWebRetainedNavigationHandoff.tla).
+That model starts before managed cutover and explores out-of-order delivery of
+two realization publications. It checks that only the current exact
+realization/ordinal/authority tuple posts, posting is recorded before
+acknowledgement, stale delivery is abandoned, and the predecessor state slot
+is retired before successor presentation can post. It deliberately leaves
+focus, announcement, history classification, and synchronization debt to
+`UiEffectLifecycle`.
+
+The location-intent arbitration is modeled separately by
+[`BrowserLocationIntentArbitration.tla`](models/inspect-web-navigation-location-intent/BrowserLocationIntentArbitration.tla).
+It checks synchronous browser-entry capture, current-intent-only publication,
+pre-admission realignment, current failed-traversal repair, immutable
+originating intent across asynchronous prerequisites, and history-write
+yielding while an older accepted cutover completes. It treats the
+retained-realization cutover and exact posting association as consumed
+owner-issued facts rather than reproducing their lifecycle.
+
 ### Shell and menu focus resolution
 
 Activating an available item for a non-modal transition closes the menu. A
@@ -370,16 +547,16 @@ level-one heading; a successful routed transition focuses that surface's
 level-one heading. An unavailable, rejected, failed, or aborted result that
 retains the renderer returns focus to the stable menu-button invoker and makes
 the outcome visible. When an unavailable result or another non-applied result
-with `Synchronization required` installs a replacement renderer, its focus
+with `Synchronization required` posts a replacement renderer, its focus
 effect resolves the corresponding coordinate or subject menu button in the new
 lifetime when that target still represents the initiating action. Otherwise,
 or when that control is not mounted, it focuses the new destination's level-one
 heading, then the persistent `dotnet-inspect` shell control when no destination
 heading is mounted. It never focuses the invoker node from the outgoing
-renderer. Installation, focus, and announcement occur only while their
+renderer. Posting, focus, and announcement occur only while their
 returned effect authority remains current.
 
-Before an asynchronous transition or snapshot installation removes the focused
+Before an asynchronous transition or snapshot posting removes the focused
 element, the UI synchronously parks focus on the persistent `dotnet-inspect`
 shell control outside replaceable destination renderers. This applies to
 closing a focused menu or dialog, replacing a local navigation pane, replacing
@@ -389,7 +566,7 @@ no-effective-lens result. This parking step reflects local surface cleanup, not
 a product result.
 
 Current effect authority is still required to move focus from that persistent
-anchor to a result-derived destination. Installation that replaces a renderer
+anchor to a result-derived destination. Posting that replaces a renderer
 associates later callbacks with the newly mounted destination lifetime, never
 the outgoing one. A replacement listbox receives focus only when the exact
 previously focused Library identity survives; an omitted tablist moves focus to
@@ -496,7 +673,7 @@ state.
 This document does not render navigation descriptors, decide which subject or
 lens is active, define selector-pill visual states, define shell modal
 dialogs or routed-surface classification, or define page-level placement. It
-proves only that returned product authority is consumed, installed,
+proves only that returned product authority is consumed, posted,
 acknowledged, or abandoned correctly, and that its required visible effects
 occur in the defined order.
 
@@ -513,10 +690,10 @@ this same test file are recorded in
   failed, and aborted results under both synchronization dispositions, plus
   product-side discard of superseded work. It proves that semantic outcome
   never substitutes for the disposition: every `Synchronization required`
-  result installs its complete returned snapshot, while every `Current`
-  non-applied result retains the installed snapshot. It proves exact canonical
+  result posts its complete returned snapshot, while every `Current`
+  non-applied result retains the posted snapshot. It proves exact canonical
   URL and history handling, including replacement for catch-up and
-  reconciliation-driven installations. It also proves that such replacement
+  reconciliation-driven postings. It also proves that such replacement
   resolves menu-result focus in the new renderer, with destination-heading and
   persistent-shell fallbacks, and announces through the pre-existing shell
   live region before acknowledgement or abandonment.
@@ -524,14 +701,14 @@ this same test file are recorded in
   `synchronization catch-up replaces history without inventing navigation`
   covers rejected, failed, aborted, and unchanged-unavailable results carrying
   `Synchronization required`, plus a dedicated synchronization result. It
-  proves that each installs the complete product snapshot and replaces rather
+  proves that each posts the complete product snapshot and replaces rather
   than pushes or adopts history. The non-applied cases retain their exact
   semantic evidence; the dedicated result introduces no semantic navigation
   outcome.
 - `navigation-consumer.test.ts`:
   `abandoned synchronization debt requests fresh authority after remount`
-  abandons synchronization-required authority before installation and after
-  installation but before acknowledgement. It proves that neither path clears
+  abandons synchronization-required authority before posting and after
+  posting but before acknowledgement. It proves that neither path clears
   the session-scoped marker, that remount requests dedicated synchronization,
   and that only one product request remains pending across renderer replacement
   or destruction. A late response retains its exact request identity and old
@@ -554,23 +731,23 @@ this same test file are recorded in
   the new destination heading rather than an outgoing-renderer element.
 - `navigation-consumer.test.ts`:
   `deferred effects revalidate authority when each callback executes`
-  supersedes a result after installation and proves that its queued focus and
+  supersedes a result after posting and proves that its queued focus and
   announcement callbacks have no visible effect or history mutation.
 - `navigation-consumer.test.ts`:
-  `stale explicit authority cannot install returned state` returns an applied
-  explicit result, begins a newer intent before installation, and proves that
+  `stale explicit authority cannot post returned state` returns an applied
+  explicit result, begins a newer intent before posting, and proves that
   the stale result changes no rendered snapshot, canonical URL, history entry,
   focus, or shell announcement before its authority is abandoned.
 - `navigation-consumer.test.ts`:
-  `non-installing browser restoration realigns the selected entry` exercises
+  `non-posting browser restoration realigns the selected entry` exercises
   Back and Forward with `Current` unavailable-without-replacement, rejected,
   failed, and aborted outcomes. Each case retains the snapshot, replaces the
   browser-selected entry with its canonical location, surfaces and announces
   the outcome, focuses the retained destination heading or shell fallback, and
-  pushes no entry. Companion `Synchronization required` cases instead install
+  pushes no entry. Companion `Synchronization required` cases instead post
   the complete returned snapshot and replace the selected entry with its
   canonical location before presenting the same semantic evidence. The gate
-  also supersedes each returned authority before realignment or installation
+  also supersedes each returned authority before realignment or posting
   and proves that stale work changes neither canonical URL nor history,
   produces no later focus or announcement, and is abandoned before it can be
   acknowledged.
@@ -580,25 +757,62 @@ this same test file are recorded in
   return but before realignment, and by a newer browser traversal. A
   non-browser successor first repairs the unresolved selected entry before
   submission; a browser successor replaces the traversal serial. In every case
-  a non-installing current result leaves the address bar and selected entry
-  aligned with the installed snapshot while superseded work writes nothing.
+  a non-posting current result leaves the address bar and selected entry
+  aligned with the posted snapshot while superseded work writes nothing.
+- `navigation-consumer.test.ts`:
+  `one location intent arbitrates every history effect` covers exact adoption,
+  changed-state replacement, current-failure realignment, explicit push and
+  replace, and no-write results through one typed declaration and pure
+  classification. It proves that every effect names the current
+  location-intent identity and exact installed association.
+- `saved-workspace-navigation.test.ts`:
+  `browser traversal owns location across irreversible Workspace completion`
+  captures Back before waiting for managed activation or deactivation,
+  completes retained selection and active deletion with managed and
+  compatibility successors, and proves that installation and completion
+  finish while their stale history effects yield. The captured entry and
+  forward entries remain unchanged until that traversal alone adopts,
+  replaces, or realigns them.
+- `saved-workspace-navigation.test.ts`:
+  `new intent repairs unresolved traversal before admission` starts a
+  traversal before and after consumer acceptance, supersedes it with Saved
+  Open, and proves that incumbent realignment completes before the newer
+  request receives its identity. An injected realignment failure rejects the
+  newer request and remains visible.
+- `saved-workspace-navigation.test.ts`:
+  `failed traversal realigns only its current selected entry` fails managed
+  acquisition while another Workspace remains installed, then supersedes the
+  same case with a newer traversal. Only the still-current failure replaces
+  its selected entry with the incumbent canonical location and retained
+  identity.
+- `saved-workspace-navigation.test.ts`:
+  `delayed operation retains its originating location intent` holds an
+  ordinary managed package-row Worker response, admits a newer Saved Open, and
+  proves that the older response cannot mint authority, publish package
+  presentation, mutate history, or supersede the newer Open.
+- `saved-workspace-navigation.test.ts`:
+  `post-cutover history failure keeps the installed successor` rejects the
+  normalized history write after managed cutover and proves that the successor
+  realization and presentation remain current, failure is visible, the
+  location obligation remains unresolved, and later non-browser admission
+  first realigns to that successor.
 - `navigation-consumer.test.ts`:
   `acknowledgement follows every required visible effect` proves that
-  location realignment, installation, focus, and announcement complete before
+  location realignment, posting, focus, and announcement complete before
   acknowledgement whenever each effect is required. For `Synchronization
   required`, it additionally proves that equal local snapshot contents do not
-  permit acknowledgement until the complete result has been installed under
+  permit acknowledgement until the complete result has been posted under
   that exact current authority.
 - `navigation-consumer.test.ts`:
   `surface destruction abandons authority and suppresses stale callbacks`
   destroys and remounts a surface before its callbacks execute, then returns a
-  late result for the destroyed lifetime. A companion `Current` non-installing
+  late result for the destroyed lifetime. A companion `Current` non-posting
   Back/Forward case destroys the destination before location realignment and
   proves that remount repairs the preserved traversal obligation before
   rendering, independently of synchronization debt.
 - `navigation-consumer.test.ts`:
   `renderer replacement abandons outgoing authority before transfer` holds old
-  returned authority while a current installation replaces the renderer and
+  returned authority while a current posting replaces the renderer and
   proves that no outgoing-lifetime authority survives replacement.
 - `navigation-focus.test.ts`'s
   `lens tabs and Library options separate focus from committed selection` is
@@ -611,9 +825,18 @@ The implementation fixture supplies typed product results through the normal
 navigation-consumer boundary. It does not construct a parallel host catalog or
 bypass effect-authority validation merely to observe the renderer.
 
-These gates are not implemented by this documentation-only design. Until they
-exist and pass, the prose and TLA+ model define the target contract but do not
-claim Inspect Web implementation conformance.
+The location-intent gates are not implemented by this documentation-only
+design. Until they exist and pass, the prose and focused TLA+ model define the
+target contract but do not claim Inspect Web implementation conformance.
+
+The first #5511 implementation slice replaces the retained-activation
+facade's reduced initial Navigation state with the exact handoff above and
+adopts it in the retained-activation controller tests. Production
+`dotnet-inspect.ts` adoption, ordinary Navigation actions, history, focus,
+announcement, synchronization recovery, and removal of the old TypeScript
+snapshot path remain later consumer work. #7705 owns location-intent
+arbitration; #7709 composes it with complete Saved Workspace Open and the
+production entry points.
 
 ## Acceptance scenarios
 
@@ -639,26 +862,26 @@ outcomes.
 ### Transition effects and surface lifetime
 
 1. Return an applied outcome carrying a replacement snapshot and confirm that
-   installation atomically updates rendered state, canonical URL, and the
+   posting atomically updates rendered state, canonical URL, and the
    initiating action's push-or-replace history classification.
 2. Hold stale returned authority from an older intent while the current applied
-   installation replaces the destination renderer. Confirm that replacement
+   posting replaces the destination renderer. Confirm that replacement
    abandons the outgoing authority before transferring the current operation
    and its callbacks to the new lifetime.
 3. Return an unavailable outcome whose refreshed or reconciled snapshot changes
-   the active subject. Confirm that it installs the exact returned snapshot but
+   the active subject. Confirm that it posts the exact returned snapshot but
    replaces history rather than pushing the unrequested subject change. Confirm
    that focus reaches the corresponding menu button in the new renderer, or its
    destination-heading or persistent-shell fallback, and never the outgoing
    invoker node. Confirm that its deferred announcement changes the pre-existing
-   shell live region after installation rather than inserting an already-filled
+   shell live region after posting rather than inserting an already-filled
    destination-owned region.
 4. Return `Current` unavailable-without-replacement, rejected, and failed
    outcomes. Confirm that each retains the prior snapshot, URL, and history
    while presenting its exact evidence.
-5. Confirm that authority is validated before installation and independently
+5. Confirm that authority is validated before posting and independently
    inside each deferred focus and polite-live-region callback.
-6. Supersede an applied result after installation but before its callbacks
+6. Supersede an applied result after posting but before its callbacks
    execute.
 7. Confirm that focus was parked before its invoking control disappeared, that
    neither stale callback changes focus, status, active panel, URL, or history,
@@ -674,33 +897,33 @@ outcomes.
    dismissal target is replaced with the new destination heading, and ordinary
    dismissal never focuses a detached element.
 11. Return another result and confirm that acknowledgement occurs only after its
-   required installation, focus, and announcement effects complete.
-12. Install a maintenance snapshot and confirm that it replaces URL history,
+   required posting, focus, and announcement effects complete.
+12. Post a maintenance snapshot and confirm that it replaces URL history,
    does not move surviving focus, announces only a visible change, and
    acknowledges its authority.
 13. Destroy a surface while it holds unconsumed authority, then remount the
     same surface kind and return another result for the destroyed lifetime.
 14. Confirm that destruction and the late return both abandon authority and
     that callbacks from the prior lifetime cannot affect the remounted surface.
-    Repeat after a `Current` non-installing Back or Forward result returns but
+    Repeat after a `Current` non-posting Back or Forward result returns but
     before its location realignment. Confirm that remount preserves and repairs
     the unresolved traversal before rendering even though no synchronization
     debt exists.
-15. Return an applied explicit result, begin a newer intent before installation,
+15. Return an applied explicit result, begin a newer intent before posting,
     and confirm that the stale result changes no rendered snapshot, canonical
     URL, history entry, focus, or shell announcement before abandonment.
 16. Leave the consumer behind the retained product session, then return
     rejected, failed, aborted, and unchanged-unavailable results with
-    `Synchronization required`. Confirm that each installs the complete returned
+    `Synchronization required`. Confirm that each posts the complete returned
     snapshot, replaces history without recording the unsuccessful request,
-    presents its exact semantic evidence after installation, and acknowledges
+    presents its exact semantic evidence after posting, and acknowledges
     only after every required effect.
-17. Install a synchronization-required result and abandon it before
+17. Post a synchronization-required result and abandon it before
     acknowledgement. Remount the destination and confirm that the
     session-scoped consumer retains any already-pending request's identity and
     old lifetime rather than issuing a second request. Return that old response
     and confirm that it is abandoned and settled before the current lifetime
-    separately issues fresh synchronization, installs the complete current
+    separately issues fresh synchronization, posts the complete current
     snapshot under fresh authority, replaces history, and acknowledges. Confirm
     that every exact issued request reaches settlement. Repeat abandonment and
     confirm that another request remains possible. Start Back or Forward after
@@ -708,7 +931,7 @@ outcomes.
     abandoned without changing the newly selected entry.
 18. While synchronization remains outstanding, return a newer current
     maintenance or explicit result. Confirm that its disposition controls
-    installation and that acknowledgement of that current authority discharges
+    posting and that acknowledgement of that current authority discharges
     the same obligation without waiting for the dedicated response.
 
 ### Canonical adapter
@@ -746,13 +969,13 @@ outcomes.
    destination heading or shell fallback, and lets a later traversal continue
    past the failed location without a pushed entry. Repeat with
    `Synchronization required` and confirm that the complete returned snapshot
-   is installed and its canonical location replaces the selected entry before
+   is posted and its canonical location replaces the selected entry before
    the same semantic evidence is presented.
 7. Supersede a Back restoration before product result publication, then repeat
    after authority returns but before realignment. Follow each with a
-   non-browser action whose current result does not install. Confirm that the
+   non-browser action whose current result does not post. Confirm that the
    selected entry was repaired before successor submission, the retained
    snapshot and address remain aligned, and superseded work writes nothing.
-8. Supersede a Back restoration with Forward, then return a non-installing
+8. Supersede a Back restoration with Forward, then return a non-posting
    outcome for the current Forward restoration. Confirm that only the newest
    traversal serial may realign the selected entry.

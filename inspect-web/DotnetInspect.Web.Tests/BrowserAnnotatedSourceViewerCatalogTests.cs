@@ -39,6 +39,14 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             catalog.SynchronousCompletions.UnavailableReason);
+        Assert.False(catalog.AllocationExceptionPaths.Available);
+        Assert.Equal(
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            catalog.AllocationExceptionPaths.UnavailableReason);
+        Assert.False(catalog.LocalThrowPaths.Available);
+        Assert.Equal(
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            catalog.LocalThrowPaths.UnavailableReason);
     }
 
     [Theory]
@@ -140,6 +148,25 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 Available: false,
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
                 Observations: []);
+        var unavailableAwaitCompletionPaths =
+            new BrowserAnnotatedSourceAwaitCompletionPathInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                Observations: []);
+        var unavailableAllocationExceptionPaths =
+            new BrowserAnnotatedSourceAllocationExceptionPathInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                Observations: []);
+        var unavailableLocalThrowPaths =
+            new BrowserAnnotatedSourceLocalThrowPathInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                IsComplete: false,
+                Boundaries: [],
+                Limits: null,
+                Receipt: null,
+                Paths: []);
         var catalog = new BrowserAnnotatedSourceViewerCatalog(
             defaultFindingIds,
             supportedMedia,
@@ -149,6 +176,9 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             unavailable,
             unavailableCycles,
             unavailableSynchronousCompletions,
+            unavailableAwaitCompletionPaths,
+            unavailableAllocationExceptionPaths,
+            unavailableLocalThrowPaths,
             []);
 
         defaultFindingIds[0] = 99;
@@ -339,6 +369,158 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
     }
 
     [Fact]
+    public void Create_ProjectsAndValidatesLocalThrowPathEvidence()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        BrowserAnnotatedSourceCallRelationship[] relationships =
+        [
+            new(
+                EdgeRow: 1,
+                FactId: 1,
+                ModuleVersionId:
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CallerToken: 0x06000001,
+                IlOffset: 0,
+                OperandToken: 0x0A000001,
+                BrowserAnnotatedSourceCallKind.Call,
+                InLoop: false,
+                Target("n1", "Forward")),
+        ];
+        var path = new BrowserAnnotatedSourceLocalThrowPath(
+            FactIds: [1],
+            Targets:
+            [
+                Target("n1", "Forward"),
+                Target("n2", "Throw"),
+            ],
+            TerminalThrows:
+            [
+                new BrowserAnnotatedSourceLocalThrowSite(
+                    "System.ArgumentNullException",
+                    Guid.Parse(
+                        "11111111-1111-1111-1111-111111111111"),
+                    DefinitionToken: 0x02000002,
+                    ConstructionOffset: 2,
+                    ConstructorToken: 0x0A000002,
+                    ThrowOffset: 7),
+            ]);
+        var inspection =
+            new BrowserAnnotatedSourceLocalThrowPathInspection(
+                Available: true,
+                UnavailableReason: null,
+                IsComplete: true,
+                Boundaries: [],
+                Limits: new BrowserAnnotatedSourceLocalThrowPathLimits(
+                    MaximumDepth: 3,
+                    MaximumNodes: 25,
+                    MaximumEdges: 100,
+                    MaximumPaths: 25),
+                Receipt: new BrowserAnnotatedSourceLocalThrowPathReceipt(
+                    DestinationSearches: 1,
+                    SearchNodes: 3,
+                    SearchedEdges: 2,
+                    ObservedReachablePairs: 1,
+                    ReturnedPaths: 1),
+                Paths: [path]);
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                localThrowPaths: inspection);
+
+        Assert.True(catalog.LocalThrowPaths.Available);
+        Assert.True(catalog.LocalThrowPaths.IsComplete);
+        Assert.Single(catalog.LocalThrowPaths.Paths);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                localThrowPaths:
+                    new BrowserAnnotatedSourceLocalThrowPathInspection(
+                        Available: true,
+                        UnavailableReason: null,
+                        IsComplete: true,
+                        Boundaries: [],
+                        Limits: inspection.Limits,
+                        Receipt: inspection.Receipt,
+                        Paths:
+                        [
+                            new BrowserAnnotatedSourceLocalThrowPath(
+                                FactIds: [0],
+                                Targets: path.Targets,
+                                TerminalThrows: path.TerminalThrows),
+                        ])));
+        Assert.Throws<ArgumentException>(() =>
+            new BrowserAnnotatedSourceLocalThrowPathInspection(
+                Available: true,
+                UnavailableReason: null,
+                IsComplete: true,
+                Boundaries:
+                [
+                    new(
+                        BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                            .DepthLimit,
+                        3),
+                ],
+                Limits: inspection.Limits,
+                Receipt: inspection.Receipt,
+                Paths: []));
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesAwaitCompletionPathEvidence()
+    {
+        var document = new AnnotatedSourceDocument(
+            "await work",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    AnnotatedSourceNodeKinds.AwaitExpression,
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 10)]),
+            ],
+            [],
+            [],
+            []);
+        BrowserAnnotatedSourceAwaitCompletionPath[] observations =
+        [
+            new(NodeId: 0),
+        ];
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                awaitCompletionPaths: observations);
+
+        Assert.True(catalog.AwaitCompletionPaths.Available);
+        Assert.Single(catalog.AwaitCompletionPaths.Observations);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                awaitCompletionPaths:
+                [
+                    observations[0],
+                    observations[0],
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                new AnnotatedSourceDocument(
+                    "work()",
+                    [
+                        new AnnotatedSourceNode(
+                            0,
+                            "InvocationExpression",
+                            SourceLineKind.CSharp,
+                            [new AnnotatedSourceSpan(0, 6)]),
+                    ],
+                    [],
+                    [],
+                    []),
+                awaitCompletionPaths: observations));
+    }
+
+    [Fact]
     public void Create_ProjectedEmptyDestinationsAreAvailable()
     {
         BrowserAnnotatedSourceViewerCatalog catalog =
@@ -410,6 +592,95 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 [
                     new(1, Target("n1", "Call")),
                     new(1, Target("n2", "Other")),
+                ]));
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesAllocationExceptionPathEvidence()
+    {
+        var document = new AnnotatedSourceDocument(
+            "new object()",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "ObjectCreationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 12)]),
+            ],
+            [],
+            [
+                new AnnotatedSourceFact(
+                    0,
+                    "alloc.new",
+                    nameof(AnnotationCategory.Allocation),
+                    AnnotationConditionality.Always,
+                    Detail: null,
+                    SourceOffset: 0,
+                    AnnotatedSourceFactOrigin.Body),
+            ],
+            [new AnnotatedSourceTarget(0, 0)]);
+        BrowserAnnotatedSourceAllocationExceptionPath[] observations =
+        [
+            new(
+                FactId: 0,
+                BrowserAllocationExceptionPathKind.ThrownValue),
+        ];
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                allocationExceptionPaths: observations);
+
+        Assert.True(catalog.AllocationExceptionPaths.Available);
+        Assert.Single(
+            catalog.AllocationExceptionPaths.Observations);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                allocationExceptionPaths:
+                [
+                    observations[0],
+                    observations[0],
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                new AnnotatedSourceDocument(
+                    document.Text,
+                    document.Nodes,
+                    document.Regions,
+                    [
+                        document.Facts[0] with
+                        {
+                            Descriptor = "semantics.throw",
+                        },
+                    ],
+                    document.Targets),
+                allocationExceptionPaths: observations));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                new AnnotatedSourceDocument(
+                    document.Text,
+                    document.Nodes,
+                    document.Regions,
+                    [
+                        document.Facts[0] with
+                        {
+                            Origin =
+                                AnnotatedSourceFactOrigin.MemberHeader,
+                        },
+                    ],
+                    document.Targets),
+                allocationExceptionPaths: observations));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                allocationExceptionPaths:
+                [
+                    observations[0] with
+                    {
+                        Kind =
+                            (BrowserAllocationExceptionPathKind)(-1),
+                    },
                 ]));
     }
 

@@ -28,7 +28,6 @@ public class TypeOptionsParserTests
         var allOption = new Option<bool>("--all");
         var typeFilterOption = new Option<string?>("-t");
         var compactOption = new Option<bool>("--compact");
-        var shapeOption = new Option<bool>("--shape");
         var unsafeOption = new Option<bool>("--unsafe");
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
@@ -49,7 +48,6 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(typeCommand);
-        typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
@@ -57,6 +55,7 @@ public class TypeOptionsParserTests
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
@@ -66,7 +65,7 @@ public class TypeOptionsParserTests
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
-            shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption,
+            unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption);
 
         return (root, opts, args);
@@ -125,6 +124,63 @@ public class TypeOptionsParserTests
         }
     }
 
+    [Theory]
+    [InlineData("json")]
+    [InlineData("table")]
+    public async Task Envelope_IgnoresEnvironmentFormat(string format)
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+            var options = await ParseSuccessAsync(
+                "type",
+                "JsonSerializer",
+                "--package",
+                "System.Text.Json@10.0.0",
+                "--tfm",
+                "net10.0",
+                "--envelope");
+
+            Assert.True(options.EnvelopeOutput);
+            Assert.False(options.JsonOutput);
+            Assert.False(options.Tabular);
+            Assert.False(options.FormatExplicitlySet);
+            Assert.Equal(OutputFormat.Json, options.Format);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
+        }
+    }
+
+    [Theory]
+    [InlineData("q", TipLevel.Quiet)]
+    [InlineData("m", TipLevel.Minimal)]
+    [InlineData("d", TipLevel.Detailed)]
+    public async Task Envelope_PreservesExplicitTipLevel(
+        string value,
+        TipLevel expected)
+    {
+        var options = await ParseSuccessAsync(
+            "type",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--envelope",
+            "--tips",
+            value);
+
+        Assert.Equal(expected, options.TipLevel);
+    }
+
     [Fact]
     public async Task ProjectSource_SetsProjectPathAndTypeName()
     {
@@ -150,15 +206,16 @@ public class TypeOptionsParserTests
     }
 
     [Fact]
-    public async Task NumericMemberLimit_IsDistinctFromTypeFilter()
+    public async Task NumericMemberAndTypeFilters_AreOrdinaryFilterInput()
     {
         var memberOptions = await ParseSuccessAsync(
             "type", "MemoryStream", "--platform", "System.Private.CoreLib", "-m", "1");
         var typeOptions = await ParseSuccessAsync(
             "type", "MemoryStream", "--platform", "System.Private.CoreLib", "-t", "1");
 
-        Assert.Equal(1, memberOptions.Limit);
-        Assert.Equal(1, memberOptions.MemberLimit);
+        Assert.Contains("1", memberOptions.MemberFilter);
+        Assert.Null(memberOptions.Limit);
+        Assert.Null(memberOptions.MemberLimit);
         Assert.Equal("1", typeOptions.TypeFilter);
         Assert.Null(typeOptions.Limit);
         Assert.Null(typeOptions.MemberLimit);

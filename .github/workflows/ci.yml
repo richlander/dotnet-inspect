@@ -319,6 +319,14 @@ jobs:
           cache: npm
           cache-dependency-path: inspect-web/package-lock.json
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
       - name: Build and analyze browser frontend
         working-directory: inspect-web
         run: |
@@ -562,6 +570,14 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
 
       - name: Build browser frontend and install dependencies
         working-directory: inspect-web
@@ -993,6 +1009,14 @@ jobs:
           'DotnetInspect.Cli.Tests.G*'
           'DotnetInspect.Cli.Tests.H*'
           'DotnetInspect.Cli.Tests.I*'
+          --filter-not-trait "Speed=Slow"
+
+      - name: Run Debug dependency sidecar contracts (Release)
+        if: matrix.shard == 'cli-d-i'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
+          --no-restore -p:DefineConstants=DEBUG --
+          --filter-class 'DotnetInspect.Cli.Tests.DependsAssetCommandTests'
           --filter-not-trait "Speed=Slow"
 
       - name: Run CLI Markout and Match tests (fast)

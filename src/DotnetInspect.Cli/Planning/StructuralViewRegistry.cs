@@ -116,7 +116,8 @@ public sealed record StructuralSchemaProjection(
     IReadOnlySet<string>? ListedCategoryDoors,
     IReadOnlySet<string> CatalogHiddenSections,
     IReadOnlySet<string> ExactOnlySections,
-    ImmutableDictionary<string, StructuralSectionInput> SectionInputs);
+    ImmutableDictionary<string, StructuralSectionInput> SectionInputs,
+    OutputCapabilityCatalog? OutputCapabilities);
 
 public sealed record StructuralDiscoveryRequest(
     string[]? Discover,
@@ -129,6 +130,7 @@ public sealed record StructuralDiscoveryRequest(
     Verbosity Verbosity,
     IReadOnlySet<string>? IncludeSections,
     bool Schema,
+    bool Details,
     IProjectionOptions Projection)
 {
     public InspectionSectionIntent SectionIntent =>
@@ -157,6 +159,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
+            false,
             options);
 
     public static StructuralDiscoveryRequest From(ApiOptions options)
@@ -177,6 +180,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             null,
             options.Schema,
+            false,
             options);
 
     public static StructuralDiscoveryRequest From(
@@ -198,6 +202,7 @@ public sealed record StructuralDiscoveryRequest(
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
+            options.DiscoverDetails,
             options);
 
     public static StructuralDiscoveryRequest From(
@@ -218,6 +223,7 @@ public sealed record StructuralDiscoveryRequest(
             options.ParseVerbosity(parseResult),
             null,
             options.ParseSchema(parseResult),
+            false,
             ProjectionAudit.Requested(parseResult, options));
     }
 }
@@ -573,7 +579,7 @@ public static class StructuralViewRegistry
         string target = tokens[0];
         string[] memberSelectors =
             GetOptionValues(tokens, "-m", "--member");
-        var (memberFilter, memberLimit) =
+        var memberFilter =
             SharedParsers.ParseMemberFilter(memberSelectors);
         bool hasBodyKindFilter =
             BodyKindQueryOptions.TryExtract(
@@ -746,14 +752,6 @@ public static class StructuralViewRegistry
                     StructuralViewIdentity.MemberTarget,
                     memberCatalog));
         }
-        else if (memberLimit is not null)
-        {
-            routes.Add(
-                Route(
-                    StructuralViewIdentity.MemberType,
-                    InspectionCatalogIdentity.ApiMember));
-        }
-
         StructuralCatalogAlternatives alternatives = CreateAlternatives(routes, request);
         return memberError is null
             ? alternatives
@@ -857,6 +855,7 @@ public static class StructuralViewRegistry
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         IReadOnlySet<string> exactOnlySections =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        OutputCapabilityCatalog? outputCapabilities = null;
         switch (route.Catalog)
         {
             case InspectionCatalogIdentity.Package:
@@ -888,6 +887,8 @@ public static class StructuralViewRegistry
                     catalog.Pipeline.GetListedCategoryDoors();
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
+                outputCapabilities =
+                    LibraryOutputCapabilities.Catalog;
                 break;
             }
             case InspectionCatalogIdentity.LibraryAggregate:
@@ -1025,7 +1026,8 @@ public static class StructuralViewRegistry
             listedCategoryDoors,
             catalogHiddenSections,
             exactOnlySections,
-            inputs);
+            inputs,
+            outputCapabilities);
     }
 
     public static int Execute(
@@ -1043,6 +1045,64 @@ public static class StructuralViewRegistry
         request = normalizedRequest;
         StructuralSchemaProjection projection = Project(route, outputShape);
         DocumentSchema schema = projection.Schema;
+        if (request.Details)
+        {
+            if (request.Discover is { Length: > 1 })
+            {
+                CommandError.Write(
+                    "--details supports bare -D or one exact category or "
+                    + "section selector in this Library adoption.");
+                return 1;
+            }
+
+            if (request.Select is not null
+                || request.SelectDefault
+                || request.IncludeSections is { Count: > 0 })
+            {
+                CommandError.Write(
+                    "--details cannot be combined with -S/--select; name the "
+                    + "category or section after -D/--discover.");
+                return 1;
+            }
+
+            if (projection.OutputCapabilities is null)
+            {
+                CommandError.Write(
+                    "Detailed discovery is not available for this command.");
+                return 1;
+            }
+
+            DiscoveryOutputRequest detailedRequest =
+                DiscoveryOutputRequest.Create(
+                    request.Format,
+                    request.Tree,
+                    request.TableExplicitlySet,
+                    request.NoHeader,
+                    (int)request.Verbosity,
+                    request.Projection);
+            if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
+                return 1;
+
+            DiscoveryDocument? document =
+                DiscoveryDocumentFactory.Create(
+                    "library",
+                    request.Discover,
+                    schema,
+                    projection.SectionCategories,
+                    projection.CatalogHiddenSections,
+                    projection.ListedCategoryDoors,
+                    projection.SectionCostAnnotations,
+                    projection.ExactOnlySections,
+                    projection.OutputCapabilities,
+                    requireExactSelection: true);
+            if (document is null)
+                return 1;
+
+            return DetailedDiscoverOutput.Write(
+                document,
+                detailedRequest);
+        }
+
         var selectedSections =
             request.IncludeSections is { Count: > 0 }
                 ? new HashSet<string>(
@@ -1072,6 +1132,25 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
+        DiscoveryDocument? discoveryDocument = null;
+        if (projection.OutputCapabilities is not null)
+        {
+            discoveryDocument = DiscoveryDocumentFactory.Create(
+                "library",
+                request.Discover,
+                schema,
+                projection.SectionCategories,
+                request.Schema
+                    ? null
+                    : projection.CatalogHiddenSections,
+                projection.ListedCategoryDoors,
+                projection.SectionCostAnnotations,
+                projection.ExactOnlySections,
+                projection.OutputCapabilities);
+            if (discoveryDocument is null)
+                return 1;
+        }
+
         return DiscoverOutput.Execute(
             request.Discover,
             schema,
@@ -1090,7 +1169,8 @@ public static class StructuralViewRegistry
                 : projection.CatalogHiddenSections,
             listedCategoryDoors:
                 projection.ListedCategoryDoors,
-            exactOnlySections: projection.ExactOnlySections);
+            exactOnlySections: projection.ExactOnlySections,
+            document: discoveryDocument);
     }
 
     public static int Execute(
@@ -1808,7 +1888,7 @@ public static class StructuralViewRegistry
     {
         string[] members =
             GetOptionValues(tokens, "-m", "--member");
-        var (memberFilter, _) =
+        var memberFilter =
             SharedParsers.ParseMemberFilter(members);
         if (memberFilter.Count == 0)
             return InspectionCatalogIdentity.ApiMember;

@@ -413,6 +413,34 @@ public abstract class TypeResolutionFailure
         public MetadataTypeNameFailure Rejection { get; }
     }
 
+    /// <summary>
+    /// The single-image declaration scan exceeded a configured work bound.
+    /// </summary>
+    public sealed class DeclarationBudgetExceeded : TypeResolutionFailure
+    {
+        internal DeclarationBudgetExceeded(int budget, string detail)
+        {
+            Budget = budget;
+            Detail = detail;
+        }
+
+        public int Budget { get; }
+        public string Detail { get; }
+    }
+
+    /// <summary>
+    /// A TypeDef was resolved, but its definition kind could not be
+    /// classified.
+    /// </summary>
+    public sealed class DefinitionKindUnavailable : TypeResolutionFailure
+    {
+        internal DefinitionKindUnavailable(
+            MetadataTypeDefinitionKindFailure failure) =>
+            Failure = failure;
+
+        public MetadataTypeDefinitionKindFailure Failure { get; }
+    }
+
     /// <summary>A forwarding chain revisited a catalog candidate.</summary>
     public sealed class ForwarderCycle : TypeResolutionFailure;
 
@@ -942,7 +970,7 @@ public sealed class DuplicateArtifactEvidence
         Candidates = candidates;
 
     public ImmutableArray<DuplicateArtifactCandidateEvidence> Candidates
-        { get; }
+    { get; }
 }
 
 /// <summary>
@@ -953,6 +981,19 @@ public readonly record struct MetadataTypeDefinitionAddress(
     Guid ModuleVersionId,
     TypeDefinitionToken Definition)
 {
+    /// <summary>
+    /// Creates a durable address from a TypeDef row in the supplied module.
+    /// </summary>
+    public static MetadataTypeDefinitionAddress FromHandle(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        return new(
+            reader.GetGuid(reader.GetModuleDefinition().Mvid),
+            TypeDefinitionToken.FromHandle(reader, handle));
+    }
+
     /// <summary>
     /// Resolves this durable address against a live reader only after checking
     /// its module MVID, token table, and TypeDef row bounds.
@@ -1029,9 +1070,10 @@ public sealed class ResolvedTypeDefinition
     public MetadataTypeDefinitionName Type { get; }
     public MetadataTypeDefinitionKind Kind { get; }
     internal int GenericParameterCount { get; }
-    internal TypeResolutionFailure? KindResolutionFailure { get; }
-    internal AssemblyReferenceIdentity?
-        KindResolutionDependencyAssembly { get; }
+    public TypeResolutionFailure? KindResolutionFailure { get; }
+    public AssemblyReferenceIdentity?
+        KindResolutionDependencyAssembly
+    { get; }
     public bool IsInterface =>
         Kind == MetadataTypeDefinitionKind.Interface;
     public bool IsValueType =>

@@ -166,6 +166,9 @@ public sealed partial class CSharpPrinter
         return $"fnptr[{type.CallingConvention}]({parameters})->{TypeKey(type.ElementType!)}";
     }
 
+    string FieldTarget(LoadField load)
+        => load.UsesAccessorStorage ? "field" : FieldTarget(load.Field, load.Instance);
+
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)
@@ -706,6 +709,7 @@ public sealed partial class CSharpPrinter
     {
         var arguments = call.Arguments;
         string typeArguments = call.Callee.TypeArguments.IsEmpty
+            || call.Callee.CanOmitTypeArguments && PrintedArgumentsPreserveGenericInference(call)
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
         if (!call.Callee.HasThis)
@@ -853,6 +857,189 @@ public sealed partial class CSharpPrinter
             return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
         return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
     }
+
+    static bool PrintedArgumentsPreserveGenericInference(Call call)
+    {
+        if (call.Callee.DefinitionParameterTypes.Length != call.Arguments.Count)
+            return false;
+
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            TypeRef parameter = call.Callee.DefinitionParameterTypes[i];
+            if (!ContainsMethodGenericParameter(parameter))
+                continue;
+
+            IrExpression argument = call.Arguments[i];
+            if (argument is Lambda lambda)
+            {
+                if (!LambdaOutputPreservesGenericInference(
+                    parameter,
+                    lambda,
+                    call.Callee.TypeArguments))
+                    return false;
+                continue;
+            }
+
+            if (call.Callee.TypeArgumentElisionLambdaOutputs.Any(
+                output => output.ArgumentIndex == i))
+            {
+                return false;
+            }
+
+            if (argument is CollectionExpression collection)
+            {
+                if (!CollectionElementsPreserveGenericInference(collection))
+                    return false;
+                continue;
+            }
+
+            if (argument is TupleExpression tuple)
+            {
+                if (!TupleElementsPreserveGenericInference(tuple))
+                    return false;
+                continue;
+            }
+
+            if (argument.ResultType is not { } resultType
+                || !VarInfersDeclaredType(resultType, argument))
+            {
+                return false;
+            }
+        }
+
+        foreach (ImmutableArray<TypeRef> sibling
+            in call.Callee.TypeArgumentElisionSiblingParameters)
+        {
+            for (int i = 0; i < call.Arguments.Count; i++)
+            {
+                TypeRef siblingParameter = sibling[i];
+                if (!ContainsMethodGenericParameter(siblingParameter)
+                    || siblingParameter.Equals(
+                        call.Callee.DefinitionParameterTypes[i])
+                    || PrintedArgumentHasStableNaturalType(call.Arguments[i])
+                    || call.Arguments[i] is Lambda lambda
+                        && !LambdaCanConvertToParameter(lambda, siblingParameter))
+                {
+                    continue;
+                }
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool PrintedArgumentHasStableNaturalType(IrExpression argument)
+        => argument.ResultType is { } resultType
+            && VarInfersDeclaredType(resultType, argument);
+
+    static bool CollectionElementsPreserveGenericInference(
+        CollectionExpression collection)
+        => collection.Elements.Count > 0
+            && collection.Elements.All(element =>
+                element is not CollectionSpreadElement
+                && VarInfersDeclaredType(collection.ElementType, element));
+
+    static bool TupleElementsPreserveGenericInference(TupleExpression tuple)
+        => tuple.TupleType.Kind == TypeRefKind.GenericInstance
+            && tuple.TupleType.TypeArguments.Length == tuple.Elements.Count
+            && tuple.Elements
+                .Select((element, index) =>
+                    VarInfersDeclaredType(
+                        tuple.TupleType.TypeArguments[index],
+                        element))
+                .All(static preserves => preserves);
+
+    static bool LambdaCanConvertToParameter(Lambda lambda, TypeRef parameter)
+    {
+        if (parameter is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Namespace: "System.Linq.Expressions",
+                    Name: "Expression`1",
+                },
+                TypeArguments: [var delegateType],
+            })
+        {
+            parameter = delegateType;
+        }
+
+        if (parameter is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType:
+                {
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                } definition,
+            })
+        {
+            return true;
+        }
+
+        int parameterCount = definition.Name.StartsWith("Func`", StringComparison.Ordinal)
+            ? parameter.TypeArguments.Length - 1
+            : definition.Name.StartsWith("Action`", StringComparison.Ordinal)
+                ? parameter.TypeArguments.Length
+                : -1;
+        return parameterCount < 0 || lambda.Parameters.Length == parameterCount;
+    }
+
+    static bool LambdaOutputPreservesGenericInference(
+        TypeRef parameter,
+        Lambda lambda,
+        ImmutableArray<TypeRef> typeArguments)
+    {
+        if (parameter.Kind != TypeRefKind.GenericInstance
+            || parameter.ElementType is not { } definition)
+        {
+            return false;
+        }
+
+        if (definition.Namespace == "System.Linq.Expressions"
+            && definition.Name == "Expression`1"
+            && parameter.TypeArguments is [var delegateType])
+        {
+            return LambdaOutputPreservesGenericInference(
+                delegateType,
+                lambda,
+                typeArguments);
+        }
+
+        if (definition.Assembly != TypeRef.CoreLibrary)
+            return false;
+        if (definition.Namespace == "System"
+            && definition.Name.StartsWith("Action`", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (definition.Namespace != "System"
+            || definition.Name != $"Func`{parameter.TypeArguments.Length}"
+            || parameter.TypeArguments.IsEmpty)
+        {
+            return false;
+        }
+
+        TypeRef output = parameter.TypeArguments[^1];
+        if (!ContainsMethodGenericParameter(output))
+            return true;
+
+        int index = output.GenericParameterIndex;
+        return output.Kind == TypeRefKind.MethodGenericParameter
+            && (uint)index < (uint)typeArguments.Length
+            && lambda.ExpressionBody is { } expression
+            && VarInfersDeclaredType(typeArguments[index], expression);
+    }
+
+    static bool ContainsMethodGenericParameter(TypeRef type)
+        => type.Kind == TypeRefKind.MethodGenericParameter
+            || type.ElementType is { } element
+                && ContainsMethodGenericParameter(element)
+            || type.TypeArguments.Any(ContainsMethodGenericParameter);
 
     // Taste class 3 (no IL anchor): once a re-composed fluent chain is long, the
     // runtime style oracle (a wide .editorconfig) breaks each chained call onto
@@ -1210,6 +1397,9 @@ public sealed partial class CSharpPrinter
             else if (chainFidelityCasts && parameter is not null && refKind == ArgumentRefKind.Value
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
                 text = fidelityCast;
+            else if (parameter is not null
+                && CachedStaticMethodGroupArgumentText(argument, parameter, refKind) is { } methodGroup)
+                text = WithNodeKind(argument, methodGroup, "ConversionExpression");
             else
                 text = coerceValues && parameter is not null
                     ? CoerceText(argument, parameter)
@@ -1220,6 +1410,34 @@ public sealed partial class CSharpPrinter
             i++;
         }
         return string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// Restores the static method-group conversion whose compiler cache was
+    /// collapsed by <see cref="LambdaCachePass"/>. The explicit delegate cast
+    /// pins overload selection at an argument boundary while still causing csc
+    /// to regenerate its lazy <c>&lt;&gt;O</c> cache; <c>new D(M)</c> would
+    /// allocate on every execution.
+    /// </summary>
+    string? CachedStaticMethodGroupArgumentText(
+        IrExpression argument,
+        TypeRef parameter,
+        ArgumentRefKind refKind)
+    {
+        if (refKind != ArgumentRefKind.Value
+            || argument is not DelegateCreation
+            {
+                HasCollapsedCompilerCache: true,
+                Target: Constant { Value: null },
+                Method.TypeArguments.IsEmpty: true,
+            } creation
+            || !parameter.Equals(creation.DelegateType))
+        {
+            return null;
+        }
+
+        return $"({TypeText(creation.DelegateType)})"
+            + MethodGroupText(creation.Method, creation.Target, creation.IsVirtual);
     }
 
     string ConstructorInitializerArgumentText(

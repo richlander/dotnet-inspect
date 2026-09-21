@@ -299,10 +299,36 @@ public sealed class SelectedSourceDiffTests
             var local = DiffCommand.BuildImplementationDiff([beforePath], [afterPath], options);
             var result = await DiffCommand.BuildImplementationDiffWithSourceAsync(
                 local, [beforePath], [afterPath], options, client, new VerboseLogger(false),
-                fromEntry: new AssemblySetEntry(
-                    beforePath, "SourceDiff.Package", "1.0.0", AssemblySetSourceKind.Package, "net11.0"),
-                toEntry: new AssemblySetEntry(
-                    afterPath, "SourceDiff.Package", "2.0.0", AssemblySetSourceKind.Package, "net11.0"));
+                fromEntries:
+                [
+                    new AssemblySetEntry(
+                        beforePath + ".other",
+                        "Wrong.Package",
+                        "9.9.9",
+                        AssemblySetSourceKind.Package,
+                        "net11.0"),
+                    new AssemblySetEntry(
+                        beforePath,
+                        "SourceDiff.Package",
+                        "1.0.0",
+                        AssemblySetSourceKind.Package,
+                        "net11.0"),
+                ],
+                toEntries:
+                [
+                    new AssemblySetEntry(
+                        afterPath + ".other",
+                        "Wrong.Package",
+                        "9.9.9",
+                        AssemblySetSourceKind.Package,
+                        "net11.0"),
+                    new AssemblySetEntry(
+                        afterPath,
+                        "SourceDiff.Package",
+                        "2.0.0",
+                        AssemblySetSourceKind.Package,
+                        "net11.0"),
+                ]);
 
             Assert.True(result.Local.IsEmpty);
             var inspection =
@@ -416,6 +442,358 @@ public sealed class SelectedSourceDiffTests
         Assert.DoesNotContain("PDB Source", output);
     }
 
+    [Fact]
+    public async Task GeneralSourceBatch_PreservesChangedMissingAndGeneratedTargets()
+    {
+        var options = Options("Value") with
+        {
+            JsonOutput = true,
+            MemberFilter = [],
+        };
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => DiffCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] rows = document.RootElement
+            .GetProperty("implementation_diff")
+            .EnumerateArray()
+            .ToArray();
+        JsonElement[] sourceRows = rows
+            .Where(row =>
+                row.GetProperty("mechanism").GetString()
+                    == "PDB Source")
+            .ToArray();
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains("get_Property", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "removed"
+                && row.GetProperty("evidence").GetString()
+                    == "- public int Property => 1;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains("get_Property", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+ public int Property => 2;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains("Hidden", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "removed"
+                && row.GetProperty("evidence").GetString()
+                    == "- int Hidden() => 1;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains("Hidden", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+ int Hidden() => 2;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains("g__Adjust", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "removed"
+                && row.GetProperty("evidence").GetString()
+                    == "-     int Adjust(int input) => input + 1;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains("g__Adjust", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+     int Adjust(int input) => input + 2;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                .Contains("BeforeOnly", StringComparison.Ordinal)
+                && row.GetProperty("change").GetString()
+                    == "removed"
+                && row.GetProperty("evidence").GetString()
+                    == "- public int BeforeOnly() => 9;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.GetProperty("evidence").GetString()!
+                .Contains("target projection", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        GeneralSourceBatch_UsesLogicalOwnerForMultipleGeneratedContributors()
+    {
+        var options = Options("Value") with
+        {
+            JsonOutput = true,
+            MemberFilter = [],
+        };
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => DiffCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] sourceRows = document.RootElement
+            .GetProperty("implementation_diff")
+            .EnumerateArray()
+            .Where(row =>
+                row.GetProperty("mechanism").GetString()
+                    == "PDB Source")
+            .ToArray();
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains(
+                        "MultipleLocalFunctions",
+                        StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+     int Increment(int input) => input + 2;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains(
+                        "MultipleLocalFunctions",
+                        StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+     int Scale(int input) => input * 3;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains(
+                        "MultipleLocalFunctions",
+                        StringComparison.Ordinal)
+                && row.GetProperty("change").GetString()
+                    is "failed" or "unavailable");
+    }
+
+    [Fact]
+    public async Task GeneralBatch_WithoutPdbSource_PerformsNoSourceRetrieval()
+    {
+        var options = Options("Value") with
+        {
+            IncludePdbSource = false,
+            MemberFilter = [],
+        };
+        var local = DiffCommand.BuildImplementationDiff(
+            [FixtureCatalog.SourceDiffPair.OldAssemblyPath()],
+            [FixtureCatalog.SourceDiffPair.NewAssemblyPath()],
+            options);
+        var handler = new SourceHandler(HttpStatusCode.BadRequest, []);
+        using var client = new HttpClient(handler);
+
+        var result =
+            await DiffCommand.BuildImplementationDiffWithSourceAsync(
+                local,
+                [FixtureCatalog.SourceDiffPair.OldAssemblyPath()],
+                [FixtureCatalog.SourceDiffPair.NewAssemblyPath()],
+                options,
+                client,
+                new VerboseLogger(false));
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "SourceDiffFixture",
+            result.Local,
+            "v1",
+            "v2");
+
+        Assert.Empty(handler.Requests);
+        Assert.DoesNotContain(
+            view.Rows!,
+            row => row.Mechanism == "PDB Source");
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task GeneralDiffBatch_RetainsBroadMethodDefCoverage()
+    {
+        string before =
+            FixtureCatalog.DiffPair.OldAssemblyPath();
+        string after =
+            FixtureCatalog.DiffPair.NewAssemblyPath();
+        var options = new DiffOptions
+        {
+            LibraryVersionRange = $"{before}..{after}",
+            Select = ["Implementation Diff"],
+            IncludePdbSource = true,
+        };
+        ImplementationDiffResult local =
+            DiffCommand.BuildImplementationDiff(
+                [before],
+                [after],
+                options);
+        using var client = new HttpClient(
+            new SourceHandler(HttpStatusCode.BadRequest, []));
+
+        var result =
+            await DiffCommand.BuildImplementationDiffWithSourceAsync(
+                local,
+                [before],
+                [after],
+                options,
+                client,
+                new VerboseLogger(false));
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "DiffFixtureSample",
+            result.Local,
+            "v1",
+            "v2");
+        var sourceRows = view.Rows!
+            .Where(row => row.Mechanism == "PDB Source")
+            .ToArray();
+
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "ProtectedConstant",
+                    StringComparison.Ordinal)
+                && row.Change == "added"
+                && row.Evidence
+                    == "+ protected int ProtectedConstant() => 2;");
+        var ambiguities = sourceRows
+            .Where(row => row.Evidence.Contains(
+                "Research subject 'M~00afb421db'",
+                StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, ambiguities.Length);
+        Assert.All(
+            ambiguities,
+            ambiguity =>
+            {
+                Assert.Equal("failed", ambiguity.Change);
+                Assert.Contains(
+                    "PDB-source endpoint association remains unavailable",
+                    ambiguity.Evidence,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "0x06000052",
+                    ambiguity.Evidence,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "0x06000050",
+                    ambiguity.Evidence,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "0x06000054",
+                    ambiguity.Evidence,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "share that Research identity",
+                    ambiguity.Evidence,
+                    StringComparison.Ordinal);
+            });
+        Assert.Contains(
+            ambiguities,
+            row => row.Member
+                == "DiffFixtureSample.NestedGenericOuter.Inner.M()");
+        Assert.Contains(
+            ambiguities,
+            row => row.Member
+                == "DiffFixtureSample.NestedGenericOuter`1.Inner`1.M()");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.Member.Contains(
+                    "NestedGenericOuter",
+                    StringComparison.Ordinal)
+                && row.Change is "added" or "removed");
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "IExplicitSurface.Get",
+                    StringComparison.Ordinal)
+                && row.Change == "added"
+                && row.Evidence
+                    == "+ int IExplicitSurface.Get() => 2;");
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "Removed()",
+                    StringComparison.Ordinal)
+                && row.Change == "removed"
+                && row.Evidence == "- public int Removed() => 1;");
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "BodyState",
+                    StringComparison.Ordinal)
+                && row.Change == "added");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.Evidence.Contains(
+                "target projection",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GeneralSourceBatch_InspectsIndependentlyBoundAssemblies()
+    {
+        string[] before =
+        [
+            FixtureCatalog.SourceDiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+        ];
+        string[] after =
+        [
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            FixtureCatalog.SourceDiffPair.NewAssemblyPath(),
+        ];
+        var options = Options("MovedBlockAndEdit") with
+        {
+            TypeFilter =
+                ["SourceDiffFixture.Counter", "DiffFixtureSample.DiffSample"],
+            MemberFilter =
+            [
+                "SourceDiffFixture.Counter.MovedBlockAndEdit",
+                "DiffFixtureSample.DiffSample.ConstantValue",
+            ],
+        };
+        var local = DiffCommand.BuildImplementationDiff(before, after, options);
+        var handler = new SourceHandler(HttpStatusCode.BadRequest, []);
+        using var client = new HttpClient(handler);
+
+        var result = await DiffCommand.BuildImplementationDiffWithSourceAsync(
+            local, before, after, options, client, new VerboseLogger(false));
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "MultiAssemblySourceDiff", result.Local, "v1", "v2");
+        var sourceRows = view.Rows!
+            .Where(row => row.Mechanism == "PDB Source")
+            .ToArray();
+
+        Assert.Null(result.SelectedSource);
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "SourceDiffFixture.Counter.MovedBlockAndEdit",
+                    StringComparison.Ordinal)
+                && row.Change == "added"
+                && row.Evidence == "+     return first + second + 1;");
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "DiffFixtureSample.DiffSample.ConstantValue",
+                    StringComparison.Ordinal)
+                && row.Change == "added"
+                && row.Evidence == "+ public static int ConstantValue() => 2;");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.Change is "failed" or "unavailable");
+        Assert.Empty(handler.Requests);
+    }
+
     [Theory]
     [InlineData("property", "Value")]
     [InlineData("property", "Value:1")]
@@ -423,7 +801,7 @@ public sealed class SelectedSourceDiffTests
     [InlineData("event", "Value:1")]
     [InlineData("event", "Value:2")]
     [InlineData("field", "Value")]
-    public async Task BoundedSource_NonMethodAndAccessorSelectionsRetainLegacyRoute(
+    public async Task BoundedSource_NonMethodAndAccessorSelectionsRetainPairRoute(
         string kind,
         string selector)
     {

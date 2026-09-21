@@ -47,7 +47,9 @@ internal readonly record struct PackageArtifactRootRequest(
     string? CompileTargetFramework,
     string? SelectionTargetFramework,
     string? SelectionRuntimeIdentifier,
-    bool UsesCompatibleImplementationSelection)
+    bool HasSelectedImplementationUniverse,
+    bool UsesCompatibleImplementationSelection,
+    bool AllowsCompatibleTargetSelection)
 {
     internal static PackageArtifactRootRequest From(
         PackageRootBinding binding)
@@ -56,9 +58,14 @@ internal readonly record struct PackageArtifactRootRequest(
         return Create(
             binding.Coordinate,
             binding.CompileTargetFramework,
-            binding.Root.RequestedTargetFramework,
+            binding.ImplementationSelectionTargetFramework,
             binding.Root.RequestedRuntimeIdentifier,
-            binding.UsesCompatibleImplementationSelection);
+            usesCompatibleImplementationSelection:
+                binding.UsesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection:
+                binding.AllowsCompatibleTargetSelection,
+            hasSelectedImplementationUniverse:
+                binding.HasSelectedImplementationUniverse);
     }
 
     internal static PackageArtifactRootRequest Create(
@@ -66,7 +73,9 @@ internal readonly record struct PackageArtifactRootRequest(
         string? compileTargetFramework,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
-        bool usesCompatibleImplementationSelection = false)
+        bool hasSelectedImplementationUniverse,
+        bool usesCompatibleImplementationSelection,
+        bool allowsCompatibleTargetSelection)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         string? normalizedCompileTarget =
@@ -81,11 +90,12 @@ internal readonly record struct PackageArtifactRootRequest(
                 nameof(selectionTargetFramework));
         }
         if (normalizedCompileTarget is null
-            && usesCompatibleImplementationSelection)
+            && (usesCompatibleImplementationSelection
+                || allowsCompatibleTargetSelection))
         {
             throw new ArgumentException(
-                "Compatible implementation selection requires a target framework.",
-                nameof(usesCompatibleImplementationSelection));
+                "Compatible target selection requires a target framework.",
+                nameof(allowsCompatibleTargetSelection));
         }
 
         return new(
@@ -93,11 +103,10 @@ internal readonly record struct PackageArtifactRootRequest(
             normalizedCompileTarget,
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
-            usesCompatibleImplementationSelection
-                || !string.Equals(
-                    normalizedCompileTarget,
-                    normalizedSelectionTarget,
-                    StringComparison.Ordinal));
+            hasSelectedImplementationUniverse,
+            usesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection
+                || usesCompatibleImplementationSelection);
     }
 
     internal static string? NormalizeFramework(string? framework)

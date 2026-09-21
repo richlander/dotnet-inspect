@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using DotnetInspector.Queries.EmbeddedFixtures;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -28,6 +29,22 @@ public class PortablePdbSnapshotTests
         using var provider = MetadataReaderProvider.FromPortablePdbImage(snapshot);
         Assert.NotEmpty(provider.GetMetadataReader().Documents);
         Assert.True(expected.AsSpan().SequenceEqual(snapshot.AsSpan()));
+    }
+
+    [Fact]
+    public void EmbeddedPortablePdbSnapshotSurvivesContextDisposal()
+    {
+        ImmutableArray<byte> snapshot;
+        using (PdbContext context = PdbContext.OpenEmbeddedPdbOnly(
+            typeof(EmbeddedSourceFixture).Assembly.Location))
+        {
+            snapshot = context.GetPortablePdbImage()!.Value;
+            Assert.NotEmpty(snapshot);
+        }
+
+        using var provider =
+            MetadataReaderProvider.FromPortablePdbImage(snapshot);
+        Assert.NotEmpty(provider.GetMetadataReader().Documents);
     }
 
     [Fact]

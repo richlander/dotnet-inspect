@@ -35,6 +35,7 @@ public sealed record PackageQueryTermDescriptor(
     string Summary,
     int Weight,
     PackageQueryAcquisitionTier Tier,
+    PackageQueryExecutionClass ExecutionClass,
     ImmutableArray<string> Operators,
     string ValueKind,
     string ExampleValue,
@@ -55,13 +56,19 @@ internal enum PackageQueryPredicateKind
     Prefix,
     Prerelease,
     NoDependencies,
+    CrossPrefixDependencies,
     DependencyTarget,
     Depends,
+    DependsPrefix,
+    DependsTransitive,
+    DependencyDepth,
+    DependsEcosystem,
     Downloads,
     License,
     Readme,
     Tool,
     ToolFormat,
+    AssemblyReference,
     Skill,
 }
 
@@ -69,10 +76,13 @@ internal sealed record PackageQueryPredicate(
     PackageQueryPredicateKind Kind,
     string? Text = null,
     long Number = 0,
-    bool Flag = false)
+    bool Flag = false,
+    PackageQueryEcosystemMembershipDeclaration? EcosystemMembership = null,
+    PackagePrefixDeclaration? PackagePrefix = null)
 {
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat
+            or PackageQueryPredicateKind.AssemblyReference
             or PackageQueryPredicateKind.Skill;
 }
 
@@ -123,7 +133,9 @@ internal sealed class PackageQueryVocabulary
     internal const string VocabularyIdentity = "package-query/v1";
     internal const string PopulationFamily = "population";
     internal const string PrereleaseFamily = "prerelease";
+    internal const string DependenciesFamily = "dependencies";
     internal const string DependencyTargetFamily = "dependency-target";
+    internal const string DependencyDepthFamily = "dependency-depth";
     internal const string DownloadsFamily = "downloads";
     internal const string ToolFormatFamily = "tool-format";
     internal const string CandidatesDimension = "candidates";
@@ -149,6 +161,14 @@ internal sealed class PackageQueryVocabulary
                     if (terms.Any(term =>
                         term.Predicate.Kind == PackageQueryPredicateKind.Package))
                         return maximum == 1;
+                    if (terms.Any(term =>
+                            term.Predicate.Kind
+                                == PackageQueryPredicateKind.DependsTransitive)
+                        && maximum
+                            > PackageQuery.MaximumNuspecExpensiveCandidates)
+                    {
+                        return false;
+                    }
                     return maximum <= PackageQuery.MaximumPackageContentCandidates
                         || !terms.Any(term =>
                             term.Predicate.RequiresPackageContent);
@@ -224,6 +244,7 @@ internal sealed class PackageQueryVocabulary
         return firstKind != secondKind
             || firstKind is not (
                 PackageQueryPredicateKind.Downloads
+                or PackageQueryPredicateKind.DependencyDepth
                 or PackageQueryPredicateKind.Prerelease)
             || first.Predicate == second.Predicate;
     }
@@ -289,6 +310,7 @@ internal sealed class PackageQueryVocabulary
             Evidence(scope),
             terms,
             DependencyTarget(resolved.Terms),
+            DependencyDepth(resolved.Terms),
             maximumCandidates,
             maximumMatches,
             includePrerelease,
@@ -310,6 +332,14 @@ internal sealed class PackageQueryVocabulary
                 ? PackageQueryDependencyTarget.ForTargetFramework(framework)
                 : PackageQueryDependencyTarget.All;
     }
+
+    private static int? DependencyDepth(
+        IReadOnlyList<PortableQueryResolvedTerm<PackageQueryPredicate>> terms) =>
+        terms.SingleOrDefault(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.DependencyDepth)
+            ?.Predicate.Number is long depth
+                ? checked((int)depth)
+                : null;
 
     private static RowSelectionIntentOperation<string> ToRowSelectionOperation(
         PortableQueryStage stage) =>

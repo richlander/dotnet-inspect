@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
@@ -19,19 +20,21 @@ namespace DotnetInspect.Web.Interop.Package
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
-                    .. PackageQuery.Terms
+                    .. PackageQuery.RegisteredTerms
                         .Where(term =>
-                            term.Role == PackageQueryTermRole.Inspection)
-                        .SelectMany(term => term.Options.Select(option =>
+                            term.Descriptor.Role
+                                == PackageQueryTermRole.Inspection)
+                        .SelectMany(term =>
+                            term.Descriptor.Options.Select(option =>
                         new BrowserPackageQueryPresetDescriptor(
-                            term.Key,
+                            term.Descriptor.Key,
                             PortableQueryModel.TextOf(
-                                PortableQueryOperator.Equal),
+                                SingleControlOperator(term)),
                             option.Value,
                             option.Label,
                             option.Summary,
-                            term.Weight,
-                            term.Tier switch
+                            term.Descriptor.Weight,
+                            term.Descriptor.Tier switch
                             {
                                 PackageQueryAcquisitionTier.Nuspec =>
                                     BrowserPackageQueryAcquisitionTier.Nuspec,
@@ -42,25 +45,28 @@ namespace DotnetInspect.Web.Interop.Package
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
-                            term.SelectionGroupId,
-                            term.CombinesWithinSelectionGroup,
-                            term.ReplacementGroupId,
-                            term.DisplayGroupId,
-                            term.DisplayGroupLabel))),
+                            BrowserExecutionClass(
+                                term.Descriptor.ExecutionClass),
+                            term.Descriptor.SelectionGroupId,
+                            term.Descriptor.CombinesWithinSelectionGroup,
+                            term.Descriptor.ReplacementGroupId,
+                            term.Descriptor.DisplayGroupId,
+                            term.Descriptor.DisplayGroupLabel))),
                 ],
                 [
-                    .. PackageQuery.Terms
+                    .. PackageQuery.RegisteredTerms
                         .Where(term =>
-                            term.Role == PackageQueryTermRole.Inspection
-                            && term.ControlKind
+                            term.Descriptor.Role
+                                == PackageQueryTermRole.Inspection
+                            && term.Descriptor.ControlKind
                                 == PackageQueryTermControlKind.Input)
                         .Select(term =>
                         new BrowserPackageQueryTermDescriptor(
-                            term.Key,
-                            term.Label,
-                            term.Summary,
-                            term.Weight,
-                            term.Tier switch
+                            term.Descriptor.Key,
+                            term.Descriptor.Label,
+                            term.Descriptor.Summary,
+                            term.Descriptor.Weight,
+                            term.Descriptor.Tier switch
                             {
                                 PackageQueryAcquisitionTier.Nuspec =>
                                     BrowserPackageQueryAcquisitionTier.Nuspec,
@@ -71,10 +77,44 @@ namespace DotnetInspect.Web.Interop.Package
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
-                            [.. term.Operators],
-                            term.ValueKind,
-                            term.ExampleValue)),
+                            BrowserExecutionClass(
+                                term.Descriptor.ExecutionClass),
+                            [
+                                .. term.Operators.Select(
+                                    PortableQueryModel.TextOf),
+                            ],
+                            term.Descriptor.ValueKind,
+                            term.Descriptor.ExampleValue)),
                 ]);
+
+        private static PortableQueryOperator SingleControlOperator(
+            PackageQueryRegisteredTerm term) =>
+            term.Operators.Length == 1
+                ? term.Operators[0]
+                : throw new InvalidOperationException(
+                    $"Package Query control '{term.Descriptor.Key}' requires "
+                    + "exactly one registered operator.");
+
+        private static BrowserPackageQueryExecutionClass
+            BrowserExecutionClass(
+                PackageQueryExecutionClass executionClass) =>
+            executionClass switch
+            {
+                PackageQueryExecutionClass.SearchMetadata =>
+                    BrowserPackageQueryExecutionClass.SearchMetadata,
+                PackageQueryExecutionClass.Nuspec =>
+                    BrowserPackageQueryExecutionClass.Nuspec,
+                PackageQueryExecutionClass.NuspecExpensive =>
+                    BrowserPackageQueryExecutionClass.NuspecExpensive,
+                PackageQueryExecutionClass.PackageContent =>
+                    BrowserPackageQueryExecutionClass.PackageContent,
+                PackageQueryExecutionClass.Metadata =>
+                    BrowserPackageQueryExecutionClass.Metadata,
+                PackageQueryExecutionClass.MetadataExpensive =>
+                    BrowserPackageQueryExecutionClass.MetadataExpensive,
+                _ => throw new InvalidOperationException(
+                    "Unknown package-query execution class."),
+            };
 
         internal static PackageQueryPlanResult Plan(
             string text,
@@ -84,6 +124,7 @@ namespace DotnetInspect.Web.Interop.Package
             bool includePrerelease) =>
             PackageQuery.PlanInput(
                 text,
+                EcosystemPackCatalog.PackageQueryMemberships,
                 terms,
                 maximumCandidates,
                 maximumMatches,
@@ -189,10 +230,35 @@ namespace DotnetInspect.Web.Interop.Package
                 matchCredit,
                 emit,
                 deadline);
+            await using PackageSourceSettlementLease? sourceLease =
+                plan.RequiresDependencyTraversal
+                    ? PackageSourceSettlementService.IssueLease(
+                        authority =>
+                            ReferenceEquals(
+                                authority.Association,
+                                BrowserPackageWorkspace.Gallery.Source.Association)
+                                ? BrowserPackageWorkspace.Gallery
+                                : throw new InvalidOperationException(
+                                    "Browser Package Query requested an unauthorized package source."))
+                    : null;
+            PackageQueryDependencyTraversalServices? traversalServices = null;
+            if (sourceLease is not null)
+            {
+                var candidateSource =
+                    new AuthorizedPackageDependencyCandidateSource(
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                        sourceLease);
+                traversalServices = new(
+                    new PackageDependencyTraversalCandidateAdapter(
+                        candidateSource),
+                    new AuthorizedPackageDependencyManifestSource(
+                        candidateSource));
+            }
             var envelope = await PackageQueryInspection.ExecuteAsync(
                     BrowserPackageWorkspace.Gallery,
                     plan,
                     contentProvider,
+                    traversalServices,
                     observer,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -519,6 +585,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryProgressPhase.Manifest,
                             PackageQueryProgressPhase.PackageContent =>
                                 BrowserPackageQueryProgressPhase.PackageContent,
+                            PackageQueryProgressPhase.DependencyTraversal =>
+                                BrowserPackageQueryProgressPhase.DependencyTraversal,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query progress phase."),
                         },
@@ -627,6 +695,8 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryFailureKind.PackageContentAcquisition,
                             PackageQueryFailureKind.PackageContentEvaluation =>
                                 BrowserPackageQueryFailureKind.PackageContentEvaluation,
+                            PackageQueryFailureKind.DependencyTraversal =>
+                                BrowserPackageQueryFailureKind.DependencyTraversal,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query failure kind."),
                         },

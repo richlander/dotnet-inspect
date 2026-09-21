@@ -7,9 +7,11 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -398,6 +400,23 @@ public partial class SectionPipelineTests
                 References = [new AssemblyReference("System.Runtime", "1.0.0.0", null, null)],
                 TransitiveReferences = [new AssemblyReferenceNode { Name = "System.Runtime", Version = "1.0.0.0" }]
             },
+            EcosystemDependencyRecognitionInspection =
+                LibraryEcosystemDependencyRecognitionInspection.Execute(
+                    new ExactLibrarySourceCoordinate.Local(
+                        new ManagedMetadataIdentity.Assembly(
+                            new AssemblyReferenceIdentity(
+                                "System.Test",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null))),
+                    new AssemblyReferencesResult.Available(
+                        [
+                            new AssemblyReferenceIdentity(
+                                "System.Runtime",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                        ])),
             PdbPath = "test.pdb",
             HasSourceLink = true,
             HasEmbeddedPdb = true,
@@ -554,7 +573,9 @@ public partial class SectionPipelineTests
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }],
             RuntimeDependencies = [new PackageDependency { Id = "Runtime.Dep", Version = "1.0" }],
             Files = [new PackageFile("lib/net8.0/Test.dll", 1)],
-            AssemblyCount = 1
+            AssemblyCount = 1,
+            DependencyHierarchyProjection =
+                CreateEmptyDependencyHierarchyProjection(),
         };
         yield return DiscoverableCase("package", packagePipeline, package);
 
@@ -641,6 +662,55 @@ public partial class SectionPipelineTests
 
         var diffPipeline = DiffSections.CreatePipeline();
         yield return DiscoverableCase("diff", diffPipeline, new DiffDiscoveryModel());
+    }
+
+    private static DependsAssetProjection
+        CreateEmptyDependencyHierarchyProjection()
+    {
+        var summary = new DependencyInspectionSummary(
+            DependencyInspectionRootSetCompletion.Complete,
+            RequestedRoots: 0,
+            AdmittedRoots: 0,
+            FailedRoots: 0,
+            DependencyInspectionTraversalCompletion.Complete,
+            RequestedDepth: null,
+            HierarchyOccurrences: 0,
+            CanonicalNodes: 0,
+            Relationships: 0,
+            DependencyInspectionEvidencePhaseCompletion.NotRequested,
+            DependencyInspectionEvidencePhaseCompletion.NotRequested,
+            DependencyInspectionPruningSummary.NotRequested,
+            IsPrefixRootSet: false,
+            PackagePrefix: null);
+        DependencyHierarchyDocument hierarchy =
+            DependencyHierarchyDocument.Empty;
+        var content = new DependencyInspectionContent(
+            summary,
+            hierarchy,
+            Roots: [],
+            Dependencies: [],
+            Pruning: [],
+            Failures: []);
+        var inspection =
+            new InspectionEnvelope<DependencyInspectionContent>(
+                content,
+                new InspectionShare.NonProjectable(
+                    "dependencies",
+                    "Synthetic discovery fixture."));
+        return new DependsAssetProjection(
+            inspection,
+            summary,
+            hierarchy.BackingGraph,
+            hierarchy,
+            HierarchyRows: [],
+            Roots: [],
+            Dependencies: [],
+            Pruning: [],
+            RestoredEdges: [],
+            Failures: [],
+            DependencyGroups: [],
+            RestoredPackages: [],
+            Enriched: null);
     }
 
     private static object[] DiscoverableCase<TModel>(

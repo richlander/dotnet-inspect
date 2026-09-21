@@ -16,7 +16,9 @@ import {
   selectAllAnnotations,
   selectDefaultAnnotations,
   selectFinding,
+  selectRelationshipPresentation,
   selectNode,
+  showRelationshipOccurrences,
   toggleCoordinates,
   toggleFindingAnnotation,
   toggleMedium,
@@ -318,6 +320,127 @@ test("viewer model rejects synchronous completion without relationship evidence"
   );
 });
 
+test("viewer model retains classic await completion paths by exact node", () => {
+  const awaitDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "AwaitExpression" }
+        : node),
+  };
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(awaitDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      awaitCompletionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{ nodeId: 1 }],
+      },
+    },
+  });
+
+  assert.equal(
+    model.awaitCompletionPathsByNodeId.get(1)?.nodeId,
+    1);
+});
+
+test("viewer model rejects await completion paths on non-await nodes", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        awaitCompletionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{ nodeId: 1 }],
+        },
+      },
+    }),
+    /C# AwaitExpression node/,
+  );
+});
+
+test("viewer model retains allocation exception paths by exact fact", () => {
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      allocationExceptionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{
+          factId: 0,
+          kind: "ThrownValue",
+        }],
+      },
+    },
+  });
+
+  assert.equal(
+    model.allocationExceptionPathsByFactId.get(0)?.kind,
+    "ThrownValue");
+});
+
+test("viewer model rejects allocation exception paths on non-allocation facts", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 2,
+            kind: "ExceptionHandler",
+          }],
+        },
+      },
+    }),
+    /typed allocation evidence/,
+  );
+});
+
+test("viewer model rejects missing or duplicate allocation exception paths", () => {
+  const observation = {
+    factId: 0,
+    kind: "ThrownValue" as const,
+  };
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [observation, observation],
+        },
+      },
+    }),
+    /unique typed allocation evidence/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 99,
+            kind: "ExceptionHandler",
+          }],
+        },
+      },
+    }),
+    /unique typed allocation evidence/,
+  );
+});
+
 test("viewer model rejects call relationships without exact occurrence evidence", () => {
   assert.throws(
     () => createAnnotatedSourceViewerModel({
@@ -452,6 +575,7 @@ test("each modal opening is fresh and transfers only an eligible embedded primar
     activeRegionIds: [],
     visibleMedia: ["CSharp"],
     coordinatesVisible: false,
+    relationshipPresentation: "Table",
     detail: null,
   });
   assert.deepEqual(opened.focus, { kind: "inspector", factId: 0 });
@@ -473,6 +597,7 @@ test("dismissal destroys modal-local state and derives the fixed embedded state"
     activeRegionIds: [0],
     visibleMedia: ["Il"],
     coordinatesVisible: true,
+    relationshipPresentation: "Diagram",
     detail: {
       factId: 0,
       opener: { kind: "inspector", factId: 0 },
@@ -486,7 +611,39 @@ test("dismissal destroys modal-local state and derives the fixed embedded state"
     activeRegionIds: [],
     visibleMedia: ["CSharp"],
     coordinatesVisible: false,
+    relationshipPresentation: "Table",
     detail: null,
+  });
+});
+
+test("relationship presentation is modal-local and preserves viewer state", () => {
+  const model = createAnnotatedSourceViewerModel(sampleResult());
+  const modal =
+    openModalSession(model, createEmbeddedSession(model)).modal;
+  const diagram = selectRelationshipPresentation(modal, "Diagram");
+
+  assert.equal(diagram.state.relationshipPresentation, "Diagram");
+  assert.deepEqual(diagram.state.primary, modal.primary);
+  assert.deepEqual(diagram.state.activeFindingIds, modal.activeFindingIds);
+  assert.deepEqual(diagram.state.visibleMedia, modal.visibleMedia);
+  assert.equal(diagram.state.coordinatesVisible, modal.coordinatesVisible);
+  assert.deepEqual(diagram.focus, {
+    kind: "relationship-presentation",
+    value: "Diagram",
+  });
+  assert.equal(
+    openModalSession(
+      model,
+      dismissModalSession(model, diagram.state),
+    ).modal.relationshipPresentation,
+    "Table",
+  );
+
+  const occurrences = showRelationshipOccurrences(diagram.state, 17);
+  assert.equal(occurrences.state.relationshipPresentation, "Table");
+  assert.deepEqual(occurrences.focus, {
+    kind: "relationship",
+    factId: 17,
   });
 });
 
@@ -592,6 +749,7 @@ test("annotation controls preserve orthogonal presentation state", () => {
     activeRegionIds: [],
     visibleMedia: ["CSharp", "Il"],
     coordinatesVisible: true,
+    relationshipPresentation: "Diagram",
     detail: {
       factId: 0,
       opener: { kind: "inspector", factId: 0 },
@@ -605,6 +763,7 @@ test("annotation controls preserve orthogonal presentation state", () => {
   assert.deepEqual(all.state.detail, state.detail);
   assert.deepEqual(all.state.visibleMedia, state.visibleMedia);
   assert.equal(all.state.coordinatesVisible, true);
+  assert.equal(all.state.relationshipPresentation, "Diagram");
 
   const defaults = selectDefaultAnnotations(model, state);
   assert.equal(defaults.state.primary, null);
@@ -762,6 +921,69 @@ test("detail closes to the exact rendered opener or its Finding inspector fallba
     kind: "inspector",
     factId: 0,
   });
+
+  const relationshipFact = {
+    id: sampleDocument.facts.length,
+    descriptor: "call.edge",
+    category: "Relationship",
+    conditionality: "Always",
+    detail: "Example.Targets.Target(System.Int32)",
+    origin: "Body",
+    source_offset: 0,
+  } as const;
+  const relationshipDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: [...sampleDocument.facts, relationshipFact],
+    targets: [
+      ...sampleDocument.targets,
+      { fact_id: relationshipFact.id, node_id: 1 },
+    ],
+  };
+  const relationshipModel = createAnnotatedSourceViewerModel({
+    ...sampleResult(relationshipDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    callRelationships: [{
+      edgeRow: 1,
+      factId: relationshipFact.id,
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      callerToken: 0x06000001,
+      ilOffset: 0,
+      operandToken: 0x0A000001,
+      kind: "Call",
+      inLoop: false,
+      target: sampleInvocationTarget,
+    }],
+  });
+  const relationshipDetail = selectFinding(
+    openModalSession(
+      relationshipModel,
+      createEmbeddedSession(relationshipModel),
+    ).modal,
+    {
+      kind: "relationship",
+      factId: relationshipFact.id,
+    },
+  );
+  assert.deepEqual(
+    closeFindingDetail(relationshipModel, relationshipDetail).focus,
+    {
+      kind: "relationship",
+      factId: relationshipFact.id,
+    },
+  );
+  assert.deepEqual(
+    escapeAnnotatedSource(relationshipModel, relationshipDetail).focus,
+    {
+      kind: "relationship",
+      factId: relationshipFact.id,
+    },
+  );
 });
 
 test("Escape closes detail, then dismisses modal, and falls through embedded", () => {

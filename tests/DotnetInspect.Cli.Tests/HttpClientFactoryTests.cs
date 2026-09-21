@@ -689,6 +689,36 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SuppressNetworkTrafficLogging_PreservesObservations()
+    {
+        using var error = new StringWriter();
+        var observations = new List<NetworkRequestObservation>();
+        using var observationSubscription = NetworkTelemetry.Subscribe(
+            new NetworkObservationRecorder(observations));
+        using var loggingSubscription =
+            DotnetInspector.Networking.HttpClientFactory
+                .EnableNetworkTrafficLogging(
+                    CSharpText.CSharpIdentifier.ContainRenderedText,
+                    error);
+        using var client = new HttpClient(new NetworkTelemetryHandler(
+            new StubHttpMessageHandler(),
+            NetworkClientKinds.Shared));
+        using var suppression =
+            DotnetInspector.Networking.HttpClientFactory
+                .SuppressNetworkTrafficLogging();
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "https://example.test/package/index.json",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(error.ToString());
+        NetworkRequestObservation observation =
+            Assert.Single(observations);
+        Assert.Equal("GET", observation.Method);
+    }
+
+    [Fact]
     public async Task NetworkPolicy_BlocksUnallowedVulnerabilityTrafficAfterRecordingIt()
     {
         using var error = new StringWriter();
@@ -889,5 +919,21 @@ public class HttpClientFactoryTests : IDisposable
             RequestCount++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
+    }
+
+    private sealed class NetworkObservationRecorder(
+        List<NetworkRequestObservation> observations)
+        : IObserver<NetworkRequestObservation>
+    {
+        public void OnCompleted()
+        {
+        }
+
+        public void OnError(Exception error)
+        {
+        }
+
+        public void OnNext(NetworkRequestObservation value) =>
+            observations.Add(value);
     }
 }

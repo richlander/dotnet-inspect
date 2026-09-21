@@ -15,9 +15,9 @@ using ActivationResult =
         DotnetInspect.Web.BrowserRetainedWorkspaceActivationRequest,
         DotnetInspect.Web.BrowserPreparedWorkspaceActivation,
         DotnetInspector.Queries.Definitions.CompleteRestorationFailure,
-        DotnetInspect.Web.BrowserRetainedWorkspaceInstallation,
+        DotnetInspect.Web.BrowserRetainedWorkspacePosting,
         DotnetInspect.Web.BrowserRetainedWorkspaceActivationRejection,
-        DotnetInspect.Web.BrowserRetainedWorkspaceNonInstallResult>;
+        DotnetInspect.Web.BrowserRetainedWorkspaceNonPostingResult>;
 using Descriptor = DotnetInspect.Web.BrowserSpotlightDestinationDescriptor<
     DotnetInspect.Web.BrowserSpotlightExternalPackageWorkspaceRequest,
     DotnetInspect.Web.TestNavigationAction,
@@ -37,6 +37,7 @@ using ProjectionResult =
 
 namespace DotnetInspect.Web.Tests;
 
+[Collection("Retained Workspace activation")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
 {
@@ -69,21 +70,21 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             Assert.Fail(failed.Result.Message);
         var published = Assert.IsType<ActivationResult.Published>(result);
 
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting posting =
             published.Publication;
-        Assert.Equal("external", installation.RetainedDefinitionId);
+        Assert.Equal("external", posting.RetainedDefinitionId);
         Assert.Same(
             external.Activation.RestorationRequest,
-            installation.RestorationRequest);
+            posting.RestorationRequest);
         Assert.IsType<CompleteRestorationProjection.NonProjectable>(
-            installation.Projection);
-        Assert.Null(installation.CanonicalPacket);
-        Assert.Same(installation, owner.Active);
-        Assert.NotNull(installation.Predecessor);
+            posting.Projection);
+        Assert.Null(posting.CanonicalPacket);
+        Assert.Same(posting, owner.Active);
+        Assert.NotNull(posting.Predecessor);
         var settled = Assert.IsType<
             BrowserRetainedWorkspaceSettlementResult.Settled>(
                 await owner.ObserveSettlementAsync(
-                    installation.Predecessor.SettlementId,
+                    posting.Predecessor.SettlementId,
                     TestContext.Current.CancellationToken));
         Assert.True(settled.Settlement.Succeeded);
 
@@ -105,7 +106,14 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         Assert.Equal(
             curated.TraversalTargetPolicy,
             operation.Definition.Plan.TraversalTargetPolicy);
-        Assert.Equal(1, installation.Navigation.ActiveStateIndex);
+        NavigationConsumerPackageDescriptor navigationPackage =
+            Assert.Single(posting.Navigation.Snapshot.Packages);
+        Assert.Equal(
+            navigationPackage.Subject.Id,
+            posting.Navigation.Snapshot.ActivePackage);
+        Assert.Equal(
+            ExternalPackageId.ToLowerInvariant(),
+            navigationPackage.PackageId);
     }
 
     [Fact]
@@ -148,7 +156,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         };
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation sourceInstallation =
+        BrowserRetainedWorkspacePosting sourcePosting =
             await ActivateSourceAsync(owner);
         BrowserSpotlightExternalPackageWorkspaceRequest external =
             ExternalRequest(curated);
@@ -180,9 +188,9 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         Assert.Equal(
             BrowserSpotlightActivationStaleReason.RegistrationRevision,
             reason.Reason);
-        Assert.True(stale.NonInstall.Settlement!.Succeeded);
-        Assert.Null(stale.NonInstall.Failure);
-        Assert.Same(sourceInstallation, owner.Active);
+        Assert.True(stale.NonPosting.Settlement!.Succeeded);
+        Assert.Null(stale.NonPosting.Failure);
+        Assert.Same(sourcePosting, owner.Active);
         Assert.Equal(1, owner.Capacity.Charged);
     }
 
@@ -192,7 +200,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         CompleteRestorationExecutionOptions options = await OptionsAsync();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation sourceInstallation =
+        BrowserRetainedWorkspacePosting sourcePosting =
             await ActivateSourceAsync(owner);
         BrowserSpotlightExternalPackageWorkspaceRequest external =
             ExternalRequest(EcosystemPackCatalog.CreatePlatformWorkspacePlan());
@@ -215,10 +223,10 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             BrowserSpotlightFreshWorkspaceBlock<
                 BrowserRetainedWorkspaceActivationRejection>.Host>(
                     cancelled.Reason);
-        Assert.True(cancelled.NonInstall.Settlement!.Succeeded);
-        Assert.Null(cancelled.NonInstall.Failure);
+        Assert.True(cancelled.NonPosting.Settlement!.Succeeded);
+        Assert.Null(cancelled.NonPosting.Failure);
         Assert.False(cancelled.Activation.IsPending);
-        Assert.Same(sourceInstallation, owner.Active);
+        Assert.Same(sourcePosting, owner.Active);
         Assert.Equal(1, owner.Capacity.Charged);
     }
 
@@ -293,7 +301,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                 source.Workspace.GetRegistrationSnapshot()).Revision);
 
-    static async Task<BrowserRetainedWorkspaceInstallation>
+    static async Task<BrowserRetainedWorkspacePosting>
         ActivateSourceAsync(
             BrowserRetainedWorkspaceActivationOwner owner)
     {
@@ -306,7 +314,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                         "/workspace/source",
                         Packet()),
                     TestContext.Current.CancellationToken));
-        return activated.Installation;
+        return activated.Posting;
     }
 
     static async ValueTask<WorkspaceRealizationOperationLease> EnterAsync(
@@ -396,7 +404,6 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
     static async Task<CompleteRestorationExecutionOptions> OptionsAsync()
     {
         const string sourceUrl = "https://api.nuget.org/v3/index.json";
-        var store = new InMemoryPackageStore();
         byte[] sourcePackage = await File.ReadAllBytesAsync(
             Path.Combine(
                 FindRepositoryRoot(),
@@ -405,12 +412,13 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                 "signatures",
                 "system.text.json.9.0.4.nupkg"),
             TestContext.Current.CancellationToken);
-        await store.CommitAsync(
-            "System.Text.Json",
-            "9.0.4",
-            NuGetCache.GetSourceKey(sourceUrl),
-            new MemoryStream(sourcePackage, writable: false),
-            TestContext.Current.CancellationToken);
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                "System.Text.Json",
+                "9.0.4",
+                sourcePackage,
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
         byte[] assembly = await File.ReadAllBytesAsync(
             Path.Combine(
                 AppContext.BaseDirectory,
@@ -419,14 +427,13 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                 "package",
                 "System.Text.Json.dll"),
             TestContext.Current.CancellationToken);
-        await store.CommitAsync(
-            ExternalPackageId,
-            ExternalPackageVersion,
-            NuGetCache.GetSourceKey(sourceUrl),
-            new MemoryStream(
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                ExternalPackageId,
+                ExternalPackageVersion,
                 Archive(("lib/net11.0/System.Text.Json.dll", assembly)),
-                writable: false),
-            TestContext.Current.CancellationToken);
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
 
         ViewFacetRegistry facets = InspectionViewFacetCatalog.Registry;
         var available = new ViewFacetAvailabilitySnapshot(
@@ -443,7 +450,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                 SourceAuthorization =
                     new UniformPackageSourceAuthorization(
                         [new PackageSource("nuget.org", sourceUrl)]),
-                PackageStore = store,
+                PackageStore = BrowserPackageWorkspace.SessionPackageStore,
             },
             ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(1),
             Facets = facets,

@@ -272,7 +272,7 @@ public sealed class PackageAssemblyEvaluationTests
     [Fact]
     public void EmptyCloseReportIsValidOnlyBeforeOwnershipTransfer()
     {
-        var report = new InspectionWorkspaceCloseReport([], []);
+        var report = new InspectionWorkspaceCloseReport([], [], []);
         Assert.Empty(PackageAssemblyEvaluator.DescribeClose(report, transferred: false, closeFaulted: false));
         var failure = Assert.Single(
             PackageAssemblyEvaluator.DescribeClose(report, transferred: true, closeFaulted: false));
@@ -285,6 +285,7 @@ public sealed class PackageAssemblyEvaluationTests
     {
         var report = new InspectionWorkspaceCloseReport(
             [new InspectionWorkspaceDirectGroupCloseResult(0, new IOException("group fixture"))],
+            [],
             [new IOException("artifact fixture")]);
 
         ImmutableArray<PackageAssemblyCandidateCleanupFailure> failures =
@@ -303,6 +304,7 @@ public sealed class PackageAssemblyEvaluationTests
     {
         var report = new InspectionWorkspaceCloseReport(
             [new InspectionWorkspaceDirectGroupCloseResult(0, null)],
+            [],
             [new IOException("unexpected artifact fixture")]);
         var failure = Assert.Single(
             PackageAssemblyEvaluator.DescribeClose(report, transferred: false, closeFaulted: false));

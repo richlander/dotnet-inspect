@@ -76,6 +76,36 @@ Source Files, printable member Source Locations, and implementation-diff PDB
 source consult the clone before fetching the source body remotely. Package or
 PDB acquisition may still use the network.
 
+## Inspect or print authored member parts
+
+Focused member `-S "Source Locations" --json` returns `member`, `document`,
+and `pdb_span`, without acquiring source text. The PDB span is executable
+source, not a complete member boundary. Add `--source-parts` to acquire and
+verify source, then discover lexical `parts` separately from that span.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
+  Serialize:1 --source-parts --json
+dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
+  Serialize:1 --print --part xml-docs
+```
+
+Both gestures imply Source Locations unless `-S` is explicit. Select one member
+such as `Serialize:1`, or use `--print --part` with `--row` to select a member
+row. Part names are `member`, `xml-docs`, `attributes`, `signature`, and `body`.
+The full member includes attached XML documentation and attributes; a body
+includes its delimiters. Unavailable parts fail rather than selecting a
+substitute. Multiple documentation or attribute fragments are joined with LF;
+selection uses exact character spans, not whole-line slicing.
+
+Discovery supports Markdown, plaintext, and `--json`. Printing supports
+ordinary text and `--json`, `--jsonl`, or `--json-array`; JSON preserves the
+selected source characters. Rendered CLI text restores each fragment's original
+first-line indentation and follows normal LF and text-containment rules.
+Unqualified `--print` still prints the whole file.
+`xml-docs` selects raw source comments, not parsed DocumentationHouse content.
+These lexical ranges do not strengthen the PDB/checksum provenance claim.
+
 ## URL forms
 
 PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URL

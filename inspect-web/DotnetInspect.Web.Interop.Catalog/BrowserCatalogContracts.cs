@@ -381,16 +381,267 @@ public sealed record BrowserWorkspaceShareEncodeResult(
     string? Packet,
     BrowserWorkspaceShareFailure? Failure);
 
-/// <summary>Detached Navigation state for one retained Workspace installation.</summary>
-public sealed record BrowserRetainedWorkspaceNavigation(
-    int? ActiveStateIndex,
-    BrowserRetainedWorkspaceView[] States);
+public sealed record BrowserRetainedNavigationAction(
+    string Session,
+    string Generation,
+    string Id,
+    string Source,
+    string Kind);
 
-/// <summary>One restored view-state identity; query execution remains managed.</summary>
-public sealed record BrowserRetainedWorkspaceView(
-    string? NavigationId,
-    string? SubjectKind,
-    string? Facet);
+public sealed record BrowserRetainedNavigationAuthority(
+    string Session,
+    string Revision,
+    string Intent,
+    string Epoch);
+
+public sealed record BrowserRetainedNavigationSubject(
+    string Id,
+    string Kind,
+    string Label,
+    string? Summary,
+    string? Parent);
+
+public sealed record BrowserRetainedNavigationSubjectDescriptor(
+    string Kind,
+    string Label,
+    BrowserRetainedNavigationSubject? Subject,
+    string State,
+    bool IsActive,
+    bool IsRetained,
+    BrowserRetainedNavigationDiagnostic[] Evidence,
+    BrowserRetainedNavigationAction? Action);
+
+public sealed record BrowserRetainedNavigationPackageDescriptor(
+    int Order,
+    BrowserRetainedNavigationSubject Subject,
+    string PackageId,
+    string Version,
+    string? Framework,
+    string? RuntimeIdentifier,
+    string Realization,
+    string? RealizationFailure,
+    string State,
+    bool IsCurrent,
+    BrowserRetainedNavigationAction? Action);
+
+public sealed record BrowserRetainedNavigationLibraryDescriptor(
+    BrowserRetainedNavigationSubjectDescriptor Navigation,
+    string? AssetId,
+    bool IsAggregate,
+    bool IsPrimary);
+
+public sealed record BrowserRetainedNavigationLensDescriptor(
+    BrowserRetainedNavigationFacet Facet,
+    string State,
+    bool IsCurrent,
+    BrowserRetainedNavigationLens? Target,
+    string? Unavailability,
+    string? Message,
+    BrowserRetainedNavigationAction? Action);
+
+public sealed record BrowserRetainedNavigationTypeDescriptor(
+    BrowserRetainedNavigationSubjectDescriptor Navigation,
+    string Library,
+    string? Accessibility,
+    string TypeKind,
+    BrowserRetainedNavigationLensDescriptor[] DescendantLenses);
+
+public sealed record BrowserRetainedNavigationMemberDescriptor(
+    BrowserRetainedNavigationSubjectDescriptor Navigation,
+    string Library,
+    string ContainingType,
+    string DeclaringType,
+    string? Accessibility,
+    string MemberKind,
+    string? Signature,
+    BrowserRetainedNavigationLensDescriptor[] DescendantLenses);
+
+public sealed record BrowserRetainedNavigationFacet(
+    string Id,
+    string Kind,
+    string Title,
+    string Summary,
+    int Order,
+    string? Role);
+
+public sealed record BrowserRetainedNavigationLens(
+    string Id,
+    BrowserRetainedNavigationSubject Subject,
+    string Facet);
+
+public sealed record BrowserRetainedNavigationResolution(
+    string Kind,
+    BrowserRetainedNavigationFacet? Descriptor,
+    string? Unavailability,
+    string? Message);
+
+public sealed record BrowserRetainedNavigationRealization(
+    string Kind,
+    string? Failure);
+
+public sealed record BrowserRetainedNavigationLensOutcome(
+    string Kind,
+    string Basis,
+    BrowserRetainedNavigationSubject Subject,
+    BrowserRetainedNavigationLens? EffectiveLens,
+    BrowserRetainedNavigationLens? Request,
+    string? PreferredRole,
+    string? PolicyFailure,
+    BrowserRetainedNavigationResolution? Resolution,
+    BrowserRetainedNavigationRealization? Suspension);
+
+public sealed record BrowserRetainedNavigationDiagnostic(
+    string Kind,
+    string Library,
+    string Message);
+
+public sealed record BrowserRetainedNavigationScopeStatus(
+    string Kind,
+    string? RuntimeFailure);
+
+public sealed record BrowserRetainedNavigationScopeOutcome(
+    string Kind,
+    string Operation,
+    string? Rejection,
+    string? Failure);
+
+public sealed record BrowserRetainedNavigationCoordinateOutcome(
+    string Disposition,
+    string Detail,
+    string? LibraryPairing,
+    string? TypeCorrespondence,
+    string? MemberCorrespondence);
+
+public sealed record BrowserRetainedNavigationRequest(
+    BrowserRetainedNavigationSubject Source,
+    BrowserRetainedNavigationSubject Destination,
+    BrowserRetainedNavigationLens? Lens);
+
+public sealed record BrowserRetainedNavigationOutcome(
+    string Kind,
+    string? Rejection,
+    string? FailureSource,
+    string? Message,
+    BrowserRetainedNavigationRequest? Request,
+    BrowserRetainedNavigationResolution? Resolution,
+    BrowserRetainedNavigationScopeOutcome? Scope,
+    BrowserRetainedNavigationDiagnostic[] Diagnostics,
+    BrowserRetainedNavigationCoordinateOutcome? CoordinateRetention);
+
+public sealed record BrowserRetainedNavigationSnapshot(
+    string Generation,
+    BrowserRetainedNavigationScopeStatus Scope,
+    BrowserRetainedNavigationSubject Workspace,
+    string? ActivePackage,
+    BrowserRetainedNavigationSubject ActiveSubject,
+    BrowserRetainedNavigationSubject? TypeInventoryLibraryContext,
+    BrowserRetainedNavigationPackageDescriptor[] Packages,
+    BrowserRetainedNavigationSubjectDescriptor[] Hierarchy,
+    BrowserRetainedNavigationLibraryDescriptor[] Libraries,
+    BrowserRetainedNavigationTypeDescriptor[] Types,
+    BrowserRetainedNavigationMemberDescriptor[] Members,
+    BrowserRetainedNavigationLensDescriptor[] Lenses,
+    BrowserRetainedNavigationLensOutcome LensOutcome,
+    BrowserRetainedNavigationDiagnostic[] Diagnostics);
+
+public sealed record BrowserRetainedNavigationResult(
+    string Operation,
+    string Request,
+    BrowserRetainedNavigationSnapshot Snapshot,
+    BrowserRetainedNavigationOutcome Outcome,
+    string Synchronization,
+    BrowserRetainedNavigationAuthority? Authority);
+
+public sealed record BrowserRetainedWorkspacePackage(
+    string NavigationId,
+    int ContextIndex,
+    string ConsumerPackageSubjectId,
+    BrowserPackageSurface Surface,
+    BrowserRetainedWorkspaceTypePage TypePage);
+
+public sealed record BrowserRetainedWorkspacePlatform(
+    string NavigationId,
+    int ContextIndex,
+    string Family,
+    string? RuntimeIdentifier,
+    BrowserPackageSurface Surface,
+    BrowserRetainedWorkspaceTypePage TypePage);
+
+public sealed record BrowserRetainedWorkspaceTypePage(
+    int Offset,
+    int TotalTypes,
+    int? NextOffset);
+
+public sealed record BrowserRetainedWorkspaceSurfaceSummary(
+    string? SelectedCompileFramework,
+    int LibraryCount,
+    int TypeCount,
+    int MemberCount,
+    int DocumentCount,
+    bool HasInspectionNotices);
+
+public sealed record BrowserRetainedWorkspacePackageInventory(
+    string NavigationId,
+    int ContextIndex,
+    string ConsumerPackageSubjectId,
+    BrowserRetainedWorkspaceSurfaceSummary Summary);
+
+public sealed record BrowserRetainedWorkspacePlatformInventory(
+    string NavigationId,
+    int ContextIndex,
+    string Family,
+    string? RuntimeIdentifier,
+    BrowserRetainedWorkspaceSurfaceSummary Summary);
+
+public sealed record BrowserRetainedWorkspaceLibraryIdentity(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserRetainedWorkspaceExactLibrary(
+    string Kind,
+    BrowserRetainedWorkspaceLibraryIdentity Library,
+    string? PackageId,
+    string? PackageVersion,
+    string? PlatformFamily);
+
+public sealed record BrowserRetainedWorkspaceEcosystemPopulation(
+    string Kind,
+    BrowserRetainedWorkspaceExactLibrary? ExactLibrary,
+    string? PlatformFamily,
+    string? PackagePrefix);
+
+public sealed record BrowserRetainedWorkspaceEcosystem(
+    string Id,
+    string[] NamespaceRoots,
+    string[] CorePackages,
+    BrowserRetainedWorkspaceEcosystemPopulation[] Populations);
+
+public sealed record BrowserRetainedWorkspaceRegistration(
+    string Kind,
+    BrowserRetainedWorkspaceExactLibrary? ExactLibrary,
+    string? PackagePrefix,
+    BrowserRetainedWorkspaceEcosystem? Ecosystem);
+
+public sealed record BrowserRetainedWorkspaceDefinitionState(
+    BrowserWorkspaceShareTab[] Tabs,
+    BrowserWorkspaceShareContext[] Contexts,
+    BrowserRetainedWorkspaceRegistration[] Registrations,
+    string? ActiveTabId,
+    string? SelectedContextId);
+
+public sealed record BrowserRetainedWorkspacePackageAdmissionResult(
+    string Status,
+    BrowserRetainedWorkspacePackage? Package,
+    string? Message);
+
+public sealed record BrowserRetainedWorkspacePlatformAdmissionResult(
+    string Status,
+    BrowserRetainedWorkspacePlatform? Platform,
+    string? Message);
+
+public sealed record BrowserRetainedWorkspaceCleanup(string Message);
 
 /// <summary>
 /// Observable settlement for the realization replaced by a successful cutover.
@@ -400,17 +651,34 @@ public sealed record BrowserRetainedWorkspacePredecessor(
     string Reason);
 
 /// <summary>
-/// Detached managed evidence TypeScript installs after a successful cutover.
+/// Detached managed evidence TypeScript posts after a successful cutover.
 /// </summary>
-public sealed record BrowserRetainedWorkspaceInstallation(
+public sealed record BrowserRetainedWorkspacePosting(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
     string CanonicalPacket,
     string RealizationId,
     long PublicationOrdinal,
-    BrowserRetainedWorkspaceNavigation Navigation,
-    BrowserRetainedWorkspacePredecessor? Predecessor);
+    BrowserRetainedWorkspaceDefinitionState Definition,
+    BrowserRetainedNavigationResult Navigation,
+    BrowserRetainedWorkspacePackageInventory[] Packages,
+    BrowserRetainedWorkspacePlatformInventory[] Platforms,
+    BrowserRetainedWorkspacePredecessor? Predecessor,
+    BrowserRetainedWorkspaceCleanup? Cleanup);
+
+/// <summary>
+/// Detached candidate evidence offered to the Browser before managed cutover.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparedPosting(
+    string RetainedDefinitionId,
+    string Label,
+    string CanonicalLocation,
+    string CanonicalPacket,
+    BrowserRetainedWorkspaceDefinitionState Definition,
+    BrowserRetainedNavigationResult Navigation,
+    BrowserRetainedWorkspacePackageInventory[] Packages,
+    BrowserRetainedWorkspacePlatformInventory[] Platforms);
 
 /// <summary>Typed complete-restoration failure at the Browser boundary.</summary>
 public sealed record BrowserRetainedWorkspaceActivationFailure(
@@ -423,8 +691,29 @@ public sealed record BrowserRetainedWorkspaceActivationFailure(
 /// </summary>
 public sealed record BrowserRetainedWorkspaceActivationResult(
     string Status,
-    BrowserRetainedWorkspaceInstallation? Installation,
+    BrowserRetainedWorkspacePosting? Posting,
     BrowserRetainedWorkspaceActivationFailure? Failure);
+
+/// <summary>
+/// Candidate preparation result. Status is <c>prepared</c>,
+/// <c>noEffect</c>, <c>superseded</c>, or <c>failed</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparationResult(
+    string Status,
+    string? Receipt,
+    BrowserRetainedWorkspacePreparedPosting? Preparation,
+    BrowserRetainedWorkspacePosting? Posting,
+    BrowserRetainedWorkspaceActivationFailure? Failure);
+
+/// <summary>
+/// Matching Browser completion for an irreversible activation or deactivation.
+/// Status is <c>completed</c> or <c>unavailable</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceConsumerCompletionResult(
+    string Status,
+    bool? Succeeded,
+    string? Failure,
+    string? Message);
 
 /// <summary>
 /// Active-retained-definition deletion result. Status is <c>deactivated</c>,
@@ -432,6 +721,7 @@ public sealed record BrowserRetainedWorkspaceActivationResult(
 /// </summary>
 public sealed record BrowserRetainedWorkspaceDeactivationResult(
     string Status,
+    string? CompletionReceipt,
     BrowserRetainedWorkspaceSettlement? Settlement,
     string? Message);
 
@@ -456,7 +746,11 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

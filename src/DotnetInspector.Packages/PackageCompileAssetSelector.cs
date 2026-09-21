@@ -83,6 +83,18 @@ public sealed record PackageCompileAssetSelection(
         && Assets.Count > 0
         && DefaultAsset is not null;
 
+    /// <summary>
+    /// The implementation universe selected independently from the compile
+    /// slice, or <see langword="null"/> when no unique universe was selected.
+    /// </summary>
+    public string? ImplementationTargetFramework { get; init; }
+
+    /// <summary>
+    /// Whether implementation selection used compatibility relative to the
+    /// requested compile target, including a compatible ambiguous outcome.
+    /// </summary>
+    public bool UsesCompatibleImplementationSelection { get; init; }
+
     /// <summary>Every discovered compile asset in the selected target framework.</summary>
     public IReadOnlyList<PackageCompileAsset> FrameworkAssets =>
         TargetFramework is null
@@ -308,6 +320,48 @@ public static class PackageCompileAssetSelector
                     policy == PackageCompileAssetSelectionPolicy.ExplicitTarget));
     }
 
+    /// <summary>
+    /// Retains correspondence for an already-issued compile selection over the
+    /// same package content generation.
+    /// </summary>
+    public static PackageCompileAssetSelectionReceipt RetainSelection(
+        IPackageContent content,
+        string packageId,
+        PackageCompileAssetSelectionPolicy policy,
+        PackageCompileAssetSelection selection,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(selection);
+        if (!Enum.IsDefined(policy))
+            throw new ArgumentOutOfRangeException(nameof(policy), policy, null);
+        if (policy == PackageCompileAssetSelectionPolicy.HighestAvailable
+            && targetFramework is not null)
+        {
+            throw new ArgumentException(
+                "Highest-available compile selection does not accept an explicit target framework.",
+                nameof(targetFramework));
+        }
+        if (policy is PackageCompileAssetSelectionPolicy.ExplicitTarget
+                or PackageCompileAssetSelectionPolicy.ExactTarget
+            && targetFramework is null)
+        {
+            throw new ArgumentException(
+                "Explicit compile selection requires a target framework.",
+                nameof(targetFramework));
+        }
+
+        return new(
+            content.GenerationIdentity,
+            packageId,
+            policy,
+            targetFramework,
+            runtimeIdentifier,
+            selection);
+    }
+
     private static PackageCompileAssetSelection SelectCore(
         IPackageContent content,
         string packageId,
@@ -464,6 +518,28 @@ public static class PackageCompileAssetSelector
                     ?? targetFramework
                     ?? selectedFramework,
                 runtimeIdentifier);
+        string? selectedImplementationTargetFramework =
+            implementationSelection
+                is PackageAssetSelection.Selected selectedImplementation
+                ? selectedImplementation.Universe.TargetFramework
+                : null;
+        bool usesCompatibleImplementationSelection =
+            selectedImplementationTargetFramework is not null
+                ? targetFramework is not null
+                    && !selectedImplementationTargetFramework.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)
+                : (implementationTargetFramework is not null
+                        && targetFramework is not null
+                        && !implementationTargetFramework.Equals(
+                            targetFramework,
+                            StringComparison.OrdinalIgnoreCase))
+                    || implementationSelection.UsesCompatibleTargetSelection
+                    || (allowCompatibleFallback
+                        && targetFramework is not null
+                        && !selectedFramework.Equals(
+                            targetFramework,
+                            StringComparison.OrdinalIgnoreCase));
         if (implementationSelection
             is PackageAssetSelection.Ambiguous ambiguous)
         {
@@ -477,7 +553,13 @@ public static class PackageCompileAssetSelector
                 [],
                 emptyReferenceGroups,
                 slices,
-                ambiguous.Message);
+                ambiguous.Message)
+            {
+                ImplementationTargetFramework =
+                    selectedImplementationTargetFramework,
+                UsesCompatibleImplementationSelection =
+                    usesCompatibleImplementationSelection,
+            };
         }
         if (implementationSelection is PackageAssetSelection.Invalid invalid)
         {
@@ -491,7 +573,13 @@ public static class PackageCompileAssetSelector
                 [],
                 emptyReferenceGroups,
                 slices,
-                invalid.Message);
+                invalid.Message)
+            {
+                ImplementationTargetFramework =
+                    selectedImplementationTargetFramework,
+                UsesCompatibleImplementationSelection =
+                    usesCompatibleImplementationSelection,
+            };
         }
 
         PackageCompileAsset[] implementationAssets =
@@ -526,7 +614,13 @@ public static class PackageCompileAssetSelector
                 discovered,
                 implementationAssets,
                 emptyReferenceGroups,
-                slices);
+                slices)
+            {
+                ImplementationTargetFramework =
+                    selectedImplementationTargetFramework,
+                UsesCompatibleImplementationSelection =
+                    usesCompatibleImplementationSelection,
+            };
         }
 
         PackageCompileAsset[] libraryFallback =
@@ -557,7 +651,13 @@ public static class PackageCompileAssetSelector
                 discovered,
                 implementationAssets,
                 emptyReferenceGroups,
-                slices);
+                slices)
+            {
+                ImplementationTargetFramework =
+                    selectedImplementationTargetFramework,
+                UsesCompatibleImplementationSelection =
+                    usesCompatibleImplementationSelection,
+            };
         }
 
         PackageCompileAsset defaultAsset = selected.FirstOrDefault(
@@ -573,7 +673,13 @@ public static class PackageCompileAssetSelector
             discovered,
             implementationAssets,
             emptyReferenceGroups,
-            slices);
+            slices)
+        {
+            ImplementationTargetFramework =
+                selectedImplementationTargetFramework,
+            UsesCompatibleImplementationSelection =
+                usesCompatibleImplementationSelection,
+        };
     }
 
     static PackageCompileAsset? Parse(string entry)
@@ -640,7 +746,7 @@ public static class PackageCompileAssetSelector
                 : null;
     }
 
-    static string? SelectApplicableFramework(
+    internal static string? SelectApplicableFramework(
         IReadOnlyList<string> frameworks,
         string requestedFramework)
     {
@@ -721,7 +827,9 @@ public static class PackageCompileAssetSelector
     /// package entry, or false for an entry that is not shaped like one —
     /// including traversal-shaped and backslash-separated spellings.
     /// </summary>
-    static bool TryParsePathParts(string entry, out string[]? parts)
+    internal static bool TryParsePathParts(
+        string entry,
+        out string[]? parts)
     {
         parts = null;
         if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))

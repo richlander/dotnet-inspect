@@ -258,6 +258,7 @@ public static class InspectionCommandDefinitions
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
+        var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -282,6 +283,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(unavailableCountOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -319,6 +321,14 @@ public static class InspectionCommandDefinitions
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(unavailableCountOption) is { Implicit: false })
+            {
+                CommandError.Write(
+                    "--count is not supported by the 'diff' command because "
+                    + "its current modes do not declare countable row semantics.");
+                return 1;
+            }
+
             var result = DiffOptionsParser.Parse(parseResult, opts, commandArgs);
 
             switch (result)
@@ -364,8 +374,8 @@ public static class InspectionCommandDefinitions
         assemblyPathArg.DefaultValueFactory = _ => null;
 
         var referencesOption = new Option<bool>("--references") { Description = "Legacy alias for -S References" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S References --tree" };
-        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S References --tree: maximum depth (1 = direct references only)" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Removed; use -S \"Reference Hierarchy\"" };
+        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S \"Reference Hierarchy\": maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
@@ -379,10 +389,16 @@ public static class InspectionCommandDefinitions
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
         };
+        var detailsOption = new Option<bool>("--details")
+        {
+            Description =
+                "With -D: add structurally supported output formats (offline)"
+        };
         var extractResourcesOption = new Option<string?>("--extract-resources")
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
         };
+        var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
@@ -395,8 +411,11 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(metadataRootOption);
+        assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
         // trace should advertise the flag. A flag every command accepts and only one honours is
         // worse than an unrecognized argument, which at least fails loudly.
@@ -413,9 +432,25 @@ public static class InspectionCommandDefinitions
                 assemblyCommand,
                 assemblyPathArg,
                 metadataRootOption));
+        assemblyCommand.Subcommands.Add(
+            LibraryQueryCommandDefinitions.Create(
+                opts,
+                assemblyCommand,
+                assemblyPathArg));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
+            bool discoverDetails =
+                parseResult.GetValue(detailsOption);
+            string[]? discover =
+                opts.ParseDiscover(parseResult);
+            if (discoverDetails && discover is null)
+            {
+                CommandError.Write(
+                    "--details requires -D/--discover.");
+                return 1;
+            }
+
             var source = parseResult.GetValue(assemblyPathArg);
             if (!IntegrationQueryOptions.TryExtract(
                     parseResult.GetValue(opts.RowWhere) ?? [],
@@ -461,7 +496,8 @@ public static class InspectionCommandDefinitions
             NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             bool structuralDiscovery =
                 opts.IsDiscoveryMode(parseResult)
-                && opts.ParseSchema(parseResult);
+                && (opts.ParseSchema(parseResult)
+                    || discoverDetails);
 
             if (structuralDiscovery)
             {
@@ -514,6 +550,15 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
+            if (showReferences
+                && select?.Contains(
+                    SectionNames.References,
+                    StringComparer.OrdinalIgnoreCase) != true)
+            {
+                select = [.. select ?? [], SectionNames.References];
+            }
+            bool sectionSelectionControlsInference =
+                hasExplicitSelect || showReferences;
             if (!BodyKindQueryOptions.TryExtract(
                     nonCloneWhere,
                     out var bodyKindQuery,
@@ -552,15 +597,29 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], "Source Files"];
             if (bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 select = [.. select ?? [], SectionNames.BodyShapes];
             }
             if (cloneCandidateQuery.HasPredicates
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 select = [.. select ?? [], SectionNames.CloneCandidates];
+            }
+            RowSelectionIntent<string>? cloneCandidateRowSelection = null;
+            if (CloneCandidateRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Clone Candidates",
+                        out cloneCandidateRowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
             }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
@@ -572,7 +631,7 @@ public static class InspectionCommandDefinitions
             if (performanceTriage.HasFilters
                 && !bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 string[] targets = PerformanceKinds.Sections;
                 if (performanceTriage.Shapes is { Length: > 0 })
@@ -586,6 +645,54 @@ public static class InspectionCommandDefinitions
                 }
                 select = [.. select ?? [], .. targets];
             }
+            RowSelectionIntent<string>? referenceRowSelection = null;
+            if (LibraryReferenceRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption,
+                    typeFilterOption,
+                    select)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Library reference",
+                        out referenceRowSelection,
+                        out string? referenceRowSelectionError))
+            {
+                CommandError.Write(referenceRowSelectionError!);
+                return 1;
+            }
+            RowSelectionIntent<string>? ecosystemDependencyRowSelection = null;
+            if (LibraryEcosystemDependencyRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts,
+                    asmTfmOption,
+                    select)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Library ecosystem dependency",
+                        out ecosystemDependencyRowSelection,
+                        out string? ecosystemRowSelectionError))
+            {
+                CommandError.Write(ecosystemRowSelectionError!);
+                return 1;
+            }
+            if (opts.IsJsonDocumentOutput(parseResult)
+                && LibraryEcosystemDependencyRowSelectionAdoption
+                    .IsMultiSectionSelection(
+                        parseResult,
+                        opts,
+                        asmTfmOption,
+                        select)
+                && LibraryEcosystemDependencyRowSelectionAdoption
+                    .HasExplicitSelection(parseResult, opts))
+            {
+                CommandError.Write(
+                    "Rendered-line selection cannot be combined with JSON output.");
+                return 1;
+            }
 
             if (!TryParseMetadataRoot(
                     parseResult.GetValue(metadataRootOption),
@@ -596,16 +703,27 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
 
+            if (!LibrarySourceAdapter.TryDeclare(
+                    assemblyPath,
+                    packagePath,
+                    platformAssembly,
+                    "source",
+                    out var sourceIntent,
+                    out string? sourceIntentError))
+            {
+                CommandError.Write(sourceIntentError!);
+                return 1;
+            }
+
             var options = new LibraryOptions
             {
+                SourceIntent = sourceIntent,
                 AssemblyName = assemblyPath,
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
-                ReferenceTreeDepth = parseResult.GetValue(referenceDepthOption),
-                PackagePath = packagePath,
+                ReferenceHierarchyDepth = parseResult.GetValue(referenceDepthOption),
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
-                PlatformAssembly = platformAssembly,
                 PlatformFramework = requestedFramework,
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
@@ -625,7 +743,8 @@ public static class InspectionCommandDefinitions
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
-                Discover = opts.ParseDiscover(parseResult),
+                Discover = discover,
+                DiscoverDetails = discoverDetails,
                 Effective = parseResult.GetValue(opts.Effective),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
@@ -643,18 +762,99 @@ public static class InspectionCommandDefinitions
                 JsonArray = parseResult.GetValue(opts.JsonArray),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
-                Rows = opts.ParseRows(parseResult),
+                Rows = cloneCandidateRowSelection is null
+                    && referenceRowSelection is null
+                    && ecosystemDependencyRowSelection is null
+                    ? opts.ParseRows(parseResult)
+                    : null,
+                CloneCandidateRowSelection =
+                    cloneCandidateRowSelection,
+                ReferenceRowSelection =
+                    referenceRowSelection,
+                EcosystemDependencyRowSelection =
+                    ecosystemDependencyRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
-                Schema = opts.ParseSchema(parseResult),
+                Schema = opts.ParseSchema(parseResult)
+                    || discoverDetails,
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
+                OutputPath = parseResult.GetValue(outOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
 
             return await LibraryCommand.ExecuteAsync(options);
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => LibraryReferenceRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                referencesOption,
+                asmTfmOption,
+                typeFilterOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => LibraryEcosystemDependencyRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                asmTfmOption,
+                opts.ParseSelect(result)),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return assemblyCommand;
     }

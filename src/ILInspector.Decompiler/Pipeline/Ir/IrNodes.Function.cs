@@ -51,6 +51,7 @@ public sealed class IrFunction : IrNode
     internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
         { get; set; }
     internal bool IsMetadataBacked { get; set; }
+    internal bool HasAccessorStorageBinding { get; set; }
     internal MethodInstructions? ExceptionInstructions { get; set; }
     internal InstructionExceptionFlowResult<InstructionExceptionFlowFacts>?
         ExceptionFlow => ExceptionInstructions?.ExceptionFlow;

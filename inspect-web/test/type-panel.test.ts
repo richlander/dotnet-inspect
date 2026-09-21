@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindTypePanel,
+  createMemberSourcePartSelector,
+  memberSourceText,
   renderGraphMemberPending,
   renderMemberNav,
   renderSourcePageActions,
+  renderSourceResult,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -17,6 +20,9 @@ import type {
   InertString,
   InspectionDiagnostic,
 } from "../src/facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserMemberSource,
+} from "../src/facades/inspect-web-source.d.ts";
 import type {
   MemberNavEntry,
   TypePanelBindingActions,
@@ -232,6 +238,10 @@ function typeDisplayName(item: TypeSummary) {
   return item?.displayName || item?.name || "";
 }
 
+function noTypeLibraryLabel() {
+  return "";
+}
+
 function kindIcon(kind: string) {
   if (kind.includes("struct")) return "S";
   if (kind === "enum") return "E";
@@ -286,6 +296,9 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onCopyMemberSource: () => {
       calls.push("copy-member-source");
+    },
+    onMemberSourcePartSelect: part => {
+      calls.push(`member-source-part:${part}`);
     },
     onCopySignature: () => {
       calls.push("copy-signature");
@@ -555,6 +568,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
   const back = root.add("#member-back", new FakeElement());
   const copySignature = root.add("#copy-signature", new FakeElement());
   const copyMemberSource = root.add("#copy-source", new FakeElement());
+  const memberSourcePart =
+    root.add("#member-source-part", new FakeElement());
   const copyTypeSource = root.add("#copy-type-source", new FakeElement());
   const exploreSource = root.add("#explore-source", new FakeElement());
   const calls: string[] = [];
@@ -577,6 +592,8 @@ test("type panel bindings dispatch member composition and detail controls", () =
   anchor.dispatch("click");
   invalidAnchor.dispatch("click");
   copyMemberSource.dispatch("click");
+  memberSourcePart.value = "Body";
+  memberSourcePart.dispatch("change");
   copyTypeSource.dispatch("click");
   exploreSource.dispatch("click");
 
@@ -596,6 +613,7 @@ test("type panel bindings dispatch member composition and detail controls", () =
     "copy-anchor:digest",
     "copy-anchor:undefined",
     "copy-member-source",
+    "member-source-part:Body",
     "copy-type-source",
     "explore-source",
   ]);
@@ -671,6 +689,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     filterSummary: "public",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: item =>
+      item.id === jsonSerializer.id ? "System.Text.Json" : "",
     kindIcon,
     shortKind,
   });
@@ -698,6 +718,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, />System\.Text\.Json<\/span>/);
   assert.doesNotMatch(html, /type-library-context/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
+  assert.match(html, /System\.Text\.Json · class/);
 });
 
 test("the type nav reports no matches for an empty filtered group", () => {
@@ -718,6 +739,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
     filterSummary: "nothing-matches · public",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
     shortKind,
   });
@@ -744,6 +766,7 @@ test("the type nav omits a parent action when the Library has no visible parent"
     filterSummary: "public",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
     shortKind,
   });
@@ -769,6 +792,7 @@ test("the type nav handles a package with no projected types", () => {
     filterSummary: "All types",
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: noTypeLibraryLabel,
     kindIcon,
     shortKind,
   });
@@ -913,6 +937,22 @@ test("the type heading reports the owning package and library", () => {
   assert.match(html, /<h1>JsonSerializer<\/h1>/);
   assert.match(html, /System\.Text\.Json\.dll/);
   assert.match(html, /System\.Text\.Json@9\.0\.0/);
+});
+
+test("the type heading accepts a product-owned defining Library label", () => {
+  const html = typeHeading({
+    item: jsonSerializer,
+    packageContext: { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" },
+    libraryLabel: "System.Text.Json · lib/net9.0/right/System.Text.Json.dll",
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /System\.Text\.Json · lib\/net9\.0\/right\/System\.Text\.Json\.dll/);
 });
 
 test("pending graph-member rendering composes the extracted type heading", () => {
@@ -1276,6 +1316,216 @@ test("source page actions disable copy until source is available", () => {
   assert.doesNotMatch(html, /id="explore-source"[^>]* disabled/);
 });
 
+test("authored member source actions expose only available parts", () => {
+  const source = memberSourceFixture();
+  const html = renderSourcePageActions({
+    source: source.source,
+    memberSource: source,
+    selectedMemberPart: "Attributes",
+    copyButtonId: "copy-source",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /id="member-source-part" aria-label="Select member source part"/);
+  assert.match(html, />Member<\/option>/);
+  assert.match(html, />XML docs<\/option>/);
+  assert.match(
+    html,
+    /value="Attributes" selected>Attributes<\/option>/);
+  assert.match(html, />Signature<\/option>/);
+  assert.match(html, />Body<\/option>/);
+});
+
+test("member source selection lowers every original fragment for display and copy", () => {
+  const source = memberSourceFixture();
+
+  assert.equal(
+    memberSourceText(source, "XmlDocumentation"),
+    "/// first\n/// second");
+  assert.equal(
+    memberSourceText(source, "Attributes"),
+    "[First]\n[Second]");
+  assert.equal(
+    memberSourceText(source, "Member"),
+    source.source.text);
+  const body = memberSourceText(source, "Body");
+  const html = renderSourceResult({
+    source: source.source,
+    text: body,
+    escapeHtml,
+    highlightCSharp,
+  });
+  assert.match(html, /\{\r\n    return;\r\n\}/);
+  assert.doesNotMatch(html, /public void M/);
+});
+
+test("member source restores Markout WriteHeading indentation for display and copy", () => {
+  const text =
+    "/// <summary>\n"
+    + "    /// Writes a heading at the specified level.\n"
+    + "    /// </summary>\n"
+    + "    /// <returns><c>true</c> if rendered or filtered; "
+    + "<c>false</c> if the formatter does not support headings.</returns>\n"
+    + "    public bool WriteHeading(int level, string text) "
+    + "=> WriteHeading(level, text, null);";
+  const signature = "public bool WriteHeading(int level, string text)";
+  const body = "=> WriteHeading(level, text, null);";
+  const signatureStart = text.indexOf(signature);
+  const documentationEnd = text.indexOf("\n    public bool WriteHeading");
+  const bodyStart = text.indexOf(body);
+  const source: BrowserMemberSource = {
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/MarkoutWriter.cs",
+      pdbSourceLimitation: null,
+      text,
+    },
+    parts: [
+      {
+        kind: "Member",
+        spans: [{
+          start: 0,
+          length: text.length,
+          startLine: 1,
+          endLine: 5,
+          leadingIndentation: "    ",
+          end: text.length,
+        }],
+      },
+      {
+        kind: "XmlDocumentation",
+        spans: [{
+          start: 0,
+          length: documentationEnd,
+          startLine: 1,
+          endLine: 4,
+          leadingIndentation: "    ",
+          end: documentationEnd,
+        }],
+      },
+      {
+        kind: "Signature",
+        spans: [{
+          start: signatureStart,
+          length: signature.length,
+          startLine: 5,
+          endLine: 5,
+          leadingIndentation: "    ",
+          end: signatureStart + signature.length,
+        }],
+      },
+      {
+        kind: "Body",
+        spans: [{
+          start: bodyStart,
+          length: body.length,
+          startLine: 5,
+          endLine: 5,
+          leadingIndentation: "    ",
+          end: bodyStart + body.length,
+        }],
+      },
+    ],
+  };
+
+  const member = memberSourceText(source, "Member");
+  const documentation = memberSourceText(source, "XmlDocumentation");
+  assert.equal(source.source.text, text);
+  assert.equal(member, `    ${text}`);
+  assert.deepEqual(
+    documentation.split("\n").map(line => line.match(/^ */)?.[0].length),
+    [4, 4, 4, 4]);
+  assert.equal(
+    memberSourceText(source, "Signature"),
+    `    ${signature}`);
+  assert.equal(memberSourceText(source, "Body"), `    ${body}`);
+});
+
+test("member source indentation preserves multiline literal characters", () => {
+  const body = "{\r\n"
+    + "    const string value = \"\"\"\r\n"
+    + "        first\tvalue\r\n"
+    + "        second value\r\n"
+    + "        \"\"\";\r\n"
+    + "}";
+  const source: BrowserMemberSource = {
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/source.cs",
+      pdbSourceLimitation: null,
+      text: body,
+    },
+    parts: [{
+      kind: "Member",
+      spans: [{
+        start: 0,
+        length: body.length,
+        startLine: 1,
+        endLine: 6,
+        leadingIndentation: "\t",
+        end: body.length,
+      }],
+    }, {
+      kind: "Body",
+      spans: [{
+        start: 0,
+        length: body.length,
+        startLine: 1,
+        endLine: 6,
+        leadingIndentation: "\t",
+        end: body.length,
+      }],
+    }],
+  };
+
+  assert.equal(memberSourceText(source, "Body"), `\t${body}`);
+});
+
+test("member source part selection resets across request signatures and absent parts", () => {
+  const selector = createMemberSourcePartSelector();
+  const authored = memberSourceFixture();
+
+  assert.equal(selector.current("first", authored), "Member");
+  assert.equal(selector.select("first", authored, "Body"), true);
+  assert.equal(selector.current("first", authored), "Body");
+  assert.equal(selector.current("second", authored), "Member");
+  assert.equal(selector.select("second", authored, "Body"), true);
+  assert.equal(
+    selector.current("second", { ...authored, parts: authored.parts.slice(0, 4) }),
+    "Member");
+  assert.equal(selector.select("second", authored, "Body"), true);
+  assert.equal(selector.select("second", authored, "Attributes"), true);
+});
+
+test("decompiled member source has no authored selector", () => {
+  const memberSource: BrowserMemberSource = {
+    source: {
+      provider: "decompiled",
+      provenance: inertStringFixture("decompiled"),
+      url: null,
+      pdbSourceLimitation: "No PDB",
+      text: "public void M() { }",
+    },
+    parts: [],
+  };
+  const html = renderSourcePageActions({
+    source: memberSource.source,
+    memberSource,
+    copyButtonId: "copy-source",
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /member-source-part/);
+  assert.match(html, /id="copy-source"/);
+  assert.equal(
+    memberSourceText(memberSource, "Member"),
+    memberSource.source.text);
+});
+
 test("decompiled type source discloses an escaped PDB-source limitation", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
@@ -1333,3 +1583,76 @@ test("type source renders a settled fallback for an empty failure", () => {
   assert.match(html, /No type source result was returned\./);
   assert.doesNotMatch(html, /Resolving type source/);
 });
+
+function memberSourceFixture(): BrowserMemberSource {
+  const text =
+    "/// first\r\n"
+    + "[First]\r\n"
+    + "/// second\n"
+    + "[Second]\r\n"
+    + "public void M()\r\n"
+    + "{\r\n"
+    + "    return;\r\n"
+    + "}";
+  const span = (
+    fragment: string,
+    startLine: number,
+    from = 0,
+  ) => {
+    const start = text.indexOf(fragment, from);
+    assert.notEqual(start, -1);
+    return {
+      start,
+      length: fragment.length,
+      startLine,
+      endLine: startLine + fragment.split(/\r\n|\r|\n/).length - 1,
+      leadingIndentation: "",
+      end: start + fragment.length,
+    };
+  };
+  const secondDocumentationStart = text.indexOf("/// second");
+  return {
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/source.cs",
+      pdbSourceLimitation: null,
+      text,
+    },
+    parts: [
+      {
+        kind: "Member",
+        spans: [{
+          start: 0,
+          length: text.length,
+          startLine: 1,
+          endLine: 8,
+          leadingIndentation: "",
+          end: text.length,
+        }],
+      },
+      {
+        kind: "XmlDocumentation",
+        spans: [
+          span("/// first", 1),
+          span("/// second", 3, secondDocumentationStart),
+        ],
+      },
+      {
+        kind: "Attributes",
+        spans: [
+          span("[First]", 2),
+          span("[Second]", 4),
+        ],
+      },
+      {
+        kind: "Signature",
+        spans: [span("public void M()", 5)],
+      },
+      {
+        kind: "Body",
+        spans: [span("{\r\n    return;\r\n}", 6)],
+      },
+    ],
+  };
+}

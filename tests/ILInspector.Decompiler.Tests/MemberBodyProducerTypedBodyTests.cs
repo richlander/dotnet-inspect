@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.MetadataPrimitives;
+using DotnetInspector.Fixtures;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -106,6 +107,128 @@ public sealed class MemberBodyProducerTypedBodyTests
         Assert.NotNull(body.ConstructorInitializer);
         Assert.Equal(CSharpConstructorInitializerKind.This, body.ConstructorInitializer.Kind);
         Assert.Equal(["42"], body.ConstructorInitializer.Arguments);
+    }
+
+    [Theory]
+    [InlineData("SelectedAutoPropertySamples", "ComputedCount", false, "return field + 1;")]
+    [InlineData("SelectedAutoPropertySamples", "Count", true, "return field;")]
+    [InlineData("SelectedFieldPropertySamples", "SharedCount", false, "return field + 2;")]
+    public void ProduceBody_OptsIntoProvenGetterStorageOnlyWithPropertyContext(
+        string typeName, string propertyName, bool automatic, string expectedBody)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, method, out bool automaticGetterBody));
+        Assert.Equal(automatic, automaticGetterBody);
+        var address = MetadataMethodAddress.Create(source.Reader, method);
+
+        var independent = MemberBodyProducer.ProduceBody(source, address);
+        var scoped = MemberBodyProducer.ProduceBody(source, address, property);
+        var independentAgain = MemberBodyProducer.ProduceBody(source, address);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, independent.Status);
+        Assert.Equal(MemberBodyProductionStatus.Complete, scoped.Status);
+        Assert.Equal(MemberBodyProductionStatus.Complete, independentAgain.Status);
+        Assert.Equal(expectedBody, scoped.Body!.Source);
+        Assert.DoesNotContain("field", independent.Body!.Source);
+        Assert.Equal(independent.Body.Source, independentAgain.Body!.Source);
+    }
+
+    [Theory]
+    [InlineData("ChangingCount")]
+    [InlineData("LazyLabel")]
+    [InlineData("MutableCount")]
+    [InlineData("InitialCount")]
+    [InlineData("DescribedCount")]
+    [InlineData("NestedCount")]
+    [InlineData("ProtectedCount")]
+    public void ProduceBody_MetadataGetterContextKeepsStorageDeclineBoundaries(string propertyName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, "SelectedFieldPropertySamples", $"get_{propertyName}");
+
+        Assert.Null(SelectedPropertyAccessorSource.Create(source, method));
+    }
+
+    [Theory]
+    [InlineData("DescribedCount")]
+    [InlineData("DebugCount")]
+    public void ProduceBody_TrivialGetterProofDoesNotClaimDeclarationAttributeSupport(string propertyName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, "SelectedAutoPropertySamples", $"get_{propertyName}");
+
+        Assert.Null(SelectedPropertyAccessorSource.Create(source, method, out bool automaticGetterBody));
+        Assert.True(automaticGetterBody);
+    }
+
+    [Theory]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "Pointer")]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "SharedPointer")]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "FunctionPointer")]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "SharedFunctionPointer")]
+    [InlineData("SelectedLayoutAutoPropertySamples", "Count")]
+    public void ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility(
+        string typeName, string propertyName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+
+        Assert.Null(SelectedPropertyAccessorSource.Create(source, method, out bool automaticGetterBody));
+        Assert.True(automaticGetterBody);
+    }
+
+    [Theory]
+    [InlineData("ConstructorGetterList`1", "Items", true)]
+    [InlineData("ConstructorGetterCounter", "Value", true)]
+    [InlineData("ConstructorGetterComputed", "Value", true)]
+    [InlineData("ConstructorGetterParameterName", "Value", true)]
+    [InlineData("ConstructorGetterKeywordParameter", "Value", true)]
+    [InlineData("ConstructorGetterCalculated", "Value", false)]
+    [InlineData("ConstructorGetterConditional", "Value", false)]
+    [InlineData("ConstructorGetterOverloads", "Value", false)]
+    [InlineData("ConstructorGetterOtherStorage", "Value", false)]
+    [InlineData("ConstructorGetterClass", "Value", false)]
+    [InlineData("ConstructorGetterUnusedParameter", "Value", false)]
+    public void PropertyInitializationConstructorUsesExactStorage(
+        string typeName, string propertyName, bool expected)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+        var constructor = property.FindInitializationConstructor(source);
+
+        Assert.Equal(expected, constructor is not null);
+        if (constructor is { Address: var address })
+        {
+            Assert.True(address.BelongsTo(source.Reader));
+            Assert.Equal(".ctor", source.Reader.GetString(
+                source.Reader.GetMethodDefinition(address.Handle).Name));
+            Assert.Equal(MemberBodyProductionStatus.Complete,
+                MemberBodyProducer.ProduceBody(source, address).Status);
+        }
+    }
+
+    [Theory]
+    [InlineData("ConstructorGetterExplicitAutomatic")]
+    [InlineData("ConstructorGetterExplicitComputed")]
+    public void PropertyInitializationConstructorDeclinesExplicitInterface(string typeName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName,
+            "ILInspector.Decompiler.Fixtures.IConstructorGetterValue.get_Value");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+
+        Assert.Null(property.FindInitializationConstructor(source));
     }
 
     static MethodDefinitionHandle FindMethod(

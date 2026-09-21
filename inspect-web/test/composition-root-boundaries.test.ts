@@ -152,10 +152,10 @@ test("closing a package removes its coordinate and selects the adjacent coordina
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
     packageControlsSource,
-    /onFrameworkSelect\(framework\.value\)/);
+    /onFrameworkSelect\(framework\.value, "legacy"\)/);
   assert.match(
     appSource,
-    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);
+    /selectFramework: \(framework, source\) => \{\s*if \(contentFrameUsesPush\(\)\) contentFramePane = "detail";\s*observeAsync\(\s*switchPackageFramework\(\s*framework,\s*source === "legacy" \? "framework" : "package-framework"\),\s*"Switching the package framework"\);\s*\}/);
   assert.match(appSource, /switchPackageFramework\(argument\)/);
   assert.doesNotMatch(
     appSource,
@@ -225,7 +225,16 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
-    /function packageLibraries\(\)[\s\S]*state\.package\.assemblies\.map\(assembly =>/);
+    /function packageLibraryInventory\(\)[\s\S]*state\.package\.assemblies\.map\(assembly =>/);
+  assert.match(
+    appSource,
+    /function packageLibraries\(\) \{\s*return packageLibraryInventory\(\);\s*\}/);
+  assert.match(
+    appSource,
+    /function currentLibraryQueryMatchIds\(\)[\s\S]*inspection\.content\.results\.map\(result => result\.assetId\)/);
+  assert.match(
+    appSource,
+    /const matchingLibraryIds = currentLibraryQueryMatchIds\(\);[\s\S]*renderLibrarySubjectNav\(\{[\s\S]*libraries: packageLibraries\(\)[\s\S]*matchingLibraryIds/);
   assert.match(
     appSource,
     /assemblyDescriptorForType\(pkg\.assemblies, type\)/);
@@ -255,7 +264,7 @@ test("dependency selection exposes a missing exact framework", () => {
 test("dependency group selection resets when package identity changes", () => {
   assert.match(
     appSource,
-    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\) \{[\s\S]*state\.dependenciesGroupIndex = null;[\s\S]*\}/);
 });
 
 test("missing exact dependency groups never create graph edges", () => {

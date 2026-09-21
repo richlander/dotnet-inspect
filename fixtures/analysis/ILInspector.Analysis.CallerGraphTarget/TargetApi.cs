@@ -133,13 +133,98 @@ namespace Target
             awaitable.GetAwaiter().GetResult();
     }
 
+    public static class AwaitCompletionPathApi
+    {
+        public static async Task<int> One(Task<int> task) =>
+            await task;
+
+        public static async Task<int> Configured(Task<int> task) =>
+            await task.ConfigureAwait(false);
+
+        public static async Task<int> Sequential(
+            Task<int> first,
+            Task<int> second)
+        {
+            int firstResult = await first;
+            int secondResult = await second;
+            return firstResult + secondResult;
+        }
+
+        public static async Task<int> Custom(CustomAwaitable awaitable) =>
+            await awaitable;
+    }
+
+    public static class AllocationExceptionPathApi
+    {
+        static readonly object Shared = new();
+
+        public static object ThrownValue() =>
+            throw new InvalidOperationException("failure");
+
+        public static object ExceptionHandler(string value)
+        {
+            try
+            {
+                return int.Parse(value).ToString();
+            }
+            catch (FormatException)
+            {
+                return new object();
+            }
+        }
+
+        public static object ConditionalBranch(bool useAlternative) =>
+            useAlternative ? new object() : Shared;
+    }
+
+    public static class LocalThrowPathApi
+    {
+        public static void Entry(string value)
+        {
+            Forward(value);
+            Forward(value);
+            Action<string> callback = Forward;
+            GC.KeepAlive(callback);
+        }
+
+        public static void EntryAlternatives(string value)
+        {
+            ForwardA(value);
+            ForwardB(value);
+        }
+
+        static void Forward(string value) =>
+            Throw(value);
+
+        static void ForwardA(string value) =>
+            Throw(value);
+
+        static void ForwardB(string value) =>
+            Throw(value);
+
+        static void Throw(string value)
+        {
+            if (value is null)
+                throw new LocalThrowPathException(nameof(value));
+        }
+    }
+
+    public sealed class LocalThrowPathException(string parameterName)
+        : Exception(parameterName);
+
     public readonly struct CustomAwaitable
     {
         public CustomAwaiter GetAwaiter() => new();
     }
 
-    public readonly struct CustomAwaiter
+    public readonly struct CustomAwaiter :
+        System.Runtime.CompilerServices.INotifyCompletion
     {
+        public bool IsCompleted => false;
+
+        public void OnCompleted(Action continuation) =>
+            continuation();
+
         public int GetResult() => 42;
     }
 

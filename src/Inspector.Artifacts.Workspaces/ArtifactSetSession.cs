@@ -1134,7 +1134,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             TResult result = callback(
                 new ArtifactContentView(
                     lease.Reference,
-                    snapshot.AsSpan()),
+                    snapshot),
                 state,
                 cancellationToken);
             return new ArtifactContentAccessOutcome<TResult>.Accessed(

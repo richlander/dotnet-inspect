@@ -15,10 +15,12 @@ public sealed class PlatformPopulationLibraryContentSelection
 {
     public PlatformPopulationLibraryContentSelection(
         ArtifactContentReference content,
-        ArtifactAssemblyProjection projection)
+        ArtifactAssemblyProjection projection,
+        PlatformPopulationMemberAttribution attribution)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(attribution);
         if (content.Provenance
                 is not PlatformLibraryArtifactProvenance provenance)
         {
@@ -69,12 +71,14 @@ public sealed class PlatformPopulationLibraryContentSelection
         Content = content;
         Projection = projection;
         AssemblyIdentity = assemblyIdentity;
+        Attribution = attribution;
     }
 
     public PlatformSourceContribution.Realization Contribution { get; }
     public ArtifactContentReference Content { get; }
     public ArtifactAssemblyProjection Projection { get; }
     public ManagedMetadataIdentity.Assembly AssemblyIdentity { get; }
+    public PlatformPopulationMemberAttribution Attribution { get; }
 }
 
 /// <summary>
@@ -83,18 +87,21 @@ public sealed class PlatformPopulationLibraryContentSelection
 public sealed class PlatformPopulationRealizationValue
 {
     internal PlatformPopulationRealizationValue(
-        IReadOnlyList<LibraryReference> libraries)
+        IReadOnlyList<PlatformPopulationMember> members)
     {
-        ArgumentNullException.ThrowIfNull(libraries);
-        if (libraries.Count == 0)
+        ArgumentNullException.ThrowIfNull(members);
+        if (members.Count == 0)
         {
             throw new ArgumentException(
                 "A completed Platform population requires at least one Library.",
-                nameof(libraries));
+                nameof(members));
         }
-        Libraries = Array.AsReadOnly([.. libraries]);
+        Members = Array.AsReadOnly([.. members]);
+        Libraries = Array.AsReadOnly(
+            members.Select(static member => member.Library).ToArray());
     }
 
+    public IReadOnlyList<PlatformPopulationMember> Members { get; }
     public IReadOnlyList<LibraryReference> Libraries { get; }
 }
 
@@ -105,31 +112,38 @@ public sealed class PlatformPopulationRealizationReceipt
 {
     internal PlatformPopulationRealizationReceipt(
         PlatformHouseReceipt houseReceipt,
-        IReadOnlyList<LibraryReference>? realizedLibraries = null)
+        IReadOnlyList<PlatformPopulationMember>? realizedMembers = null)
     {
         ArgumentNullException.ThrowIfNull(houseReceipt);
         bool completed = houseReceipt.SettlementKind
             == PlatformHouseSettlementKind.Completed;
-        if (completed != (realizedLibraries is not null))
+        if (completed != (realizedMembers is not null))
         {
             throw new ArgumentException(
-                "Only a completed population receipt may retain realized Library references.",
-                nameof(realizedLibraries));
+                "Only a completed population receipt may retain realized members.",
+                nameof(realizedMembers));
         }
-        if (realizedLibraries is { Count: 0 })
+        if (realizedMembers is { Count: 0 })
         {
             throw new ArgumentException(
-                "A completed population receipt requires at least one Library.",
-                nameof(realizedLibraries));
+                "A completed population receipt requires at least one member.",
+                nameof(realizedMembers));
         }
 
         HouseReceipt = houseReceipt;
-        RealizedLibraries = realizedLibraries is null
+        RealizedMembers = realizedMembers is null
             ? null
-            : Array.AsReadOnly([.. realizedLibraries]);
+            : Array.AsReadOnly([.. realizedMembers]);
+        RealizedLibraries = realizedMembers is null
+            ? null
+            : Array.AsReadOnly(
+                realizedMembers
+                    .Select(static member => member.Library)
+                    .ToArray());
     }
 
     public PlatformHouseReceipt HouseReceipt { get; }
+    public IReadOnlyList<PlatformPopulationMember>? RealizedMembers { get; }
     public IReadOnlyList<LibraryReference>? RealizedLibraries { get; }
 }
 
@@ -173,10 +187,10 @@ public abstract class PlatformPopulationRealizationResult
             : base(outcome, receipt)
         {
             ArgumentNullException.ThrowIfNull(owners);
-            if (owners.Count != outcome.Value.Libraries.Count
-                || receipt.RealizedLibraries is null
-                || receipt.RealizedLibraries.Count
-                    != outcome.Value.Libraries.Count)
+            if (owners.Count != outcome.Value.Members.Count
+                || receipt.RealizedMembers is null
+                || receipt.RealizedMembers.Count
+                    != outcome.Value.Members.Count)
             {
                 throw new ArgumentException(
                     "A completed population requires one owner and receipt reference per Library.",
@@ -184,12 +198,14 @@ public abstract class PlatformPopulationRealizationResult
             }
             for (int index = 0; index < owners.Count; index++)
             {
+                PlatformPopulationMember member =
+                    outcome.Value.Members[index];
                 if (!ReferenceEquals(
                         owners[index].Reference,
-                        outcome.Value.Libraries[index])
+                        member.Library)
                     || !ReferenceEquals(
-                        receipt.RealizedLibraries[index],
-                        outcome.Value.Libraries[index]))
+                        receipt.RealizedMembers[index],
+                        member))
                 {
                     throw new ArgumentException(
                         "Population owners, values, and receipt references must correspond by exact index.",
@@ -257,8 +273,31 @@ public static class PlatformHousePopulationRealizer
                 [],
                 [],
                 consumedWork,
-                priorContributions)
+                priorContributions,
+                targetSelection: null,
+                retainedSettlements: null)
             .ConfigureAwait(false);
+
+    internal static ValueTask<PlatformPopulationRealizationResult>
+        RealizeSelectedReferencesAsync(
+            PlatformHouseRequest request,
+            IReadOnlyList<PlatformPopulationLibraryContentSelection>
+                selections,
+            IReadOnlyList<ArtifactContentLease> contentLeases,
+            PlatformHouseConsumedWork consumedWork,
+            PlatformTargetSelectionContext targetSelection,
+            IReadOnlyList<PlatformSourceSettlement> retainedSettlements) =>
+        RealizeAsync(
+            request,
+            PlatformViewDemand.Reference,
+            selections,
+            contentLeases,
+            [],
+            [],
+            consumedWork,
+            priorContributions: null,
+            targetSelection,
+            retainedSettlements);
 
     /// <summary>
     /// Accepts every supplied reference and implementation content lease and
@@ -285,7 +324,9 @@ public static class PlatformHousePopulationRealizer
                 implementations,
                 implementationLeases,
                 consumedWork,
-                priorContributions)
+                priorContributions,
+                targetSelection: null,
+                retainedSettlements: null)
             .ConfigureAwait(false);
 
     /// <summary>
@@ -310,7 +351,9 @@ public static class PlatformHousePopulationRealizer
                 selections,
                 contentLeases,
                 consumedWork,
-                priorContributions)
+                priorContributions,
+                targetSelection: null,
+                retainedSettlements: null)
             .ConfigureAwait(false);
 
     static async ValueTask<PlatformPopulationRealizationResult>
@@ -325,7 +368,10 @@ public static class PlatformHousePopulationRealizer
             IReadOnlyList<ArtifactContentLease> implementationLeases,
             PlatformHouseConsumedWork consumedWork,
             IEnumerable<PlatformSourceContribution>?
-                priorContributions)
+                priorContributions,
+            PlatformTargetSelectionContext? targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>?
+                retainedSettlements)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(references);
@@ -334,6 +380,20 @@ public static class PlatformHousePopulationRealizer
         ArgumentNullException.ThrowIfNull(implementationLeases);
         ArgumentNullException.ThrowIfNull(consumedWork);
 
+        PlatformFamilyTarget? target = request.Target switch
+        {
+            PlatformTargetDemand.Exact exact
+                when targetSelection is null
+                    && retainedSettlements is null => exact.Target,
+            PlatformTargetDemand.FamilyDefault demand
+                when targetSelection is not null
+                    && retainedSettlements is { Count: > 0 }
+                    && ReferenceEquals(
+                        targetSelection.TargetSettlement.Demand,
+                        demand) =>
+                targetSelection.Target,
+            _ => null,
+        };
         PlatformPopulationLibraryContentSelection[] referenceSelections =
             [.. references];
         ArtifactContentLease[] acceptedReferenceLeases =
@@ -353,7 +413,7 @@ public static class PlatformHousePopulationRealizer
         try
         {
             request.CancellationToken.ThrowIfCancellationRequested();
-            if (request.Target is not PlatformTargetDemand.Exact exact
+            if (target is null
                 || request.Operation is not PlatformHouseOperation.Realize
                 {
                     View: var view,
@@ -368,7 +428,11 @@ public static class PlatformHousePopulationRealizer
                         leases,
                         owners,
                         PlatformHouseRejectionKind.InvalidRequest,
-                        "platform-population.invalid-request")
+                        "platform-population.invalid-request",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements))
                     .ConfigureAwait(false);
             }
             if (view != expectedView)
@@ -380,7 +444,11 @@ public static class PlatformHousePopulationRealizer
                         leases,
                         owners,
                         PlatformHouseRejectionKind.InvalidRequest,
-                        "platform-population.invalid-view")
+                        "platform-population.invalid-view",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements))
                     .ConfigureAwait(false);
             }
             if (PlatformHouseLibraryRealizer.ExceedsBudget(
@@ -393,12 +461,16 @@ public static class PlatformHousePopulationRealizer
                         selected,
                         leases,
                         owners,
-                        "platform-population.work-incomplete")
+                        "platform-population.work-incomplete",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements))
                     .ConfigureAwait(false);
             }
             if (!ValidInputs(
                     request,
-                    exact.Target,
+                    target,
                     operation.Population,
                     expectedView,
                     referenceSelections,
@@ -415,7 +487,11 @@ public static class PlatformHousePopulationRealizer
                         leases,
                         owners,
                         PlatformHouseRejectionKind.InvalidOwnerResult,
-                        "platform-population.invalid-content")
+                        "platform-population.invalid-content",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements))
                     .ConfigureAwait(false);
             }
 
@@ -426,17 +502,48 @@ public static class PlatformHousePopulationRealizer
                         contribution,
                         PlatformSourceSettlementDisposition.Selected))
                 .ToArray();
-            var settlements = new List<PlatformSourceSettlement>(
-                prior.Length + selectedSettlements.Length);
-            settlements.AddRange(
-                prior.Select(
-                    contribution => new PlatformSourceSettlement(
-                        contribution,
-                        PlatformSourceSettlementDisposition
-                            .OutcomeRelevant)));
-            settlements.AddRange(selectedSettlements);
+            List<PlatformSourceSettlement> settlements =
+                retainedSettlements is null
+                ? new List<PlatformSourceSettlement>(
+                    prior.Length + selectedSettlements.Length)
+                : [.. retainedSettlements];
+            if (retainedSettlements is null)
+            {
+                settlements.AddRange(
+                    prior.Select(
+                        contribution => new PlatformSourceSettlement(
+                            contribution,
+                            PlatformSourceSettlementDisposition
+                                .OutcomeRelevant)));
+                settlements.AddRange(selectedSettlements);
+            }
+            else if (contributions.Any(
+                contribution => !settlements.Any(
+                    settlement =>
+                        ReferenceEquals(
+                            settlement.Contribution,
+                            contribution)
+                        && settlement.Disposition
+                            == PlatformSourceSettlementDisposition
+                                .Selected)))
+            {
+                return await RejectAfterCleanupAsync(
+                        request,
+                        consumedWork,
+                        selected,
+                        leases,
+                        owners,
+                        PlatformHouseRejectionKind.InvalidRetainedEvidence,
+                        "platform-population.missing-selected-evidence",
+                        targetSelection!.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements))
+                    .ConfigureAwait(false);
+            }
 
-            var libraries = new List<LibraryReference>(selected.Length);
+            var members = new List<PlatformPopulationMember>(
+                selected.Length);
             if (expectedView == PlatformViewDemand.Reference)
             {
                 for (int index = 0;
@@ -445,13 +552,12 @@ public static class PlatformHousePopulationRealizer
                 {
                     request.CancellationToken.ThrowIfCancellationRequested();
                     AddLibrary(
-                        exact.Target,
                         referenceSelections[index],
                         acceptedReferenceLeases[index],
                         implementation: null,
                         implementationLease: null,
                         owners,
-                        libraries);
+                        members);
                 }
             }
             else if (expectedView == PlatformViewDemand.Implementation)
@@ -462,26 +568,24 @@ public static class PlatformHousePopulationRealizer
                 {
                     request.CancellationToken.ThrowIfCancellationRequested();
                     AddLibrary(
-                        exact.Target,
                         implementationSelections[index],
                         acceptedImplementationLeases[index],
                         implementationSelections[index],
                         acceptedImplementationLeases[index],
                         owners,
-                        libraries);
+                        members);
                 }
             }
             else
             {
                 AddPairedLibraries(
                     request,
-                    exact.Target,
                     referenceSelections,
                     acceptedReferenceLeases,
                     implementationSelections,
                     acceptedImplementationLeases,
                     owners,
-                    libraries);
+                    members);
             }
 
             PlatformViewCorrespondenceEvidence? viewCorrespondence =
@@ -501,16 +605,23 @@ public static class PlatformHousePopulationRealizer
             var completion = new PlatformHouseCompletion.Realization(
                 (PlatformHouseOperationSnapshot.Realize)
                     request.Snapshot.Operation,
-                selectedSettlements,
+                settlements.Where(
+                    settlement => settlement.Disposition
+                            == PlatformSourceSettlementDisposition.Selected
+                        && settlement.Contribution
+                            is PlatformSourceContribution.Realization),
                 viewCorrespondence);
             var receipt = new PlatformHouseReceipt(
                 request.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
+                (PlatformTargetSettlement?)
+                    targetSelection?.TargetSettlement
+                    ?? new PlatformTargetSettlement.Exact(
+                        (PlatformTargetDemand.Exact)request.Target),
                 settlements,
                 consumedWork,
                 completion);
             var value =
-                new PlatformPopulationRealizationValue(libraries);
+                new PlatformPopulationRealizationValue(members);
             return new PlatformPopulationRealizationResult.Completed(
                 new PlatformHouseOutcome<
                     PlatformPopulationRealizationValue>.Completed(
@@ -518,7 +629,7 @@ public static class PlatformHousePopulationRealizer
                         receipt),
                 new PlatformPopulationRealizationReceipt(
                     receipt,
-                    libraries),
+                    members),
                 owners);
         }
         catch (OperationCanceledException)
@@ -534,7 +645,11 @@ public static class PlatformHousePopulationRealizer
                     RetainableContributions(request, selected),
                     cleanup.Kinds,
                     cancellationObserved: true,
-                    "platform-population.cancellation-cleanup-failed");
+                    "platform-population.cancellation-cleanup-failed",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements));
             }
             throw;
         }
@@ -547,7 +662,11 @@ public static class PlatformHousePopulationRealizer
                     leases,
                     owners,
                     PlatformHouseRejectionKind.InvalidOwnerResult,
-                    "platform-population.released-content")
+                    "platform-population.released-content",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements))
                 .ConfigureAwait(false);
         }
         catch (ArgumentException)
@@ -559,7 +678,11 @@ public static class PlatformHousePopulationRealizer
                     leases,
                     owners,
                     PlatformHouseRejectionKind.InvalidRetainedEvidence,
-                    "platform-population.invalid-retained-evidence")
+                    "platform-population.invalid-retained-evidence",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements))
                 .ConfigureAwait(false);
         }
         catch (Exception failure)
@@ -645,7 +768,10 @@ public static class PlatformHousePopulationRealizer
                 population,
                 contents,
                 authorities,
-                ref generation);
+                ref generation)
+            && (expectedView
+                    != PlatformViewDemand.ReferenceAndImplementation
+                || ValidPairedAttributions(references, implementations));
     }
 
     static bool ValidFacet(
@@ -696,6 +822,7 @@ public static class PlatformHousePopulationRealizer
                 || !ReferenceEquals(
                     lease.Reference,
                     selection.Content)
+                || !ValidAttribution(target, selection.Attribution)
                 || !identities.Add(
                     selection.AssemblyIdentity.Identity)
                 || !contents.Add(selection.Content)
@@ -707,16 +834,47 @@ public static class PlatformHousePopulationRealizer
         return true;
     }
 
+    static bool ValidAttribution(
+        PlatformFamilyTarget requestedTarget,
+        PlatformPopulationMemberAttribution attribution) =>
+        attribution.Role switch
+        {
+            PlatformPopulationMemberRole.Focus =>
+                attribution.Target == requestedTarget,
+            PlatformPopulationMemberRole.BindingSupport =>
+                requestedTarget.Family == PlatformFamily.AspNetCore
+                && attribution.Target.Family
+                    == PlatformFamily.DotNetRuntime,
+            _ => false,
+        };
+
+    static bool ValidPairedAttributions(
+        IReadOnlyList<PlatformPopulationLibraryContentSelection> references,
+        IReadOnlyList<PlatformPopulationLibraryContentSelection>
+            implementations)
+    {
+        var implementationAttributions =
+            implementations.ToDictionary(
+                static selection => selection.AssemblyIdentity.Identity,
+                static selection => selection.Attribution,
+                AssemblyReferenceIdentity.EquivalentComparer);
+        return references.All(
+            reference =>
+                !implementationAttributions.TryGetValue(
+                    reference.AssemblyIdentity.Identity,
+                    out PlatformPopulationMemberAttribution? implementation)
+                || reference.Attribution.Equals(implementation));
+    }
+
     static void AddPairedLibraries(
         PlatformHouseRequest request,
-        PlatformFamilyTarget target,
         IReadOnlyList<PlatformPopulationLibraryContentSelection> references,
         IReadOnlyList<ArtifactContentLease> referenceLeases,
         IReadOnlyList<PlatformPopulationLibraryContentSelection>
             implementations,
         IReadOnlyList<ArtifactContentLease> implementationLeases,
         ICollection<LibraryContentOwner> owners,
-        ICollection<LibraryReference> libraries)
+        ICollection<PlatformPopulationMember> members)
     {
         var implementationIndices =
             new Dictionary<AssemblyReferenceIdentity, int>(
@@ -740,24 +898,22 @@ public static class PlatformHousePopulationRealizer
             {
                 matched[implementationIndex] = true;
                 AddLibrary(
-                    target,
                     reference,
                     referenceLeases[index],
                     implementations[implementationIndex],
                     implementationLeases[implementationIndex],
                     owners,
-                    libraries);
+                    members);
             }
             else
             {
                 AddLibrary(
-                    target,
                     reference,
                     referenceLeases[index],
                     implementation: null,
                     implementationLease: null,
                     owners,
-                    libraries);
+                    members);
             }
         }
 
@@ -767,25 +923,31 @@ public static class PlatformHousePopulationRealizer
                 continue;
             request.CancellationToken.ThrowIfCancellationRequested();
             AddLibrary(
-                target,
                 implementations[index],
                 implementationLeases[index],
                 implementations[index],
                 implementationLeases[index],
                 owners,
-                libraries);
+                members);
         }
     }
 
     static void AddLibrary(
-        PlatformFamilyTarget target,
         PlatformPopulationLibraryContentSelection api,
         ArtifactContentLease apiLease,
         PlatformPopulationLibraryContentSelection? implementation,
         ArtifactContentLease? implementationLease,
         ICollection<LibraryContentOwner> owners,
-        ICollection<LibraryReference> libraries)
+        ICollection<PlatformPopulationMember> members)
     {
+        if (implementation is not null
+            && !api.Attribution.Equals(implementation.Attribution))
+        {
+            throw new ArgumentException(
+                "Paired Platform population views must retain the same member attribution.",
+                nameof(implementation));
+        }
+
         var assemblyCorrespondence =
             new LibraryAssemblyCorrespondence(
                 api.Content,
@@ -796,7 +958,7 @@ public static class PlatformHousePopulationRealizer
             LibraryReference.CreateFromSource(
                 new ExactLibrarySourceCoordinate.Platform(
                     new PlatformLibraryPopulationDeclaration(
-                        target.Family),
+                        api.Attribution.Target.Family),
                     api.AssemblyIdentity),
                 assemblyCorrespondence);
         ArtifactContentLease[] leases =
@@ -805,7 +967,10 @@ public static class PlatformHousePopulationRealizer
             ? [apiLease]
             : [apiLease, implementationLease];
         owners.Add(new LibraryContentOwner(library, leases));
-        libraries.Add(library);
+        members.Add(
+            new PlatformPopulationMember(
+                library,
+                api.Attribution));
     }
 
     static PlatformSourceContribution.Realization[] DistinctContributions(
@@ -836,7 +1001,10 @@ public static class PlatformHousePopulationRealizer
             IReadOnlyList<ArtifactContentLease> leases,
             IReadOnlyList<LibraryContentOwner> owners,
             PlatformHouseRejectionKind kind,
-            string evidenceName)
+            string evidenceName,
+            PlatformTargetSettlement? targetSettlement = null,
+            IReadOnlyList<PlatformSourceSettlement>?
+                retainedSettlements = null)
     {
         CleanupResult cleanup =
             await CleanupAsync(owners, leases).ConfigureAwait(false);
@@ -848,9 +1016,17 @@ public static class PlatformHousePopulationRealizer
                 RetainableContributions(request, selections),
                 cleanup.Kinds,
                 cancellationObserved: false,
-                $"{evidenceName}.cleanup-failed");
+                $"{evidenceName}.cleanup-failed",
+                targetSettlement,
+                retainedSettlements);
         }
-        return Rejected(request, consumedWork, kind, evidenceName);
+        return Rejected(
+            request,
+            consumedWork,
+            kind,
+            evidenceName,
+            targetSettlement,
+            retainedSettlements);
     }
 
     static async ValueTask<PlatformPopulationRealizationResult>
@@ -861,7 +1037,10 @@ public static class PlatformHousePopulationRealizer
                 selections,
             IReadOnlyList<ArtifactContentLease> leases,
             IReadOnlyList<LibraryContentOwner> owners,
-            string evidenceName)
+            string evidenceName,
+            PlatformTargetSettlement? targetSettlement = null,
+            IReadOnlyList<PlatformSourceSettlement>?
+                retainedSettlements = null)
     {
         CleanupResult cleanup =
             await CleanupAsync(owners, leases).ConfigureAwait(false);
@@ -873,9 +1052,16 @@ public static class PlatformHousePopulationRealizer
                 RetainableContributions(request, selections),
                 cleanup.Kinds,
                 cancellationObserved: false,
-                $"{evidenceName}.cleanup-failed");
+                $"{evidenceName}.cleanup-failed",
+                targetSettlement,
+                retainedSettlements);
         }
-        return Incomplete(request, consumedWork, evidenceName);
+        return Incomplete(
+            request,
+            consumedWork,
+            evidenceName,
+            targetSettlement,
+            retainedSettlements);
     }
 
     static async ValueTask<CleanupResult> CleanupAsync(
@@ -913,11 +1099,14 @@ public static class PlatformHousePopulationRealizer
             kinds.Distinct().ToArray());
     }
 
-    static PlatformPopulationRealizationResult Rejected(
+    internal static PlatformPopulationRealizationResult Rejected(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformHouseRejectionKind kind,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements = null)
     {
         var termination = new PlatformHouseTermination.Rejected(
             new PlatformHouseRejection.OwnerEvidence(
@@ -926,8 +1115,10 @@ public static class PlatformHousePopulationRealizer
                     evidenceName)));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
-            [],
+            targetSettlement
+                ?? PlatformHouseLibraryRealizer.TargetSettlement(
+                    request.Target),
+            retainedSettlements ?? [],
             consumedWork,
             termination: termination);
         return new PlatformPopulationRealizationResult.Terminal(
@@ -938,17 +1129,22 @@ public static class PlatformHousePopulationRealizer
             new PlatformPopulationRealizationReceipt(receipt));
     }
 
-    static PlatformPopulationRealizationResult Incomplete(
+    internal static PlatformPopulationRealizationResult Incomplete(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements = null)
     {
         var termination = new PlatformHouseTermination.Incomplete(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
-            [],
+            targetSettlement
+                ?? PlatformHouseLibraryRealizer.TargetSettlement(
+                    request.Target),
+            retainedSettlements ?? [],
             consumedWork,
             termination: termination);
         return new PlatformPopulationRealizationResult.Terminal(
@@ -965,24 +1161,32 @@ public static class PlatformHousePopulationRealizer
         IEnumerable<PlatformSourceContribution> contributions,
         IEnumerable<PlatformHouseFailureKind> failures,
         bool cancellationObserved,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements = null)
     {
-        PlatformSourceContribution[] retained =
-            [..
-                contributions.Distinct<PlatformSourceContribution>(
-                    ReferenceEqualityComparer.Instance)];
-        var settlements = retained.Select(
-                contribution => new PlatformSourceSettlement(
-                    contribution,
-                    PlatformSourceSettlementDisposition.OutcomeRelevant))
-            .ToArray();
+        ArgumentNullException.ThrowIfNull(contributions);
+        PlatformSourceSettlement[] settlements =
+            retainedSettlements?.ToArray()
+            ?? contributions
+                .Distinct<PlatformSourceContribution>(
+                    ReferenceEqualityComparer.Instance)
+                .Select(
+                    contribution => new PlatformSourceSettlement(
+                        contribution,
+                        PlatformSourceSettlementDisposition
+                            .OutcomeRelevant))
+                .ToArray();
         var termination = new PlatformHouseTermination.Failed(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName),
             failures,
             cancellationObserved);
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            PlatformHouseLibraryRealizer.TargetSettlement(request.Target),
+            targetSettlement
+                ?? PlatformHouseLibraryRealizer.TargetSettlement(
+                    request.Target),
             settlements,
             consumedWork,
             termination: termination);
@@ -993,6 +1197,26 @@ public static class PlatformHousePopulationRealizer
                     receipt),
             new PlatformPopulationRealizationReceipt(receipt));
     }
+
+    static IReadOnlyList<PlatformSourceSettlement>?
+        TerminalRetainedSettlements(
+            PlatformTargetSelectionContext? targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>?
+                retainedSettlements) =>
+        targetSelection is null || retainedSettlements is null
+            ? null
+            :
+            [.. retainedSettlements.Select(
+                settlement =>
+                    settlement.Disposition
+                            == PlatformSourceSettlementDisposition.Selected
+                        && settlement.Contribution.Facet
+                            != PlatformSourceFacet.TargetDiscovery
+                        ? new PlatformSourceSettlement(
+                            settlement.Contribution,
+                            PlatformSourceSettlementDisposition
+                                .OutcomeRelevant)
+                        : settlement)];
 
     sealed record CleanupResult(
         IReadOnlyList<Exception> Failures,

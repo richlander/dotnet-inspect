@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Models;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 
@@ -15,6 +16,7 @@ public class PerformanceKindsTests
                 SectionNames.PerformanceArrays,
                 SectionNames.PerformanceClosures,
                 SectionNames.PerformanceEnumerators,
+                SectionNames.PerformanceStrings,
                 SectionNames.PerformanceLoops,
                 SectionNames.PerformanceHotspots,
                 SectionNames.PerformanceAsync,
@@ -62,6 +64,30 @@ public class PerformanceKindsTests
             .ToArray();
 
         Assert.Equal(keys.Length, keys.Distinct().Count());
+    }
+
+    [Fact]
+    public void StringMaterialization_UsesDedicatedStructuredBucket()
+    {
+        Assert.Equal(
+            SectionNames.PerformanceStrings,
+            PerformanceKinds.SectionForShape(
+                "string-materialization"));
+        Assert.Equal(
+            "strings",
+            PerformanceKinds.StructuredKey(
+                SectionNames.PerformanceStrings));
+
+        var row = new OptimizationOpportunitySummary
+        {
+            Shape = "string-materialization",
+        };
+        PerformanceProjection projection = Assert.IsType<
+            PerformanceProjection>(
+                PerformanceProjection.FromOpportunities([row]));
+
+        Assert.Equal([row], projection.Strings);
+        Assert.Null(projection.Other);
     }
 
     [Fact]

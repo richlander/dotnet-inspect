@@ -24,6 +24,11 @@ internal sealed record BrowserPackageCacheSnapshot(
     long MaxResidentBytes,
     long MaxWorkspaceRetainedImageBytes);
 
+internal sealed class BrowserPackageWorkspaceTestHooks
+{
+    internal Action? CoordinatesValidatedBeforeConstructionLease { get; init; }
+}
+
 internal sealed record BrowserPackageDocumentEntry(
     string Kind,
     string Name,
@@ -184,8 +189,6 @@ internal static class BrowserPackageWorkspace
     static readonly ConditionalWeakTable<
         IPackageSourceClient,
         IPackageSourceAuthorization> SourceAuthorizations = new();
-    static readonly UniformPackageSourceAuthorization SourceAuthorization =
-        new([PackageSource.NuGetOrg]);
     internal static readonly IPackageSourceClient Gallery =
         CreateGallerySource(
             new NuGetFetchOptions
@@ -211,6 +214,10 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
+    // Browser/Wasm reaches this state serially. The CLR test host can resume independent
+    // asynchronous operations on different workers, so the same gate also protects the scope
+    // registry and every entry lifecycle transition.
+    static readonly object CacheSync = new();
     static readonly Dictionary<string, CacheEntry> Cache = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -233,6 +240,8 @@ internal static class BrowserPackageWorkspace
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
+    static long NextClock() => Interlocked.Increment(ref _clock);
+
     internal static HttpClient NetworkClient => Http;
     internal static HttpClient PackageChangesAdvisoryClient =>
         PackageChangesAdvisoryHttp;
@@ -244,7 +253,7 @@ internal static class BrowserPackageWorkspace
         AdvisoryPublicEvidenceProxyHandler.Configure(origin);
     }
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
-        SourceAuthorization;
+        SourceAuthorizationFor(Gallery);
     internal static IPackageStore SessionPackageStore => Store;
     internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
         Store;
@@ -286,18 +295,23 @@ internal static class BrowserPackageWorkspace
     }
 
 
-    public static BrowserPackageCacheSnapshot Stats() =>
-        new(
-            Downloaded.Count,
-            Cache.Count,
-            MaxCachedPackages,
-            Scopes.Count,
-            MaxOpenScopes,
-            BrowserInspectionScope.MaxAssembliesPerRole,
-            Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
-            MaxCachedPackageBytes,
-            BrowserInspectionScope.MaxRetainedImageBytes);
+    public static BrowserPackageCacheSnapshot Stats()
+    {
+        lock (CacheSync)
+        {
+            return new(
+                Downloaded.Count,
+                Cache.Count,
+                MaxCachedPackages,
+                Scopes.Count,
+                MaxOpenScopes,
+                BrowserInspectionScope.MaxAssembliesPerRole,
+                Cache.Values.Sum(entry => entry.Bytes.LongLength)
+                    + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
+                MaxCachedPackageBytes,
+                BrowserInspectionScope.MaxRetainedImageBytes);
+        }
+    }
 
     /// <summary>
     /// Resolves and acquires one package through the shared product owners
@@ -575,20 +589,26 @@ internal static class BrowserPackageWorkspace
         string key = store.PackageKey(
             acquired.Payload.Coordinate.PackageId,
             acquired.Payload.Coordinate.Version);
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !store.ProducerKeysMatch(
-                cached.ProducerKey,
-                acquired.Payload.ProducerKey)
-            || !ReferenceEquals(
-                cached.Content.GenerationIdentity,
-                acquired.Payload.Content.GenerationIdentity))
+        CacheEntry? cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "PackageHouse realization did not publish the acquired generation "
-                + "in the Browser cache.");
+            if (!Cache.TryGetValue(key, out cached)
+                || !store.ProducerKeysMatch(
+                    cached.ProducerKey,
+                    acquired.Payload.ProducerKey)
+                || !ReferenceEquals(
+                    cached.Content.GenerationIdentity,
+                    acquired.Payload.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "PackageHouse realization did not publish the acquired generation "
+                    + "in the Browser cache.");
+            }
+
+            cached = cached with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         var package = new BrowserPackage(
             packageId,
             acquired.Payload,
@@ -675,19 +695,25 @@ internal static class BrowserPackageWorkspace
         AcquiredPackageSourcePayload payload =
             await pending.WaitAsync(waitCancellation.Token).ConfigureAwait(false);
 
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !store.ProducerKeysMatch(
-                cached.ProducerKey,
-                payload.ProducerKey)
-            || !ReferenceEquals(
-                cached.Content.GenerationIdentity,
-                payload.Content.GenerationIdentity))
+        CacheEntry? cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "The shared package acquisition completed without publishing its Browser cache entry.");
+            if (!Cache.TryGetValue(key, out cached)
+                || !store.ProducerKeysMatch(
+                    cached.ProducerKey,
+                    payload.ProducerKey)
+                || !ReferenceEquals(
+                    cached.Content.GenerationIdentity,
+                    payload.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "The shared package acquisition completed without publishing its Browser cache entry.");
+            }
+
+            cached = cached with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackageAcquisitionResult.Acquired(
             new(
                 new BrowserPackage(
@@ -813,7 +839,8 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    static TimeSpan SourceSettlementOperationTimeout(TimeSpan remaining)
+    internal static TimeSpan SourceSettlementOperationTimeout(
+        TimeSpan remaining)
     {
         TimeSpan margin = PackageOperationTimeout - GalleryOperationTimeout;
         return remaining > margin
@@ -1110,17 +1137,25 @@ internal static class BrowserPackageWorkspace
         string key = store.PackageKey(
             available.Payload.Coordinate.PackageId,
             available.Payload.Coordinate.Version);
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !store.ProducerKeysMatch(
-                cached.ProducerKey,
-                available.Payload.ProducerKey)
-            || !ReferenceEquals(cached.Content.GenerationIdentity, available.Payload.Content.GenerationIdentity))
+        CacheEntry? cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "Exact Root reacquisition did not publish the acquired generation in the Browser cache.");
+            if (!Cache.TryGetValue(key, out cached)
+                || !store.ProducerKeysMatch(
+                    cached.ProducerKey,
+                    available.Payload.ProducerKey)
+                || !ReferenceEquals(
+                    cached.Content.GenerationIdentity,
+                    available.Payload.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "Exact Root reacquisition did not publish the acquired generation in the Browser cache.");
+            }
+
+            cached = cached with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackageCoordinate(
             new BrowserPackage(
                 request.Coordinate.PackageId,
@@ -1179,7 +1214,22 @@ internal static class BrowserPackageWorkspace
     /// </remarks>
     public static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
         IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken = default) =>
+        OpenScopeAsync(coordinates, cancellationToken, testHooks: null);
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        BrowserPackageWorkspaceTestHooks testHooks,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(testHooks);
+        return OpenScopeAsync(coordinates, cancellationToken, testHooks);
+    }
+
+    static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken,
+        BrowserPackageWorkspaceTestHooks? testHooks)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
         if (coordinates.Count == 0)
@@ -1190,7 +1240,7 @@ internal static class BrowserPackageWorkspace
             ? new BoundScopeDemand(binding)
             : new CompositeScopeDemand(
                 [.. exact.Select(coordinate => coordinate.Key).Order(StringComparer.Ordinal)]);
-        return OpenPackageScopeAsync(demand, exact, cancellationToken);
+        return OpenPackageScopeAsync(demand, exact, cancellationToken, testHooks: testHooks);
     }
 
     /// <summary>
@@ -1227,13 +1277,13 @@ internal static class BrowserPackageWorkspace
         ScopeDemand demand,
         ImmutableArray<BrowserPackageCoordinate> coordinates,
         CancellationToken cancellationToken,
-        bool requireExactCoordinatesOnJoin = true)
+        bool requireExactCoordinatesOnJoin = true,
+        BrowserPackageWorkspaceTestHooks? testHooks = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var construction = new PackageLeaseSet();
-        ImmutableHashSet<string> packageKeys = RetainCoordinatePackages(coordinates);
-        foreach (string packageKey in packageKeys)
-            construction.Lease(packageKey);
+        ImmutableHashSet<string> packageKeys =
+            construction.RetainCoordinates(coordinates, testHooks);
 
         ScopeAdmission admission = await ReserveScopeEntryAsync(
                 PackageScopeKey(coordinates),
@@ -1263,13 +1313,16 @@ internal static class BrowserPackageWorkspace
         }
 
         ScopeEntry entry = admission.Use.Entry;
-        entry.Key = PackageScopeKey(coordinates);
-        entry.Coordinates = coordinates;
-        entry.Binding = coordinates is [{ Binding: { } binding }] ? binding : null;
-        StartConstruction(
-            entry,
-            async token => await BrowserInspectionScope.CreateAsync(coordinates, token)
-                .ConfigureAwait(false));
+        lock (CacheSync)
+        {
+            entry.Key = PackageScopeKey(coordinates);
+            entry.Coordinates = coordinates;
+            entry.Binding = coordinates is [{ Binding: { } binding }] ? binding : null;
+            StartConstructionUnsafe(
+                entry,
+                async token => await BrowserInspectionScope.CreateAsync(coordinates, token)
+                    .ConfigureAwait(false));
+        }
         return UseScopeAsync<BrowserInspectionScope>(admission.Use, cancellationToken);
     }
 
@@ -1294,10 +1347,10 @@ internal static class BrowserPackageWorkspace
     /// taken before the caller suspends, so a workspace a caller is waiting for can never be
     /// evicted out from under that caller's resumption.
     /// </summary>
-    static ScopeUse? TryJoinScope(ScopeDemand demand)
+    static ScopeUse? TryJoinScopeUnsafe(ScopeDemand demand)
     {
         ScopeEntry? entry = Scopes.FirstOrDefault(demand.Joins);
-        return entry is null ? null : TakeUse(entry);
+        return entry is null ? null : TakeUseUnsafe(entry);
     }
 
     /// <summary>
@@ -1319,55 +1372,59 @@ internal static class BrowserPackageWorkspace
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (TryJoinScope(demand) is { } joined)
-                return new ScopeAdmission(joined, IsNew: false);
-            if (Scopes.Count < MaxOpenScopes)
-                break;
-
-            ScopeEntry? evictable = Scopes
-                .Where(candidate =>
-                    candidate.State is BrowserScopeState.Ready
-                    && candidate.Uses == 0
-                    && !candidate.RemovalRequested)
-                .OrderBy(candidate => candidate.LastAccess)
-                .FirstOrDefault();
-            if (evictable is not null)
+            Task? settlement = null;
+            lock (CacheSync)
             {
-                await ObserveAsync(RetireEntryAsync(evictable))
-                    .WaitAsync(cancellationToken).ConfigureAwait(false);
-                continue;
+                if (TryJoinScopeUnsafe(demand) is { } joined)
+                    return new ScopeAdmission(joined, IsNew: false);
+                if (Scopes.Count < MaxOpenScopes)
+                {
+                    var entry = new ScopeEntry(key, demand, NextClock())
+                    {
+                        Uses = 1,
+                        PackageKeys = packageKeys,
+                    };
+                    Scopes.Add(entry);
+                    foreach (string packageKey in packageKeys)
+                        LeasePackageUnsafe(packageKey);
+                    return new ScopeAdmission(
+                        new ScopeUse(entry, packageKeys),
+                        IsNew: true);
+                }
+
+                ScopeEntry? evictable = Scopes
+                    .Where(candidate =>
+                        candidate.State is BrowserScopeState.Ready
+                        && candidate.Uses == 0
+                        && !candidate.RemovalRequested)
+                    .OrderBy(candidate => candidate.LastAccess)
+                    .FirstOrDefault();
+                if (evictable is not null)
+                {
+                    settlement = ObserveAsync(RetireEntryUnsafe(evictable));
+                }
+                else
+                {
+                    Task[] settling =
+                    [
+                        .. Scopes
+                            .Where(candidate =>
+                                candidate.State is not BrowserScopeState.Failed)
+                            .Select(SettlementOfUnsafe)
+                            .Where(candidate => candidate is not null)
+                            .Select(candidate => candidate!),
+                    ];
+                    if (settling.Length == 0)
+                        throw new InvalidOperationException(ScopeCapacityRejectionUnsafe());
+                    settlement = Task.WhenAny(settling);
+                }
             }
 
-            Task[] settling =
-            [
-                .. Scopes
-                    .Where(candidate => candidate.State is not BrowserScopeState.Failed)
-                    .Select(SettlementOf)
-                    .Where(settlement => settlement is not null)
-                    .Select(settlement => settlement!),
-            ];
-            if (settling.Length > 0)
-            {
-                await Task.WhenAny(settling)
-                    .WaitAsync(cancellationToken).ConfigureAwait(false);
-                continue;
-            }
-
-            throw new InvalidOperationException(ScopeCapacityRejection());
+            await settlement.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        var entry = new ScopeEntry(key, demand, ++_clock)
-        {
-            Uses = 1,
-            PackageKeys = packageKeys,
-        };
-        Scopes.Add(entry);
-        foreach (string packageKey in packageKeys)
-            LeasePackage(packageKey);
-        return new ScopeAdmission(new ScopeUse(entry, packageKeys), IsNew: true);
     }
 
-    static string ScopeCapacityRejection()
+    static string ScopeCapacityRejectionUnsafe()
     {
         string[] failures =
         [
@@ -1389,7 +1446,7 @@ internal static class BrowserPackageWorkspace
     /// builds until construction and cleanup have both settled: a stale or abandoned completion
     /// disposes what it built and never publishes into the registry.
     /// </summary>
-    static void StartConstruction(
+    static void StartConstructionUnsafe(
         ScopeEntry entry,
         Func<CancellationToken, Task<IAsyncDisposable>> factory)
     {
@@ -1401,65 +1458,87 @@ internal static class BrowserPackageWorkspace
         ScopeEntry entry,
         Func<CancellationToken, Task<IAsyncDisposable>> factory)
     {
-        using CancellationTokenSource cancellation = entry.ConstructionCancellation!;
-        using var deadline = new BrowserPackageOperationDeadline(
-            PackageOperationTimeout,
-            cancellation.Token);
-        try
+        CancellationTokenSource cancellation;
+        lock (CacheSync)
         {
-            IAsyncDisposable built;
+            cancellation = entry.ConstructionCancellation
+                ?? throw new InvalidOperationException(
+                    "The browser workspace construction has no cancellation owner.");
+        }
+        using (cancellation)
+        {
+            using var deadline = new BrowserPackageOperationDeadline(
+                PackageOperationTimeout,
+                cancellation.Token);
             try
             {
-                built = await factory(deadline.Token).ConfigureAwait(false);
-            }
-            catch (Exception creationFailure)
-            {
-                if (creationFailure is BrowserScopeConstructionException)
-                    QuarantineEntry(entry, creationFailure);
-                else
-                    ReleaseScopeEntry(entry);
-
-                if (deadline.HasExpired)
-                    throw deadline.Timeout(creationFailure);
-                throw;
-            }
-
-            // Keep ownership of late results until cleanup settles; a timed-out wait must not
-            // detach the factory and return its still-live capacity to another construction.
-            entry.Scope = built;
-            try
-            {
-                deadline.ThrowIfExpired();
-                if (!Scopes.Contains(entry)
-                    || entry.RemovalRequested
-                    || entry.State is not BrowserScopeState.Pending)
-                {
-                    throw new InvalidOperationException(
-                        "The browser workspace was retired before its construction completed.");
-                }
-            }
-            catch (Exception publicationFailure)
-            {
-                entry.RemovalRequested = true;
+                IAsyncDisposable built;
                 try
                 {
-                    await CloseEntryScopeAsync(entry).ConfigureAwait(false);
+                    built = await factory(deadline.Token).ConfigureAwait(false);
                 }
-                catch (Exception cleanupFailure)
+                catch (Exception creationFailure)
                 {
-                    throw new AggregateException(publicationFailure, cleanupFailure);
+                    lock (CacheSync)
+                    {
+                        if (creationFailure is BrowserScopeConstructionException)
+                            QuarantineEntryUnsafe(entry, creationFailure);
+                        else
+                            ReleaseScopeEntryUnsafe(entry);
+                    }
+
+                    if (deadline.HasExpired)
+                        throw deadline.Timeout(creationFailure);
+                    throw;
                 }
 
-                throw;
-            }
+                // Keep ownership of late results until cleanup settles; a timed-out wait must not
+                // detach the factory and return its still-live capacity to another construction.
+                try
+                {
+                    lock (CacheSync)
+                    {
+                        entry.Scope = built;
+                        deadline.ThrowIfExpired();
+                        if (!Scopes.Contains(entry)
+                            || entry.RemovalRequested
+                            || entry.State is not BrowserScopeState.Pending)
+                        {
+                            throw new InvalidOperationException(
+                                "The browser workspace was retired before its construction "
+                                + "completed.");
+                        }
 
-            entry.State = BrowserScopeState.Ready;
-            entry.LastAccess = ++_clock;
-            return built;
-        }
-        finally
-        {
-            entry.ConstructionCancellation = null;
+                        entry.State = BrowserScopeState.Ready;
+                        entry.LastAccess = NextClock();
+                    }
+                }
+                catch (Exception publicationFailure)
+                {
+                    lock (CacheSync)
+                        entry.RemovalRequested = true;
+                    try
+                    {
+                        await CloseEntryScopeAsync(entry).ConfigureAwait(false);
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        throw new AggregateException(publicationFailure, cleanupFailure);
+                    }
+
+                    throw;
+                }
+
+                return built;
+            }
+            finally
+            {
+                lock (CacheSync)
+                {
+                    if (ReferenceEquals(entry.ConstructionCancellation, cancellation))
+                        entry.ConstructionCancellation = null;
+                }
+            }
         }
     }
 
@@ -1477,18 +1556,28 @@ internal static class BrowserPackageWorkspace
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (entry.Construction is { } construction)
+            Task<IAsyncDisposable>? construction;
+            lock (CacheSync)
+                construction = entry.Construction;
+            if (construction is not null)
                 await construction.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (entry.Failure is { } failure)
-                throw new InvalidOperationException(failure.ToString());
-            if (entry.Scope is not TScope typed)
+
+            TScope typed;
+            lock (CacheSync)
             {
-                throw new InvalidOperationException(
-                    "The browser scope registry entry names a different scope kind.");
+                if (entry.Failure is { } failure)
+                    throw new InvalidOperationException(failure.ToString());
+                if (entry.Scope is not TScope retained)
+                {
+                    throw new InvalidOperationException(
+                        "The browser scope registry entry names a different scope kind.");
+                }
+
+                typed = retained;
+                entry.LastAccess = NextClock();
+                TouchPackagesUnsafe(entry.PackageKeys);
             }
 
-            entry.LastAccess = ++_clock;
-            TouchPackages(entry.PackageKeys);
             return new BrowserScopeLease<TScope>(
                 typed,
                 () => ReleaseUseAsync(use));
@@ -1552,12 +1641,15 @@ internal static class BrowserPackageWorkspace
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(packageKeys);
         ScopeEntry entry = reservation.Entry;
-        entry.Scope = scope;
-        entry.PackageKeys = packageKeys;
-        entry.State = BrowserScopeState.Ready;
-        entry.OnDisposed = onDisposed is null
-            ? null
-            : disposed => onDisposed((T)disposed);
+        lock (CacheSync)
+        {
+            entry.Scope = scope;
+            entry.PackageKeys = packageKeys;
+            entry.State = BrowserScopeState.Ready;
+            entry.OnDisposed = onDisposed is null
+                ? null
+                : disposed => onDisposed((T)disposed);
+        }
         try
         {
             return await AdmitScopeAsync(reservation, key, scope, packageKeys)
@@ -1565,14 +1657,19 @@ internal static class BrowserPackageWorkspace
         }
         catch (Exception admissionFailure)
         {
-            if (entry.State is BrowserScopeState.Failed || !Scopes.Contains(entry))
-                throw;
+            Task retirement;
+            lock (CacheSync)
+            {
+                if (entry.State is BrowserScopeState.Failed || !Scopes.Contains(entry))
+                    throw;
 
-            entry.Uses = 0;
-            reservation.Release();
+                entry.Uses = 0;
+                reservation.Release();
+                retirement = RetireEntryUnsafe(entry);
+            }
             try
             {
-                await RetireEntryAsync(entry).ConfigureAwait(false);
+                await retirement.ConfigureAwait(false);
             }
             catch (Exception cleanupFailure)
             {
@@ -1592,53 +1689,64 @@ internal static class BrowserPackageWorkspace
     {
         RetainPackageKeys(packageKeys);
         ScopeEntry entry = reservation.Entry;
-        if (!Scopes.Contains(entry))
+        ScopeUse? joined = null;
+        Task? duplicateRetirement = null;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "The browser scope registry reservation was retired before its workspace was "
-                + "admitted.");
+            if (!Scopes.Contains(entry)
+                || entry.RemovalRequested
+                || entry.State is not BrowserScopeState.Ready)
+            {
+                throw new InvalidOperationException(
+                    "The browser scope registry reservation was retired before its workspace was "
+                    + "admitted.");
+            }
+
+            var keyed = new KeyedScopeDemand(key);
+            if (Scopes.FirstOrDefault(candidate =>
+                    !ReferenceEquals(candidate, entry) && keyed.Joins(candidate))
+                is { } retained)
+            {
+                joined = TakeUseUnsafe(retained);
+                entry.Uses = 0;
+                reservation.Release();
+                duplicateRetirement = RetireEntryUnsafe(entry);
+            }
+            else
+            {
+                entry.Key = key;
+                entry.Scope = scope;
+                entry.PackageKeys = packageKeys;
+                entry.State = BrowserScopeState.Ready;
+                entry.LastAccess = NextClock();
+                foreach (string packageKey in packageKeys)
+                    LeasePackageUnsafe(packageKey);
+                var use = new ScopeUse(entry, packageKeys);
+                reservation.Release();
+                TouchPackagesUnsafe(packageKeys);
+                return new BrowserScopeLease<T>(scope, () => ReleaseUseAsync(use));
+            }
         }
 
-        var keyed = new KeyedScopeDemand(key);
-        if (Scopes.FirstOrDefault(candidate =>
-                !ReferenceEquals(candidate, entry) && keyed.Joins(candidate))
-            is { } retained)
+        try
         {
-            ScopeUse joined = TakeUse(retained);
-            entry.Uses = 0;
-            reservation.Release();
+            await duplicateRetirement!.ConfigureAwait(false);
+        }
+        catch (Exception cleanupFailure)
+        {
             try
             {
-                await RetireEntryAsync(entry).ConfigureAwait(false);
+                await ReleaseUseAsync(joined!.Value).ConfigureAwait(false);
             }
-            catch (Exception cleanupFailure)
+            catch (Exception releaseFailure)
             {
-                try
-                {
-                    await ReleaseUseAsync(joined).ConfigureAwait(false);
-                }
-                catch (Exception releaseFailure)
-                {
-                    throw new AggregateException(cleanupFailure, releaseFailure);
-                }
-
-                throw;
+                throw new AggregateException(cleanupFailure, releaseFailure);
             }
-            return await UseScopeAsync<T>(joined, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
 
-        entry.Key = key;
-        entry.Scope = scope;
-        entry.PackageKeys = packageKeys;
-        entry.State = BrowserScopeState.Ready;
-        entry.LastAccess = ++_clock;
-        foreach (string packageKey in packageKeys)
-            LeasePackage(packageKey);
-        var use = new ScopeUse(entry, packageKeys);
-        reservation.Release();
-        TouchPackages(packageKeys);
-        return new BrowserScopeLease<T>(scope, () => ReleaseUseAsync(use));
+            throw;
+        }
+        return await UseScopeAsync<T>(joined!.Value, CancellationToken.None)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1664,19 +1772,28 @@ internal static class BrowserPackageWorkspace
     internal static ValueTask AbandonReservationAsync(ScopeReservation reservation)
     {
         ScopeEntry entry = reservation.Entry;
-        reservation.Release();
-        if (!Scopes.Contains(entry))
-            return ValueTask.CompletedTask;
+        lock (CacheSync)
+        {
+            reservation.Release();
+            if (!Scopes.Contains(entry))
+                return ValueTask.CompletedTask;
 
-        entry.Uses = 0;
-        return new ValueTask(ObserveAsync(RetireEntryAsync(entry)));
+            entry.Uses = 0;
+            return new ValueTask(ObserveAsync(RetireEntryUnsafe(entry)));
+        }
     }
 
     /// <summary>
     /// The number of counted entries that a terminal cleanup failure left charged and unavailable.
     /// </summary>
-    internal static int QuarantinedWorkspaces =>
-        Scopes.Count(entry => entry.State is BrowserScopeState.Failed);
+    internal static int QuarantinedWorkspaces
+    {
+        get
+        {
+            lock (CacheSync)
+                return Scopes.Count(entry => entry.State is BrowserScopeState.Failed);
+        }
+    }
 
     /// <summary>
     /// Discards every quarantined entry, modelling the runtime restart the owning design names as
@@ -1685,12 +1802,15 @@ internal static class BrowserPackageWorkspace
     /// </summary>
     internal static void SimulateRuntimeRestart()
     {
-        foreach (ScopeEntry quarantined in
-            Scopes.Where(entry => entry.State is BrowserScopeState.Failed).ToArray())
+        lock (CacheSync)
         {
-            foreach (string packageKey in quarantined.PackageKeys)
-                Cache.Remove(packageKey);
-            Scopes.Remove(quarantined);
+            foreach (ScopeEntry quarantined in
+                Scopes.Where(entry => entry.State is BrowserScopeState.Failed).ToArray())
+            {
+                foreach (string packageKey in quarantined.PackageKeys)
+                    Cache.Remove(packageKey);
+                Scopes.Remove(quarantined);
+            }
         }
     }
 
@@ -1701,7 +1821,8 @@ internal static class BrowserPackageWorkspace
     internal static bool IsScopeRetained(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        return FindOpenEntry(scope) is not null;
+        lock (CacheSync)
+            return FindOpenEntryUnsafe(scope) is not null;
     }
 
     internal static BrowserScopeLease<BrowserInspectionScope> LeaseRetainedPackageScope(
@@ -1713,23 +1834,32 @@ internal static class BrowserPackageWorkspace
             "packages",
             PackageScopeCoordinateKey(PackageKey(packageId, version), framework));
         var demand = new KeyedScopeDemand(key);
-        ScopeEntry[] candidates = Scopes.Where(demand.Joins).ToArray();
-        if (candidates is not [{ Scope: BrowserInspectionScope scope }])
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                $"ContextUnavailable: the exact {packageId} {version} / {framework} workspace is not uniquely retained.");
+            ScopeEntry[] candidates = Scopes.Where(demand.Joins).ToArray();
+            if (candidates is not [{ Scope: BrowserInspectionScope scope }])
+            {
+                throw new InvalidOperationException(
+                    $"ContextUnavailable: the exact {packageId} {version} / {framework} workspace is not uniquely retained.");
+            }
+            ScopeUse use = TakeUseUnsafe(candidates[0]);
+            return new BrowserScopeLease<BrowserInspectionScope>(
+                scope,
+                () => ReleaseUseAsync(use));
         }
-        return LeaseScope(scope);
     }
 
     internal static void TouchScope(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        ScopeEntry entry = FindOpenEntry(scope)
-            ?? throw new InvalidOperationException(
-                "The browser inspection scope is no longer retained.");
-        entry.LastAccess = ++_clock;
-        TouchPackages(entry.PackageKeys);
+        lock (CacheSync)
+        {
+            ScopeEntry entry = FindOpenEntryUnsafe(scope)
+                ?? throw new InvalidOperationException(
+                    "The browser inspection scope is no longer retained.");
+            entry.LastAccess = NextClock();
+            TouchPackagesUnsafe(entry.PackageKeys);
+        }
     }
 
     /// <summary>
@@ -1740,17 +1870,20 @@ internal static class BrowserPackageWorkspace
     internal static ValueTask RemoveScopeAsync(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        ScopeEntry? entry = Scopes.FirstOrDefault(candidate =>
-            ReferenceEquals(candidate.Scope, scope));
-        if (entry is null)
-            return ValueTask.CompletedTask;
-        if (entry.Uses != 0)
+        lock (CacheSync)
         {
-            entry.RemovalRequested = true;
-            return ValueTask.CompletedTask;
-        }
+            ScopeEntry? entry = Scopes.FirstOrDefault(candidate =>
+                ReferenceEquals(candidate.Scope, scope));
+            if (entry is null)
+                return ValueTask.CompletedTask;
+            if (entry.Uses != 0)
+            {
+                entry.RemovalRequested = true;
+                return ValueTask.CompletedTask;
+            }
 
-        return new ValueTask(RetireEntryAsync(entry));
+            return new ValueTask(RetireEntryUnsafe(entry));
+        }
     }
 
     /// <summary>
@@ -1761,14 +1894,17 @@ internal static class BrowserPackageWorkspace
         where TScope : class, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(scope);
-        ScopeEntry entry = FindOpenEntry(scope)
-            ?? throw new InvalidOperationException(
-                "The browser inspection scope is no longer retained.");
-        ScopeUse use = TakeUse(entry);
-        return new BrowserScopeLease<TScope>(scope, () => ReleaseUseAsync(use));
+        lock (CacheSync)
+        {
+            ScopeEntry entry = FindOpenEntryUnsafe(scope)
+                ?? throw new InvalidOperationException(
+                    "The browser inspection scope is no longer retained.");
+            ScopeUse use = TakeUseUnsafe(entry);
+            return new BrowserScopeLease<TScope>(scope, () => ReleaseUseAsync(use));
+        }
     }
 
-    static ScopeEntry? FindOpenEntry(IAsyncDisposable scope) =>
+    static ScopeEntry? FindOpenEntryUnsafe(IAsyncDisposable scope) =>
         Scopes.FirstOrDefault(candidate =>
             candidate.State is BrowserScopeState.Ready
             && ReferenceEquals(candidate.Scope, scope));
@@ -1778,13 +1914,13 @@ internal static class BrowserPackageWorkspace
     /// recorded before the caller suspends, which is what keeps the entry — pending or ready —
     /// out of every eviction candidate set for as long as the caller needs it.
     /// </summary>
-    static ScopeUse TakeUse(ScopeEntry entry)
+    static ScopeUse TakeUseUnsafe(ScopeEntry entry)
     {
         entry.Uses++;
-        entry.LastAccess = ++_clock;
+        entry.LastAccess = NextClock();
         ImmutableHashSet<string> leased = entry.PackageKeys;
         foreach (string packageKey in leased)
-            LeasePackage(packageKey);
+            LeasePackageUnsafe(packageKey);
         return new ScopeUse(entry, leased);
     }
 
@@ -1796,18 +1932,26 @@ internal static class BrowserPackageWorkspace
     static async ValueTask ReleaseUseAsync(ScopeUse use)
     {
         ScopeEntry entry = use.Entry;
-        if (entry.Uses <= 0)
+        Task? retirement = null;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "The browser inspection scope lease is not active.");
-        }
+            if (entry.Uses <= 0)
+            {
+                throw new InvalidOperationException(
+                    "The browser inspection scope lease is not active.");
+            }
 
-        entry.Uses--;
-        try
-        {
+            entry.Uses--;
             if (entry.Uses == 0
                 && (entry.RemovalRequested || entry.State is BrowserScopeState.Pending))
-                await RetireEntryAsync(entry).ConfigureAwait(false);
+            {
+                retirement = RetireEntryUnsafe(entry);
+            }
+        }
+        try
+        {
+            if (retirement is not null)
+                await retirement.ConfigureAwait(false);
         }
         finally
         {
@@ -1883,7 +2027,7 @@ internal static class BrowserPackageWorkspace
             coordinate = new BrowserPackageCoordinate(
                 package,
                 package.CreateRootBinding(targetFramework));
-            RetainCoordinatePackages([coordinate]);
+            acquired.RetainCoordinates([coordinate]);
         }
         catch
         {
@@ -2689,40 +2833,13 @@ internal static class BrowserPackageWorkspace
             string.IsNullOrWhiteSpace(declaredRange)
                 ? "*"
                 : declaredRange);
-    static ImmutableHashSet<string> RetainCoordinatePackages(
-        IReadOnlyList<BrowserPackageCoordinate> coordinates)
+    static void RetainPackageKeys(ImmutableHashSet<string> packageKeys)
     {
-        ImmutableHashSet<string> packageKeys = coordinates
-            .Select(PackageKey)
-            .ToImmutableHashSet(StringComparer.Ordinal);
-        if (packageKeys.Count > MaxCachedPackages)
-        {
-            throw new InvalidOperationException(
-                "The requested workspace's package count exceeds the browser package-cache limit.");
-        }
-
-        foreach (BrowserPackageCoordinate coordinate in coordinates)
-        {
-            string packageKey = PackageKey(coordinate);
-            if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
-                || !ReferenceEquals(
-                    entry.Bytes,
-                    coordinate.Package.RetainedBytes)
-                || !ReferenceEquals(
-                    entry.Content.GenerationIdentity,
-                    coordinate.Package.Content.GenerationIdentity))
-            {
-                throw new InvalidOperationException(
-                    "A resolved browser package escaped aggregate cache accounting before its "
-                    + "workspace opened.");
-            }
-        }
-
-        RetainPackageKeys(packageKeys);
-        return packageKeys;
+        lock (CacheSync)
+            RetainPackageKeysUnsafe(packageKeys);
     }
 
-    static void RetainPackageKeys(ImmutableHashSet<string> packageKeys)
+    static void RetainPackageKeysUnsafe(ImmutableHashSet<string> packageKeys)
     {
         foreach (string packageKey in packageKeys)
         {
@@ -2734,7 +2851,7 @@ internal static class BrowserPackageWorkspace
             }
         }
 
-        TouchPackages(packageKeys);
+        TouchPackagesUnsafe(packageKeys);
     }
 
     /// <summary>
@@ -2742,7 +2859,7 @@ internal static class BrowserPackageWorkspace
     /// size. Callers that publish into the cache re-evaluate this after every suspension: the
     /// decision is only sound at the instant the entry is added.
     /// </summary>
-    static bool HasCacheRoom(long additionalBytes, int additionalEntries) =>
+    static bool HasCacheRoomUnsafe(long additionalBytes, int additionalEntries) =>
         Cache.Count + Reservations.Count + additionalEntries <= MaxCachedPackages
         && Cache.Values.Sum(entry => entry.Bytes.LongLength)
             + Reservations.Values.Sum(reservation => reservation.ReservedBytes)
@@ -2758,13 +2875,19 @@ internal static class BrowserPackageWorkspace
         long additionalBytes,
         int additionalEntries)
     {
-        while (!HasCacheRoom(additionalBytes, additionalEntries))
+        while (true)
         {
-            string? oldest = Cache
-                .Where(entry => !Leases.ContainsKey(entry.Key))
-                .OrderBy(entry => entry.Value.LastAccess)
-                .Select(entry => entry.Key)
-                .FirstOrDefault();
+            string? oldest;
+            lock (CacheSync)
+            {
+                if (HasCacheRoomUnsafe(additionalBytes, additionalEntries))
+                    return;
+                oldest = Cache
+                    .Where(entry => !Leases.ContainsKey(entry.Key))
+                    .OrderBy(entry => entry.Value.LastAccess)
+                    .Select(entry => entry.Key)
+                    .FirstOrDefault();
+            }
             if (oldest is null)
             {
                 throw new InvalidOperationException(
@@ -2784,62 +2907,77 @@ internal static class BrowserPackageWorkspace
     /// </summary>
     static Task EvictPackageAsync(string packageKey)
     {
-        if (PendingPackageEvictions.TryGetValue(packageKey, out Task? pending))
-            return pending;
-
-        Task eviction = EvictPackageCoreAsync(packageKey);
-        if (!eviction.IsCompleted)
+        lock (PendingPackageEvictions)
         {
-            PendingPackageEvictions[packageKey] = eviction;
-            _ = eviction.ContinueWith(
-                completed =>
-                {
-                    if (PendingPackageEvictions.TryGetValue(
-                            packageKey,
-                            out Task? current)
-                        && ReferenceEquals(current, completed))
+            if (PendingPackageEvictions.TryGetValue(packageKey, out Task? pending))
+                return pending;
+
+            Task eviction = EvictPackageCoreAsync(packageKey);
+            if (!eviction.IsCompleted)
+            {
+                PendingPackageEvictions[packageKey] = eviction;
+                _ = eviction.ContinueWith(
+                    completed =>
                     {
-                        PendingPackageEvictions.Remove(packageKey);
-                    }
+                        lock (PendingPackageEvictions)
+                        {
+                            if (PendingPackageEvictions.TryGetValue(
+                                    packageKey,
+                                    out Task? current)
+                                && ReferenceEquals(current, completed))
+                            {
+                                PendingPackageEvictions.Remove(packageKey);
+                            }
+                        }
 
-                    _ = completed.Exception;
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+                        _ = completed.Exception;
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+
+            return eviction;
         }
-
-        return eviction;
     }
 
     static async Task EvictPackageCoreAsync(string packageKey)
     {
         while (true)
         {
-            ScopeEntry? dependent = Scopes.FirstOrDefault(entry =>
-                entry.PackageKeys.Contains(packageKey));
-            if (dependent is null)
-                break;
-            if (dependent.Failure is { } failure)
-                throw new InvalidOperationException(failure.ToString());
-            if (SettlementOf(dependent) is { } settling)
+            ScopeEntry? dependent;
+            Task? settlement;
+            lock (CacheSync)
             {
-                await ObserveAsync(settling).ConfigureAwait(false);
+                dependent = Scopes.FirstOrDefault(entry =>
+                    entry.PackageKeys.Contains(packageKey));
+                if (dependent is null)
+                    break;
+                if (dependent.Failure is { } failure)
+                    throw new InvalidOperationException(failure.ToString());
+                settlement = SettlementOfUnsafe(dependent);
+                if (settlement is null)
+                {
+                    if (dependent.Uses != 0)
+                        return;
+                    settlement = RetireEntryUnsafe(dependent);
+                }
+            }
+
+            await ObserveAsync(settlement).ConfigureAwait(false);
+            lock (CacheSync)
+            {
                 if (Scopes.Contains(dependent))
                     return;
-                continue;
             }
-            if (dependent.Uses != 0)
-                return;
-
-            await ObserveAsync(RetireEntryAsync(dependent)).ConfigureAwait(false);
-            if (Scopes.Contains(dependent))
-                return;
         }
 
         // Occurrence queries can acquire an archive lease while scope retirement is suspended.
-        if (!Leases.ContainsKey(packageKey))
-            Cache.Remove(packageKey);
+        lock (CacheSync)
+        {
+            if (!Leases.ContainsKey(packageKey))
+                Cache.Remove(packageKey);
+        }
     }
 
     /// <summary>
@@ -2849,28 +2987,46 @@ internal static class BrowserPackageWorkspace
     /// still-retained artifact session has not released. Retirement is irreversible: a later
     /// request for the same coordinates opens a new entry rather than reviving this one.
     /// </summary>
-    static Task RetireEntryAsync(ScopeEntry entry)
+    static Task RetireEntryUnsafe(ScopeEntry entry)
     {
         entry.RemovalRequested = true;
         if (entry.Settlement is { } settling)
             return settling;
         if (entry.State is BrowserScopeState.Failed)
             return Task.CompletedTask;
-        if (entry.State is BrowserScopeState.Pending)
+
+        bool pending = entry.State is BrowserScopeState.Pending;
+        if (!pending)
+            entry.State = BrowserScopeState.Retiring;
+        return RecordUnsafe(entry, CompleteRetirementAsync(entry, pending));
+    }
+
+    static async Task CompleteRetirementAsync(ScopeEntry entry, bool pending)
+    {
+        // RetireEntryUnsafe publishes the one joinable settlement before cleanup invokes any
+        // external scope code or cancellation callback.
+        await Task.Yield();
+        if (!pending)
         {
-            // The construction observes the retirement at its publication point, disposes what it
-            // built, and only then completes. Awaiting it is awaiting the whole cleanup.
-            entry.ConstructionCancellation?.Cancel();
-            Task pending = entry.Construction is { } construction
-                ? AwaitConstructionRetirementAsync(entry, construction)
-                : Task.CompletedTask;
-            if (entry.Construction is null)
-                ReleaseScopeEntry(entry);
-            return Record(entry, pending);
+            await CloseEntryScopeAsync(entry).ConfigureAwait(false);
+            return;
         }
 
-        entry.State = BrowserScopeState.Retiring;
-        return Record(entry, CloseEntryScopeAsync(entry));
+        Task<IAsyncDisposable>? construction;
+        lock (CacheSync)
+        {
+            entry.ConstructionCancellation?.Cancel();
+            construction = entry.Construction;
+            if (construction is null)
+            {
+                ReleaseScopeEntryUnsafe(entry);
+                return;
+            }
+        }
+
+        // The construction observes the retirement at its publication point, disposes what it
+        // built, and only then completes. Awaiting it is awaiting the whole cleanup.
+        await AwaitConstructionRetirementAsync(entry, construction).ConfigureAwait(false);
     }
 
     static async Task AwaitConstructionRetirementAsync(
@@ -2878,11 +3034,14 @@ internal static class BrowserPackageWorkspace
         Task construction)
     {
         await ObserveAsync(construction).ConfigureAwait(false);
-        if (entry.Failure is { } failure)
-            throw new InvalidOperationException(failure.ToString());
+        lock (CacheSync)
+        {
+            if (entry.Failure is { } failure)
+                throw new InvalidOperationException(failure.ToString());
+        }
     }
 
-    static Task Record(ScopeEntry entry, Task settlement)
+    static Task RecordUnsafe(ScopeEntry entry, Task settlement)
     {
         if (settlement.IsCompleted)
         {
@@ -2894,8 +3053,11 @@ internal static class BrowserPackageWorkspace
         _ = settlement.ContinueWith(
             completed =>
             {
-                if (ReferenceEquals(entry.Settlement, completed))
-                    entry.Settlement = null;
+                lock (CacheSync)
+                {
+                    if (ReferenceEquals(entry.Settlement, completed))
+                        entry.Settlement = null;
+                }
                 _ = completed.Exception;
             },
             CancellationToken.None,
@@ -2909,7 +3071,7 @@ internal static class BrowserPackageWorkspace
     /// settles through its construction, so capacity waiters await that instead of treating a
     /// half-built workspace as free room.
     /// </summary>
-    static Task? SettlementOf(ScopeEntry entry) =>
+    static Task? SettlementOfUnsafe(ScopeEntry entry) =>
         entry.Settlement
         ?? (entry.State is BrowserScopeState.Pending && entry.Construction is { } construction
             ? ObserveAsync(construction)
@@ -2923,17 +3085,24 @@ internal static class BrowserPackageWorkspace
     /// </summary>
     static async Task CloseEntryScopeAsync(ScopeEntry entry)
     {
-        if (entry.Scope is not { } scope)
+        IAsyncDisposable? scope;
+        Action<IAsyncDisposable>? onDisposed;
+        lock (CacheSync)
         {
-            ReleaseScopeEntry(entry);
-            return;
+            scope = entry.Scope;
+            onDisposed = entry.OnDisposed;
+            if (scope is null)
+            {
+                ReleaseScopeEntryUnsafe(entry);
+                return;
+            }
         }
 
         try
         {
             try
             {
-                entry.OnDisposed?.Invoke(scope);
+                onDisposed?.Invoke(scope);
             }
             finally
             {
@@ -2942,14 +3111,16 @@ internal static class BrowserPackageWorkspace
         }
         catch (Exception cleanupFailure)
         {
-            QuarantineEntry(entry, cleanupFailure);
+            lock (CacheSync)
+                QuarantineEntryUnsafe(entry, cleanupFailure);
             throw;
         }
 
-        ReleaseScopeEntry(entry);
+        lock (CacheSync)
+            ReleaseScopeEntryUnsafe(entry);
     }
 
-    static void QuarantineEntry(ScopeEntry entry, Exception cleanupFailure)
+    static void QuarantineEntryUnsafe(ScopeEntry entry, Exception cleanupFailure)
     {
         entry.State = BrowserScopeState.Failed;
         entry.Failure = new BrowserScopeRetirementFailure(
@@ -2962,7 +3133,7 @@ internal static class BrowserPackageWorkspace
     /// Releases one entry's charge: its counted slot, its image allowance, and the archive
     /// dependency it held. Only a settled retirement reaches here.
     /// </summary>
-    static void ReleaseScopeEntry(ScopeEntry entry)
+    static void ReleaseScopeEntryUnsafe(ScopeEntry entry)
     {
         entry.Scope = null;
         Scopes.Remove(entry);
@@ -2998,48 +3169,113 @@ internal static class BrowserPackageWorkspace
             throw new InvalidOperationException(
                 "The package exceeds the browser package-cache byte limit.");
         }
-        if (Reservations.ContainsKey(packageKey))
-            throw new InvalidOperationException("The package download is already reserved.");
 
-        while (!HasCacheRoom(declaredLength, additionalEntries: 1))
+        while (true)
         {
+            lock (CacheSync)
+            {
+                if (Reservations.ContainsKey(packageKey))
+                {
+                    throw new InvalidOperationException(
+                        "The package download is already reserved.");
+                }
+                if (HasCacheRoomUnsafe(declaredLength, additionalEntries: 1))
+                {
+                    var reservation = new PackageDownloadReservation(
+                        packageKey,
+                        declaredLength);
+                    Reservations.Add(packageKey, reservation);
+                    return reservation;
+                }
+            }
+
             await MakeCacheRoomAsync(declaredLength, additionalEntries: 1)
                 .ConfigureAwait(false);
         }
-
-        if (Reservations.ContainsKey(packageKey))
-            throw new InvalidOperationException("The package download is already reserved.");
-
-        var reservation = new PackageDownloadReservation(
-            packageKey,
-            declaredLength);
-        Reservations.Add(packageKey, reservation);
-        return reservation;
     }
 
-    internal static IReadOnlyCollection<string> ResidentPackageKeys() =>
-        [.. Cache.Keys];
+    internal static IReadOnlyCollection<string> ResidentPackageKeys()
+    {
+        lock (CacheSync)
+            return [.. Cache.Keys];
+    }
 
     static void LeasePackage(string packageKey)
     {
+        lock (CacheSync)
+            LeasePackageUnsafe(packageKey);
+    }
+
+    static void LeasePackageUnsafe(string packageKey)
+    {
         if (!Cache.ContainsKey(packageKey))
-            throw new InvalidOperationException("A package must be cached before it can be leased.");
-        Leases[packageKey] = Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
+        {
+            throw new InvalidOperationException(
+                "A package must be cached before it can be leased.");
+        }
+        Leases[packageKey] =
+            Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
     }
 
     static void ReleasePackageLease(string packageKey)
     {
-        if (!Leases.TryGetValue(packageKey, out int count))
-            throw new InvalidOperationException("The package lease is not active.");
-        if (count == 1)
-            Leases.Remove(packageKey);
-        else
-            Leases[packageKey] = count - 1;
+        lock (CacheSync)
+        {
+            if (!Leases.TryGetValue(packageKey, out int count))
+                throw new InvalidOperationException("The package lease is not active.");
+            if (count == 1)
+                Leases.Remove(packageKey);
+            else
+                Leases[packageKey] = count - 1;
+        }
     }
 
     internal sealed class PackageLeaseSet : IDisposable
     {
         HashSet<string>? _packageKeys = new(StringComparer.Ordinal);
+
+        internal ImmutableHashSet<string> RetainCoordinates(
+            IReadOnlyList<BrowserPackageCoordinate> coordinates,
+            BrowserPackageWorkspaceTestHooks? testHooks = null)
+        {
+            ObjectDisposedException.ThrowIf(_packageKeys is null, this);
+            ImmutableHashSet<string> packageKeys = coordinates
+                .Select(PackageKey)
+                .ToImmutableHashSet(StringComparer.Ordinal);
+            if (packageKeys.Count > MaxCachedPackages)
+            {
+                throw new InvalidOperationException(
+                    "The requested workspace's package count exceeds the "
+                        + "browser package-cache limit.");
+            }
+
+            lock (CacheSync)
+            {
+                foreach (BrowserPackageCoordinate coordinate in coordinates)
+                {
+                    string packageKey = PackageKey(coordinate);
+                    if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
+                        || !ReferenceEquals(
+                            entry.Bytes,
+                            coordinate.Package.RetainedBytes)
+                        || !ReferenceEquals(
+                            entry.Content.GenerationIdentity,
+                            coordinate.Package.Content.GenerationIdentity))
+                    {
+                        throw new InvalidOperationException(
+                            "A resolved browser package escaped aggregate cache accounting before "
+                            + "its workspace opened.");
+                    }
+                }
+
+                testHooks?.CoordinatesValidatedBeforeConstructionLease?.Invoke();
+                foreach (string packageKey in packageKeys)
+                    LeaseUnsafe(packageKey);
+                RetainPackageKeysUnsafe(packageKeys);
+            }
+
+            return packageKeys;
+        }
 
         internal void Lease(BrowserPackageCoordinate coordinate)
         {
@@ -3051,16 +3287,23 @@ internal static class BrowserPackageWorkspace
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(packageKey);
             ObjectDisposedException.ThrowIf(_packageKeys is null, this);
-            if (!_packageKeys.Add(packageKey))
+            lock (CacheSync)
+                LeaseUnsafe(packageKey);
+        }
+
+        private void LeaseUnsafe(string packageKey)
+        {
+            HashSet<string> packageKeys = _packageKeys!;
+            if (!packageKeys.Add(packageKey))
                 return;
 
             try
             {
-                LeasePackage(packageKey);
+                LeasePackageUnsafe(packageKey);
             }
             catch
             {
-                _packageKeys.Remove(packageKey);
+                packageKeys.Remove(packageKey);
                 throw;
             }
         }
@@ -3096,22 +3339,38 @@ internal static class BrowserPackageWorkspace
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        Cache.Remove(key);
-        while (!HasCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1))
+        lock (CacheSync)
+            Cache.Remove(key);
+        while (true)
         {
+            lock (CacheSync)
+            {
+                if (HasCacheRoomUnsafe(
+                    package.RetainedBytes.LongLength,
+                    additionalEntries: 1))
+                {
+                    Cache[key] = new CacheEntry(
+                        package.RetainedBytes,
+                        package.Content,
+                        NextClock());
+                    return;
+                }
+            }
+
             await MakeCacheRoomAsync(
                     package.RetainedBytes.LongLength,
                     additionalEntries: 1)
                 .ConfigureAwait(false);
         }
-
-        Cache[key] = new CacheEntry(
-            package.RetainedBytes,
-            package.Content,
-            ++_clock);
     }
 
     static void TouchPackages(IEnumerable<string> packageKeys)
+    {
+        lock (CacheSync)
+            TouchPackagesUnsafe(packageKeys);
+    }
+
+    static void TouchPackagesUnsafe(IEnumerable<string> packageKeys)
     {
         foreach (string packageKey in packageKeys)
         {
@@ -3121,7 +3380,7 @@ internal static class BrowserPackageWorkspace
                     "An open browser workspace lost its retained package-cache entry.");
             }
 
-            Cache[packageKey] = entry with { LastAccess = ++_clock };
+            Cache[packageKey] = entry with { LastAccess = NextClock() };
         }
     }
 
@@ -3133,6 +3392,40 @@ internal static class BrowserPackageWorkspace
 
     internal static string PackageKey(string packageId, string version) =>
         Store.PackageKey(packageId, version);
+
+    internal static BrowserPackageCoordinate CoordinateFor(
+        PackageRootBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        string key = Store.PackageKey(
+            binding.Coordinate.PackageId,
+            binding.Coordinate.Version);
+        CacheEntry cached;
+        lock (CacheSync)
+        {
+            if (!Cache.TryGetValue(key, out CacheEntry? retained)
+                || !ReferenceEquals(
+                    binding.ContentGenerationIdentity,
+                    retained.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "The restored Package Root content generation is not retained "
+                        + "by the Browser package cache.");
+            }
+
+            cached = retained with { LastAccess = NextClock() };
+            Cache[key] = cached;
+        }
+
+        return new BrowserPackageCoordinate(
+            new BrowserPackage(
+                binding.Coordinate.PackageId,
+                binding.Coordinate.Version,
+                key,
+                cached.Bytes,
+                cached.Content),
+            binding);
+    }
 
     static string CoordinateKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
@@ -3208,21 +3501,28 @@ internal static class BrowserPackageWorkspace
             Action<string>? log = null)
         {
             string key = PackageKey(packageName, version);
-            if (!Cache.TryGetValue(key, out CacheEntry? entry)
-                || allowedSourceKeys is null)
-            {
-                return null;
-            }
-            string? producerKey = allowedSourceKeys.FirstOrDefault(
-                candidate => ProducerKeysMatch(
-                    entry.ProducerKey,
-                    candidate));
-            if (producerKey is null)
+            if (allowedSourceKeys is null)
                 return null;
 
-            Cache[key] = entry with { LastAccess = ++_clock };
+            InMemoryPackageContent content;
+            string? producerKey;
+            lock (CacheSync)
+            {
+                if (!Cache.TryGetValue(key, out CacheEntry? entry))
+                    return null;
+                producerKey = allowedSourceKeys.FirstOrDefault(
+                    candidate => ProducerKeysMatch(
+                        entry.ProducerKey,
+                        candidate));
+                if (producerKey is null)
+                    return null;
+
+                Cache[key] = entry with { LastAccess = NextClock() };
+                content = entry.Content;
+            }
+
             log?.Invoke($"Using cached package: {packageName} {version}");
-            return entry.Content.AsCacheHitForProducer(producerKey);
+            return content.AsCacheHitForProducer(producerKey);
         }
 
         public async ValueTask<IPackageContent> CommitAsync(
@@ -3243,12 +3543,14 @@ internal static class BrowserPackageWorkspace
             }
 
             string key = PackageKey(packageName, version);
-            if (!Reservations.TryGetValue(
-                    key,
-                    out PackageDownloadReservation? reservation))
+            PackageDownloadReservation? reservation;
+            lock (CacheSync)
             {
-                throw new InvalidOperationException(
-                    "The Browser package store requires a pre-download reservation.");
+                if (!Reservations.TryGetValue(key, out reservation))
+                {
+                    throw new InvalidOperationException(
+                        "The Browser package store requires a pre-download reservation.");
+                }
             }
 
             byte[] bytes;
@@ -3335,32 +3637,38 @@ internal static class BrowserPackageWorkspace
 
         public void Complete()
         {
-            if (_completed)
-                throw new InvalidOperationException("The package reservation is complete.");
-            if (_stagedBytes is null || _stagedContent is null)
+            lock (CacheSync)
             {
-                throw new InvalidOperationException(
-                    "The package reservation has no validated content to publish.");
-            }
+                if (_completed)
+                    throw new InvalidOperationException("The package reservation is complete.");
+                if (_stagedBytes is null || _stagedContent is null)
+                {
+                    throw new InvalidOperationException(
+                        "The package reservation has no validated content to publish.");
+                }
 
-            RemoveReservation();
-            Cache[_packageKey] = new CacheEntry(
-                _stagedBytes,
-                _stagedContent,
-                ++_clock);
-            Downloaded.Add(_packageKey);
-            _completed = true;
+                RemoveReservationUnsafe();
+                Cache[_packageKey] = new CacheEntry(
+                    _stagedBytes,
+                    _stagedContent,
+                    NextClock());
+                Downloaded.Add(_packageKey);
+                _completed = true;
+            }
         }
 
         public void Dispose()
         {
-            if (_completed)
-                return;
-            RemoveReservation();
-            _completed = true;
+            lock (CacheSync)
+            {
+                if (_completed)
+                    return;
+                RemoveReservationUnsafe();
+                _completed = true;
+            }
         }
 
-        void RemoveReservation()
+        void RemoveReservationUnsafe()
         {
             if (Reservations.TryGetValue(
                     _packageKey,
@@ -3634,6 +3942,27 @@ internal sealed class BrowserPackage
     }
 
     internal BrowserPackage(
+        string packageId,
+        string version,
+        string cacheKey,
+        byte[] retainedBytes,
+        InMemoryPackageContent content)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cacheKey);
+        ArgumentNullException.ThrowIfNull(retainedBytes);
+        ArgumentNullException.ThrowIfNull(content);
+        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        PackageId = packageId;
+        Version = version;
+        CacheKey = cacheKey;
+        RetainedBytes = retainedBytes;
+        Content = content;
+        _icon = new(ProjectIcon);
+    }
+
+    internal BrowserPackage(
         string requestedPackageId,
         AcquiredPackageSourcePayload acquiredPayload,
         byte[] retainedBytes,
@@ -3739,10 +4068,19 @@ internal sealed class BrowserPackage
     /// <see cref="ReadDocument"/>, which accepts only a path from this list, so no caller can
     /// coax an arbitrary entry — an assembly, a signature — out of the package.
     /// </summary>
-    public IReadOnlyList<BrowserPackageDocumentEntry> Documents()
+    public IReadOnlyList<BrowserPackageDocumentEntry> Documents() =>
+        ProjectDocuments(
+            Content.EnumerateEntriesWithLengths(),
+            PackageId,
+            Version);
+
+    internal static IReadOnlyList<BrowserPackageDocumentEntry> ProjectDocuments(
+        IEnumerable<PackageContentEntry> entries,
+        string packageId,
+        string version)
     {
         var documents = new List<BrowserPackageDocumentEntry>();
-        foreach (PackageContentEntry entry in Content.EnumerateEntriesWithLengths())
+        foreach (PackageContentEntry entry in entries)
         {
             string[] segments = entry.Path.Split('/');
             string fileName = segments[^1];
@@ -3758,7 +4096,7 @@ internal sealed class BrowserPackage
             if (entry.Length > MaxTextEntryBytes || entry.Length > int.MaxValue)
             {
                 throw new InvalidOperationException(
-                    $"A browsable document in {PackageId} {Version} exceeds the browser byte "
+                    $"A browsable document in {packageId} {version} exceeds the browser byte "
                     + "limit.");
             }
 
@@ -3842,10 +4180,11 @@ internal sealed class BrowserPackage
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
 
-    BrowserPackageIconPayload? ProjectIcon()
+    BrowserPackageIconPayload? ProjectIcon() =>
+        ProjectIcon(PackageIconQuery.Execute(Content, PackageId, Version));
+
+    internal static BrowserPackageIconPayload? ProjectIcon(PackageIconResult result)
     {
-        PackageIconResult result =
-            PackageIconQuery.Execute(Content, PackageId, Version);
         if (result is not PackageIconResult.Available available)
             return null;
 
@@ -3894,10 +4233,13 @@ internal sealed class BrowserPackageCoordinate
             || !package.Version.Equals(
                 binding.Coordinate.Version,
                 StringComparison.OrdinalIgnoreCase)
-            || !binding.Root.ReferencesContent(package.Content))
+            || !ReferenceEquals(
+                binding.ContentGenerationIdentity,
+                package.Content.GenerationIdentity))
         {
             throw new ArgumentException(
-                "The product package Root binding does not describe the acquired Browser package.",
+                "The product package Root binding does not describe the "
+                    + "acquired Browser package generation.",
                 nameof(binding));
         }
 

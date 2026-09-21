@@ -413,6 +413,12 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     .toHaveClass(/content-navigation-integrated/);
   await expect(page.locator(".package-dependencies-surface-head h1"))
     .toHaveText("Dependencies");
+  await expect(page.locator(
+    ".package-dependencies-controls #package-version")).toBeVisible();
+  await expect(page.locator(
+    ".package-dependencies-controls #framework")).toHaveCount(0);
+  await expect(page.locator('[data-package-framework="net10.0"]'))
+    .toHaveAttribute("aria-current", "page");
   const packageDependenciesFooter = await box(
     page,
     ".package-dependencies-surface-footer");
@@ -511,16 +517,16 @@ for (const [subject, width] of [
       "System.Text.Json@10.0.0", "net10.0",
     ]);
     if (subject === "package") {
-      const inventory = await box(page, ".package-overview-inventory");
+      const summary = await box(page, ".package-overview-summary");
       const resources = await box(page, ".package-overview-resources");
       if (width === 1440) {
         expect(resources.x).toBeGreaterThanOrEqual(
-          inventory.x + inventory.width);
-        expect(resources.y).toBeCloseTo(inventory.y, 0);
+          summary.x + summary.width);
+        expect(resources.y).toBeCloseTo(summary.y, 0);
       } else {
-        expect(resources.x).toBeCloseTo(inventory.x, 0);
+        expect(resources.x).toBeCloseTo(summary.x, 0);
         expect(resources.y).toBeGreaterThanOrEqual(
-          inventory.y + inventory.height);
+          summary.y + summary.height);
       }
       await expect(page.locator(".package-overview-resources")).toContainText(
         "Comparison targets");
@@ -533,8 +539,10 @@ for (const [subject, width] of [
         ]);
       await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
       await expect(page.locator("#package-version")).toHaveValue("9.0.0");
-      await page.getByRole("combobox", { name: "Framework", exact: true }).selectOption("net10.0-windows10.0.19041.0");
-      await expect(page.locator("#framework")).toHaveValue("net10.0-windows10.0.19041.0");
+      await expect(page.getByRole("combobox", { name: "Framework", exact: true }))
+        .toHaveCount(0);
+      await expect(page.locator('[data-package-framework="net10.0"]'))
+        .toHaveAttribute("aria-current", "page");
     } else {
       await expect(page.locator(".overview-controls")).toHaveCount(0);
       await expect(page.locator(".overview-identity-detail")).toHaveText([
@@ -584,8 +592,8 @@ for (const [subject, width] of [
       const toggle = await box(page, "#content-navigation-toggle");
       expect(toggle.y).toBeGreaterThanOrEqual(header.y);
       expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
-      await page.getByRole("button", { name: subject === "package" ? "Libraries" : "Types", exact: true }).click();
-      await expect(page.locator(subject === "package" ? ".library-subject-list" : ".type-list")).toBeFocused();
+      await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Libraries", exact: true }).click();
+      await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
     }
   });
@@ -648,18 +656,18 @@ test("Package Overview resources retain focus across allocation changes", async 
   await page.setViewportSize({ width: 800, height: 900 });
   await expect(document).toBeFocused();
 
-  const inventory = await box(page, ".package-overview-inventory");
+  const summary = await box(page, ".package-overview-summary");
   const resources = await box(page, ".package-overview-resources");
-  expect(resources.y).toBeGreaterThanOrEqual(inventory.y + inventory.height);
+  expect(resources.y).toBeGreaterThanOrEqual(summary.y + summary.height);
 
   const diffTarget = page.locator("#package-diff-target");
   await diffTarget.focus();
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(diffTarget).toBeFocused();
-  const wideInventory = await box(page, ".package-overview-inventory");
+  const wideSummary = await box(page, ".package-overview-summary");
   const wideResources = await box(page, ".package-overview-resources");
   expect(wideResources.x).toBeGreaterThanOrEqual(
-    wideInventory.x + wideInventory.width);
+    wideSummary.x + wideSummary.width);
 });
 
 test("Member Facts presents a compact summary separate from member identity", async ({
@@ -1806,7 +1814,9 @@ test("the inspected target occupies the second row and package selectors stay in
   await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
   await expect(page.locator(".titlebar #framework")).toHaveCount(0);
   await expect(page.locator(".detail-scroll #package-version")).toBeVisible();
-  await expect(page.locator(".detail-scroll #framework")).toBeVisible();
+  await expect(page.locator(".detail-scroll #framework")).toHaveCount(0);
+  await expect(page.locator('[data-package-framework="net10.0"]'))
+    .toHaveAttribute("aria-current", "page");
   await expect(page.locator("#go-home")).toHaveCount(0);
 
   const packageIcon = await box(page, ".subject-icon");

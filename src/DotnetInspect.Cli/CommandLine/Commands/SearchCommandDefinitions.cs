@@ -609,6 +609,16 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched dependency envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+        var outOption = SharedOptions.CreateOutputPathOption();
+#endif
 
         depthOption.Validators.Add(result =>
         {
@@ -634,6 +644,13 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
         dependsCommand.Options.Add(shareOption);
+#if DEBUG
+        dependsCommand.Options.Add(evidenceEnvelopeOption);
+        dependsCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(
+            dependsCommand,
+            outOption);
+#endif
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
@@ -644,6 +661,9 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(opts.Effective);
         opts.AddCountOptionTo(dependsCommand);
         opts.AddOutputOptionsTo(dependsCommand);
+        dependsCommand.Options.Add(opts.RowWhere);
+        dependsCommand.Options.Add(opts.RowOrderBy);
+        dependsCommand.Options.Add(opts.PerformanceTriageTop);
         opts.AddNuGetOptionsTo(dependsCommand);
         opts.AddEnvelopeOptionTo(
             dependsCommand,
@@ -673,10 +693,46 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
-            if (result.GetValue(opts.Envelope) && !typeMode)
+#if DEBUG
+            bool evidenceEnvelope =
+                result.GetResult(evidenceEnvelopeOption)
+                    is { Implicit: false };
+            if (evidenceEnvelope && typeMode)
+            {
+                result.AddError(
+                    "--evidence-envelope is supported only by asset-mode depends.");
+            }
+            if (evidenceEnvelope
+                && (result.GetResult(opts.Discover)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Schema)
+                    || result.GetValue(opts.Effective)))
+            {
+                result.AddError(
+                    "--evidence-envelope requires an asset dependency inspection, not discovery or schema output.");
+            }
+            if (result.GetResult(outOption) is { Implicit: false }
+                && !evidenceEnvelope)
+            {
+                result.AddError(
+                    "--out is supported by asset-mode depends only with --evidence-envelope.");
+            }
+#else
+            const bool evidenceEnvelope = false;
+#endif
+            if (result.GetValue(opts.Envelope)
+                && !typeMode
+                && !evidenceEnvelope)
             {
                 result.AddError(
                     "--envelope currently requires a positional type in depends.");
+            }
+            if (evidenceEnvelope
+                && !typeMode
+                && result.GetValue(opts.Envelope))
+            {
+                RejectAssetEnvelopeRowOption(opts.Rows, "--rows");
+                RejectAssetEnvelopeRowOption(opts.Limit, "-n");
             }
             bool effective = result.GetValue(opts.Effective);
             bool discovery =
@@ -745,6 +801,17 @@ public static class SearchCommandDefinitions
                 if (result.GetResult(option) is { Implicit: false })
                     result.AddError($"{name} is available only with a positional type.");
             }
+
+            void RejectAssetEnvelopeRowOption(
+                Option option,
+                string name)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {name} for asset dependency inspection.");
+                }
+            }
         });
 
         dependsCommand.SetAction(async (parseResult, ct) =>
@@ -755,14 +822,72 @@ public static class SearchCommandDefinitions
             var projects = parseResult.GetValue(projectOption) ?? [];
             OutputFormat outputFormat = opts.ResolveFormat(parseResult);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
-            RowQueryIntent typeDependencyRowQuery =
-                string.IsNullOrEmpty(targetType)
-                    ? RowQueryIntent.Empty
-                    : ParseTypeDependencyRows(
+            if (!CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
                         parseResult,
-                        opts);
+                        "Dependency",
+                        out RowSelectionIntent<string>? rowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+            RowSelectionIntent<string>? dependencyRowSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    rowSelection,
+                    out int? legacyHierarchyWindowStageIndex);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
+#if DEBUG
+            string? evidenceEnvelopePath = null;
+            string? outputPath = null;
+            if (parseResult.GetResult(evidenceEnvelopeOption)
+                is { Implicit: false })
+            {
+                string requestedEvidencePath =
+                    parseResult.GetValue(evidenceEnvelopeOption)!;
+                if (!EvidenceEnvelopeOutput.TryResolvePath(
+                        requestedEvidencePath,
+                        out evidenceEnvelopePath,
+                        out string? pathError))
+                {
+                    CommandError.Write(pathError!);
+                    return 1;
+                }
+
+                string? requestedOutputPath =
+                    parseResult.GetValue(outOption);
+                if (requestedOutputPath is not null)
+                {
+                    try
+                    {
+                        outputPath = Path.GetFullPath(requestedOutputPath);
+                    }
+                    catch (Exception exception)
+                        when (exception is ArgumentException
+                            or NotSupportedException
+                            or PathTooLongException)
+                    {
+                        CommandError.Write("--out requires a valid file path.");
+                        return 1;
+                    }
+
+                    if (EvidenceEnvelopeOutput.PathsMayIdentifySameFile(
+                            evidenceEnvelopePath,
+                            outputPath))
+                    {
+                        CommandError.Write(
+                            "--out and --evidence-envelope must name distinct files.");
+                        return 1;
+                    }
+                }
+            }
+#else
+            const string? evidenceEnvelopePath = null;
+            const string? outputPath = null;
+#endif
             bool hasNonPackageShareInput =
                 !string.IsNullOrEmpty(targetType)
                 || packages.Length != 1
@@ -827,6 +952,18 @@ public static class SearchCommandDefinitions
                         "depends --package-prefix Microsoft.Extensions",
                         "depends --help");
                 }
+                if (!DependencyQueryOptions.TryResolve(
+                        DependencyQueryRouteKind.AssetHierarchy,
+                        parseResult.GetValue(opts.RowWhere) ?? [],
+                        parseResult.GetValue(opts.RowOrderBy),
+                        dependencyRowSelection,
+                        parseResult.GetValue(depthOption),
+                        out DependencyQueryPlan queryPlan,
+                        out OptionError queryError))
+                {
+                    CommandError.Write(queryError);
+                    return 1;
+                }
                 var commonOptions = new DependsOptions
                 {
                     AssetRoots = assetRoots,
@@ -836,7 +973,10 @@ public static class SearchCommandDefinitions
                         parseResult.GetValue(previewOption),
                     MaxPackages =
                         parseResult.GetValue(maxPackagesOption),
-                    Depth = parseResult.GetValue(depthOption),
+                    Depth = queryPlan.MaximumDepth,
+                    QueryPlan = queryPlan,
+                    LegacyHierarchyWindowStageIndex =
+                        legacyHierarchyWindowStageIndex,
                     Tfm = parseResult.GetValue(tfmOption),
                     PruningPlatformFamily =
                         parseResult.GetValue(pruningPlatformFamilyOption),
@@ -847,6 +987,10 @@ public static class SearchCommandDefinitions
                         : null,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
+                    EnvelopeOutput =
+                        parseResult.GetValue(opts.Envelope),
+                    EvidenceEnvelopePath = evidenceEnvelopePath,
+                    OutputPath = outputPath,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -901,6 +1045,18 @@ public static class SearchCommandDefinitions
             {
                 return 1;
             }
+            if (!DependencyQueryOptions.TryResolve(
+                    DependencyQueryRouteKind.TypeRelationships,
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    parseResult.GetValue(opts.RowOrderBy),
+                    dependencyRowSelection,
+                    parseResult.GetValue(depthOption),
+                    out DependencyQueryPlan typeQueryPlan,
+                    out OptionError typeQueryError))
+            {
+                CommandError.Write(typeQueryError);
+                return 1;
+            }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var intent = SearchSourceAdapter.Declare(
@@ -919,7 +1075,8 @@ public static class SearchCommandDefinitions
                 PlatformFrameworks = [.. sources.PlatformFrameworks],
                 Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
-                Depth = parseResult.GetValue(depthOption),
+                Depth = typeQueryPlan.MaximumDepth,
+                QueryPlan = typeQueryPlan,
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
@@ -929,7 +1086,8 @@ public static class SearchCommandDefinitions
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Rows = rows,
-                TypeDependencyRowQuery = typeDependencyRowQuery,
+                TypeDependencyRowQuery =
+                    typeQueryPlan.RelationshipRows,
                 Count = parseResult.GetValue(opts.Count),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
@@ -966,13 +1124,23 @@ public static class SearchCommandDefinitions
             {
                 Hidden = true,
             };
+        var legacyDependsHead =
+            new Option<bool>("--unavailable-depends-semantic-head")
+            {
+                Hidden = true,
+            };
+        var legacyDependsTail =
+            new Option<bool>("--unavailable-depends-semantic-tail")
+            {
+                Hidden = true,
+            };
         CliRowSelectionCommandRegistry.Register(
             dependsCommand,
             new(
                 opts.Limit,
                 legacyDependsRows,
-                top: null,
-                orderBy: null,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
                 opts.Head,
                 opts.Tail,
                 opts.Lines,
@@ -980,7 +1148,84 @@ public static class SearchCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            isActive: static _ => true,
+            isActive: result =>
+                string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                legacyDependsHead,
+                legacyDependsTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.All,
+            isActive: result =>
+                !string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && !(result.GetResult(opts.Rows)
+                        is { Implicit: false }
+                    && result.GetResult(opts.Limit)
+                        is not { Implicit: false }),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                opts.PerformanceTriageTop,
+                opts.RowOrderBy,
+                legacyDependsHead,
+                legacyDependsTail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.All,
+            isActive: result =>
+                !string.IsNullOrEmpty(
+                    result.GetValue(targetTypeArg))
+                && result.GetResult(opts.Rows)
+                    is { Implicit: false }
+                && result.GetResult(opts.Limit)
+                    is not { Implicit: false },
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -1052,73 +1297,6 @@ public static class SearchCommandDefinitions
         return parseResult.GetValue(opts.Tail)
             ? RowWindow.Tail(count)
             : RowWindow.Head(count);
-    }
-
-    private static RowQueryIntent
-        ParseTypeDependencyRows(
-        ParseResult parseResult,
-        SharedOptions opts)
-    {
-        string? rows = parseResult.GetValue(opts.Rows);
-        if (rows is not null)
-        {
-            if (!RowSpec.TryParse(
-                    rows,
-                    out RowSpec spec,
-                    out string? error))
-            {
-                throw new RowWindowValidationException(
-                    $"--rows {error}");
-            }
-
-            RowSelectionIntentOperation<RowQueryOrderIntent>
-                operation =
-                    spec.Kind switch
-                    {
-                        RowSpecKind.Count
-                            when parseResult.GetValue(opts.Tail) =>
-                            RowSelectionIntentOperation<
-                                RowQueryOrderIntent>.Tail(
-                                    spec.Count),
-                        RowSpecKind.Count =>
-                            RowSelectionIntentOperation<
-                                RowQueryOrderIntent>.Head(
-                                    spec.Count),
-                        RowSpecKind.Range =>
-                            RowSelectionIntentOperation<
-                                RowQueryOrderIntent>.Window(
-                                    spec.Start,
-                                    spec.End),
-                        _ => throw new InvalidOperationException(
-                            "Unsupported type-dependency row selection."),
-                    };
-            return RowQueryIntent.Create(
-                [],
-                baselineOrder: null,
-                RowSelectionIntent<RowQueryOrderIntent>.Create(
-                    [operation]));
-        }
-
-        if (UsesRenderedLineSelection(parseResult, opts))
-            return RowQueryIntent.Empty;
-
-        if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
-            || parseResult.GetValue(opts.Limit) is not int count)
-        {
-            return RowQueryIntent.Empty;
-        }
-
-        return RowQueryIntent.Create(
-            [],
-            baselineOrder: null,
-            RowSelectionIntent<RowQueryOrderIntent>.Create(
-                [
-                    parseResult.GetValue(opts.Tail)
-                        ? RowSelectionIntentOperation<
-                            RowQueryOrderIntent>.Tail(count)
-                        : RowSelectionIntentOperation<
-                            RowQueryOrderIntent>.Head(count),
-                ]));
     }
 
     private static bool UsesRenderedLineSelection(

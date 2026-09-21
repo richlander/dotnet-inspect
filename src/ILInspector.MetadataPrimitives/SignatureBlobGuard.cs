@@ -25,6 +25,13 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class SignatureBlobGuard
 {
+    internal enum CompleteValidationKind
+    {
+        Valid,
+        DepthBudgetExceeded,
+        Malformed,
+    }
+
     /// <summary>
     /// Maximum structural type-nesting depth allowed before a signature is treated as unsafe to
     /// decode. Real signatures nest only a handful of levels deep (CoreLib's deepest is in the
@@ -69,7 +76,12 @@ public static class SignatureBlobGuard
         try
         {
             SignatureBlobGuardMeasurements measurements = default;
-            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements);
+            return !ExceedsDepth(
+                ref blob,
+                kind,
+                maxDepth,
+                ref measurements,
+                out _);
         }
         catch (BadImageFormatException)
         {
@@ -108,7 +120,12 @@ public static class SignatureBlobGuard
         measurements = default;
         try
         {
-            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements)
+            return !ExceedsDepth(
+                    ref blob,
+                    kind,
+                    maxDepth,
+                    ref measurements,
+                    out _)
                 && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
@@ -132,6 +149,41 @@ public static class SignatureBlobGuard
                 kind,
                 maxDepth);
 
+    internal static CompleteValidationKind ValidateComplete(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        int maxDepth = DefaultMaxDepth)
+    {
+        if (signature.IsNil)
+            return CompleteValidationKind.Malformed;
+
+        BlobReader blob = reader.GetBlobReader(signature);
+        try
+        {
+            SignatureBlobGuardMeasurements measurements = default;
+            if (ExceedsDepth(
+                    ref blob,
+                    kind,
+                    maxDepth,
+                    ref measurements,
+                    out bool depthBudgetExceeded))
+            {
+                return depthBudgetExceeded
+                    ? CompleteValidationKind.DepthBudgetExceeded
+                    : CompleteValidationKind.Malformed;
+            }
+
+            return blob.RemainingBytes == 0
+                ? CompleteValidationKind.Valid
+                : CompleteValidationKind.Malformed;
+        }
+        catch (BadImageFormatException)
+        {
+            return CompleteValidationKind.Malformed;
+        }
+    }
+
     internal static bool IsSafeAndCompleteToDecode(
         MetadataReader reader,
         BlobHandle signature,
@@ -149,8 +201,10 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Kind kind,
         int maxDepth,
-        ref SignatureBlobGuardMeasurements measurements)
+        ref SignatureBlobGuardMeasurements measurements,
+        out bool depthBudgetExceeded)
     {
+        depthBudgetExceeded = false;
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
         // Every Type work item consumes at least one blob byte, and count-driven pushes are bounded
@@ -172,7 +226,10 @@ public static class SignatureBlobGuard
             {
                 case Op.Type:
                     if (item.Depth > maxDepth)
+                    {
+                        depthBudgetExceeded = true;
                         return true;
+                    }
                     if (ReadType(
                             ref blob,
                             item.Depth,
@@ -183,7 +240,10 @@ public static class SignatureBlobGuard
 
                 case Op.MethodParameter:
                     if (item.Depth > maxDepth)
+                    {
+                        depthBudgetExceeded = true;
                         return true;
+                    }
                     if (ReadMethodParameter(
                             ref blob,
                             item,
@@ -193,7 +253,10 @@ public static class SignatureBlobGuard
                     break;
 
                 case Op.ArrayShape:
-                    if (SkipArrayShape(ref blob, ref remainingTypeNodes, ref measurements))
+                    if (SkipArrayShape(
+                            ref blob,
+                            ref remainingTypeNodes,
+                            ref measurements))
                         return true;
                     break;
             }
@@ -258,16 +321,16 @@ public static class SignatureBlobGuard
 
             case Kind.MethodSpecification:
             case Kind.LocalVariables:
-            {
-                blob.ReadSignatureHeader();
-                int count = blob.ReadCompressedInteger();
-                return PushTypes(
-                    work,
-                    count,
-                    1,
-                    ref blob,
-                    ref remainingTypeNodes);
-            }
+                {
+                    blob.ReadSignatureHeader();
+                    int count = blob.ReadCompressedInteger();
+                    return PushTypes(
+                        work,
+                        count,
+                        1,
+                        ref blob,
+                        ref remainingTypeNodes);
+                }
 
             case Kind.Method:
             case Kind.StandaloneMethod:
@@ -395,24 +458,24 @@ public static class SignatureBlobGuard
                     ref remainingTypeNodes);
 
             case ElementTypeGenericInst:
-            {
-                // GENERICINST (CLASS|VALUETYPE) TypeToken GenArgCount Type*.
-                // SRM decodes that first slot as a full Type. ECMA-335 II.23.2.12
-                // permits only CLASS or VALUETYPE there; anything else desynchronizes
-                // this walk from SRM and can smuggle a later FNPTR header or
-                // ARRAY-shape count past the dedicated bounds.
-                byte genericTypeCode = blob.ReadByte();
-                if (genericTypeCode is not (ElementTypeClass or ElementTypeValueType))
-                    return true;
-                blob.ReadTypeHandle();
-                int args = blob.ReadCompressedInteger();
-                return PushTypes(
-                    work,
-                    args,
-                    depth + 1,
-                    ref blob,
-                    ref remainingTypeNodes);
-            }
+                {
+                    // GENERICINST (CLASS|VALUETYPE) TypeToken GenArgCount Type*.
+                    // SRM decodes that first slot as a full Type. ECMA-335 II.23.2.12
+                    // permits only CLASS or VALUETYPE there; anything else desynchronizes
+                    // this walk from SRM and can smuggle a later FNPTR header or
+                    // ARRAY-shape count past the dedicated bounds.
+                    byte genericTypeCode = blob.ReadByte();
+                    if (genericTypeCode is not (ElementTypeClass or ElementTypeValueType))
+                        return true;
+                    blob.ReadTypeHandle();
+                    int args = blob.ReadCompressedInteger();
+                    return PushTypes(
+                        work,
+                        args,
+                        depth + 1,
+                        ref blob,
+                        ref remainingTypeNodes);
+                }
 
             case ElementTypeFnPtr:
                 // FNPTR MethodSig: its return type and parameters are the children.

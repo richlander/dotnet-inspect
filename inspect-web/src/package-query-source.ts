@@ -108,6 +108,7 @@ function toQueryPreset(
     summary: descriptor.summary,
     weight: descriptor.weight,
     tier: toInspectionTier(descriptor.tier),
+    executionClass: toExecutionClass(descriptor.executionClass),
     selectionGroupId: descriptor.selectionGroupId,
     combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
     replacementGroupId: descriptor.replacementGroupId,
@@ -125,6 +126,7 @@ function toQueryTermDescriptor(
     summary: descriptor.summary,
     weight: descriptor.weight,
     tier: toInspectionTier(descriptor.tier),
+    executionClass: toExecutionClass(descriptor.executionClass),
     operators: [...descriptor.operators],
     valueKind: descriptor.valueKind,
     example: descriptor.example,
@@ -858,6 +860,7 @@ function failureKindValue(
     case "InvalidManifest":
     case "PackageContentAcquisition":
     case "PackageContentEvaluation":
+    case "DependencyTraversal":
     case "AssemblyAcquisition":
     case "AssemblyEvaluation":
       return value;
@@ -932,6 +935,7 @@ function progressPhaseValue(
     case "Search":
     case "Manifest":
     case "PackageContent":
+    case "DependencyTraversal":
     case "Assembly":
       return value;
     default:
@@ -1002,6 +1006,9 @@ function toQueryProgress(
       break;
     case "PackageContent":
       phase = "package-content";
+      break;
+    case "DependencyTraversal":
+      phase = "dependency-traversal";
       break;
     case "Assembly":
       phase = "assembly";
@@ -1095,6 +1102,28 @@ function toInspectionTier(
     default:
       throw new TypeError(
         `Unsupported package-query tier '${String(tier)}'.`);
+  }
+}
+
+function toExecutionClass(
+  executionClass: BrowserPackageQueryPresetDescriptor["executionClass"],
+): QueryPreset["executionClass"] {
+  switch (executionClass) {
+    case "SearchMetadata":
+      return "search-metadata";
+    case "Nuspec":
+      return "nuspec";
+    case "NuspecExpensive":
+      return "nuspec-expensive";
+    case "PackageContent":
+      return "package-content";
+    case "Metadata":
+      return "metadata";
+    case "MetadataExpensive":
+      return "metadata-expensive";
+    default:
+      throw new TypeError(
+        `Unsupported package-query execution class '${String(executionClass)}'.`);
   }
 }
 

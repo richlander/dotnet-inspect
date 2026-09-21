@@ -228,6 +228,68 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
+        QueryPlatformMemberDocumentation_UsesSharedPlatformContract()
+    {
+        CompiledDocumentationOutcome outcome =
+            await QueryPlatformMemberDocumentationAsync(
+                "11.0.7146",
+                includeDocumentation: true);
+
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                outcome);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Platform,
+            available.Source.Kind);
+        Assert.Equal(
+            "Reads documentation from a non-public type.",
+            available.Documentation.Summary);
+        string json = JsonSerializer.Serialize(
+            outcome,
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            ["documentation", "kind", "source", "subject"],
+            document.RootElement.EnumerateObject()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.True(
+            json.Length <= 4_096,
+            $"Platform documentation JSON was {json.Length} UTF-16 code units.");
+    }
+
+    [Fact]
+    public async Task
+        QueryPlatformMemberDocumentation_MissingCompanionIsAuthoritativeAbsence()
+    {
+        CompiledDocumentationOutcome outcome =
+            await QueryPlatformMemberDocumentationAsync(
+                "11.0.7147",
+                includeDocumentation: false);
+
+        var absent =
+            Assert.IsType<CompiledDocumentationOutcome.Absent>(
+                outcome);
+        CompiledDocumentationSourceEvidence source =
+            Assert.Single(absent.Sources);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Platform,
+            source.Source.Kind);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Absent,
+            source.Kind);
+        string json = JsonSerializer.Serialize(
+            outcome,
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
+        Assert.True(
+            json.Length <= 1_024,
+            $"Platform absence JSON was {json.Length} UTF-16 code units.");
+    }
+
+    [Fact]
+    public async Task
         QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable()
     {
         const string packageId =
@@ -427,6 +489,79 @@ public sealed partial class BrowserEngineBoundaryTests
                 declaredRange: "2.*"));
     }
 
+    private static async Task<CompiledDocumentationOutcome>
+        QueryPlatformMemberDocumentationAsync(
+            string version,
+            bool includeDocumentation)
+    {
+        const string assembly =
+            "InspectWeb.DocumentationFixtures.dll";
+        byte[] assemblyBytes = File.ReadAllBytes(
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath());
+        var referenceEntries =
+            new List<(string Path, byte[] Content)>
+            {
+                ($"ref/net11.0/{assembly}", assemblyBytes),
+            };
+        if (includeDocumentation)
+        {
+            referenceEntries.Add(
+                (
+                    "ref/net11.0/InspectWeb.DocumentationFixtures.xml",
+                    File.ReadAllBytes(
+                        FixtureCatalog.InspectWebDocumentation.AssetPath(
+                            "documentation"))));
+        }
+        byte[] referencePackage =
+            PackageEntries([.. referenceEntries]);
+        var packages =
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] =
+                    PlatformPackage((assembly, assemblyBytes)),
+                ["microsoft.netcore.app.ref"] =
+                    referencePackage,
+            };
+        var workspaceHandler =
+            new MultiplePlatformVersionHandler(version, packages);
+        using var workspaceClient = new HttpClient(workspaceHandler);
+        PackageSourceAuthorization authorized =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        var sourceAuthorization =
+            new FixedPackageSourceAuthorization(authorized);
+        using IPackageSourceClient packageClient =
+            PackageSourceClientFactory.CreateGallery(
+                authorized.Authorities[0].Association,
+                new GalleryPackageHandler(
+                    "microsoft.netcore.app.ref",
+                    version,
+                    referencePackage));
+
+        return await BrowserPlatformWorkspace
+            .QueryMemberDocumentationAsync(
+                "net11.0",
+                version,
+                assembly,
+                "netcore.app",
+                "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                workspaceClient,
+                packageClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
+    }
+
+    private sealed class FixedPackageSourceAuthorization(
+        PackageSourceAuthorization authorization) :
+        IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            authorization;
+    }
+
     [Fact]
     public void DependencyCoordinateMatch_PreservesProductOwnedProvenanceAndCardinality()
     {
@@ -579,8 +714,8 @@ public sealed partial class BrowserEngineBoundaryTests
             "Identity.Collision.B",
             Package(image, "lib/net11.0/Identity.Collision.B.dll"));
 
-        InvalidOperationException failure =
-            await Assert.ThrowsAsync<InvalidOperationException>(
+        PackageAssemblyRoleCorrespondenceException failure =
+            await Assert.ThrowsAsync<PackageAssemblyRoleCorrespondenceException>(
                 async () => await BrowserInspectionScope.CreateAsync(
                     [first, second],
                     TestContext.Current.CancellationToken));
@@ -1216,6 +1351,51 @@ public sealed partial class BrowserEngineBoundaryTests
             inspectionError,
             StringComparison.Ordinal);
         Assert.Equal(surface.InspectionError, inspectionError);
+    }
+
+    [Fact]
+    public async Task QueryLibraries_UsesTransportAdmittedSurfacePopulation()
+    {
+        const string packageId = "Library.Query.Transport.Truncation";
+        byte[] oversized = BuildTransportAmplificationImage(
+            "A.Oversized",
+            typeCount: 10_000,
+            namespaceLength: 1_000);
+        byte[] matching = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                ("lib/net11.0/A.Oversized.dll", oversized),
+                ("lib/net11.0/Z.Match.dll", matching)));
+
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
+        string json = await PackageExports.QueryLibraries(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            JsonSerializer.Serialize(
+                surface.Assemblies.Select(assembly => assembly.Id).ToArray(),
+                BrowserPackageJsonContext.Default.StringArray),
+            """["System.Runtime"]""");
+        BrowserLibraryQueryInspection query =
+            Assert.IsType<BrowserLibraryQueryInspection>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserPackageJsonContext.Default
+                        .BrowserLibraryQueryInspection));
+
+        Assert.Empty(surface.Assemblies);
+        Assert.Contains(
+            "truncated",
+            surface.InspectionError,
+            StringComparison.Ordinal);
+        Assert.Empty(query.Content.Results);
+        Assert.Equal(0, query.Content.Summary.PopulationCandidates);
+        Assert.True(query.Content.Summary.IsComplete);
     }
 
     [Fact]

@@ -4,6 +4,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -113,7 +114,6 @@ public partial record ApiOptions : IProjectionOptions
     /// When false, the command decides the default based on context.
     /// </summary>
     public bool DocsExplicitlySet { get; init; }
-    public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
     public bool PreferRenderedUrls { get; init; }
 
@@ -208,7 +208,6 @@ public partial record ApiOptions : IProjectionOptions
     /// establishes whether an explicit-source target is a type or member.
     /// </summary>
     public bool ShapeOutput { get; init; }
-    public bool ShapeExplicitlySet { get; init; }
     public string[]? Select { get; init; }
 
     /// <summary>
@@ -246,6 +245,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
+    public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
@@ -313,6 +313,7 @@ public record TypeOptions : ApiOptions
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
+    public bool EnvelopeOutput { get; init; }
     public RowSelectionIntent<string>? TypeListingRowSelection { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
@@ -322,12 +323,12 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
     /// </summary>
-    public bool IsDefaultInvocation => !FormatExplicitlySet && !ShapeExplicitlySet;
+    public bool IsDefaultInvocation => !FormatExplicitlySet;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput => Bare || JsonOutput || EnvelopeOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
 }
 
 /// <summary>
@@ -336,12 +337,17 @@ public record TypeOptions : ApiOptions
 public record MemberOptions : ApiOptions
 {
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
+    internal RowSelectionIntent<string>? CallRowSelection { get; init; }
+    internal RowSelectionIntent<string>? CallerRowSelection { get; init; }
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
     internal bool UrlPreferenceExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
+    public bool SourceParts { get; init; }
+    public MemberSourcePartKind? SourcePart { get; init; }
+    internal IReadOnlyDictionary<ApiMember, MemberSourceObservation>? SourceLocationMappings { get; init; }
 
     /// <summary>
     /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
@@ -366,6 +372,12 @@ public record MemberOptions : ApiOptions
     public MethodSourceContext? MethodSource { get; init; }
     public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
     public InspectionEnvelope<AssemblyMemberSourceComparisonEntry>? MemberSourceComparisonInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+        MemberDecompilationInspection
     {
         get;
         init;

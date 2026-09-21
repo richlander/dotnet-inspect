@@ -15,32 +15,35 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
-    public async Task ReferenceTreeCountRejectsUndefinedLowering_WhilePackageScalarIgnoresTreePresentation()
+    public async Task ReferenceHierarchyCountUsesSemanticRows_WhilePackageScalarIgnoresTreePresentation()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
                 "library", "System.Text.Json",
-                "-S", "References", "--count", "--tree", "--depth", "2",
+                "-S", "Reference Hierarchy", "--count", "--depth", "2",
                 "--tips", "q");
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
-                "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+                "-S", "Target Frameworks", "--count", "--tips", "q");
             var (multiPackageExit, multiPackageOutput, multiPackageError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,
-                    "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+                    "-S", "Target Frameworks", "--count", "--tips", "q");
             var (mapExit, mapOutput, mapError) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info,Target Frameworks",
-                "--count", "--tree", "--tips", "q");
+                "--count", "--tips", "q");
 
-            Assert.Equal(1, libraryExit);
-            Assert.Empty(libraryOutput);
-            Assert.Contains(
-                "reference tree does not declare countable row semantics",
-                libraryError);
+            Assert.Equal(0, libraryExit);
+            Assert.True(
+                int.TryParse(
+                    libraryOutput.Trim(),
+                    CultureInfo.InvariantCulture,
+                    out int libraryCount));
+            Assert.True(libraryCount > 0);
+            Assert.Empty(libraryError);
 
             Assert.Equal(0, packageExit);
             Assert.Empty(packageError);
@@ -60,12 +63,10 @@ public partial class CommandExecutionTests
                     multiPackageOutput.Trim(),
                     CultureInfo.InvariantCulture));
 
-            Assert.Equal(1, mapExit);
-            Assert.Empty(mapOutput);
-            Assert.Contains(
-                "--tree requires exactly one selected shape",
-                mapError,
-                StringComparison.Ordinal);
+            Assert.Equal(0, mapExit);
+            Assert.Empty(mapError);
+            Assert.Contains("Package Info", mapOutput);
+            Assert.Contains("Target Frameworks", mapOutput);
         }
         finally
         {
@@ -795,50 +796,6 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task ProjectedJsonRoutingAudit_TypeShapeFailsClosed(
-        string projection)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "--shape", "--json", projection, "ZZZNoSuchColumn", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--fields/--columns are not available with --shape",
-            error);
-        Assert.Contains(
-            "Replace --json --shape with --table, --tsv, or --jsonl",
-            error);
-        Assert.Contains(
-            "omit --fields/--columns to keep tree output",
-            error);
-        Assert.DoesNotContain("selection was ignored", error);
-    }
-
-    [Theory]
-    [InlineData("--value")]
-    [InlineData("--urls")]
-    [InlineData("--paths")]
-    [InlineData("--print")]
-    public async Task ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed(
-        string projection)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "--shape", "-S", "Type Info",
-            "--json", "--fields", "Name", projection, "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains($"{projection} is not available with --shape", error);
-        Assert.DoesNotContain("produced unprojected output", error);
-        Assert.DoesNotContain("selection was ignored", error);
     }
 
     [Fact]
@@ -1587,7 +1544,7 @@ public partial class CommandExecutionTests
                 "--count", "--rows", "1..1", "--tips", "q");
             var layout = await RunAppAsync(
                 "package", packagePath, "--layout",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var discovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
                 "--count", "--rows", "1", "--tips", "q");
@@ -1789,6 +1746,69 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_MultiPackageRootsFailBeforeOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiRootProjection",
+            "README.md",
+            "# Test package",
+            extraFiles: [("lib/net8.0/Test.dll", "test")]);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package files",
+                "--roots", "--json", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --roots",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageDiscoveryRootsFailBeforeOutput()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-D", "-S", "Package files",
+            "--roots", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--roots cannot be combined with -D/--discover.",
+            error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", error);
+    }
+
+    [Theory]
+    [InlineData("--library")]
+    [InlineData("--all-libraries")]
+    public async Task ProjectedJsonRoutingAudit_PackageLibraryRootsFailBeforeOutput(
+        string mode)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            mode,
+            "-S", "Library Info",
+            "--roots", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{mode} cannot be combined with --roots.", error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", error);
     }
 
     [Fact]

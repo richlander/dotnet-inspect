@@ -7,7 +7,9 @@ using SemanticRowSelection =
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -43,7 +45,43 @@ public partial class PackageCommand
 
     internal static async Task<int> ExecuteAsync(
         InspectionOptions options,
-        CommandContext context)
+        CommandContext context) =>
+        await ExecuteCoreAsync(
+            options,
+            context,
+            preResolved: null,
+            admittedPackageManifest: null,
+            admittedPackageInfoMeasurements: null,
+            admittedPackageEcosystemDependencies: null,
+            inspectionObserver: null,
+            workspaceLoadOptions: null).ConfigureAwait(false);
+
+    internal static async Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CommandContext context,
+        WorkspaceContextLoadOptions workspaceLoadOptions) =>
+        await ExecuteCoreAsync(
+            options,
+            context,
+            preResolved: null,
+            admittedPackageManifest: null,
+            admittedPackageInfoMeasurements: null,
+            admittedPackageEcosystemDependencies: null,
+            inspectionObserver: null,
+            workspaceLoadOptions).ConfigureAwait(false);
+
+    private static async Task<int> ExecuteCoreAsync(
+        InspectionOptions options,
+        CommandContext context,
+        PackageExtractionResult? preResolved,
+        byte[]? admittedPackageManifest,
+        Func<InspectionEnvelope<PackageInfoMeasurements>>?
+            admittedPackageInfoMeasurements,
+        Func<Task<
+            InspectionEnvelope<EcosystemDependencyRecognitionOutcome>>>?
+            admittedPackageEcosystemDependencies,
+        Action<InspectionResult>? inspectionObserver,
+        WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(context);
@@ -55,8 +93,42 @@ public partial class PackageCommand
         var queryCatalog = catalog.QueryCatalog;
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
-        if (!packageLibraryMode)
-            options = NormalizeDependencyProjection(options);
+        if (options.WorkspacePacket is null
+            && options.ShareFormat is not null)
+        {
+            CommandError.Write(
+                "--share on package requires --workspace.");
+            return 1;
+        }
+#if DEBUG
+        if (options.WorkspacePacket is null
+            && options.EvidenceEnvelopePath is not null)
+        {
+            CommandError.Write(
+                "--evidence-envelope on package requires --workspace.");
+            return 1;
+        }
+#endif
+        if (!packageLibraryMode && options.ShowDependencies)
+        {
+            CommandError.Write(
+                "--dependencies has been removed. Use '-S \"Dependency Hierarchy\" --tree'.");
+            return 1;
+        }
+
+        if (options.Roots && options.Discover is not null)
+        {
+            CommandError.Write(
+                "--roots cannot be combined with -D/--discover.");
+            return 1;
+        }
+
+        if (options.WorkspacePacket is not null
+            && options.Discover is not null
+            && !TryCreateWorkspacePackageRequest(options, out _))
+        {
+            return 1;
+        }
 
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
@@ -200,6 +272,14 @@ public partial class PackageCommand
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
+            if (packageArgs.Length > 1
+                && options.IncludeSections?.Contains(
+                    PackageSections.DependencyHierarchy) == true)
+            {
+                CommandError.Write(
+                    "Multiple package inspection cannot include Dependency Hierarchy.");
+                return 1;
+            }
 
             // The alternate lens modes render their own payload and never consult the section
             // filter, so requiring -S here would force the caller to name a section that is then
@@ -207,10 +287,11 @@ public partial class PackageCommand
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
                 || options.ShowContent;
-            var dependencyTreeProjection = options.Tree
+            var dependencyHierarchyProjection = options.Tree
                 && options.Discover == null
                 && options.IncludeSections is { Count: 1 }
-                && options.IncludeSections.Contains(PackageSections.Dependencies);
+                && options.IncludeSections.Contains(
+                    PackageSections.DependencyHierarchy);
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -221,16 +302,14 @@ public partial class PackageCommand
             // without a selection, so accepting -S there would silently ignore it.
             if (lensMode
                 && (options.SelectExplicitlySet
-                    || options.ShowDependencies
-                    || dependencyTreeProjection))
+                    || dependencyHierarchyProjection))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
-                if (options.ShowDependencies)
-                    CommandError.Write($"--dependencies cannot be combined with {lensName}.");
-                else if (dependencyTreeProjection && !options.SelectExplicitlySet)
+                if (dependencyHierarchyProjection
+                    && !options.SelectExplicitlySet)
                     CommandError.Write($"--tree cannot be combined with {lensName}.");
                 else
                     CommandError.Write(
@@ -250,6 +329,13 @@ public partial class PackageCommand
 
             // Opaque lens payload projections are target-independent failures. Reject them
             // before version lookup, package resolution, or extraction; --count needs the rows.
+            if (packageLens is not null
+                && options.Roots)
+            {
+                CommandError.Write($"{packageLens} cannot be combined with --roots.");
+                return 1;
+            }
+
             if (packageLens is not null
                 && !options.Count
                 && LensProjection.TryProject(
@@ -272,7 +358,7 @@ public partial class PackageCommand
                 return 1;
             }
 
-            if (!ValidateDependencyTreeProjection(options))
+            if (!ValidateDependencyHierarchyProjection(options))
                 return 1;
 
             // #3448 aligns the package gate with the library one: a count over several selected
@@ -293,21 +379,38 @@ public partial class PackageCommand
                     return 1;
             }
 
-            var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+            var shapeCount =
+                ShapeProjectionOutput.ActiveShapeCount(
+                    options.Value,
+                    options.Urls,
+                    options.Paths)
+                + (options.Roots ? 1 : 0);
             if (shapeCount > 1)
             {
-                CommandError.Write("specify only one of --value, --urls, or --paths.");
+                CommandError.Write(
+                    "specify only one of --value, --urls, --paths, or --roots.");
                 return 1;
             }
 
             if (shapeCount == 1)
             {
-                var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+                var optionName = options.Value ? "--value"
+                    : options.Urls ? "--urls"
+                    : options.Paths ? "--paths"
+                    : "--roots";
                 // In a lens mode the shape projection is refused by LensProjection with an
                 // accurate reason; demanding -S first would report a section requirement that is
                 // not the actual problem.
                 if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                     return 1;
+                if (options.Roots
+                    && options.IncludeSections is { Count: 1 } sections
+                    && !sections.Contains(PackageSections.Files))
+                {
+                    CommandError.Write(
+                        "--roots requires the Package files section.");
+                    return 1;
+                }
                 if (options.Count || options.Print)
                 {
                     CommandError.Write($"{optionName} cannot be combined with --count or --print.");
@@ -322,7 +425,8 @@ public partial class PackageCommand
 
             if (options.JsonArray && shapeCount == 0 && !options.Print)
             {
-                CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
+                CommandError.Write(
+                    "--json-array requires --value, --urls, --paths, --roots, or --print.");
                 return 1;
             }
 
@@ -374,11 +478,21 @@ public partial class PackageCommand
             return 1;
         if (!ValidatePackageContentMode(options))
             return 1;
+        if (!TryValidatePackageTargetFramework(options))
+            return 1;
 
         if (GetLibraryInspectionModeError(options) is { } libraryModeError)
         {
             CommandError.Write(libraryModeError);
             return 1;
+        }
+
+        if (options.WorkspacePacket is not null)
+        {
+            return await ExecuteWorkspaceExactPackageAsync(
+                options,
+                context,
+                workspaceLoadOptions).ConfigureAwait(false);
         }
 
         InspectionOptions producerOptions = CreateProducerOptions(
@@ -980,27 +1094,9 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.Tree
-            && options.Discover == null
-            && !packageLibraryMode
-            && (!options.Count || options.ShowDependencies))
-        {
-            if (options.ShowDependencies)
-                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
-            string packageReference = target.IsLocalFile
-                ? target.OriginalArgument
-                : version.Length > 0
-                    ? $"{packageName}@{version}"
-                    : packageName;
-            return await ShowDependencyTreeAsync(
-                client,
-                packageReference,
-                options,
-                logger);
-        }
-
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
+        InspectionResult? observedInspection = null;
 
         if (!TryCreatePackageInfoTargetContext(
                 options,
@@ -1013,40 +1109,47 @@ public partial class PackageCommand
 
         try
         {
-            PackageExtractionOutcome outcome;
-            if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+            if (preResolved is null)
             {
-                outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
-                    ? await PackageExtractor.ExtractPinnedPackageAsync(
-                        client, packageName, pinnedVersion, logger.Log,
+                PackageExtractionOutcome outcome;
+                if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+                {
+                    outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
+                        ? await PackageExtractor.ExtractPinnedPackageAsync(
+                            client, packageName, pinnedVersion, logger.Log,
+                            sourceOptions: options.SourceOptions,
+                            createComposition: context.CreatePackageSourceComposition,
+                            compileTargetContext: packageInfoTargetContext)
+                        : await PackageExtractor.ExtractSelectedPackageAsync(
+                            client, packageName, version.Length > 0 ? version : null, logger.Log,
+                            sourceOptions: options.SourceOptions,
+                            includePrerelease: options.IncludePrerelease,
+                            createComposition: context.CreatePackageSourceComposition,
+                            compileTargetContext: packageInfoTargetContext);
+                }
+                else
+                {
+                    outcome = await PackageExtractor.ExtractPackageAsync(
+                        client,
+                        target.IsLocalFile ? target.OriginalArgument : packageName,
+                        logger.Log,
                         sourceOptions: options.SourceOptions,
-                        createComposition: context.CreatePackageSourceComposition,
-                        compileTargetContext: packageInfoTargetContext)
-                    : await PackageExtractor.ExtractSelectedPackageAsync(
-                        client, packageName, version.Length > 0 ? version : null, logger.Log,
-                        sourceOptions: options.SourceOptions,
-                        includePrerelease: options.IncludePrerelease,
-                        createComposition: context.CreatePackageSourceComposition,
-                        compileTargetContext: packageInfoTargetContext);
+                        version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                        forceLatest: options.ForceLatest,
+                        includePrerelease: options.IncludePrerelease);
+                }
+
+                if (!outcome.IsSuccess)
+                {
+                    CommandError.Write($"{outcome.ErrorMessage}");
+                    return 1;
+                }
+                resolution = outcome.Result!;
             }
             else
             {
-                outcome = await PackageExtractor.ExtractPackageAsync(
-                    client,
-                    target.IsLocalFile ? target.OriginalArgument : packageName,
-                    logger.Log,
-                    sourceOptions: options.SourceOptions,
-                    version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
-                    forceLatest: options.ForceLatest,
-                    includePrerelease: options.IncludePrerelease);
+                resolution = preResolved;
             }
-
-            if (!outcome.IsSuccess)
-            {
-                CommandError.Write($"{outcome.ErrorMessage}");
-                return 1;
-            }
-            resolution = outcome.Result!;
 
             extractPath = resolution.ExtractPath;
             packageName = resolution.PackageName ?? packageName;
@@ -1061,8 +1164,16 @@ public partial class PackageCommand
             if (options.ListTfms)
                 return ListPackageTfms(extractPath, options);
 
+            bool wantsEcosystemDependencies =
+                RequestsPackageEcosystemDependencies(
+                    producerOptions,
+                    pipeline);
+
             // Parse nuspec for full package inspection.
-            var nuspec = DotnetInspector.Services.NuspecParser.FindAndParse(extractPath);
+            NuspecData? nuspec = FindPackageNuspecForInspection(
+                extractPath,
+                resolution,
+                wantsEcosystemDependencies);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1175,12 +1286,51 @@ public partial class PackageCommand
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
+            observedInspection = result;
 
-            ApplyPackageInfoMeasurements(
-                result,
-                resolution,
-                packageSize,
-                logger.Log);
+            if (admittedPackageInfoMeasurements is not null
+                && RequestsPackageInfoMeasurements(
+                    producerOptions,
+                    pipeline))
+            {
+                ApplyPackageInfoMeasurementInspection(
+                    result,
+                    admittedPackageInfoMeasurements(),
+                    logger.Log);
+            }
+            else
+            {
+                await ApplyPackageInfoMeasurementsAsync(
+                    result,
+                    resolution,
+                    packageSize,
+                    options.Tfm,
+                    logger.Log);
+            }
+
+            if (wantsEcosystemDependencies)
+            {
+                bool discloseDiagnostics =
+                    RequiresPackageEcosystemDiagnosticDisclosure(
+                        producerOptions);
+                if (admittedPackageEcosystemDependencies is not null)
+                {
+                    ApplyPackageEcosystemDependencies(
+                        result,
+                        await admittedPackageEcosystemDependencies()
+                            .ConfigureAwait(false),
+                        discloseDiagnostics,
+                        logger.Log);
+                }
+                else
+                {
+                    await ApplyPackageEcosystemDependenciesAsync(
+                        result,
+                        resolution,
+                        discloseDiagnostics,
+                        logger.Log);
+                }
+            }
 
             await PopulatePackageSignatureAsync(
                 result,
@@ -1214,6 +1364,77 @@ public partial class PackageCommand
                     sourceQueryPlan);
             }
 
+            if (!effectiveDiscovery
+                && RequestsSelectedOrDiscoveredSection(
+                    producerOptions,
+                    PackageSections.DependencyHierarchy,
+                    pipeline))
+            {
+                string dependencyRoot = target.IsLocalFile
+                    ? resolution.NupkgPath ?? target.OriginalArgument
+                    : $"{packageName}@{version}";
+                result.DependencyHierarchyProjection =
+                    preResolved is null
+                        ? await DependsCommand
+                            .AcquirePackageSubjectProjectionAsync(
+                                dependencyRoot,
+                                options.Tfm,
+                                options.IncludePrerelease,
+                                options.SourceOptions,
+                                PackageDependencyQueryPlan(options),
+                                context)
+                        : await DependsCommand
+                            .AcquireAdmittedPackageSubjectProjectionAsync(
+                                packageName,
+                                version,
+                                admittedPackageManifest,
+                                options.Tfm,
+                                options.IncludePrerelease,
+                                options.SourceOptions,
+                                PackageDependencyQueryPlan(options),
+                                context);
+            }
+
+            if (result.DependencyHierarchyProjection is { } hierarchyProjection
+                && options.DependencyQueryPlan?.HierarchyRows
+                    is { Operations.Count: > 0 })
+            {
+                if (!DependsCommand.TrySelectHierarchyRows(
+                        hierarchyProjection,
+                        options.DependencyQueryPlan,
+                        options.Rows,
+                        options.DependencyHierarchyLegacyWindowStageIndex,
+                        out IReadOnlyList<
+                            DependencyHierarchyOccurrenceRow>
+                            selectedHierarchyRows))
+                {
+                    return 1;
+                }
+
+                result.DependencyHierarchyProjection =
+                    hierarchyProjection with
+                    {
+                        HierarchyRows = [.. selectedHierarchyRows],
+                    };
+                options = options with
+                {
+                    DependencyHierarchyRowsSelected = true,
+                };
+            }
+
+            static DependencyQueryPlan PackageDependencyQueryPlan(
+                InspectionOptions options)
+            {
+                if (options.DependencyQueryPlan is { } plan)
+                    return plan;
+
+                DependencyQueryPlanResult result =
+                    DependencyQuery.ResolveIntent(
+                        DependencyQueryRouteKind.PackageHierarchy,
+                        PortableQueryIntent.Empty);
+                return ((DependencyQueryPlanResult.Accepted)result).Plan;
+            }
+
             // Filter output based on options
             FilterResultForOutput(result, options);
 
@@ -1231,10 +1452,36 @@ public partial class PackageCommand
                 return 1;
             }
 
+            if (!TrySelectPackageEcosystemDependencies(
+                    result,
+                    options.EcosystemDependencyRowSelection))
+            {
+                return 1;
+            }
+
+            if (options.Tree && !effectiveDiscovery)
+            {
+                WritePackageDependencyHierarchyTree(result, options);
+                return PackageIntegrityExitCode(result);
+            }
+
             if (wantsSignals && options.Count && !effectiveDiscovery)
             {
                 await PopulatePackageSignalsAsync(
                     result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
+
+            if (options.Count
+                && result.DependencyHierarchyProjection is { } hierarchy
+                && options.IncludeSections?.Contains(
+                    PackageSections.DependencyHierarchy) == true
+                && !DependsCommand.IsExactAssetRowSet(
+                    hierarchy,
+                    DependsAssetSections.DependencyHierarchy))
+            {
+                CommandError.Write(
+                    "--count cannot report an exact 'Dependency Hierarchy' count because the requested dependency evidence is incomplete.");
+                return 1;
             }
 
             // Effective discovery renders the discovered rows below and answers the projection
@@ -1249,7 +1496,8 @@ public partial class PackageCommand
                 return PackageIntegrityExitCode(result);
             }
 
-            if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
+            if ((options.Value || options.Urls || options.Paths || options.Roots)
+                && !effectiveDiscovery)
                 return PackageIntegrityExitCode(
                     WritePackageShapeProjection(result, options),
                     result);
@@ -1297,8 +1545,14 @@ public partial class PackageCommand
                     foreach (var d in discoverTargets)
                     {
                         var resolved = schemaMap.ResolveSection(d);
-                        if (resolved != null && effective.Contains(resolved))
+                        if (resolved != null
+                            && effective.Contains(resolved)
+                            && !resolved.Equals(
+                                PackageSections.DependencyHierarchy,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
                             targetSections.Add(resolved);
+                        }
                     }
                     if (targetSections.Count > 0)
                     {
@@ -1354,6 +1608,18 @@ public partial class PackageCommand
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+            if (!options.JsonOutput
+                && IsSingleDependencyHierarchySelection(options)
+                && (options.Tabular || hasProjection))
+            {
+                if (!WritePackageDependencyHierarchyProjection(
+                        result,
+                        options))
+                {
+                    return 1;
+                }
+                return PackageIntegrityExitCode(result);
+            }
             if (options.Tabular)
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
@@ -1510,6 +1776,8 @@ public partial class PackageCommand
         }
         finally
         {
+            if (observedInspection is not null)
+                inspectionObserver?.Invoke(observedInspection);
             PackageExtractor.Cleanup(resolution?.TempDir);
         }
     }
@@ -1561,6 +1829,41 @@ public partial class PackageCommand
         }
 
         result.Files = [.. selected];
+        return true;
+    }
+
+    private static bool TrySelectPackageEcosystemDependencies(
+        InspectionResult result,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+            result.EcosystemDependencyRecognitionInspection?.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Complete complete =>
+                    complete.Document.Classification.Recognized,
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized,
+                _ => [],
+            };
+        if (!SemanticRowSelection.TrySelect(
+                intent,
+                rows,
+                "Package ecosystem dependencies",
+                failure =>
+                    $"Package ecosystem dependency row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<
+                    EcosystemDependencyRecognitionEntry> selected))
+        {
+            return false;
+        }
+
+        result.EcosystemDependencyRows = selected;
         return true;
     }
 }
