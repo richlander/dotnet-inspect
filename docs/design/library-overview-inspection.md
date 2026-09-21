@@ -114,7 +114,7 @@ outcome.
 ```text
 LibraryOverviewOutcome
   Available(LibraryOverviewDocument)
-  Incomplete(LibraryOverviewBound)
+  Incomplete(LibraryOverviewIncompleteReason)
   Rejected(LibraryOverviewRejection)
   Failed(LibraryOverviewFailure)
 ```
