@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Host-neutral SourceHouse integration for DocumentationHouse</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CSharpText/CSharpText.csproj" />
+    <ProjectReference Include="../DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
+    <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
+  </ItemGroup>
+
+</Project>

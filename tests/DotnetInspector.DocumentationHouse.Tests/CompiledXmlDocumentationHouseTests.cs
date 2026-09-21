@@ -1000,6 +1000,10 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             typeof(DocumentationCompiledXmlAttempt),
             typeof(DocumentationHouseReceipt),
             typeof(DocumentationHouseOutcome),
+            typeof(DocumentationAuthoredProviderBinding),
+            typeof(DocumentationAuthoredSourceContribution),
+            typeof(DocumentationAuthoredProviderReceipt),
+            typeof(DocumentationAuthoredProviderOutcome),
         })
         {
             Visit(root);
@@ -1267,6 +1271,45 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                                         LibraryContentRole
                                             .CompiledXmlDocumentation,
                                         artifacts[0])));
+                var owner = new LibraryContentOwner(
+                    reference,
+                    artifacts.IssueContentLeases());
+                return new LibraryFixture(
+                    artifacts,
+                    reference,
+                    owner);
+            }
+            catch
+            {
+                await artifacts.DisposeAsync();
+                throw;
+            }
+        }
+
+        public static async Task<LibraryFixture> CreateSourceAsync(
+            byte[] assembly,
+            byte[] portablePdb)
+        {
+            ArtifactFixture artifacts =
+                await ArtifactFixture.CreateAsync(
+                    [assembly, portablePdb]);
+            try
+            {
+                ManagedMetadataIdentity.Assembly identity =
+                    AssemblyIdentity(assembly);
+                LibraryReference reference =
+                    LibraryReference.CreateDirect(
+                        new LibraryAssemblyCorrespondence(
+                            artifacts[0],
+                            identity,
+                            artifacts[0],
+                            identity),
+                        [
+                            new LibraryCompanionCorrespondence(
+                                artifacts[1],
+                                LibraryContentRole.PortablePdb,
+                                artifacts[0]),
+                        ]);
                 var owner = new LibraryContentOwner(
                     reference,
                     artifacts.IssueContentLeases());

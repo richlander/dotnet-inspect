@@ -35,9 +35,10 @@ contract. Inspect Web package and platform member documentation now consume
 those House-backed query paths through generated TypeScript declarations.
 PlatformHouse's superseded subject-level documentation contracts are removed.
 The CLI now composes package, direct-Library, and platform reference-pack
-compiled documentation through the same House-backed Queries paths. The source
-adapter, authored channel, field settlement, and remaining legacy retirement
-remain staged.
+compiled documentation through the same House-backed Queries paths. The
+SourceHouse authored-documentation provider is implemented as a cold,
+single-use adapter over one pre-authorized exact request. The authored channel,
+field settlement, and remaining legacy retirement remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -580,6 +581,21 @@ declaration mechanics, attached-comment grammar, limits, and uncertainty. This
 design neither requires a particular CSharpText implementation nor redefines
 its outcomes.
 
+`SourceHouseDocumentationProvider` implements this boundary in
+`DotnetInspector.DocumentationHouse.Source`. Its construction validates and
+retains only the stable DocumentationHouse binding and one pre-authorized
+SourceHouse request; it performs no source or Library work. Its single
+invocation validates the exact binding, Library operation lease, remaining
+source/document limits, and deadline before transferring the lease once to
+SourceHouse. Provider-local exits settle the lease locally. After transfer,
+the adapter accepts only the exact SourceHouse request and receipt evidence,
+uses the complete decoded physical document plus the #6584 exact declaration
+span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain
+the CSharpText result, bounded work, opaque source/declaration evidence
+references when available, and the final lease consumer without retaining
+SourceHouse types or live authority. DocumentationHouse core does not invoke
+this provider until slice 18 adds authored demand and channel settlement.
+
 DocumentationHouse consumes the returned owner-issued evidence and preserves
 it with the SourceHouse receipt. It does not upgrade filename inference,
 member-name equality, proximity, inferred mapping, or an unvouched declaration
@@ -967,13 +983,16 @@ assembly and XML companion in the .NET 11 reference pack.
     Inspect Web;
 12. **Completed.** Adopt platform reference-pack compiled documentation in the
     CLI;
-13. lock the focused SourceHouse physical-declaration correspondence contract
-    under #6584;
-14. implement one production SourceHouse path that issues that trusted
-    correspondence;
-15. lock the focused CSharpText authored-documentation contract under #6583;
-16. implement the owner-issued CSharpText authored-documentation operation;
-17. add the SourceHouse-to-DocumentationHouse integration adapter;
+13. **Completed.** Lock the focused SourceHouse physical-declaration
+    correspondence contract under #6584;
+14. **Completed.** Implement one production SourceHouse path that issues that
+    trusted correspondence;
+15. **Completed.** Lock the focused CSharpText authored-documentation contract
+    under #6583;
+16. **Completed.** Implement the owner-issued CSharpText
+    authored-documentation operation;
+17. **Completed.** Add the SourceHouse-to-DocumentationHouse integration
+    adapter;
 18. add authored-source channel and field settlement to DocumentationHouse;
 19. extend Queries with authored-source documentation evidence;
 20. adopt authored-source documentation in Inspect Web;
@@ -1036,6 +1055,24 @@ snapshot byte charge.
 later live matching request may authorize the shared parse and that the
 request performing it retains the sole parse and byte charge even when its own
 terminal attempt is deadline-incomplete.
+
+`AuthoredSourceDocumentationProviderTests` gates the SourceHouse integration
+over a real direct C# build of `CSharpText.MemberSlicing`. It demonstrates that
+the exact physical declaration for `MemberTextSlicer.ExtractMemberText`
+produces parsed authored documentation, provider construction starts no source
+work, and SourceHouse is the sole final lease consumer after transfer.
+Neighboring gates prove that a foreign DocumentationHouse binding and an
+insufficient remaining source-byte budget reject before source work and settle
+the lease locally, pre-transfer cancellation settles without source work, a
+second invocation performs no additional work and settles its newly supplied
+lease, and checksum-valid PDB source without the #6584 physical-input identity
+remains unavailable without reaching CSharpText. The existing public-outcome
+closure gate includes the authored provider contracts and proves that
+completed outcomes retain no lease, content owner, stream, delegate, or
+disposable authority. Per the operator's issue #8017 evidence choice, this
+slice adds no repository-wide source-dependency absence rule; project
+references establish the intended direction, while Release behavior and
+adversarial design review provide the slice evidence.
 
 `PackageHouseExecutionTests` gates the PackageHouse adapter over real
 `System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
