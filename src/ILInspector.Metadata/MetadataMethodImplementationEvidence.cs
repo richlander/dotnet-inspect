@@ -2328,21 +2328,24 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
         StringHandle handle,
         MetadataMethodImplementationFailureSite site)
     {
-        int encodedLength = Read(
+        int utf8Length = Read(
             site,
             () => _reader.GetBlobReader(handle).Length);
-        EnsureCanCharge(
-            site,
-            MetadataOperationDimension.RetainedText,
-            encodedLength);
-        EnsureStructuralStringWithinBudget(encodedLength, site);
+        EnsureStructuralStringWithinBudget(utf8Length, site);
         Charge(
             site,
             MetadataOperationDimension.StructuredNodes,
-            encodedLength);
+            utf8Length);
         _context.ObserveWork(
             MetadataOperationWorkKind.DeclarationNameMaterialization);
-        return ReadStructuralString(handle, site);
+        string name = ReadStructuralString(handle, site);
+        EnsureCanCharge(
+            site,
+            MetadataOperationDimension.RetainedText,
+            VisualEncoder.MeasureEncodedLength(
+                TextPolicy.Field,
+                name));
+        return name;
     }
 
     string ReadCandidateName(

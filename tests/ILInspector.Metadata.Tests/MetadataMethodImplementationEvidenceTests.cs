@@ -1272,7 +1272,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
     }
 
     [Fact]
-    public void UnresolvedLocalDeclarationNamePreflightsBeforeAllocation()
+    public void UnresolvedLocalDeclarationNamePreflightsBeforeRetention()
     {
         using Fixture fixture =
             Fixture.Create(
@@ -1308,7 +1308,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     workObserver: overWork.Add),
                 MetadataMethodImplementationFailureReason.BudgetExceeded,
                 expectedRow: 1);
-        Assert.DoesNotContain(
+        Assert.Contains(
             MetadataOperationWorkKind.DeclarationNameMaterialization,
             overWork);
         Assert.Equal(
@@ -1409,6 +1409,67 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     Assert.Single(above.Relationships)
                         .DeclarationSignature.ReturnType)
                 .Definition.Namespace.Length);
+    }
+
+    [Fact]
+    public void UnicodeDeclarationNameUsesRetainedEncodingUnitsAtExactBoundary()
+    {
+        using Fixture fixture =
+            Fixture.Create(
+                Scenario.UnicodeExternalMemberRefDeclarationName);
+        string expectedName =
+            new('\u4E00', LongDeclarationNameLength);
+
+        MetadataMethodImplementationResult.Related baseline =
+            AssertRelated(
+                Run(fixture, fixture.Body));
+        MetadataMethodImplementationCertificate certificate =
+            Assert.Single(baseline.Relationships);
+        long exactLimit = baseline.Counters.RetainedText;
+
+        Assert.Equal(
+            expectedName,
+            certificate.DeclarationName.ToString());
+        Assert.Equal(
+            expectedName.Length,
+            certificate.DeclarationName.Length);
+        Assert.True(
+            System.Text.Encoding.UTF8.GetByteCount(expectedName)
+                > expectedName.Length);
+
+        MetadataMethodImplementationResult.Rejected below =
+            AssertRejected(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit - 1)),
+                MetadataMethodImplementationFailureReason.BudgetExceeded,
+                expectedRow: 1);
+        Assert.Equal(
+            MetadataOperationDimension.RetainedText,
+            below.Failure.BudgetDimension);
+
+        MetadataMethodImplementationResult.Related exact =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit)));
+        MetadataMethodImplementationResult.Related above =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit + 1)));
+
+        Assert.Equal(exactLimit, exact.Counters.RetainedText);
+        Assert.Equal(exactLimit, above.Counters.RetainedText);
     }
 
     [Fact]
@@ -2842,6 +2903,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
         ExternalMemberRefDeclarationName,
         LongExternalMemberRefDeclarationName,
         OverlongExternalMemberRefDeclarationName,
+        UnicodeExternalMemberRefDeclarationName,
         LongUnresolvedLocalDeclarationName,
         LongExternalTypeName,
         OverlongExternalTypeName,
@@ -4060,23 +4122,30 @@ public sealed class MetadataMethodImplementationEvidenceTests
                 case Scenario.ExternalMemberRefDeclarationName:
                 case Scenario.LongExternalMemberRefDeclarationName:
                 case Scenario.OverlongExternalMemberRefDeclarationName:
+                case Scenario.UnicodeExternalMemberRefDeclarationName:
                     MemberReferenceHandle namedExternal =
                         metadata.AddMemberReference(
                             externalType,
                             metadata.GetOrAddString(
-                                scenario
-                                    == Scenario
-                                        .LongExternalMemberRefDeclarationName
-                                    ? new string(
-                                        'D',
-                                        LongDeclarationNameLength)
-                                    : scenario
-                                        == Scenario
-                                            .OverlongExternalMemberRefDeclarationName
-                                        ? new string(
+                                scenario switch
+                                {
+                                    Scenario
+                                        .LongExternalMemberRefDeclarationName =>
+                                        new string(
                                             'D',
-                                            OverlongDeclarationNameLength)
-                                    : "External"),
+                                            LongDeclarationNameLength),
+                                    Scenario
+                                        .OverlongExternalMemberRefDeclarationName =>
+                                        new string(
+                                            'D',
+                                            OverlongDeclarationNameLength),
+                                    Scenario
+                                        .UnicodeExternalMemberRefDeclarationName =>
+                                        new string(
+                                            '\u4E00',
+                                            LongDeclarationNameLength),
+                                    _ => "External",
+                                }),
                             voidSignature);
                     metadata.AddMethodImplementation(
                         target,
