@@ -105,14 +105,19 @@ Structural context
 Exact direction frequency only; not an outlier or quality assessment.
 
 - instructions down · complexity down · loops down · exception regions down
-  · calls down · allocations down                         1 method
+  · calls down · allocations down · async unchanged       1 method
   MarkoutProjection.ResolveColumns(...)
-  -129 instructions · -14 complexity · -4 loops · -2 exception regions
-  · -27 direct calls · -3 allocations
+  -129 instructions down · -14 complexity down · -4 loops down
+  · -2 exception regions down · -27 direct calls down
+  · -3 allocations down · 0 async unchanged
 
-- instructions up · calls up                             19 methods
+- instructions up · complexity unchanged · loops unchanged
+  · exception regions unchanged · calls up · allocations unchanged
+  · async unchanged                                      19 methods
   MarkoutFormatter.BeginTable(...)
-  +4 instructions · +2 direct calls
+  +4 instructions up · 0 complexity unchanged · 0 loops unchanged
+  · 0 exception regions unchanged · +2 direct calls up
+  · 0 allocations unchanged · 0 async unchanged
 
 - unchanged in every dimension                        1,042 methods
   [Show methods]
