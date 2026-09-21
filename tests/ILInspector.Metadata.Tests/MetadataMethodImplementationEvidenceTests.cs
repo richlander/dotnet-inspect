@@ -99,6 +99,63 @@ public sealed class MetadataMethodImplementationEvidenceTests
             related.Counters.GenericSubstitutionNodes > 0);
     }
 
+    [Theory]
+    [InlineData(PrimitiveTypeCode.String, "string")]
+    [InlineData(PrimitiveTypeCode.Int32, "int")]
+    public void AuthoredModifiedConstructedSignaturesSubstituteInsideWrapper(
+        PrimitiveTypeCode type,
+        string expectedTypeName)
+    {
+        using Fixture fixture =
+            Fixture.CreateModifiedConstructedSignature(
+                ownerArgument: type,
+                bodyType: type);
+
+        MetadataMethodImplementationResult.Related related =
+            AssertRelated(Run(fixture, fixture.Body));
+
+        MetadataMethodImplementationCertificate certificate =
+            Assert.Single(related.Relationships);
+        var owner = Assert.IsType<
+            MetadataTypeIdentity.GenericInstance>(
+                certificate.DeclarationOwner);
+        var argument = Assert.IsType<MetadataTypeIdentity.Primitive>(
+            Assert.Single(owner.Arguments));
+        Assert.Equal(expectedTypeName, argument.Name.ToString());
+        var modified = Assert.IsType<MetadataTypeIdentity.Modified>(
+            Assert.Single(
+                certificate.DeclarationSignature.ParameterTypes));
+        Assert.False(modified.IsRequired);
+        Assert.IsType<MetadataTypeIdentity.GenericParameter>(
+            modified.Type);
+    }
+
+    [Fact]
+    public void AuthoredModifiedConstructedSignatureMismatchIsRejected()
+    {
+        using Fixture fixture =
+            Fixture.CreateModifiedConstructedSignature(
+                ownerArgument: PrimitiveTypeCode.String,
+                bodyType: PrimitiveTypeCode.Int32);
+
+        MetadataMethodImplementationResult.Rejected rejected =
+            AssertRejected(
+                Run(fixture, fixture.Body),
+                MetadataMethodImplementationFailureReason
+                    .SignatureMismatch,
+                expectedRow: 1);
+
+        Assert.Equal(
+            MetadataMethodImplementationStage.SignatureCorrespondence,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataMethodImplementationMechanism.GenericSubstitution,
+            rejected.Failure.Mechanism);
+        Assert.Equal(
+            fixture.ExpectedFailureSubject,
+            rejected.Failure.RelevantHandle);
+    }
+
     [Fact]
     public void MethodGenericParametersCorrespondByPosition()
     {
@@ -345,6 +402,35 @@ public sealed class MetadataMethodImplementationEvidenceTests
                 ? MetadataTokens.MethodImplementationHandle(1)
                 : null,
             rejected.Failure.RelevantRow);
+    }
+
+    [Fact]
+    public void LocalMemberRefMethodRangeIsReadInsideTypedBoundary()
+    {
+        using Fixture valid =
+            Fixture.CreateWideLocalMemberReferenceMethodRange(
+                malformedFollowingMethodList: false);
+        AssertRelated(Run(valid, valid.Body));
+
+        using Fixture malformed =
+            Fixture.CreateWideLocalMemberReferenceMethodRange(
+                malformedFollowingMethodList: true);
+        MetadataMethodImplementationResult.Rejected rejected =
+            AssertRejected(
+                Run(malformed, malformed.Body),
+                MetadataMethodImplementationFailureReason
+                    .MalformedMetadata,
+                expectedRow: 1);
+
+        Assert.Equal(
+            MetadataMethodImplementationStage.LocalDeclarationResolution,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataMethodImplementationMechanism.RowRead,
+            rejected.Failure.Mechanism);
+        Assert.Equal(
+            malformed.ExpectedFailureSubject,
+            rejected.Failure.RelevantHandle);
     }
 
     [Fact]
@@ -629,6 +715,59 @@ public sealed class MetadataMethodImplementationEvidenceTests
             rejected.Failure.RelevantHandle);
         Assert.Contains(
             "structural-depth budget",
+            rejected.Failure.Detail);
+    }
+
+    [Fact]
+    public void ShallowSignaturesAcceptExactSharedNodeBudget()
+    {
+        using Fixture fixture =
+            Fixture.CreateWideShallowSignatures(
+                bodyNodes:
+                    MetadataSafetyPolicy.MaxSignatureTypeNodes,
+                declarationNodes:
+                    MetadataSafetyPolicy.MaxSignatureTypeNodes);
+
+        AssertRelated(Run(fixture, fixture.Body));
+    }
+
+    [Theory]
+    [InlineData(SignatureBudgetTarget.MethodDefinition)]
+    [InlineData(SignatureBudgetTarget.MemberReference)]
+    public void ShallowSignatureNodeBudgetExhaustionIsTyped(
+        SignatureBudgetTarget target)
+    {
+        int exact = MetadataSafetyPolicy.MaxSignatureTypeNodes;
+        using Fixture fixture =
+            Fixture.CreateWideShallowSignatures(
+                bodyNodes:
+                    target == SignatureBudgetTarget.MethodDefinition
+                        ? exact + 1
+                        : exact,
+                declarationNodes:
+                    target == SignatureBudgetTarget.MemberReference
+                        ? exact + 1
+                        : exact);
+
+        MetadataMethodImplementationResult.Rejected rejected =
+            AssertRejected(
+                Run(fixture, fixture.Body),
+                MetadataMethodImplementationFailureReason.BudgetExceeded,
+                expectedRow: 1);
+
+        Assert.Equal(
+            MetadataMethodImplementationStage.SignatureCorrespondence,
+            rejected.Failure.Stage);
+        Assert.Equal(
+            MetadataMethodImplementationMechanism.SignatureDecode,
+            rejected.Failure.Mechanism);
+        Assert.Equal(
+            target == SignatureBudgetTarget.MethodDefinition
+                ? (EntityHandle)fixture.Body
+                : fixture.ExpectedFailureSubject,
+            rejected.Failure.RelevantHandle);
+        Assert.Contains(
+            "type-node budget",
             rejected.Failure.Detail);
     }
 
@@ -2642,6 +2781,12 @@ public sealed class MetadataMethodImplementationEvidenceTests
         LocalCandidate,
     }
 
+    public enum SignatureBudgetTarget
+    {
+        MethodDefinition,
+        MemberReference,
+    }
+
     public enum Scenario
     {
         Standard,
@@ -4328,6 +4473,292 @@ public sealed class MetadataMethodImplementationEvidenceTests
                         : body);
         }
 
+        internal static Fixture
+            CreateWideLocalMemberReferenceMethodRange(
+                bool malformedFollowingMethodList)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("fixture.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("WideLocalMemberReference"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            BlobHandle signature =
+                AddBlob(metadata, 0x20, 0x00, 0x01);
+            MethodDefinitionHandle body =
+                AddMethod(metadata, "Body", signature);
+            for (int index = 2; index < ushort.MaxValue + 1; index++)
+                _ = AddMethod(metadata, "Filler", signature);
+            MethodDefinitionHandle declaration =
+                AddMethod(
+                    metadata,
+                    "Declaration",
+                    signature,
+                    MethodAttributes.Public
+                        | MethodAttributes.Abstract
+                        | MethodAttributes.Virtual);
+            _ = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                body);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    body);
+            TypeDefinitionHandle local =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Interface
+                        | TypeAttributes.Abstract
+                        | TypeAttributes.Public,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IContract"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    declaration);
+            TypeDefinitionHandle trailing =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Trailing"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(
+                        MetadataTokens.GetRowNumber(declaration) + 1));
+            MemberReferenceHandle memberReference =
+                metadata.AddMemberReference(
+                    local,
+                    metadata.GetOrAddString("Declaration"),
+                    signature);
+            metadata.AddMethodImplementation(
+                target,
+                body,
+                memberReference);
+
+            byte[] image = Serialize(metadata);
+            Assert.Equal(
+                ushort.MaxValue + 1,
+                GetTableRowCount(image, TableIndex.MethodDef));
+            if (malformedFollowingMethodList)
+            {
+                PatchTypeDefinitionMethodListToInvalidWideIndex(
+                    image,
+                    trailing);
+            }
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-inspect-methodimpl-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            return new Fixture(
+                path,
+                mvid,
+                target,
+                body,
+                body,
+                body,
+                declaration,
+                declaration,
+                declaration,
+                declaration,
+                methodImplementationCount: 1,
+                expectedFailureSubject: local);
+        }
+
+        internal static Fixture CreateModifiedConstructedSignature(
+            PrimitiveTypeCode ownerArgument,
+            PrimitiveTypeCode bodyType)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("fixture.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("ModifiedConstructedSignature"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            AssemblyReferenceHandle contracts =
+                AddAssemblyReference(
+                    metadata,
+                    "Modified.Contracts");
+            TypeReferenceHandle contract =
+                metadata.AddTypeReference(
+                    contracts,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IContract`1"));
+            TypeReferenceHandle modifier =
+                metadata.AddTypeReference(
+                    contracts,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("Modifier"));
+            BlobHandle bodySignature =
+                AddModifiedMethodSignature(
+                    metadata,
+                    modifier,
+                    checked((byte)bodyType),
+                    typeParameter: false);
+            BlobHandle declarationSignature =
+                AddModifiedMethodSignature(
+                    metadata,
+                    modifier,
+                    checked((byte)ownerArgument),
+                    typeParameter: true);
+            MethodDefinitionHandle body =
+                AddMethod(metadata, "Body", bodySignature);
+            _ = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                body);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    body);
+            TypeSpecificationHandle constructedOwner =
+                AddConstructedPrimitiveType(
+                    metadata,
+                    contract,
+                    checked((byte)ownerArgument));
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    constructedOwner,
+                    metadata.GetOrAddString("M"),
+                    declarationSignature);
+            metadata.AddMethodImplementation(
+                target,
+                body,
+                declaration);
+
+            byte[] image = Serialize(metadata);
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-inspect-methodimpl-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            return new Fixture(
+                path,
+                mvid,
+                target,
+                body,
+                body,
+                body,
+                body,
+                body,
+                body,
+                body,
+                methodImplementationCount: 1,
+                expectedFailureSubject: declaration);
+        }
+
+        internal static Fixture CreateWideShallowSignatures(
+            int bodyNodes,
+            int declarationNodes)
+        {
+            Guid mvid = Guid.NewGuid();
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                generation: 0,
+                metadata.GetOrAddString("fixture.dll"),
+                metadata.GetOrAddGuid(mvid),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("WideShallowSignatures"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                (AssemblyFlags)0,
+                AssemblyHashAlgorithm.None);
+            BlobHandle bodySignature =
+                AddWideShallowMethodSignature(
+                    metadata,
+                    bodyNodes);
+            BlobHandle declarationSignature =
+                AddWideShallowMethodSignature(
+                    metadata,
+                    declarationNodes);
+            MethodDefinitionHandle body =
+                AddMethod(metadata, "Body", bodySignature);
+            _ = metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                body);
+            TypeDefinitionHandle target =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("Target"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    body);
+            AssemblyReferenceHandle contracts =
+                AddAssemblyReference(
+                    metadata,
+                    "Wide.Contracts");
+            TypeReferenceHandle contract =
+                metadata.AddTypeReference(
+                    contracts,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString("IWide"));
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("M"),
+                    declarationSignature);
+            metadata.AddMethodImplementation(
+                target,
+                body,
+                declaration);
+
+            byte[] image = Serialize(metadata);
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"dotnet-inspect-methodimpl-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+            return new Fixture(
+                path,
+                mvid,
+                target,
+                body,
+                body,
+                body,
+                body,
+                body,
+                body,
+                body,
+                methodImplementationCount: 1,
+                expectedFailureSubject: declaration);
+        }
+
         internal static Fixture CreateExternalGenericParameterName(
             string genericParameterName)
         {
@@ -4802,6 +5233,59 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     checked((byte)encodedArgument)));
         }
 
+        static TypeSpecificationHandle AddConstructedPrimitiveType(
+            MetadataBuilder metadata,
+            TypeReferenceHandle genericType,
+            byte argumentType)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15);
+            signature.WriteByte(0x12);
+            WriteTypeDefOrRef(signature, genericType);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(argumentType);
+            return metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        }
+
+        static BlobHandle AddModifiedMethodSignature(
+            MetadataBuilder metadata,
+            TypeReferenceHandle modifier,
+            byte type,
+            bool typeParameter)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x01);
+            signature.WriteByte(0x20);
+            WriteTypeDefOrRef(signature, modifier);
+            if (typeParameter)
+            {
+                signature.WriteByte(0x13);
+                signature.WriteCompressedInteger(0);
+            }
+            else
+            {
+                signature.WriteByte(type);
+            }
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static BlobHandle AddWideShallowMethodSignature(
+            MetadataBuilder metadata,
+            int nodeCount)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                nodeCount);
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(nodeCount - 1);
+            signature.WriteByte(0x01);
+            signature.WriteBytes(0x08, nodeCount - 1);
+            return metadata.GetOrAddBlob(signature);
+        }
+
         static BlobHandle AddMethodSignatureWithModifierTypeSpec(
             MetadataBuilder metadata,
             int typeSpecRow)
@@ -4936,6 +5420,16 @@ public sealed class MetadataMethodImplementationEvidenceTests
                 new MemoryStream(image, writable: false));
             return reader.GetMetadataReader()
                 .GetTableRowCount(TableIndex.MethodImpl);
+        }
+
+        static int GetTableRowCount(
+            byte[] image,
+            TableIndex table)
+        {
+            using var reader = new PEReader(
+                new MemoryStream(image, writable: false));
+            return reader.GetMetadataReader()
+                .GetTableRowCount(table);
         }
 
         static void PatchMemberReferenceParentToReservedTag(

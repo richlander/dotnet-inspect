@@ -272,6 +272,16 @@ internal readonly record struct TypeSpecificationRoot(
                                 + "depth budget.");
                     }
                     if (validation
+                        == SignatureBlobGuard.CompleteValidationKind
+                            .NodeBudgetExceeded)
+                    {
+                        return new TypeSpecificationRootReadResult.BudgetExceeded(
+                            MetadataSafetyPolicy.MaxSignatureTypeNodes,
+                            frame.Handle,
+                            "The TypeSpec signature exceeded its shared "
+                                + "type-node budget.");
+                    }
+                    if (validation
                         == SignatureBlobGuard.CompleteValidationKind.Malformed)
                     {
                         return new TypeSpecificationRootReadResult.Malformed(

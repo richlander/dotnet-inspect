@@ -1095,9 +1095,13 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
                 ownerSite,
                 () => _reader.GetTypeDefinition(
                     owner.LocalDefinition));
+        MethodDefinitionHandleCollection methods =
+            Read(
+                ownerSite,
+                definition.GetMethods);
         MethodDefinitionHandle match = default;
         foreach (MethodDefinitionHandle candidateHandle
-            in definition.GetMethods())
+            in methods)
         {
             token.ThrowIfCancellationRequested();
             var candidateSite =
@@ -2501,18 +2505,26 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
 
         Reject(
             site,
-            validation
-                == SignatureBlobGuard.CompleteValidationKind
+            validation is
+                SignatureBlobGuard.CompleteValidationKind
                     .DepthBudgetExceeded
+                or SignatureBlobGuard.CompleteValidationKind
+                    .NodeBudgetExceeded
                     ? MetadataMethodImplementationFailureReason
                         .BudgetExceeded
                     : MetadataMethodImplementationFailureReason
                         .MalformedMetadata,
-            validation
-                == SignatureBlobGuard.CompleteValidationKind
-                    .DepthBudgetExceeded
-                    ? $"A relevant {subject} signature exceeds the shared structural-depth budget."
-                    : $"A relevant {subject} signature is incomplete or has trailing data.");
+            validation switch
+            {
+                SignatureBlobGuard.CompleteValidationKind
+                    .DepthBudgetExceeded =>
+                    $"A relevant {subject} signature exceeds the shared structural-depth budget.",
+                SignatureBlobGuard.CompleteValidationKind
+                    .NodeBudgetExceeded =>
+                    $"A relevant {subject} signature exceeds the shared type-node budget.",
+                _ =>
+                    $"A relevant {subject} signature is incomplete or has trailing data.",
+            });
     }
 
     void Charge(

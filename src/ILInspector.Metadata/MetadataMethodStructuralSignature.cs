@@ -247,20 +247,23 @@ internal sealed class MetadataMethodStructuralSignature
             leftSubstituted ? [] : leftTypeArguments;
         ImmutableArray<TypeNode> rightNestedArguments =
             rightSubstituted ? [] : rightTypeArguments;
-        if (left.GetType() != right.GetType()
-            || left.IsReferenceType != right.IsReferenceType)
-        {
+        if (left.GetType() != right.GetType())
             return false;
-        }
 
         return (left, right) switch
         {
             (PrimitiveTypeNode l, PrimitiveTypeNode r) =>
-                string.Equals(l.Name, r.Name, StringComparison.Ordinal),
+                l.IsReferenceType == r.IsReferenceType
+                && string.Equals(
+                    l.Name,
+                    r.Name,
+                    StringComparison.Ordinal),
             (NamedTypeNode l, NamedTypeNode r) =>
-                NamedTypesMatch(l, r),
+                l.IsReferenceType == r.IsReferenceType
+                && NamedTypesMatch(l, r),
             (GenericTypeNode l, GenericTypeNode r) =>
-                NamedTypesMatch(l, r)
+                l.IsReferenceType == r.IsReferenceType
+                && NamedTypesMatch(l, r)
                 && TypeSequencesMatch(
                     l.Arguments,
                     r.Arguments,
