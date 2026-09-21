@@ -4,11 +4,12 @@ using System.Text.Json.Serialization;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
-namespace DotnetInspector.Sections;
+namespace DotnetInspect.Cli.Output;
 
 public static class DiffHistoryJsonOutput
 {

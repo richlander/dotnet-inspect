@@ -38,7 +38,6 @@ public class JsonWireNameGateTests
         .Select(static t => t.GetProperty("Default", BindingFlags.Public | BindingFlags.Static))
         .Where(static p => p is not null)
         .Select(static p => (JsonSerializerContext)p!.GetValue(null)!)
-        .Append(DotnetInspector.Sections.DiffHistoryJsonContext.Default)
         .DistinctBy(static c => c.GetType())
         .ToArray();
 

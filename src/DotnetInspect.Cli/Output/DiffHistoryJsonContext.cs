@@ -1,8 +1,9 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.Sections;
+namespace DotnetInspect.Cli.Output;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
