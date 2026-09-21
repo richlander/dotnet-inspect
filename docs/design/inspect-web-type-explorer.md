@@ -38,8 +38,8 @@ The existing
 [Annotated Source viewer](annotated-source-viewer-interaction.md) is not the
 correct replacement. It owns one exact member body, where mixed C#/IL,
 instruction coordinates, Findings, call relationships, and body destinations
-are valuable. A whole Type may contain many bodies, bodyless members, nested
-declarations, static and instance state, multiple accessibility levels,
+are valuable. A selected Type may itself be nested and may contain many bodies,
+bodyless members, static and instance state, multiple accessibility levels,
 overrides, and interface implementations. Applying every member annotation and
 IL stream to one Type view would obscure the Type's structure rather than
 explain it.
@@ -121,11 +121,11 @@ Type Explorer consumes, without redefining:
   [Inspection Subject Navigation](inspection-subject-navigation.md);
 - Type Source provenance and acquisition outcomes from
   [Shared type source acquisition](type-source-acquisition.md);
-- a future product-issued complete logical-Type document whose focused owner
-  defines source text, declaration and body spans, member correlation,
-  accessibility, static/instance classification, documentation and attribute
-  regions, contract relationships, completeness, provenance, validation, and
-  failure;
+- the product-issued
+  [Structured C# Type document](csharp-structured-type-document.md), whose
+  focused owner defines exact Type, Member, and physical body identity,
+  validated declaration variants, structural projection, document revision,
+  completeness, provenance, and failure;
 - owner-issued typed analysis results, each correlated to the exact Type and
   Member identities in that document;
 - current-view operation identity, durable nonterminal publication, terminal
@@ -147,12 +147,18 @@ members, bodies, accessibility, modifiers, inheritance, interface
 implementation, documentation, attributes, primary-constructor use, or
 analysis targets.
 
-The required Type document represents one complete logical Type, not whichever
+The required Type document represents one complete selected Type, not whichever
 authored document happened to win ordinary Type Source acquisition. Authored
-source may contain several Types or only one part of a partial Type.
-Type Explorer may use authored text only when the document owner proves the
-same complete logical-Type contract. Otherwise it uses a product-generated
-complete Type document and identifies that provenance visibly.
+source may contain several Types or only one part of a partial Type. The first
+document contract is deliberately decompiled-only and identifies that
+provenance visibly. Authored support remains unavailable until another owner
+proves the same complete-Type and exact-correspondence contract.
+
+Exact override, interface-implementation, and hiding destinations remain a
+separate Metadata prerequisite. Type Explorer exposes contract controls only
+when the structured document reports that optional owner-issued capability as
+available; it does not infer destinations from modifiers, names, or rendered
+source.
 
 If no complete structured document is available, Type Explorer presents the
 typed unavailable or failed outcome. It does not silently open ordinary Source,
@@ -255,6 +261,10 @@ These are owner-issued projections over the same Type document. Browser code
 does not delete text between braces or synthesize signatures. Changing
 projection retains exact Type and Member identity, source order, applicable
 filters, and the selected insight.
+
+Skeleton is the body-free projection of the same exact implementation
+document. It is not the separate API Declarations source choice, whose owner
+defines API-review scope and nested declaration-subtree behavior.
 
 **Selected body** is unavailable until a body-bearing member is selected.
 A bodyless Type or document does not offer a control whose choices have no
@@ -504,7 +514,7 @@ successful-empty structural outcomes.
   unevaluated members.
 - A stale result is suppressed by authority and never presented as current.
 - An authored document that covers only one partial declaration is not
-  presented as the complete logical Type.
+  presented as the complete selected Type.
 - A large Type does not silently truncate structural members. If a producer
   imposes a bound, the result and UI disclose the bound and completion.
 
@@ -548,7 +558,7 @@ Implementation must demonstrate:
 2. A large mixed static/instance Type remains readable while one async insight
    completes out of member order.
 3. A partial authored Type does not cause one source document to masquerade as
-   the complete logical Type.
+   the complete selected Type.
 4. A bodyless interface, enum, or delegate does not show meaningless body
    controls or a success-shaped empty source.
 5. An explicit interface implementation retains its contract identity under
@@ -570,7 +580,8 @@ Implementation must demonstrate:
 ordered plan:
 
 1. Lock this focused Browser interaction design.
-2. Define the separately owned complete structured-Type document.
+2. Define the separately owned
+   [Structured C# Type document](csharp-structured-type-document.md).
 3. Add Type Explorer to Shell Interaction's routed-surface classification.
 4. Add Navigation Consumer entry, return, restoration, and focus effects.
 5. Add a focused Annotated Source adoption that defines an external exact-member
@@ -591,7 +602,7 @@ The following gates are required as the corresponding stages land:
 
 | Gate | Claim |
 | --- | --- |
-| Structured-document owner tests | Exact Type and Member identity, complete logical-Type scope, validated spans and classifications, partial-authored rejection, and visible failure. |
+| Structured-document owner tests | Exact Type, Member, and physical body identity, complete selected-Type scope, validated projections and classifications, partial-authored rejection, and visible failure. |
 | Pure Type Explorer projection tests | Every structural pivot composes without changing identity or source order; bodyless and unclassified declarations remain truthful. |
 | Operation Authority adoption tests | Current progress and durable rows publish in order; replacement, cancellation, disposal, and stale events cannot mutate the active Type or insight. |
 | Annotated Source external-opener tests | An exact caller-issued member/body destination opens the existing modal, and ordinary dismissal restores the caller-issued stable opener without requiring an embedded reader. |
