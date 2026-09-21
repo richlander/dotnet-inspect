@@ -79,93 +79,96 @@ public partial class PackageCommand
             return 1;
         }
 
-        await using WorkspacePacketRestoration restoration =
+        WorkspacePacketRestoration restoration =
             ((WorkspacePacketRestorationResult.Restored)restorationResult)
                 .Value;
-        InspectionShare.NonProjectable? shareRefusal =
-            WorkspacePackageShareRefusal(options);
-        SelectedContextExactPackageEvidenceOperationResult<
-            WorkspacePackageInspectionContent> operation =
-                await SelectedContextExactPackageInspectionOperation
-                    .ExecuteWithEvidenceAsync(
-                        restoration.Authority,
-                        restoration.Workspace,
-                        request!,
-                        target => ExecuteWorkspaceTargetAsync(
-                            options,
-                            context,
-                            target),
-                        facet: new("package.overview"),
-                        shareRefusal).ConfigureAwait(false);
-        if (operation
-            is SelectedContextExactPackageEvidenceOperationResult<
-                WorkspacePackageInspectionContent>.Failed selectionFailure)
+        return await restoration.ExecuteAsync(async activeRestoration =>
         {
-            CommandError.Write(selectionFailure.Failure.Message);
-            return 1;
-        }
+            InspectionShare.NonProjectable? shareRefusal =
+                WorkspacePackageShareRefusal(options);
+            SelectedContextExactPackageEvidenceOperationResult<
+                WorkspacePackageInspectionContent> operation =
+                    await SelectedContextExactPackageInspectionOperation
+                        .ExecuteWithEvidenceAsync(
+                            activeRestoration.Workspace,
+                            activeRestoration.Activation,
+                            request!,
+                            target => ExecuteWorkspaceTargetAsync(
+                                options,
+                                context,
+                                target),
+                            facet: new("package.overview"),
+                            shareRefusal).ConfigureAwait(false);
+            if (operation
+                is SelectedContextExactPackageEvidenceOperationResult<
+                    WorkspacePackageInspectionContent>.Failed selectionFailure)
+            {
+                CommandError.Write(selectionFailure.Failure.Message);
+                return 1;
+            }
 
-        EvidenceInspectionEnvelope<
-            WorkspacePackageInspectionContent,
-            SelectedContextPackageRoutingEvidence> envelope =
-                ((SelectedContextExactPackageEvidenceOperationResult<
-                    WorkspacePackageInspectionContent>.Completed)operation)
-                    .Envelope;
-        int exitCode = envelope.Inspection.Content.ExitCode;
+            EvidenceInspectionEnvelope<
+                WorkspacePackageInspectionContent,
+                SelectedContextPackageRoutingEvidence> envelope =
+                    ((SelectedContextExactPackageEvidenceOperationResult<
+                        WorkspacePackageInspectionContent>.Completed)operation)
+                        .Envelope;
+            int exitCode = envelope.Inspection.Content.ExitCode;
 
 #if DEBUG
-        if (evidencePath is not null)
-        {
-            var contract =
-                new InspectionEnvelopeJsonContract<
-                    WorkspacePackageInspectionContent>(
-                    "package-workspace",
-                    1,
-                    JsonContext.Default.WorkspacePackageInspectionContent);
-            if (!InspectionEnvelopeOutput.TrySerializeEvidence(
-                    envelope,
-                    contract,
-                    SelectedContextPackageInspectionJsonContext.Default
-                        .SelectedContextPackageRoutingEvidence,
-                    compactJson: false,
-                    out byte[] payload,
-                    out Exception? serializationError))
+            if (evidencePath is not null)
             {
-                CommandError.Write(
-                    $"Evidence envelope serialization failed for "
-                        + $"'{evidencePath}': "
-                        + serializationError!.Message);
-                exitCode = 1;
+                var contract =
+                    new InspectionEnvelopeJsonContract<
+                        WorkspacePackageInspectionContent>(
+                        "package-workspace",
+                        1,
+                        JsonContext.Default.WorkspacePackageInspectionContent);
+                if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                        envelope,
+                        contract,
+                        SelectedContextPackageInspectionJsonContext.Default
+                            .SelectedContextPackageRoutingEvidence,
+                        compactJson: false,
+                        out byte[] payload,
+                        out Exception? serializationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope serialization failed for "
+                            + $"'{evidencePath}': "
+                            + serializationError!.Message);
+                    exitCode = 1;
+                }
+                else if (!EvidenceEnvelopeOutput.TryPublish(
+                        evidencePath,
+                        payload,
+                        out Exception? publicationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope publication failed for "
+                            + $"'{evidencePath}': "
+                            + publicationError!.Message);
+                    exitCode = 1;
+                }
+                else
+                {
+                    CommandError.WriteLine(
+                        $"Evidence envelope: {evidencePath}");
+                }
             }
-            else if (!EvidenceEnvelopeOutput.TryPublish(
-                    evidencePath,
-                    payload,
-                    out Exception? publicationError))
-            {
-                CommandError.Write(
-                    $"Evidence envelope publication failed for "
-                        + $"'{evidencePath}': "
-                        + publicationError!.Message);
-                exitCode = 1;
-            }
-            else
-            {
-                CommandError.WriteLine(
-                    $"Evidence envelope: {evidencePath}");
-            }
-        }
 #endif
 
-        if (options.ShareFormat is not null)
-        {
-            int shareExitCode = WorkspaceShareOutput.Write(
-                envelope.Inspection.Share,
-                options.ShareFormat.Value);
-            if (shareExitCode != 0)
-                exitCode = 1;
-        }
+            if (options.ShareFormat is not null)
+            {
+                int shareExitCode = WorkspaceShareOutput.Write(
+                    envelope.Inspection.Share,
+                    options.ShareFormat.Value);
+                if (shareExitCode != 0)
+                    exitCode = 1;
+            }
 
-        return exitCode;
+            return exitCode;
+        }).ConfigureAwait(false);
     }
 
     static async ValueTask<WorkspacePackageInspectionContent>
