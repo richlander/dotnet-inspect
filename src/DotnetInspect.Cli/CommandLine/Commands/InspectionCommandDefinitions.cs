@@ -131,7 +131,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
             diffCommand,
-            opts.Discover, opts.Select, opts.Verbosity,
+            opts.Discover, opts.Verbosity,
             nameOnlyOption,
             breakingOption, additiveOption, changedOption,
             allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
@@ -167,12 +167,33 @@ public static class InspectionCommandDefinitions
                 || result.GetValue(historyOption))
                 return;
 
+            string? selector = result.GetValue(opts.Select);
+            bool implementationTransport =
+                string.Equals(
+                    selector,
+                    DiffSections.ImplementationDiff.Name,
+                    StringComparison.OrdinalIgnoreCase);
+            if (!implementationTransport)
+            {
+                if (result.GetResult(opts.Select) is { Implicit: false })
+                {
+                    result.AddError(
+                        "--envelope cannot be combined with --select unless "
+                            + "Implementation Diff is selected by itself.");
+                }
+                if (result.GetResult(typeFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --type.");
+                if (result.GetResult(memberFilterOption) is { Implicit: false })
+                    result.AddError("--envelope cannot be combined with --member.");
+            }
+
             bool explicitSource =
                 result.GetValue(packageOption) is not null
                 || result.GetValue(platformOption) is not null
                 || result.GetValue(libraryOption) is not null;
             int positionalCount = result.GetValue(argsArg)?.Length ?? 0;
-            if (positionalCount > (explicitSource ? 0 : 1))
+            if (!implementationTransport
+                && positionalCount > (explicitSource ? 0 : 1))
             {
                 result.AddError(
                     "--envelope cannot be combined with positional type filters.");

@@ -174,7 +174,9 @@ public static class ResearchDiff
             {
                 string descriptorId = $"csharp.diff.{ToKebabCase(row.Kind.ToString())}";
                 return new ResearchChange(
-                    ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member),
+                    ResearchMemberIdentity.SubjectFromAnchor(
+                        row.BodyAnchor ?? row.Anchor,
+                        row.Member),
                     ResearchChangeMechanism.CSharp,
                     Descriptor(descriptorId, row.Kind.ToString()),
                     Direction(row.Kind),
@@ -195,7 +197,9 @@ public static class ResearchDiff
             {
                 var kind = Direction(row.Kind);
                 return new ResearchChange(
-                    ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member),
+                    ResearchMemberIdentity.SubjectFromAnchor(
+                        row.BodyAnchor ?? row.Anchor,
+                        row.Member),
                     ResearchChangeMechanism.CSharp,
                     Descriptor(row.ChangeId, row.Kind.ToString()),
                     kind,
@@ -887,8 +891,11 @@ public static class ResearchDiff
 
         foreach (var pair in PairedBodyIndexEntries(oldInput, newInput))
         {
-            var oldMethods = MethodLookup(pair.Old.Index);
-            var newMethods = MethodLookup(pair.New.Index);
+            var oldMethods = DeclaredMethodLookup(pair.Old.Index);
+            var newMethods = DeclaredMethodLookup(pair.New.Index);
+            IReadOnlySet<string> returnTypeCollisions =
+                ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                    oldMethods.Values.Concat(newMethods.Values));
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             using var oldBodies = new MethodBodyLookup(pair.Old);
             using var newBodies = new MethodBodyLookup(pair.New);
@@ -897,7 +904,9 @@ public static class ResearchDiff
             {
                 var oldMethod = oldMethods[key];
                 var newMethod = newMethods[key];
-                var subject = SubjectFromMethod(newMethod);
+                var subject = SubjectFromMethod(
+                    newMethod,
+                    returnTypeCollisions);
                 if (!MatchesTypeFilters(subject.TypeName ?? "", typeFilters))
                     continue;
                 if (!MatchesMemberTargets(subject, memberTargetIdentities))
@@ -1006,12 +1015,22 @@ public static class ResearchDiff
             StringComparer.Ordinal);
         foreach (var pair in UnionBodyIndexEntries(oldInput, newInput))
         {
+            IEnumerable<MethodIdentity> methods =
+                (pair.Old?.Index.DeclaredMethods ?? [])
+                    .Concat(pair.New?.Index.DeclaredMethods ?? []);
+            IReadOnlySet<string> returnTypeCollisions =
+                ResearchMemberIdentity.ReturnTypeCollisionSubjectIds(
+                    methods);
             var oldMethods = pair.Old is null
                 ? new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal)
-                : IlRetentionMethodLookup(pair.Old);
+                : IlRetentionMethodLookup(
+                    pair.Old,
+                    returnTypeCollisions);
             var newMethods = pair.New is null
                 ? new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal)
-                : IlRetentionMethodLookup(pair.New);
+                : IlRetentionMethodLookup(
+                    pair.New,
+                    returnTypeCollisions);
             using var oldBodies = pair.Old is null
                 ? null
                 : new MethodBodyLookup(pair.Old);
@@ -1142,12 +1161,15 @@ public static class ResearchDiff
     }
 
     static Dictionary<string, IlRetentionMethod> IlRetentionMethodLookup(
-        BodyIndexEntry entry)
+        BodyIndexEntry entry,
+        IReadOnlySet<string> returnTypeCollisions)
     {
         var methods = new Dictionary<string, IlRetentionMethod>(StringComparer.Ordinal);
         foreach (var method in entry.Index.DeclaredMethods)
         {
-            var subject = SubjectFromMethod(method);
+            var subject = SubjectFromMethod(
+                method,
+                returnTypeCollisions);
             methods.TryAdd(
                 MethodMatchKey(method),
                 new IlRetentionMethod(subject, method.MetadataToken));
@@ -1248,7 +1270,9 @@ public static class ResearchDiff
         var operationalFailureHunks = OperationalCSharpFailureHunks(failureRows);
         foreach (var failure in failureRows)
         {
-            var subject = ResearchMemberIdentity.SubjectFromAnchor(failure.Anchor, failure.Member);
+            var subject = ResearchMemberIdentity.SubjectFromAnchor(
+                failure.BodyAnchor ?? failure.Anchor,
+                failure.Member);
             if (MatchesMemberTargets(subject, memberTargetIdentities))
                 AddCSharpFailureEvidence(builder, subject, failure);
         }
@@ -1258,7 +1282,9 @@ public static class ResearchDiff
             if (operationalFailureHunks.Contains(row.HunkId))
                 continue;
 
-            var subject = ResearchMemberIdentity.SubjectFromAnchor(row.Anchor, row.Member);
+            var subject = ResearchMemberIdentity.SubjectFromAnchor(
+                row.BodyAnchor ?? row.Anchor,
+                row.Member);
             if (!MatchesMemberTargets(subject, memberTargetIdentities))
                 continue;
             var kind = row.Kind switch
@@ -1323,7 +1349,7 @@ public static class ResearchDiff
         foreach (var retained in findingComparisons.Comparisons)
         {
             var subject = ResearchMemberIdentity.SubjectFromAnchor(
-                retained.Anchor,
+                retained.BodyAnchor ?? retained.Anchor,
                 retained.Member);
             AddRetainedComparison(
                 builder,
@@ -1350,13 +1376,16 @@ public static class ResearchDiff
 
             bool semanticExact = !diff.Rows.Any(row =>
                     string.Equals(
-                        row.Anchor.StableSelector,
-                        retained.Anchor.StableSelector,
+                        (row.BodyAnchor ?? row.Anchor).StableSelector,
+                        (retained.BodyAnchor ?? retained.Anchor)
+                            .StableSelector,
                         StringComparison.Ordinal))
                 && !(diff.FailureRows.IsDefault ? [] : diff.FailureRows).Any(failure =>
                     string.Equals(
-                        failure.Anchor.StableSelector,
-                        retained.Anchor.StableSelector,
+                        (failure.BodyAnchor ?? failure.Anchor)
+                            .StableSelector,
+                        (retained.BodyAnchor ?? retained.Anchor)
+                            .StableSelector,
                         StringComparison.Ordinal));
             if (ImplementationDiff.FindingDivergenceChange(
                 subject,
@@ -1758,8 +1787,18 @@ public static class ResearchDiff
             _ => ResearchChangeCategory.Signature,
         };
 
-    static ResearchSubjectKey SubjectFromMethod(MethodIdentity method)
-        => ResearchMemberIdentity.SubjectFromMethod(method);
+    static ResearchSubjectKey SubjectFromMethod(
+        MethodIdentity method,
+        IReadOnlySet<string>? returnTypeCollisions = null)
+    {
+        ResearchSubjectKey baseSubject =
+            ResearchMemberIdentity.SubjectFromMethod(method);
+        return returnTypeCollisions?.Contains(baseSubject.Id) == true
+            ? ResearchMemberIdentity.SubjectFromMethod(
+                method,
+                includeReturnType: true)
+            : baseSubject;
+    }
 
     static bool IsConversionOperator(string methodName)
         => methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
@@ -1773,10 +1812,11 @@ public static class ResearchDiff
     static string MethodMatchKey(MethodIdentity method)
         => $"{GenericMemberIdentity.KeyFragment(method.DeclaringType)}|{method.Name}|{method.GenericArity}|{method.IsExtension}|{string.Join(",", method.ParameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(method.ReturnType)}";
 
-    static Dictionary<string, MethodIdentity> MethodLookup(LibraryBodyIndex index)
+    static Dictionary<string, MethodIdentity> DeclaredMethodLookup(
+        LibraryBodyIndex index)
     {
         var methods = new Dictionary<string, MethodIdentity>(StringComparer.Ordinal);
-        foreach (var method in index.Methods)
+        foreach (var method in index.DeclaredMethods)
             methods.TryAdd(MethodMatchKey(method), method);
         return methods;
     }
