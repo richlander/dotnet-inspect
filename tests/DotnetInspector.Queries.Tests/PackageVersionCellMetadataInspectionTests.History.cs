@@ -652,6 +652,115 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
+        RepresentativeSurveyUsesPopulationSpacingDespiteEqualEndpoints()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0",
+                "4.0.0",
+                "5.0.0",
+                "6.0.0",
+                "7.0.0",
+                "8.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[7], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[3], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[5], FixtureCatalog.DiffV1.AssemblyPath()));
+        var plan =
+            new DiffHistoryEvaluationPlan.RepresentativeSurvey(50);
+
+        DiffHistoryApiMemberDocument document =
+            await InspectHistoryAsync(
+                HistoryRequest(
+                    population,
+                    HistoryType,
+                    maximumEvaluations: 4,
+                    evaluationPlan: plan),
+                executor);
+
+        Assert.Equal([0, 7, 3, 5], executor.Positions);
+        Assert.Equal(4, plan.ResolveAuthorizedEvaluationCount(
+            population[0].Cell.Population.Vector));
+        Assert.Equal(4, document.AuthorizedProbeCount);
+        Assert.Equal(4, document.UsedProbeCount);
+        Assert.Equal(
+            [0, 3, 5, 7],
+            document.Evaluations.Select(static evaluation =>
+                evaluation.Address.Position));
+        Assert.All(
+            document.Probes,
+            static probe => Assert.Equal(
+                DiffHistoryProbePurpose.RepresentativeSample,
+                probe.Purpose));
+        Assert.IsType<
+            DiffHistoryTerminalOutcome.RepresentativeSurveyCompleted>(
+                document.TerminalOutcome);
+        Assert.Equal(4, document.UnevaluatedAddresses.Length);
+    }
+
+    [Fact]
+    public void RepresentativeSurveyComposesPercentageAndAbsoluteCap()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "8.0.0",
+                "7.0.0",
+                "6.0.0",
+                "5.0.0",
+                "4.0.0",
+                "3.0.0",
+                "2.0.0",
+                "1.0.0");
+        PackageVersionVector vector =
+            population[0].Cell.Population.Vector;
+        var capped =
+            new DiffHistoryEvaluationPlan.RepresentativeSurvey(
+                50,
+                maximumProbes: 3);
+        var complete =
+            new DiffHistoryEvaluationPlan.RepresentativeSurvey(100);
+
+        Assert.Equal(
+            [0, 7, 3],
+            capped.ResolveInitialSelection(vector)
+                .Select(static address => address.Position));
+        Assert.Equal(3, capped.ResolveAuthorizedEvaluationCount(vector));
+        Assert.Equal(
+            Enumerable.Range(0, 8),
+            complete.ResolveInitialSelection(vector)
+                .Select(static address => address.Position));
+        Assert.Equal(8, complete.ResolveAuthorizedEvaluationCount(vector));
+    }
+
+    [Fact]
+    public void AdaptiveBudgetSeparatesAuthorizationFromRealizableWork()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        PackageVersionVector vector =
+            population[0].Cell.Population.Vector;
+        var plan =
+            new DiffHistoryEvaluationPlan.AdaptiveBisect(int.MaxValue);
+
+        Assert.Equal(
+            int.MaxValue,
+            plan.ResolveAuthorizedEvaluationCount(vector));
+        Assert.Equal(
+            3,
+            plan.ResolveMaximumRealizableEvaluationCount(vector));
+    }
+
+    [Fact]
+    public async Task
         HistorySparseTransitionPreservesGapWithoutClaimingOnset()
     {
         ImmutableArray<CellFixture> population =
@@ -1864,6 +1973,59 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
     [Fact]
     public async Task
+        RepresentativeSurveyCountRetainsUnsampledEvidence()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0",
+                "4.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[3], FixtureCatalog.DiffV2.AssemblyPath()));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        HistoryType,
+                        maximumEvaluations: 2,
+                        evaluationPlan:
+                            new DiffHistoryEvaluationPlan
+                                .RepresentativeSurvey(50))),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistorySectionAvailable>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.IsType<
+            DiffHistoryTerminalOutcome.RepresentativeSurveyCompleted>(
+                document.TerminalOutcome);
+        var failure = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+        Assert.Contains(
+            failure.Sources,
+            static source =>
+                source.Evidence.FirstUnestablishedAssessment?.State
+                    == DiffHistoryChangedVersionState.Unevaluated);
+        Assert.Contains(
+            envelope.Diagnostics,
+            static diagnostic =>
+                diagnostic.Code
+                    == "diff-history.count-source-insufficient");
+    }
+
+    [Fact]
+    public async Task
         HistoryTailCountRequiresCompleteSparseSuffixEvidence()
     {
         ImmutableArray<CellFixture> population =
@@ -2424,7 +2586,8 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
 
         var share = Assert.IsType<InspectionPortableProjection.NonProjectable>(
             envelope.PortableProjection);
-        Assert.Equal("diff-history/share", share.Path);
+        Assert.Equal("diff-history", envelope.ResourcePath.Value);
+        Assert.Null(share.Location);
         InspectionDiagnostic diagnostic =
             Assert.Single(envelope.Diagnostics);
         Assert.Equal(
@@ -2626,6 +2789,15 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 maximumEvaluations: 1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new DiffHistoryEvaluationPlan.AdaptiveBisect(1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new DiffHistoryEvaluationPlan
+                .RepresentativeSurvey(0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new DiffHistoryEvaluationPlan
+                .RepresentativeSurvey(101));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new DiffHistoryEvaluationPlan
+                .RepresentativeSurvey(50, maximumProbes: 1));
         ImmutableArray<CellFixture> single =
             CellFixture.CreatePopulation(
                 "Contoso.History",

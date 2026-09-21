@@ -173,6 +173,7 @@ public sealed record BrowserPackageChangesEvent(
     BrowserPackageChangesFailure? Failure);
 
 public sealed record BrowserPackageChangesInspection(
+    string ResourcePath,
     BrowserInspectionContentKind ContentKind,
     BrowserPackageChangesDocument Content,
     BrowserInspectionPortableProjection PortableProjection,

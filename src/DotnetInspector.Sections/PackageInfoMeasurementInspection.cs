@@ -412,10 +412,10 @@ public static class PackageInfoMeasurementInspection
         }
 
         return new(
+            new ResourcePath("package-info-measurements"),
             InspectionContentKind.Result,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "package-info-measurements/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics.ToImmutable());
     }
@@ -450,10 +450,10 @@ public static class PackageInfoMeasurementInspection
         }
 
         return new(
+            new ResourcePath("package-info-measurements"),
             InspectionContentKind.Result,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "package-info-measurements/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics.ToImmutable());
     }
@@ -496,10 +496,10 @@ public static class PackageInfoMeasurementInspection
         }
 
         return new(
+            new ResourcePath("package-info-measurements"),
             InspectionContentKind.Result,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "package-info-measurements/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics.ToImmutable());
     }

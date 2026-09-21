@@ -419,6 +419,7 @@ public static class PlatformCompiledDocumentationInspection
                     .Select(id => outcomes[id]),
             ];
             return new(
+                new ResourcePath("platform-compiled-documentation"),
                 InspectionContentKind.Outcome,
                 new PlatformCompiledDocumentationInspectionOutcome.Completed(
                     new(selection, ordered)),
@@ -445,6 +446,7 @@ public static class PlatformCompiledDocumentationInspection
             PlatformCompiledDocumentationFailure failure,
             string diagnosticCode) =>
         new(
+            new ResourcePath("platform-compiled-documentation"),
             InspectionContentKind.Outcome,
             new PlatformCompiledDocumentationInspectionOutcome.NotAvailable(
                 failure),
@@ -459,7 +461,6 @@ public static class PlatformCompiledDocumentationInspection
 
     private static InspectionPortableProjection Share() =>
         new InspectionPortableProjection.NonProjectable(
-            "platform-compiled-documentation/share",
             InspectionPortableProjectionFailureReason.NotSupported);
 
     private static InertString Field(string value) =>

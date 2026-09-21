@@ -29,6 +29,7 @@ public enum BrowserCompileLibraryStatus
 }
 
 public sealed record BrowserAnalysisInspectionEnvelope(
+    string ResourcePath,
     BrowserAnalysisInspectionContentKind ContentKind,
     JsonElement Content,
     BrowserAnalysisInspectionPortableProjection PortableProjection,
@@ -38,7 +39,7 @@ public sealed record BrowserAnalysisInspectionPortableProjection(
     string Kind,
     string? FullUrl,
     string? Packet,
-    string? Path,
+    string? Location,
     BrowserAnalysisInspectionPortableProjectionFailureReason? Reason,
     string? Explanation);
 

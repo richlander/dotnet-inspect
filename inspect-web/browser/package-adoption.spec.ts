@@ -806,7 +806,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
   });
   const portableProjection: InspectionPortableProjection = {
     kind: "nonProjectable",
-    path: "comparison/endpoints",
+    location: "endpoints",
     reason: "notSupported",
     explanation: "Ordered endpoints are not shareable.",
     fullUrl: null,
@@ -846,6 +846,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     diagnostic: null,
     reason: null,
     inspection: {
+      resourcePath: "library-api-diff",
       content: { outcome: "available", document: {} },
       contentKind: "outcome",
       portableProjection,

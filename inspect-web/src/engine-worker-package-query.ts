@@ -206,6 +206,7 @@ export type EngineWorkerPackageQueryCompletionEvent =
   };
 
 interface EngineWorkerPackageQueryInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: EngineWorkerPackageQueryDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
@@ -1272,11 +1273,16 @@ function parseInspection(
   inspectionValue: unknown,
 ): EngineWorkerPackageQueryInspection {
   const inspection = dataRecord(inspectionValue, [
+    "resourcePath",
     "contentKind",
     "content",
     "portableProjection",
     "diagnostics",
   ], "Package Query inspection");
+  const resourcePath = literal(
+    inspection.resourcePath,
+    ["package-query"] as const,
+    "Package Query inspection resource path");
   const contentKind = literal(
     inspection.contentKind,
     ["document"] as const,
@@ -1832,7 +1838,7 @@ function parseInspection(
   };
   const portableProjection = dataRecord(
     inspection.portableProjection,
-    ["kind", "fullUrl", "packet", "path", "reason", "explanation"],
+    ["kind", "fullUrl", "packet", "location", "reason", "explanation"],
     "Package Query inspection portable projection");
   const kind = literal(
     portableProjection.kind,
@@ -1848,9 +1854,9 @@ function parseInspection(
       portableProjection.packet,
       "Package Query inspection portable projection packet",
       metadataBudget),
-    path: nullableText(
-      portableProjection.path,
-      "Package Query inspection portable projection path",
+    location: nullableText(
+      portableProjection.location,
+      "Package Query inspection portable projection location",
       metadataBudget),
     reason: nullableLiteral(
       portableProjection.reason,
@@ -1864,7 +1870,7 @@ function parseInspection(
   if (kind === "Available") {
     if (projectedPortableProjection.fullUrl === null
         || projectedPortableProjection.packet === null
-        || projectedPortableProjection.path !== null
+        || projectedPortableProjection.location !== null
         || projectedPortableProjection.reason !== null
         || projectedPortableProjection.explanation !== null) {
       throw new PackageQueryPayloadError(
@@ -1872,7 +1878,6 @@ function parseInspection(
     }
   } else if (projectedPortableProjection.fullUrl !== null
       || projectedPortableProjection.packet !== null
-      || projectedPortableProjection.path === null
       || projectedPortableProjection.reason === null) {
     throw new PackageQueryPayloadError(
       "Non-projectable Package Query portable projection data is malformed.");
@@ -1909,6 +1914,7 @@ function parseInspection(
     });
 
   return {
+    resourcePath,
     contentKind,
     content,
     portableProjection: projectedPortableProjection,

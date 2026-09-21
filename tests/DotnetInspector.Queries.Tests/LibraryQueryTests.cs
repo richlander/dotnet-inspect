@@ -271,7 +271,8 @@ public sealed class LibraryQueryTests
         InspectionPortableProjection.NonProjectable share =
             Assert.IsType<InspectionPortableProjection.NonProjectable>(
                 envelope.PortableProjection);
-        Assert.Equal("library-query/share", share.Path);
+        Assert.Equal("library-query", envelope.ResourcePath.Value);
+        Assert.Null(share.Location);
         Assert.Empty(envelope.Diagnostics);
     }
 

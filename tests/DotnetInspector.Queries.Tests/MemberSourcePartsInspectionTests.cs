@@ -45,7 +45,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.IsType<SourceHouseTarget.MemberTarget>(house.Request.Target).SourceForm);
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Same(request, available.Request);
-        Assert.Equal("member-source/share", Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection).Path);
+        Assert.Equal("member-source", inspection.ResourcePath.Value);
         Assert.Empty(inspection.Diagnostics);
         Assert.Single(host.SourceRequests);
     }

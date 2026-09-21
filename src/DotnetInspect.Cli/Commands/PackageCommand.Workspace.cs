@@ -94,6 +94,7 @@ public partial class PackageCommand
                             activeRestoration.Activation,
                             request!,
                             InspectionContentKind.Outcome,
+                            new ResourcePath("package-overview"),
                             target => ExecuteWorkspaceTargetAsync(
                                 options,
                                 context,
@@ -449,9 +450,9 @@ public partial class PackageCommand
             || options.AllLibraries)
         {
             return new(
-                "package/lens",
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "The requested Package lens has no portable Workspace "
+                location: "lens",
+                explanation: "The requested Package lens has no portable Workspace "
                     + "Package facet.");
         }
         if (options.IncludeSections is { Count: > 0 }
@@ -460,9 +461,9 @@ public partial class PackageCommand
                     Views.PackageSections.PackageInfo)))
         {
             return new(
-                "package/sections",
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "The requested Package section selection has no portable "
+                location: "sections",
+                explanation: "The requested Package section selection has no portable "
                     + "Workspace Package facet.");
         }
 

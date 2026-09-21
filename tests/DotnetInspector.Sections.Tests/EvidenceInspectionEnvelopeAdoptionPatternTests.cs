@@ -414,10 +414,10 @@ internal sealed class ExampleInspectionService
         }
 
         return new(
+            new ResourcePath("evidence-adoption-pattern"),
             InspectionContentKind.Result,
             new ExampleInspectionContent(matches, IsComplete: true),
             new InspectionPortableProjection.NonProjectable(
-                "evidence-adoption-pattern/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

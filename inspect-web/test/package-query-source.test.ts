@@ -69,6 +69,7 @@ function succeeded(
     kind: "Succeeded",
     value: null,
     inspection: {
+      resourcePath: "package-query",
       contentKind: "document",
       content: {
         hasPackages: false,
@@ -81,7 +82,7 @@ function succeeded(
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-query/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace packet.",
       },
@@ -175,6 +176,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
     kind: "Succeeded",
     value: null,
     inspection: {
+      resourcePath: "package-query",
       contentKind: "document",
       content: {
         hasPackages: true,
@@ -229,7 +231,7 @@ function semanticSucceeded(): BrowserPackageQueryResult {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-query/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace packet.",
       },
@@ -707,7 +709,7 @@ test("Browser source retains the Package Query inspection envelope", async () =>
     kind: "NonProjectable",
     fullUrl: null,
     packet: null,
-    path: "package-query/share",
+    location: null,
     reason: "notSupported",
     explanation: "No canonical Workspace packet.",
   });

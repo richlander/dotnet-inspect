@@ -139,10 +139,10 @@ public static class PackageVersionSettlementInspection
         PackageVersionSettlementOutcome outcome,
         IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
+            new ResourcePath("package-version-settlement"),
             InspectionContentKind.Outcome,
             outcome,
             new InspectionPortableProjection.NonProjectable(
-                "package-version-settlement/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics);
 

@@ -130,6 +130,7 @@ public static class WorkspacePortableCoordinateReplacementOperation
                 diagnostic.Library));
         }
         return new(
+            new ResourcePath(SharePath),
             InspectionContentKind.Outcome,
             content,
             share,
@@ -152,9 +153,8 @@ public static class WorkspacePortableCoordinateReplacementOperation
         if (result.Definitions is null)
         {
             return new InspectionPortableProjection.NonProjectable(
-                SharePath,
                 InspectionPortableProjectionFailureReason.Unavailable,
-                result.Failure!.Detail);
+                explanation: result.Failure!.Detail);
         }
 
         WorkspaceSharePacketProjectionResult projection =
@@ -162,14 +162,16 @@ public static class WorkspacePortableCoordinateReplacementOperation
                 result.Definitions, cancellationToken);
         if (!projection.Succeeded)
         {
+            WorkspaceSharePacketProjectionFailure failure =
+                projection.Failure!;
             return new InspectionPortableProjection.NonProjectable(
-                projection.Failure!.Path,
-                projection.Failure.Kind
+                failure.Kind
                     is WorkspaceSharePacketProjectionFailureKind
                         .InvalidDefinitionSet
                     ? InspectionPortableProjectionFailureReason.Invalid
                     : InspectionPortableProjectionFailureReason.NotSupported,
-                projection.Failure.Message);
+                location: failure.Path,
+                explanation: failure.Message);
         }
         try
         {
@@ -180,9 +182,8 @@ public static class WorkspacePortableCoordinateReplacementOperation
         catch (WorkspaceSharePacketException failure)
         {
             return new InspectionPortableProjection.NonProjectable(
-                SharePath,
                 InspectionPortableProjectionFailureReason.Failed,
-                failure.Message);
+                explanation: failure.Message);
         }
     }
 }

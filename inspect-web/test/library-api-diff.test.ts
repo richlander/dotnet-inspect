@@ -140,13 +140,14 @@ function inspection(
 ): NonNullable<BrowserLibraryApiDiffResult["inspection"]> {
   const portableProjection: InspectionPortableProjection = {
     kind: "nonProjectable",
-    path: "comparison/endpoints",
+    location: "endpoints",
     reason: "notSupported",
     explanation: "Ordered endpoints are not shareable.",
     fullUrl: null,
     packet: null,
   };
   return {
+    resourcePath: "library-api-diff",
     contentKind: "outcome",
     content,
     portableProjection,

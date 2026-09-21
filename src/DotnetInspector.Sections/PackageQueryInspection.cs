@@ -120,10 +120,10 @@ public static class PackageQueryInspection
         ValidateContent(plan, content);
 
         return new(
+            new ResourcePath("package-query"),
             InspectionContentKind.Document,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "package-query/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 

@@ -458,10 +458,14 @@ public sealed partial class ExactTypeInspectionOperationTests
             foreach (PropertyInfo property in type.GetProperties(
                 BindingFlags.Public | BindingFlags.Instance))
             {
-                Assert.DoesNotContain(
-                    "Path",
-                    property.Name,
-                    StringComparison.OrdinalIgnoreCase);
+                if (property.PropertyType != typeof(ResourcePath)
+                    && property.Name != "ResourcePathValue")
+                {
+                    Assert.DoesNotContain(
+                        "Path",
+                        property.Name,
+                        StringComparison.OrdinalIgnoreCase);
+                }
                 Visit(property.PropertyType);
             }
         }

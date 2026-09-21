@@ -81,7 +81,6 @@ public static class LibraryEcosystemDependencyRecognitionInspection
             new EcosystemDependencyRecognitionPortableProjection(
                 subject,
                 new InspectionPortableProjection.NonProjectable(
-                    "ecosystem-dependency-recognition/library-share",
                     InspectionPortableProjectionFailureReason.NotSupported)),
             diagnostics);
     }

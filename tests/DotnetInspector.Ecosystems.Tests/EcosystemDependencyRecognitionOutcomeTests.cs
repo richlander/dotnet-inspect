@@ -724,7 +724,6 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
         var share = new EcosystemDependencyRecognitionPortableProjection(
             otherSubject,
             new InspectionPortableProjection.NonProjectable(
-                "ecosystem-dependencies/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
 
         Assert.Throws<ArgumentException>(() =>

@@ -137,6 +137,7 @@ public static class ExactLibraryApiInspectionOperation
         ExactLibraryApiInspectionResult result,
         ExactLibraryApiInspectionRequest request) =>
         new(
+            new ResourcePath("exact-library-api"),
             InspectionContentKind.Result,
             result,
             ProjectShare(request, result),
@@ -194,13 +195,13 @@ public static class ExactLibraryApiInspectionOperation
             WorkspaceSharePacketProjectionFailure failure =
                 projection.Failure!;
             return new InspectionPortableProjection.NonProjectable(
-                $"exact-library-api-share/{failure.Path}",
                 failure.Kind
                     is WorkspaceSharePacketProjectionFailureKind
                         .InvalidDefinitionSet
                     ? InspectionPortableProjectionFailureReason.Invalid
                     : InspectionPortableProjectionFailureReason.NotSupported,
-                failure.Message);
+                location: failure.Path,
+                explanation: failure.Message);
         }
 
         string encoded =

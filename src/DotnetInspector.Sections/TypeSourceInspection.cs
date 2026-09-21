@@ -25,10 +25,10 @@ public static class TypeSourceInspection
                     cancellationToken)
                 .ConfigureAwait(false);
         return new(
+            new ResourcePath("type-decompilation"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "type-decompilation/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 
@@ -42,10 +42,10 @@ public static class TypeSourceInspection
         AssemblyTypeSourceEntry content = await AssemblyContextSourceQuery.ExecuteTypeAsync(
             group, participant, request, context, cancellationToken).ConfigureAwait(false);
         return new(
+            new ResourcePath("type-source"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "type-source/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 
@@ -74,10 +74,10 @@ public static class TypeSourceInspection
                     cancellationToken)
                 .ConfigureAwait(false);
         return new(
+            new ResourcePath("type-source"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "type-source/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

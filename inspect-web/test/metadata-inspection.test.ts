@@ -20,6 +20,7 @@ import type {
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
     exactTypeInspection: {
+      resourcePath: "exact-type",
       contentKind: "result",
       content: {
         outcome: 0,
@@ -63,7 +64,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
         kind: "nonProjectable",
         fullUrl: null,
         packet: null,
-        path: "exact-type",
+        location: null,
         reason: "notSupported",
         explanation: "Fixture exact-type inspection is not shareable.",
       },
@@ -73,6 +74,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
     graphNodes: [],
     graphEdges: [],
     typeDependencyInspection: {
+      resourcePath: "type-dependencies",
       contentKind: "result",
       content: {
         queryResult: {
@@ -98,7 +100,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
         kind: "nonProjectable",
         fullUrl: null,
         packet: null,
-        path: "type-dependencies",
+        location: null,
         reason: "notSupported",
         explanation: "Fixture dependency inspection is not shareable.",
       },

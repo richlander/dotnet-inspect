@@ -194,6 +194,7 @@ public static partial class MetadataExports
                 root,
                 typeName);
         return new InspectionEnvelope<TypeDependencySectionResult>(
+            new ResourcePath("type-dependencies"),
             InspectionContentKind.Result,
             dependencies,
             share,
@@ -251,13 +252,13 @@ public static partial class MetadataExports
             WorkspaceSharePacketProjectionFailure failure =
                 packet.Failure!;
             return new InspectionPortableProjection.NonProjectable(
-                $"type-dependency-share/{failure.Path}",
                 failure.Kind
                     is WorkspaceSharePacketProjectionFailureKind
                         .InvalidDefinitionSet
                     ? InspectionPortableProjectionFailureReason.Invalid
                     : InspectionPortableProjectionFailureReason.NotSupported,
-                failure.Message);
+                location: failure.Path,
+                explanation: failure.Message);
         }
 
         string encoded = WorkspaceSharePacketCodec.Encode(packet.Packet!);

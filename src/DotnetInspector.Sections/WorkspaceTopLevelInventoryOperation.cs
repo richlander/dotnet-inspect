@@ -184,7 +184,7 @@ public sealed record WorkspaceTopLevelInventoryExecution
 
 public static class WorkspaceTopLevelInventoryOperation
 {
-    const string SharePath = "workspace-top-level-inventory/share";
+    const string SharePath = "workspace-top-level-inventory";
 
     public static async ValueTask<WorkspaceTopLevelInventoryExecution>
         ExecuteAsync(
@@ -314,6 +314,7 @@ public static class WorkspaceTopLevelInventoryOperation
     {
         var inspection =
             new InspectionEnvelope<WorkspaceTopLevelInventoryOutcome>(
+                new ResourcePath(SharePath),
                 InspectionContentKind.Outcome,
                 execution.Outcome,
                 ProjectPortableProjection(
@@ -350,25 +351,26 @@ public static class WorkspaceTopLevelInventoryOperation
                         "Unknown Workspace inventory unavailable reason."),
                 };
             return new InspectionPortableProjection.NonProjectable(
-                SharePath,
                 reason,
-                explanation);
+                explanation: explanation);
         }
 
         if (outcome is WorkspaceTopLevelInventoryOutcome.Rejected)
         {
             return new InspectionPortableProjection.NonProjectable(
-                SharePath,
                 InspectionPortableProjectionFailureReason.Invalid,
-                "The Workspace inventory request contains an invalid kind filter.");
+                location: "filter",
+                explanation:
+                    "The Workspace inventory request contains an invalid kind filter.");
         }
 
         if (request.Filter is not null)
         {
             return new InspectionPortableProjection.NonProjectable(
-                SharePath,
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "Workspace packets do not represent inventory kind filters.");
+                location: "filter",
+                explanation:
+                    "Workspace packets do not represent inventory kind filters.");
         }
 
         return (shareBasis
@@ -383,7 +385,6 @@ public static class WorkspaceTopLevelInventoryOperation
             WorkspaceTopLevelInventoryShareProjection.NonProjectable
                 nonProjectable =>
                 new InspectionPortableProjection.NonProjectable(
-                    SharePath,
                     nonProjectable.Reason switch
                     {
                         WorkspaceTopLevelInventoryShareNonProjectableReason
@@ -396,7 +397,7 @@ public static class WorkspaceTopLevelInventoryOperation
                         _ => throw new InvalidOperationException(
                             "Unknown Workspace inventory Share projection reason."),
                     },
-                    nonProjectable.Reason switch
+                    explanation: nonProjectable.Reason switch
                     {
                         WorkspaceTopLevelInventoryShareNonProjectableReason
                             .NoRetainedDefinitionProjection =>

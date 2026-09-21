@@ -37,6 +37,8 @@ public class DiffOptionsParserTests
             AllowMultipleArgumentsPerToken = false
         };
         var maxProbesOption = new Option<int?>("--max-probes");
+        var samplePercentOption =
+            new Option<int?>("--sample-percent");
         var prereleaseOption = new Option<bool>("--preview");
         var countOption = new Option<bool>("--count");
         var typeFilterOption = new Option<string[]>("-t") { AllowMultipleArgumentsPerToken = false };
@@ -65,6 +67,7 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(historyOption);
         diffCommand.Options.Add(atOption);
         diffCommand.Options.Add(maxProbesOption);
+        diffCommand.Options.Add(samplePercentOption);
         diffCommand.Options.Add(prereleaseOption);
         diffCommand.Options.Add(countOption);
         diffCommand.Options.Add(typeFilterOption);
@@ -95,7 +98,7 @@ public class DiffOptionsParserTests
         var root = new RootCommand { diffCommand };
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            historyOption, atOption, maxProbesOption, prereleaseOption, countOption,
+            historyOption, atOption, maxProbesOption, samplePercentOption, prereleaseOption, countOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
             changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
@@ -124,6 +127,20 @@ public class DiffOptionsParserTests
             "--repo", @"C:\clone-b");
 
         Assert.Equal([@"C:\clone-a", @"C:\clone-b"], options.SourceRepositories);
+    }
+
+    [Fact]
+    public void SurveyOptionsPopulateEvaluationPolicyInputs()
+    {
+        DiffOptions options = ParseSuccess(
+            "diff",
+            "--history",
+            "--package", "Example@1.0.0..8.0.0",
+            "--sample-percent", "50",
+            "--max-probes", "10");
+
+        Assert.Equal(50, options.SamplePercent);
+        Assert.Equal(10, options.MaxProbes);
     }
 
     [Fact]

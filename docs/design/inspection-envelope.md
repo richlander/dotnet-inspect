@@ -31,17 +31,42 @@ implementation adoption is
 ## Claim
 
 For one resolved semantic plan, every host receives the same content
-classification, content, portable projection, and diagnostics:
+resource identity, content classification, content, portable projection, and
+diagnostics:
 
 ```text
 InspectionEnvelope<TContent>
+  ResourcePath
   ContentKind: Result | Document | Outcome
   Content: TContent
   PortableProjection:
     Available(FullUrl, Packet)
-    | NonProjectable(Path, Reason, Explanation)
+    | NonProjectable(Reason, Location?, Explanation?)
   Diagnostics
 ```
+
+`ResourcePath` identifies the whole owner-issued inspection resource
+independently of whether content or portable projection succeeds. It uses the
+canonical product-resource path owned by Resource Explanation; a terminal
+outcome never manufactures an error-specific resource identity.
+
+This path names an installed product contract, not the inspected subject, an
+artifact-internal address, or a packet-local component. For example,
+`type-dependencies` remains the resource path across different Types and across
+available and non-projectable outcomes. A Workspace component path such as
+`packages/system.text.json@10.0.0/net10.0/~` instead names one component in one
+immutable packet snapshot and is not a `ResourcePath`.
+
+The CLR envelope retains the typed `ResourcePath`. Native JSON lowers it to the
+scalar `resourcePath`; the CLI envelope lowers the same value to
+`resource_path` under its existing output naming policy. Neither wire form
+serializes the custom CLR converter shape.
+
+Constructing an envelope does not mutate or implicitly extend the Resource
+Explanation registry. During staged adoption, an owner may emit its canonical
+resource identity before its explanation descriptor is registered. Contextual
+explanation may advertise that path only after explicit registration; once
+registered, the emitted value is accepted unchanged by `explain`.
 
 `TContent` remains the content type issued by the inspection owner. The
 envelope does not replace that type, reinterpret its facts, or become a
@@ -49,6 +74,7 @@ universal inspection-content model.
 
 The envelope owns:
 
+- the canonical resource path for the completed inspection;
 - the non-null owner-issued content value;
 - its explicit semantic kind;
 - one required portable projection for the same semantic plan; and
@@ -106,7 +132,7 @@ resolved basis
   -> one content plan plus required portable projection
   -> owner-issued result
   -> portable projection
-  -> InspectionEnvelope<TContent>
+  -> InspectionEnvelope<TContent>(ResourcePath)
   -> CLI or Browser composition and presentation
 ```
 
@@ -155,8 +181,9 @@ resolved basis:
 ```text
 InspectionPortableProjection
   = Available(FullUrl, Packet)
-  | NonProjectable(Path, Reason: NotSupported | Invalid | Incomplete
-                    | Unavailable | Failed)
+  | NonProjectable(Reason: NotSupported | Invalid | Incomplete
+                    | Unavailable | Failed,
+                   Location?, Explanation?)
 ```
 
 `Available` contains both the complete canonical production URL and the
@@ -167,15 +194,17 @@ names, Browser navigation, or the current origin.
 The producer supplies both values when constructing `Available`; the portable
 contract does not derive one by parsing the other.
 
-`NonProjectable` identifies the semantic path and closed reason that prevented
-a faithful representation. `NotSupported` means the admitted operation has no
-defined projection, `Invalid` means the state violates the projection
-contract, `Incomplete` means required settled evidence is incomplete,
-`Unavailable` means required portable state is absent, and `Failed` means the
-defined projection could not complete. The reason is typed owner output, not
-free-form presentation text. The trusted owner-issued `Explanation` supplies
-display text; hosts may render it but must not invent or reinterpret the
-projection-failure meaning.
+`NonProjectable` identifies the closed reason that prevented a faithful
+representation. Its optional `Location` identifies where projection failed
+inside this operation's resolved semantic plan; it may contain an occurrence
+index or other operation-local coordinate and is not a product-resource path.
+`NotSupported` means the admitted operation has no defined projection,
+`Invalid` means the state violates the projection contract, `Incomplete`
+means required settled evidence is incomplete, `Unavailable` means required
+portable state is absent, and `Failed` means the defined projection could not
+complete. The reason is typed owner output, not free-form presentation text.
+The trusted owner-issued `Explanation` supplies display text; hosts may render
+it but must not invent or reinterpret the projection-failure meaning.
 The outcome contains no partial URL and never drops, defaults, or approximates
 semantic state to manufacture one.
 

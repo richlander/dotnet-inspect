@@ -587,6 +587,7 @@ export interface InspectionDiagnostic {
 }
 
 export interface InspectionEnvelope<T0> {
+  readonly resourcePath: string;
   readonly contentKind: InspectionContentKind;
   readonly content: T0;
   readonly portableProjection: InspectionPortableProjection;
@@ -712,8 +713,8 @@ export interface NonProjectable {
   readonly kind: "nonProjectable";
   readonly fullUrl: string | null;
   readonly packet: string | null;
-  readonly path: string;
   readonly reason: InspectionPortableProjectionFailureReason;
+  readonly location: string | null;
   readonly explanation: string | null;
 }
 

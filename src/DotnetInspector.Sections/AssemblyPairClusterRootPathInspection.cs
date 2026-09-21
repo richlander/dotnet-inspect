@@ -26,10 +26,10 @@ public static class AssemblyPairClusterRootPathInspection
                 limits,
                 cancellationToken);
         return new(
+            new ResourcePath("assembly-pair/cluster-public-root-paths"),
             InspectionContentKind.Result,
             result,
             new InspectionPortableProjection.NonProjectable(
-                "assembly-pair/cluster-public-root-paths",
                 InspectionPortableProjectionFailureReason.NotSupported),
             Diagnostics(result));
     }

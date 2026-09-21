@@ -25,10 +25,10 @@ public static class MemberSourceInspection
                     cancellationToken)
                 .ConfigureAwait(false);
         return new(
+            new ResourcePath("member-decompilation"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "member-decompilation/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 
@@ -42,10 +42,10 @@ public static class MemberSourceInspection
         AssemblyMemberSourceEntry content = await AssemblyContextSourceQuery.ExecuteMemberAsync(
             group, participant, request, context, cancellationToken).ConfigureAwait(false);
         return new(
+            new ResourcePath("member-source"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "member-source/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 
@@ -59,10 +59,10 @@ public static class MemberSourceInspection
         AssemblyMemberSourceComparisonEntry content = await AssemblyContextSourceComparisonQuery.ExecuteAsync(
             group, participant, request, context, cancellationToken).ConfigureAwait(false);
         return new(
+            new ResourcePath("member-source-comparison"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "member-source-comparison/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

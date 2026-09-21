@@ -164,6 +164,7 @@ export interface BrowserExactLibraryApiFacet {
 }
 
 export interface BrowserExactLibraryApiInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: BrowserExactLibraryApiInspectionResult;
   readonly portableProjection: BrowserInspectionPortableProjection;
@@ -242,7 +243,7 @@ export interface BrowserInspectionPortableProjection {
   readonly kind: BrowserInspectionPortableProjectionKind;
   readonly fullUrl: string | null;
   readonly packet: string | null;
-  readonly path: string | null;
+  readonly location: string | null;
   readonly reason: BrowserInspectionPortableProjectionFailureReason | null;
   readonly explanation: string | null;
 }
@@ -263,6 +264,7 @@ export interface BrowserLibraryQueryFailure {
 }
 
 export interface BrowserLibraryQueryInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: BrowserLibraryQueryDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
@@ -502,6 +504,7 @@ export interface BrowserPackageChangesFailure {
 }
 
 export interface BrowserPackageChangesInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: BrowserPackageChangesDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
@@ -682,6 +685,7 @@ export interface BrowserPackageIcon {
 }
 
 export interface BrowserPackageInfoMeasurementInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: BrowserPackageInfoMeasurements;
   readonly portableProjection: BrowserInspectionPortableProjection;
@@ -848,6 +852,7 @@ export interface BrowserPackageQueryFailure {
 }
 
 export interface BrowserPackageQueryInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: BrowserPackageQueryDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
@@ -983,6 +988,7 @@ export interface BrowserPackageVersionSettlementFailure {
 }
 
 export interface BrowserPackageVersionSettlementInspection {
+  readonly resourcePath: string;
   readonly contentKind: BrowserInspectionContentKind;
   readonly content: BrowserPackageVersionSettlementOutcome;
   readonly portableProjection: BrowserInspectionPortableProjection;

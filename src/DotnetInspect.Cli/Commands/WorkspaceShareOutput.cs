@@ -42,7 +42,7 @@ internal static class WorkspaceShareOutput
                 return 0;
             case InspectionPortableProjection.NonProjectable nonProjectable:
                 CommandError.Write(
-                    $"--share is not projectable at {nonProjectable.Path}: "
+                    $"--share is not projectable{Location(nonProjectable)}: "
                     + Explain(nonProjectable));
                 return 1;
             default:
@@ -65,7 +65,7 @@ internal static class WorkspaceShareOutput
                 return 0;
             case InspectionPortableProjection.NonProjectable nonProjectable:
                 CommandError.Write(
-                    $"--share is not projectable at {nonProjectable.Path}: "
+                    $"--share is not projectable{Location(nonProjectable)}: "
                         + Explain(nonProjectable));
                 return 1;
             default:
@@ -92,6 +92,12 @@ internal static class WorkspaceShareOutput
             _ => throw new InvalidOperationException(
                 "Unknown portable projection failure reason."),
         };
+
+    private static string Location(
+        InspectionPortableProjection.NonProjectable nonProjectable) =>
+        nonProjectable.Location is { } location
+            ? $" at {location}"
+            : "";
 
     private sealed class DeferredSideOutput : IDisposable
     {

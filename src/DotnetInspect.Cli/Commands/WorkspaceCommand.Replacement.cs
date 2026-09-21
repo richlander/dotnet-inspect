@@ -83,7 +83,11 @@ public static partial class WorkspaceCommand
             is InspectionPortableProjection.NonProjectable refusal)
         {
             CommandError.Write(
-                $"The derived Workspace is not projectable at {refusal.Path}: {refusal.Reason}");
+                "The derived Workspace is not projectable"
+                    + (refusal.Location is { } location
+                        ? $" at {location}"
+                        : "")
+                    + $": {refusal.Reason}");
             return 1;
         }
         if (!inspection.Content.Succeeded)

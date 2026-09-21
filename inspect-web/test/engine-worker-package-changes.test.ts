@@ -88,6 +88,7 @@ const failure: BrowserPackageChangesFailure = {
 
 function inspection(): BrowserPackageChangesInspection {
   return {
+    resourcePath: "package-changes",
     contentKind: "document",
     content: {
       schemaVersion: 1,
@@ -153,7 +154,7 @@ function inspection(): BrowserPackageChangesInspection {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
-      path: "package-changes/share",
+      location: null,
       reason: "notSupported",
       explanation: "Package Activity is not yet share-projectable.",
     },

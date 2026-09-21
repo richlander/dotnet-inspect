@@ -884,6 +884,8 @@ public sealed partial class BrowserEngineBoundaryTests
                     .ToImmutableArray();
 
             return new(
+                new ResourcePath(
+                    root.GetProperty("resourcePath").GetString()!),
                 contentKind,
                 new TypeDependencySectionResult(
                     new AssemblyContextTypeDependencyResult(

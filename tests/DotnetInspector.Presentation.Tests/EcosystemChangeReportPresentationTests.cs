@@ -303,7 +303,8 @@ public sealed class EcosystemChangeReportPresentationTests
                 compact: true));
         InspectionPortableProjection.NonProjectable share =
             Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection);
-        Assert.Equal("package-changes/share", share.Path);
+        Assert.Equal("package-changes", inspection.ResourcePath.Value);
+        Assert.Null(share.Location);
         Assert.Empty(inspection.Diagnostics);
         Assert.Equal(
             events.Count(static item =>

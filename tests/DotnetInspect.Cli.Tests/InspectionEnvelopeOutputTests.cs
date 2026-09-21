@@ -21,7 +21,9 @@ public sealed class InspectionEnvelopeOutputTests
     [InlineData(WorkspaceShareFormat.Packet)]
     public async Task EnvelopeShareRemainsAfterHostDiagnostics(WorkspaceShareFormat format)
     {
-        var share = new InspectionPortableProjection.Available("https://example.test/inspect", "packet");
+        var share = new InspectionPortableProjection.Available(
+            "https://example.test/inspect",
+            "packet");
         (int _, string output, string error) = await ConsoleCapture.RunAsync(async () =>
         {
             using var scope = WorkspaceShareOutput.DeferSideOutput();
@@ -48,6 +50,7 @@ public sealed class InspectionEnvelopeOutputTests
             null,
             EnvelopeTestStatus.Ready);
         var envelope = new InspectionEnvelope<EnvelopeTestContent>(
+            new ResourcePath("test-resource"),
             InspectionContentKind.Document,
             content,
             new InspectionPortableProjection.Available(
@@ -88,12 +91,16 @@ public sealed class InspectionEnvelopeOutputTests
             root,
             "schema_version",
             "result_kind",
+            "resource_path",
             "content_kind",
             "content",
             "portable_projection",
             "diagnostics");
         Assert.Equal(7, root.GetProperty("schema_version").GetInt32());
         Assert.Equal("test-content", root.GetProperty("result_kind").GetString());
+        Assert.Equal(
+            "test-resource",
+            root.GetProperty("resource_path").GetString());
         Assert.Equal(
             "document",
             root.GetProperty("content_kind").GetString());
@@ -159,12 +166,13 @@ public sealed class InspectionEnvelopeOutputTests
     public async Task NonProjectableProjectionKeepsTypedReasonNullsAndEmptyDiagnostics()
     {
         var envelope = new InspectionEnvelope<EnvelopeTestContent>(
+            new ResourcePath("type-dependencies"),
             InspectionContentKind.Document,
             Content(),
             new InspectionPortableProjection.NonProjectable(
-                "type/dependencies",
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "This plan has no portable representation."));
+                location: "subject",
+                explanation: "This plan has no portable representation."));
 
         (bool written, string json, string error) =
             await WriteAsync(envelope, includeEnvelope: true);
@@ -179,12 +187,13 @@ public sealed class InspectionEnvelopeOutputTests
         AssertPropertyNames(
             share,
             "kind",
-            "path",
             "reason",
+            "location",
             "explanation",
             "full_url",
             "packet");
-        Assert.Equal("type/dependencies", share.GetProperty("path").GetString());
+        Assert.Equal("type-dependencies", root.GetProperty("resource_path").GetString());
+        Assert.Equal("subject", share.GetProperty("location").GetString());
         Assert.Equal(
             "notSupported",
             share.GetProperty("reason").GetString());
@@ -203,6 +212,7 @@ public sealed class InspectionEnvelopeOutputTests
     public async Task CompactJsonChangesWhitespaceOnlyForBothOutputBoundaries()
     {
         var envelope = new InspectionEnvelope<EnvelopeTestContent>(
+            new ResourcePath("test-resource"),
             InspectionContentKind.Document,
             Content(),
             new InspectionPortableProjection.Available(
@@ -244,6 +254,7 @@ public sealed class InspectionEnvelopeOutputTests
             1,
             FailingEnvelopeContentJsonContext.Default.FailingEnvelopeContent);
         var envelope = new InspectionEnvelope<FailingEnvelopeContent>(
+            new ResourcePath("test-resource"),
             InspectionContentKind.Result,
             new FailingEnvelopeContent(),
             new InspectionPortableProjection.Available(
@@ -269,6 +280,7 @@ public sealed class InspectionEnvelopeOutputTests
     public void EnrichedEnvelopeUsesFlatTransportFrame()
     {
         var inspection = new InspectionEnvelope<EnvelopeTestContent>(
+            new ResourcePath("test-resource"),
             InspectionContentKind.Document,
             Content(),
             new InspectionPortableProjection.Available(

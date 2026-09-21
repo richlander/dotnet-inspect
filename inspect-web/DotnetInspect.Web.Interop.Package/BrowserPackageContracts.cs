@@ -70,6 +70,7 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageSurface? Surface);
 
 public sealed record BrowserPackageInfoMeasurementInspection(
+    string ResourcePath,
     BrowserInspectionContentKind ContentKind,
     BrowserPackageInfoMeasurements Content,
     BrowserInspectionPortableProjection PortableProjection,
@@ -90,6 +91,7 @@ public sealed record BrowserPackageInfoMeasurements(
     bool HasSelectedSlice);
 
 public sealed record BrowserPackageVersionSettlementInspection(
+    string ResourcePath,
     BrowserInspectionContentKind ContentKind,
     BrowserPackageVersionSettlementOutcome Content,
     BrowserInspectionPortableProjection PortableProjection,
@@ -731,7 +733,7 @@ public sealed record BrowserInspectionPortableProjection(
     BrowserInspectionPortableProjectionKind Kind,
     string? FullUrl,
     string? Packet,
-    string? Path,
+    string? Location,
     BrowserInspectionPortableProjectionFailureReason? Reason,
     string? Explanation);
 
@@ -798,6 +800,7 @@ public sealed record BrowserInspectionDiagnostic(
     string? Correspondence);
 
 public sealed record BrowserExactLibraryApiInspection(
+    string ResourcePath,
     BrowserInspectionContentKind ContentKind,
     BrowserExactLibraryApiInspectionResult Content,
     BrowserInspectionPortableProjection PortableProjection,
@@ -925,6 +928,7 @@ public sealed record BrowserPackageQueryDocument(
 }
 
 public sealed record BrowserPackageQueryInspection(
+    string ResourcePath,
     BrowserInspectionContentKind ContentKind,
     BrowserPackageQueryDocument Content,
     BrowserInspectionPortableProjection PortableProjection,
@@ -1111,6 +1115,7 @@ public sealed record BrowserPackageDependencies(
     BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserLibraryQueryInspection(
+    string ResourcePath,
     BrowserInspectionContentKind ContentKind,
     BrowserLibraryQueryDocument Content,
     BrowserInspectionPortableProjection PortableProjection,

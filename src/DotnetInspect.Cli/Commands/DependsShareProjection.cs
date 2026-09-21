@@ -12,7 +12,6 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class DependsShareProjection
 {
-    private const string AssetSharePath = "asset-dependencies/share";
     private const string BrowserPlatformPackageId = "Microsoft.NETCore.App";
 
     internal sealed record AssetSharePreparation(
@@ -172,16 +171,28 @@ internal static class DependsShareProjection
         if (resolution
             is not PackageCoordinateResolution.Resolved resolved)
         {
-            string message = resolution switch
+            (
+                InspectionPortableProjectionFailureReason reason,
+                string message) = resolution switch
             {
                 PackageCoordinateResolution.Invalid invalid =>
-                    invalid.Message,
+                    (
+                        InspectionPortableProjectionFailureReason.Invalid,
+                        invalid.Message),
                 PackageCoordinateResolution.Unavailable unavailable =>
-                    unavailable.Message,
-                _ => "The package coordinate could not be resolved.",
+                    (
+                        InspectionPortableProjectionFailureReason.Unavailable,
+                        unavailable.Message),
+                _ => (
+                    InspectionPortableProjectionFailureReason.Failed,
+                    "The package coordinate could not be resolved."),
             };
-            return NonProjectableAssetPreparation(
-                $"--share could not resolve an exact NuGet.org package coordinate: {message}");
+            return new AssetSharePreparation(
+                new InspectionPortableProjection.NonProjectable(
+                    reason,
+                    location: "package-coordinate",
+                    explanation: "--share could not resolve an exact NuGet.org "
+                        + $"package coordinate: {message}"));
         }
         string normalizedVersion = resolved.Coordinate.Version;
         var coordinate =
@@ -390,9 +401,8 @@ internal static class DependsShareProjection
 
     private static InspectionPortableProjection NonProjectableShare(string reason) =>
         new InspectionPortableProjection.NonProjectable(
-            "type-dependency-share",
             InspectionPortableProjectionFailureReason.NotSupported,
-            reason);
+            explanation: reason);
 
     internal static bool TryNormalizeFramework(
         string? value,
@@ -432,9 +442,8 @@ internal static class DependsShareProjection
     private static InspectionPortableProjection.NonProjectable
         NonProjectableAssetShare(string reason) =>
             new(
-                AssetSharePath,
                 InspectionPortableProjectionFailureReason.NotSupported,
-                reason);
+                explanation: reason);
 
     private static AssetSharePreparation
         NonProjectableAssetPreparation(string reason) =>

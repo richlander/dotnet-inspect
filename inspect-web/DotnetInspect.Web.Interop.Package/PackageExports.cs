@@ -368,6 +368,7 @@ public static partial class PackageExports
 
         LibraryQueryDocument content = envelope.Content;
         return new(
+            envelope.ResourcePath.Value,
             BrowserInspectionWireProjection.Project(envelope.ContentKind),
             new(
                 [

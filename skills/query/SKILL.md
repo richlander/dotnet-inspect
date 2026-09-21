@@ -10,10 +10,11 @@ The query system is like Go templates, without a DSL: inspection commands emit
 structured sections, with the broadest shared query surface on `type`, `member`,
 `package`, and `library`. `project` supports `-D` and `-S` but not general
 field/column projection. `find` supports `-D` discovery and field/column
-projection but not `-S` selection. `diff` supports `-D` and `-S` but not
-field/column projection. `timeline` supports section selection and projection
-but not `-D` discovery. `workspace` supports output formats, `--count`, and
-`--rows`, but not discovery, section selection, or field projection.
+projection but not `-S` selection. Pairwise `diff` supports `-D` and `-S` but
+not field/column projection. `diff --history` supports section selection and
+projection but not `-D` discovery. `workspace` supports output formats,
+`--count`, and `--rows`, but not discovery, section selection, or field
+projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
 projection across its dependency graph and evidence sections. Several commands
 also expose a separate complete-service `--envelope` path described below.
@@ -454,8 +455,8 @@ Member `Call Graph` is the current exception: its legacy command-owned
 an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `match --similar`, `package query`, `library query`, package activity, package
-`--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
+`diff --history`, `match --similar`, `package query`, `library query`, package
+activity, package `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
 selected Project document inventories, explicit-source Type catalogs, and
 exact Member `Calls` and `Callers` have semantic adoption in their supported

@@ -92,9 +92,8 @@ public sealed class PackageVersionListingInspectionTests
             1,
             countEnvelope.Content);
         Assert.Equal(
-            "package-version-count/share",
-            Assert.IsType<InspectionPortableProjection.NonProjectable>(
-                countEnvelope.PortableProjection).Path);
+            "package-version-count",
+            countEnvelope.ResourcePath.Value);
         Assert.Equal(envelope.Diagnostics, countEnvelope.Diagnostics);
     }
 

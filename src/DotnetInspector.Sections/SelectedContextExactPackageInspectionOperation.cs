@@ -138,6 +138,7 @@ public static class SelectedContextExactPackageInspectionOperation
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
             InspectionContentKind contentKind,
+            ResourcePath resource,
             Func<SelectedContextExactPackageLiveTarget, TContent> inspect,
             ViewFacetId? facet = null,
             InspectionPortableProjection.NonProjectable? shareRefusal = null)
@@ -147,6 +148,7 @@ public static class SelectedContextExactPackageInspectionOperation
             activation,
             request,
             contentKind,
+            resource,
             target => new ValueTask<TContent>(inspect(target)),
             facet,
             shareRefusal).GetAwaiter().GetResult();
@@ -164,6 +166,7 @@ public static class SelectedContextExactPackageInspectionOperation
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
             InspectionContentKind contentKind,
+            ResourcePath resource,
             Func<SelectedContextExactPackageLiveTarget, TContent> inspect,
             ViewFacetId? facet = null,
             InspectionPortableProjection.NonProjectable? shareRefusal = null)
@@ -173,6 +176,7 @@ public static class SelectedContextExactPackageInspectionOperation
             activation,
             request,
             contentKind,
+            resource,
             target => new ValueTask<TContent>(inspect(target)),
             facet,
             shareRefusal).GetAwaiter().GetResult();
@@ -193,6 +197,7 @@ public static class SelectedContextExactPackageInspectionOperation
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
             InspectionContentKind contentKind,
+            ResourcePath resource,
             Func<
                 SelectedContextExactPackageLiveTarget,
                 ValueTask<TContent>> inspect,
@@ -204,6 +209,7 @@ public static class SelectedContextExactPackageInspectionOperation
             activation,
             request,
             contentKind,
+            resource,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -221,6 +227,7 @@ public static class SelectedContextExactPackageInspectionOperation
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
             InspectionContentKind contentKind,
+            ResourcePath resource,
             Func<
                 SelectedContextExactPackageLiveTarget,
                 ValueTask<TContent>> inspect,
@@ -232,6 +239,7 @@ public static class SelectedContextExactPackageInspectionOperation
             activation,
             request,
             contentKind,
+            resource,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -249,6 +257,7 @@ public static class SelectedContextExactPackageInspectionOperation
             CompleteWorkspaceActivation activation,
             SelectedContextExactPackageInspectionRequest request,
             InspectionContentKind contentKind,
+            ResourcePath resource,
             Func<
                 SelectedContextExactPackageLiveTarget,
                 ValueTask<TContent>> inspect,
@@ -260,6 +269,7 @@ public static class SelectedContextExactPackageInspectionOperation
             activation,
             request,
             contentKind,
+            resource,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -275,6 +285,7 @@ public static class SelectedContextExactPackageInspectionOperation
         CompleteWorkspaceActivation activation,
         SelectedContextExactPackageInspectionRequest request,
         InspectionContentKind contentKind,
+        ResourcePath resource,
         Func<
             SelectedContextExactPackageLiveTarget,
             ValueTask<TContent>> inspect,
@@ -289,6 +300,7 @@ public static class SelectedContextExactPackageInspectionOperation
             activation,
             request,
             contentKind,
+            resource,
             inspect,
             facet,
             shareRefusal).ConfigureAwait(false);
@@ -299,6 +311,7 @@ public static class SelectedContextExactPackageInspectionOperation
         CompleteWorkspaceActivation activation,
         SelectedContextExactPackageInspectionRequest request,
         InspectionContentKind contentKind,
+        ResourcePath resource,
         Func<
             SelectedContextExactPackageLiveTarget,
             ValueTask<TContent>> inspect,
@@ -308,6 +321,7 @@ public static class SelectedContextExactPackageInspectionOperation
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(activation);
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(resource);
         ArgumentNullException.ThrowIfNull(inspect);
 
         if (activation.SelectedContext is not { } context)
@@ -488,6 +502,7 @@ public static class SelectedContextExactPackageInspectionOperation
                 selected,
                 facet);
         var envelope = new InspectionEnvelope<TContent>(
+            resource,
             contentKind,
             content,
             share);
@@ -509,9 +524,9 @@ public static class SelectedContextExactPackageInspectionOperation
             && selected.Member.Version is null)
         {
             return new InspectionPortableProjection.NonProjectable(
-                "workspace.package.version",
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "An exact-version selector cannot be preserved by a "
+                location: "workspace.package.version",
+                explanation: "An exact-version selector cannot be preserved by a "
                     + "floating Workspace Package member.");
         }
 
@@ -529,13 +544,13 @@ public static class SelectedContextExactPackageInspectionOperation
                 ?? throw new InvalidOperationException(
                     "A failed Package scenario projection requires a failure.");
             return new InspectionPortableProjection.NonProjectable(
-                failure.Path,
                 failure.Kind
                     is WorkspaceSharePacketProjectionFailureKind
                         .InvalidDefinitionSet
                     ? InspectionPortableProjectionFailureReason.Invalid
                     : InspectionPortableProjectionFailureReason.NotSupported,
-                failure.Message);
+                location: failure.Path,
+                explanation: failure.Message);
         }
 
         WorkspaceSharePacket packet =

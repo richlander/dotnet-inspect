@@ -454,13 +454,13 @@ internal sealed record ClassicInverseConvertNode(
         $"convert[{TypeText(Target)}:{IsChecked}:{IsUnsigned}]({Operand.Signature})";
 }
 
-internal sealed record ClassicInverseCoerceNode(TypeRef Target, ClassicInverseBodyNode Operand)
+internal sealed record ClassicInverseCoerceNode(TypeRef Target, ClassicInverseBodyNode Operand, CoercionKind Kind)
     : ClassicInverseBodyNode
 {
-    internal override IrNode Materialize() => new Coerce(Target, Expr(Operand));
+    internal override IrNode Materialize() => new Coerce(Target, Expr(Operand), Kind);
 
     internal override string Signature =>
-        $"coerce[{ClassicInverseTypedIdentity.Type(Target)}]({Operand.Signature})";
+        $"coerce[{ClassicInverseTypedIdentity.Type(Target)}:{Kind}]({Operand.Signature})";
 }
 
 internal sealed record ClassicInverseBoxNode(
@@ -934,7 +934,7 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
             case Coerce coerce:
             {
                 var operand = TryCapture(coerce.Operand, budget);
-                return operand is null ? null : new ClassicInverseCoerceNode(binding.Type(coerce.Target, budget), operand);
+                return operand is null ? null : new ClassicInverseCoerceNode(binding.Type(coerce.Target, budget), operand, coerce.Kind);
             }
 
             case Box box:

@@ -141,9 +141,12 @@ success and failure variants. The complete baseline is:
 
 ```text
 InspectionEnvelope<TContent>
+  ResourcePath
   ContentKind: Result | Document | Outcome
   Content: TContent
-  PortableProjection: Available(FullUrl, Packet) | NonProjectable(Path, Reason, Explanation)
+  PortableProjection:
+    Available(FullUrl, Packet)
+    | NonProjectable(Reason, Location?, Explanation?)
   Diagnostics
 ```
 

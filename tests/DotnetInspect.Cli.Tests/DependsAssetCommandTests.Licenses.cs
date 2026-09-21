@@ -56,10 +56,10 @@ public partial class DependsAssetCommandTests
         };
         var projection = new DependsAssetProjection(
             new InspectionEnvelope<DependencyInspectionContent>(
+                new ResourcePath("asset-dependencies"),
                 InspectionContentKind.Document,
                 content,
                 new InspectionPortableProjection.NonProjectable(
-                    "dependencies",
                     InspectionPortableProjectionFailureReason.NotSupported)),
             summary,
             DependencyHierarchyDocument.Empty.BackingGraph,

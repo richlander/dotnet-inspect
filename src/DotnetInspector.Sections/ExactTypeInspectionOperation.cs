@@ -170,6 +170,7 @@ public static class ExactTypeInspectionOperation
         ExactTypeInspectionResult result,
         ExactTypeInspectionRequest request) =>
         new(
+            new ResourcePath("exact-type"),
             InspectionContentKind.Result,
             result,
             ProjectShare(request, result),
@@ -227,13 +228,13 @@ public static class ExactTypeInspectionOperation
             WorkspaceSharePacketProjectionFailure failure =
                 projection.Failure!;
             return new InspectionPortableProjection.NonProjectable(
-                $"exact-type-share/{failure.Path}",
                 failure.Kind
                     is WorkspaceSharePacketProjectionFailureKind
                         .InvalidDefinitionSet
                     ? InspectionPortableProjectionFailureReason.Invalid
                     : InspectionPortableProjectionFailureReason.NotSupported,
-                failure.Message);
+                location: failure.Path,
+                explanation: failure.Message);
         }
 
         string encoded =

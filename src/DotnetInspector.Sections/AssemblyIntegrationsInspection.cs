@@ -58,9 +58,9 @@ public static class AssemblyIntegrationsInspection
     static InspectionEnvelope<AssemblyIntegrationsEntry> Envelope(
         AssemblyIntegrationsEntry integrations) =>
         new(
+            new ResourcePath("assembly-integrations"),
             InspectionContentKind.Outcome,
             integrations,
             new InspectionPortableProjection.NonProjectable(
-                "assembly-integrations/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
 }

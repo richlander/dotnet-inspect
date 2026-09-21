@@ -159,10 +159,10 @@ public sealed class BrowserPackageChangesOperationsTests
             CreateDocument(progress, row, failure);
         var envelope =
             new InspectionEnvelope<EcosystemChangeReportDocument>(
+                new ResourcePath("package-changes"),
                 InspectionContentKind.Document,
                 document,
                 new InspectionPortableProjection.NonProjectable(
-                    "package-changes/share",
                     InspectionPortableProjectionFailureReason.NotSupported));
 
         BrowserPackageChangesInspection inspection =
@@ -192,7 +192,8 @@ public sealed class BrowserPackageChangesOperationsTests
         Assert.Equal(
             BrowserInspectionPortableProjectionKind.NonProjectable,
             inspection.PortableProjection.Kind);
-        Assert.Equal("package-changes/share", inspection.PortableProjection.Path);
+        Assert.Equal("package-changes", inspection.ResourcePath);
+        Assert.Null(inspection.PortableProjection.Location);
         Assert.Empty(inspection.Diagnostics);
 
         string serialized = JsonSerializer.Serialize(

@@ -253,6 +253,7 @@ public static class TypeApiDeclarationInspection
         string text = result.Source;
         cancellationToken.ThrowIfCancellationRequested();
         return new InspectionEnvelope<TypeApiDeclarationResult>(
+            new ResourcePath("type-api-declarations"),
             InspectionContentKind.Result,
             new TypeApiDeclarationResult(
                 TypeApiDeclarationOutcome.Available,
@@ -688,6 +689,7 @@ public static class TypeApiDeclarationInspection
     static InspectionEnvelope<TypeApiDeclarationResult> Envelope(
         TypeApiDeclarationResult result) =>
         new(
+            new ResourcePath("type-api-declarations"),
             InspectionContentKind.Result,
             result,
             Share(),
@@ -695,7 +697,6 @@ public static class TypeApiDeclarationInspection
 
     static InspectionPortableProjection Share() =>
         new InspectionPortableProjection.NonProjectable(
-            "type-api-declarations/share",
             InspectionPortableProjectionFailureReason.NotSupported);
 
     static IEnumerable<InspectionDiagnostic> Diagnostics(

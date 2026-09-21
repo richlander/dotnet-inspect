@@ -132,14 +132,14 @@ public sealed class BrowserIntegrationsEnvelopeParityTests
                 Assert.Equal("available", actual.Kind);
                 Assert.Equal(available.FullUrl, actual.FullUrl);
                 Assert.Equal(available.Packet, actual.Packet);
-                Assert.Null(actual.Path);
+                Assert.Null(actual.Location);
                 Assert.Null(actual.Reason);
                 break;
             case InspectionPortableProjection.NonProjectable nonProjectable:
                 Assert.Equal("nonProjectable", actual.Kind);
                 Assert.Null(actual.FullUrl);
                 Assert.Null(actual.Packet);
-                Assert.Equal(nonProjectable.Path, actual.Path);
+                Assert.Equal(nonProjectable.Location, actual.Location);
                 Assert.Equal(
                     nonProjectable.Reason.ToString(),
                     actual.Reason?.ToString());

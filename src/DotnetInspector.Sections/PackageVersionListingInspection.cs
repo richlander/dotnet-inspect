@@ -169,10 +169,10 @@ public static class PackageVersionListingInspection
         PackageVersionListingOutcome outcome,
         IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
         new(
+            new ResourcePath("package-version-listing"),
             InspectionContentKind.Outcome,
             outcome,
             new InspectionPortableProjection.NonProjectable(
-                "package-version-listing/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             diagnostics);
 

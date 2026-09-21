@@ -93,10 +93,10 @@ public static class EcosystemChangeReportInspection
         EcosystemChangeReportDocument document =
             EcosystemChangeReportPresentation.Create(collected);
         return new(
+            new ResourcePath("package-changes"),
             InspectionContentKind.Document,
             document,
             new InspectionPortableProjection.NonProjectable(
-                "package-changes/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

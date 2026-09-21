@@ -62,6 +62,7 @@ public sealed class InspectionEnvelopeTests
             InspectionDiagnosticSeverity.Error,
             "Selection failed");
         var envelope = new InspectionEnvelope<string>(
+            new ResourcePath("type-dependencies"),
             InspectionContentKind.Result,
             "content",
             new InspectionPortableProjection.Available(
@@ -70,6 +71,7 @@ public sealed class InspectionEnvelopeTests
             [first, second]);
 
         Assert.Equal(InspectionContentKind.Result, envelope.ContentKind);
+        Assert.Equal("type-dependencies", envelope.ResourcePath.Value);
         Assert.Equal("content", envelope.Content);
         Assert.Equal(
             "https://dotnet-inspect.net/?w=encoded",
@@ -102,15 +104,15 @@ public sealed class InspectionEnvelopeTests
     }
 
     [Fact]
-    public void NonProjectableRetainsTypedReasonAndExplanation()
+    public void NonProjectableRetainsTypedReasonLocationAndExplanation()
     {
         var portableProjection =
             new InspectionPortableProjection.NonProjectable(
-            "workspace.contexts[0]",
             InspectionPortableProjectionFailureReason.NotSupported,
-            "This operation has no portable form.");
+            location: "workspace.contexts[0]",
+            explanation: "This operation has no portable form.");
 
-        Assert.Equal("workspace.contexts[0]", portableProjection.Path);
+        Assert.Equal("workspace.contexts[0]", portableProjection.Location);
         Assert.Equal(
             InspectionPortableProjectionFailureReason.NotSupported,
             portableProjection.Reason);
@@ -124,6 +126,7 @@ public sealed class InspectionEnvelopeTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new InspectionEnvelope<string>(
+                new ResourcePath("workspace"),
                 (InspectionContentKind)int.MaxValue,
                 "content",
                 NonProjectable()));
@@ -134,7 +137,6 @@ public sealed class InspectionEnvelopeTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new InspectionPortableProjection.NonProjectable(
-                "workspace",
                 (InspectionPortableProjectionFailureReason)int.MaxValue));
     }
 
@@ -143,9 +145,8 @@ public sealed class InspectionEnvelopeTests
     {
         Assert.Throws<ArgumentException>(
             () => new InspectionPortableProjection.NonProjectable(
-                "workspace",
                 InspectionPortableProjectionFailureReason.NotSupported,
-                ""));
+                explanation: ""));
     }
 
     [Fact]
@@ -210,6 +211,7 @@ public sealed class InspectionEnvelopeTests
     {
         InspectionEnvelope<string> result = CreateEquivalent();
         var document = new InspectionEnvelope<string>(
+            result.ResourcePath,
             InspectionContentKind.Document,
             result.Content,
             result.PortableProjection,
@@ -219,23 +221,60 @@ public sealed class InspectionEnvelopeTests
     }
 
     [Fact]
+    public void EnvelopeEqualityIncludesResourcePath()
+    {
+        InspectionEnvelope<string> baseline = CreateEquivalent();
+        var other = new InspectionEnvelope<string>(
+            new ResourcePath("other-resource"),
+            baseline.ContentKind,
+            baseline.Content,
+            baseline.PortableProjection,
+            baseline.Diagnostics);
+
+        Assert.NotEqual(baseline, other);
+    }
+
+    [Fact]
+    public void ResourcePathDoesNotDependOnProjectionAvailability()
+    {
+        var resourcePath = new ResourcePath("type-dependencies");
+        var available = new InspectionEnvelope<string>(
+            resourcePath,
+            InspectionContentKind.Result,
+            "content",
+            new InspectionPortableProjection.Available(
+                "https://dotnet-inspect.net/?w=encoded",
+                "encoded"));
+        var nonProjectable = new InspectionEnvelope<string>(
+            resourcePath,
+            InspectionContentKind.Result,
+            "content",
+            new InspectionPortableProjection.NonProjectable(
+                InspectionPortableProjectionFailureReason.NotSupported,
+                location: "subject"));
+
+        Assert.Equal(resourcePath, available.ResourcePath);
+        Assert.Equal(resourcePath, nonProjectable.ResourcePath);
+    }
+
+    [Fact]
     public void EnvelopeEqualityIncludesPortableProjectionDetails()
     {
         InspectionEnvelope<string> baseline = CreateEquivalent();
         var differentReason = new InspectionEnvelope<string>(
+            baseline.ResourcePath,
             InspectionContentKind.Result,
             "content",
             new InspectionPortableProjection.NonProjectable(
-                "share",
                 InspectionPortableProjectionFailureReason.Unavailable),
             baseline.Diagnostics);
         var differentExplanation = new InspectionEnvelope<string>(
+            baseline.ResourcePath,
             InspectionContentKind.Result,
             "content",
             new InspectionPortableProjection.NonProjectable(
-                "share",
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "No portable form."),
+                explanation: "No portable form."),
             baseline.Diagnostics);
 
         Assert.NotEqual(baseline, differentReason);
@@ -244,11 +283,11 @@ public sealed class InspectionEnvelopeTests
 
     private static InspectionPortableProjection NonProjectable() =>
         new InspectionPortableProjection.NonProjectable(
-            "share",
             InspectionPortableProjectionFailureReason.NotSupported);
 
     private static InspectionEnvelope<string> CreateEquivalent() =>
         new(
+            new ResourcePath("test-resource"),
             InspectionContentKind.Result,
             "content",
             NonProjectable(),

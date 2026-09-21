@@ -266,6 +266,7 @@ internal static partial class BrowserPackageQueryOperations
             AssemblySemantic = semantic,
         };
         return new(
+            envelope.ResourcePath.Value,
             BrowserInspectionWireProjection.Project(envelope.ContentKind),
             content,
             Project(envelope.PortableProjection),

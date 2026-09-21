@@ -293,6 +293,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
             rewritten.AddedMemberCount);
         return new InspectionEnvelope<
             WorkspacePackageDependencyEnrichmentOutcome>(
+                new ResourcePath(
+                    "workspace-package-dependency-enrichment"),
                 InspectionContentKind.Outcome,
                 outcome,
                 new InspectionPortableProjection.Available(
@@ -651,12 +653,14 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                 message));
         return new InspectionEnvelope<
             WorkspacePackageDependencyEnrichmentOutcome>(
+                new ResourcePath(
+                    "workspace-package-dependency-enrichment"),
                 InspectionContentKind.Outcome,
                 outcome,
                 new InspectionPortableProjection.NonProjectable(
-                    path,
                     InspectionPortableProjectionFailureReason.Failed,
-                    message));
+                    location: path,
+                    explanation: message));
     }
 
     private sealed record ResolvedRoot(

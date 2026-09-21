@@ -101,11 +101,11 @@ public static class AssemblyIntegrationOpportunitiesInspection
         AssemblyIntegrationsEntry integrations,
         AssemblyIntegrationOpportunitiesEntry opportunities) =>
         new(
+            new ResourcePath("assembly-integration-opportunities"),
             InspectionContentKind.Result,
             new(
                 integrations,
                 opportunities),
             new InspectionPortableProjection.NonProjectable(
-                "assembly-integration-opportunities/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
 }

@@ -252,6 +252,7 @@ function inspected(
     kind: "Succeeded",
     value: null,
     inspection: {
+      resourcePath: "package-query",
       contentKind: "document",
       content: {
         hasPackages: results.length > 0,
@@ -268,7 +269,7 @@ function inspected(
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-query/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace packet.",
       },
@@ -360,6 +361,7 @@ function semanticInspected(): BrowserPackageQueryResult {
     kind: "Succeeded",
     value: null,
     inspection: {
+      resourcePath: "package-query",
       contentKind: "document",
       content: {
         hasPackages: true,
@@ -409,7 +411,7 @@ function semanticInspected(): BrowserPackageQueryResult {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-query/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace packet.",
       },
@@ -1000,6 +1002,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
     value: {
       event: null,
       inspection: {
+        resourcePath: "package-query",
         contentKind: "document",
         content: {
           hasPackages: true,
@@ -1012,7 +1015,7 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
           kind: "NonProjectable",
           fullUrl: null,
           packet: null,
-          path: "package-query/share",
+          location: null,
           reason: "notSupported",
           explanation: "No canonical Workspace packet.",
         },

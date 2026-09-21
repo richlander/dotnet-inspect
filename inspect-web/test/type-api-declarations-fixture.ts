@@ -11,6 +11,7 @@ export function apiDeclarationsFixture(
   return {
     kind: "apiDeclarations",
     inspection: {
+      resourcePath: "type-api-declarations",
       contentKind: "result",
       content: {
         outcome: unavailable ? "Unavailable" : "Available",
@@ -33,7 +34,7 @@ export function apiDeclarationsFixture(
         kind: "nonProjectable",
         fullUrl: null,
         packet: null,
-        path: "type-api-declarations/share",
+        location: null,
         reason: "notSupported",
         explanation: "No portable Workspace Share representation.",
       },

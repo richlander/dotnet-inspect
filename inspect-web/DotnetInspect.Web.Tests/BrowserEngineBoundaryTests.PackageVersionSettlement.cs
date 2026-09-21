@@ -485,6 +485,7 @@ public sealed partial class BrowserEngineBoundaryTests
     {
         var inspection =
             new InspectionEnvelope<PackageVersionSettlementOutcome>(
+                new ResourcePath("package-version-settlement"),
                 InspectionContentKind.Outcome,
                 new PackageVersionSettlementOutcome.Settled(
                     new(
@@ -499,7 +500,6 @@ public sealed partial class BrowserEngineBoundaryTests
                         Listings: [],
                         SourceListings: [])),
                 new InspectionPortableProjection.NonProjectable(
-                    "package-version-settlement/share",
                     InspectionPortableProjectionFailureReason.NotSupported),
                 [
                     new InspectionDiagnostic(
@@ -509,6 +509,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 ]);
         var packageInfo =
             new InspectionEnvelope<PackageInfoMeasurements>(
+                new ResourcePath("package-info-measurements"),
                 InspectionContentKind.Result,
                 new PackageInfoMeasurements(
                     PackageInfoMeasurementStatus.Measured,
@@ -540,7 +541,6 @@ public sealed partial class BrowserEngineBoundaryTests
                     detail: null,
                     unavailableReason: null),
                 new InspectionPortableProjection.NonProjectable(
-                    "package-info-measurements/share",
                     InspectionPortableProjectionFailureReason.NotSupported),
                 [
                     new InspectionDiagnostic(
@@ -627,8 +627,9 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserInspectionPortableProjectionKind.NonProjectable,
             baseline.PortableProjection.Kind);
         Assert.Equal(
-            "package-version-settlement/share",
-            baseline.PortableProjection.Path);
+            "package-version-settlement",
+            baseline.ResourcePath);
+        Assert.Null(baseline.PortableProjection.Location);
         BrowserInspectionDiagnostic diagnostic =
             Assert.Single(baseline.Diagnostics);
         Assert.Equal(

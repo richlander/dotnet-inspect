@@ -30,10 +30,10 @@ public static class MemberSourcePairInspection
                 .ConfigureAwait(false);
 
         return new(
+            new ResourcePath("member-source-pair"),
             InspectionContentKind.Result,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "member-source-pair/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

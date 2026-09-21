@@ -189,6 +189,7 @@ internal static class InspectionEnvelopeOutput
     {
         writer.WriteNumber("schema_version", contract.SchemaVersion);
         writer.WriteString("result_kind", contract.ResultKind);
+        writer.WriteString("resource_path", envelope.ResourcePath.Value);
         writer.WriteString(
             "content_kind",
             envelope.ContentKind switch

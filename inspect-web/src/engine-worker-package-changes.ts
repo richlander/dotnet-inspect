@@ -299,7 +299,7 @@ const portableProjectionSchema = record({
   kind: text(32, ["Available", "NonProjectable"]),
   fullUrl: nullable(text(8_192)),
   packet: nullable(text(8_192)),
-  path: nullable(text(256)),
+  location: nullable(text(256)),
   reason: nullable(text(32, [
     "notSupported",
     "invalid",
@@ -318,6 +318,7 @@ const diagnosticSchema = record({
 });
 
 const inspectionSchema = record({
+  resourcePath: text(64, ["package-changes"]),
   contentKind: text(16, ["document"]),
   content: documentSchema,
   portableProjection: portableProjectionSchema,
@@ -739,7 +740,7 @@ BoundedPayloadDecoder<BrowserPackageChangesInspection> = {
       if (inspection.portableProjection.kind === "Available") {
         if (inspection.portableProjection.fullUrl === null
           || inspection.portableProjection.packet === null
-          || inspection.portableProjection.path !== null
+          || inspection.portableProjection.location !== null
           || inspection.portableProjection.reason !== null
           || inspection.portableProjection.explanation !== null) {
           throw new PackageChangesPayloadError(
@@ -747,7 +748,6 @@ BoundedPayloadDecoder<BrowserPackageChangesInspection> = {
         }
       } else if (inspection.portableProjection.fullUrl !== null
         || inspection.portableProjection.packet !== null
-        || inspection.portableProjection.path === null
         || inspection.portableProjection.reason === null) {
         throw new PackageChangesPayloadError(
           "Non-projectable Package Activity portable projection has invalid fields.");

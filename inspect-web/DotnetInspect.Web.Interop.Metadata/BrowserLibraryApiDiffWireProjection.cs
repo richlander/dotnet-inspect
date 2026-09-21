@@ -56,6 +56,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         ArgumentNullException.ThrowIfNull(current);
 
         var wireInspection = new InspectionEnvelope<JsonElement>(
+            inspection.ResourcePath,
             inspection.ContentKind,
             JsonSerializer.SerializeToElement(
                 inspection.Content,

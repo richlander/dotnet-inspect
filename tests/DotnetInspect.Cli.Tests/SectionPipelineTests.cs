@@ -693,10 +693,10 @@ public partial class SectionPipelineTests
             Failures: []);
         var inspection =
             new InspectionEnvelope<DependencyInspectionContent>(
+                new ResourcePath("asset-dependencies"),
                 InspectionContentKind.Document,
                 content,
                 new InspectionPortableProjection.NonProjectable(
-                    "dependencies",
                     InspectionPortableProjectionFailureReason.NotSupported));
         return new DependsAssetProjection(
             inspection,

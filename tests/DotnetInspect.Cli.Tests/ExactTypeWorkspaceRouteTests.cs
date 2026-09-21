@@ -476,7 +476,7 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         Assert.Null(choice.Facet);
         Assert.NotNull(choice.Refusal);
-        Assert.Equal("type/query", choice.Refusal.Path);
+        Assert.Equal("query", choice.Refusal.Location);
     }
 
     [Fact]

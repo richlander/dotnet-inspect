@@ -51,7 +51,8 @@ public sealed partial class PackageQueryTests
             envelope.Content.Summary.Completion);
         InspectionPortableProjection.NonProjectable share =
             Assert.IsType<InspectionPortableProjection.NonProjectable>(envelope.PortableProjection);
-        Assert.Equal("package-query/share", share.Path);
+        Assert.Equal("package-query", envelope.ResourcePath.Value);
+        Assert.Null(share.Location);
         Assert.Empty(envelope.Diagnostics);
     }
 

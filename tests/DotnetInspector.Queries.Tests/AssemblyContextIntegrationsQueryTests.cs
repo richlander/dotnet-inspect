@@ -719,7 +719,8 @@ public sealed class AssemblyContextIntegrationsQueryTests
         InspectionPortableProjection.NonProjectable share =
             Assert.IsType<InspectionPortableProjection.NonProjectable>(
                 inspection.PortableProjection);
-        Assert.Equal("assembly-integrations/share", share.Path);
+        Assert.Equal("assembly-integrations", inspection.ResourcePath.Value);
+        Assert.Null(share.Location);
         Assert.Empty(inspection.Diagnostics);
         Assert.Equal(1, source.OpenCount);
     }
@@ -908,8 +909,9 @@ public sealed class AssemblyContextIntegrationsQueryTests
             Assert.IsType<InspectionPortableProjection.NonProjectable>(
                 inspection.PortableProjection);
         Assert.Equal(
-            "assembly-integration-opportunities/share",
-            share.Path);
+            "assembly-integration-opportunities",
+            inspection.ResourcePath.Value);
+        Assert.Null(share.Location);
         Assert.Empty(inspection.Diagnostics);
         Assert.Equal(1, source.OpenCount);
     }

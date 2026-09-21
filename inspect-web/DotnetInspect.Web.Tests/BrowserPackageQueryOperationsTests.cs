@@ -1252,13 +1252,13 @@ public sealed class BrowserPackageQueryOperationsTests
             progress,
             TestContext.Current.CancellationToken);
         var envelope = new InspectionEnvelope<PackageQueryDocument>(
+            new ResourcePath("package-query"),
             InspectionContentKind.Document,
             new(
                 Results: [],
                 Failures: [],
                 completed.Value),
             new InspectionPortableProjection.NonProjectable(
-                "package-query/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
         BrowserPackageQueryInspection inspection =
             BrowserPackageQueryOperations.Complete(envelope);
@@ -1275,7 +1275,8 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserInspectionPortableProjectionKind.NonProjectable,
             inspection.PortableProjection.Kind);
-        Assert.Equal("package-query/share", inspection.PortableProjection.Path);
+        Assert.Equal("package-query", inspection.ResourcePath);
+        Assert.Null(inspection.PortableProjection.Location);
         Assert.Empty(inspection.Diagnostics);
         Assert.Single(emitted);
         Assert.Equal(
@@ -1290,13 +1291,13 @@ public sealed class BrowserPackageQueryOperationsTests
         var completed = Assert.IsType<PackageQueryEvent.Completed>(
             CompletedEvent());
         var envelope = new InspectionEnvelope<PackageQueryDocument>(
+            new ResourcePath("package-query"),
             InspectionContentKind.Document,
             new(
                 Results: [match.Value],
                 Failures: [],
                 completed.Value),
             new InspectionPortableProjection.NonProjectable(
-                "package-query/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
 
         BrowserPackageQueryInspection inspection =
@@ -1323,6 +1324,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 Failures: 0,
                 BrowserPackageQueryCompletionKind.Exhausted));
         var inspection = new BrowserPackageQueryInspection(
+            "package-query",
             BrowserInspectionContentKind.Document,
             new BrowserPackageQueryDocument(
                 Results: [],
@@ -1333,7 +1335,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 BrowserInspectionPortableProjectionKind.NonProjectable,
                 FullUrl: null,
                 Packet: null,
-                "package-query/share",
+                Location: null,
                 BrowserInspectionPortableProjectionFailureReason.NotSupported,
                 "No canonical Workspace packet."),
             [

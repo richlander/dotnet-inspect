@@ -743,12 +743,13 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
               isComplete: true,
             },
           },
+          resourcePath: "library-query",
           contentKind: "document",
           portableProjection: {
             kind: "Available",
             fullUrl: null,
             packet: "packet",
-            path: null,
+            location: null,
             reason: null,
             explanation: null,
           },
@@ -965,6 +966,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
   } satisfies BrowserPackageSurface;
   const settled = {
     versionSettlement: {
+      resourcePath: "package-version-settlement",
       content: {
         kind: "Settled",
         result: {
@@ -992,7 +994,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-version-settlement/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace share projection.",
       },
@@ -1018,12 +1020,13 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         unavailableReason: null,
         hasSelectedSlice: true,
       },
+      resourcePath: "package-info-measurements",
       contentKind: "result",
       portableProjection: {
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-info-measurements/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace share projection.",
       },
@@ -1033,6 +1036,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
     versionSettlement: {
+      resourcePath: "package-version-settlement",
       content: {
         kind: "NotSettled",
         result: null,
@@ -1057,7 +1061,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "package-version-settlement/share",
+        location: null,
         reason: "notSupported",
         explanation: "No canonical Workspace share projection.",
       },

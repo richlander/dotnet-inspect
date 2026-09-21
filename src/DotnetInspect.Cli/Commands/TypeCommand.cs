@@ -1727,8 +1727,9 @@ public static class TypeCommand
                 return new(
                     Facet: null,
                     new InspectionPortableProjection.NonProjectable(
-                        "type/query",
-                        InspectionPortableProjectionFailureReason.NotSupported));
+                        InspectionPortableProjectionFailureReason
+                            .NotSupported,
+                        location: "query"));
             }
 
             return new(new ViewFacetId("type.api"), Refusal: null);

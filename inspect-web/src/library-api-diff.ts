@@ -422,6 +422,9 @@ function validateInspection(
   const inspection = requireRecord(value, "Library API Diff inspection");
   if (inspection.contentKind !== "outcome")
     throw new Error("Library API Diff inspection content kind is invalid.");
+  if (inspection.resourcePath !== "library-api-diff") {
+    throw new Error("Library API Diff inspection has the wrong resource path.");
+  }
   const content = requireRecord(
     inspection.content,
     "Library API Diff inspection Content",
@@ -458,9 +461,9 @@ function validateInspection(
     );
   } else {
     requireNull(portableProjection, "fullUrl", "packet");
-    requireString(
-      portableProjection.path,
-      "Library API Diff portable projection path",
+    requireNullableString(
+      portableProjection.location,
+      "Library API Diff portable projection location",
     );
     requireEnum(
       portableProjection.reason,

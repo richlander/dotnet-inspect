@@ -516,6 +516,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
                 new InspectionEnvelope<LibraryApiDiffOutcome>(
+                    baseline.ResourcePath,
                     InspectionContentKind.Outcome,
                     new LibraryApiDiffOutcome.Unavailable(
                         LibraryApiDiffUnavailableKind.BeforeIncomplete,
@@ -728,13 +729,15 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 available.Document.After),
         };
         var share = new InspectionPortableProjection.NonProjectable(
-            "comparison/endpoints", InspectionPortableProjectionFailureReason.NotSupported);
+            InspectionPortableProjectionFailureReason.NotSupported,
+            location: "endpoints");
         InspectionDiagnostic[] diagnostics =
         [
             new("first", InspectionDiagnosticSeverity.Warning, "<warning>", "T:Widget"),
             new("second", InspectionDiagnosticSeverity.Information, "detail"),
         ];
         var inspection = new InspectionEnvelope<LibraryApiDiffOutcome>(
+            new ResourcePath("library-api-diff"),
             InspectionContentKind.Outcome,
             content, share, diagnostics);
         BrowserLibraryApiDiffResult result = BrowserLibraryApiDiffWireProjection.Project(
@@ -754,7 +757,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.True(JsonElement.DeepEquals(expectedContent, roundTrip.Inspection.Content));
         var roundTripShare = Assert.IsType<InspectionPortableProjection.NonProjectable>(
             roundTrip.Inspection.PortableProjection);
-        Assert.Equal(share.Path, roundTripShare.Path);
+        Assert.Equal("library-api-diff", roundTrip.Inspection.ResourcePath.Value);
+        Assert.Equal(share.Location, roundTripShare.Location);
         Assert.Equal(share.Reason.ToString(), roundTripShare.Reason.ToString());
         Assert.Equal(
             diagnostics.Select(item => (item.Code, item.Severity,
@@ -1112,11 +1116,12 @@ public sealed class BrowserLibraryApiDiffOperationTests
     static InspectionEnvelope<LibraryApiDiffOutcome> Inspection(
         LibraryApiDiffOutcome content) =>
         new(
+            new ResourcePath("library-api-diff"),
             InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "comparison/endpoints",
-                InspectionPortableProjectionFailureReason.NotSupported));
+                InspectionPortableProjectionFailureReason.NotSupported,
+                location: "endpoints"));
 
     static long WorkerCollectionEntries(BrowserLibraryApiDiffResult result)
     {

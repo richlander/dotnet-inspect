@@ -81,11 +81,18 @@ checkpoint versions; neither form authorizes an unbounded version scan.
 The 2026-09-19 bounded-investigation revision makes `--max-probes` a third,
 explicit History evaluation policy. It supersedes the earlier prohibition on
 automatic narrowing. Dense History remains the default when neither `--at`
-nor `--max-probes` is supplied; explicit checkpoints remain caller-selected;
+nor `--sample-percent` nor `--max-probes` is supplied; explicit checkpoints
+remain caller-selected;
 adaptive bisection evaluates endpoints and then chooses midpoint probes from
 observed changed intervals within the authorized budget. This revision does not
 restore `timeline` as a permanent operation or create a parallel Timeline
 Document.
+
+The 2026-09-21 representative-survey revision adds a fourth evaluation policy.
+`--sample-percent P` selects a deterministic percentage of the settled
+population by position rather than by observed Finding values.
+`--max-probes N` composes as its absolute cap; without
+`--sample-percent`, that option retains its adaptive-bisection meaning.
 
 This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
@@ -132,8 +139,9 @@ named command or mode selects an admitted consumer:
 | Selector | Input and meaning |
 | --- | --- |
 | Plain top-level Diff | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
-| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at` or `--max-probes` selects another evaluation policy. |
+| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at`, `--sample-percent`, or `--max-probes` selects another evaluation policy. |
 | Type/Member-focused Diff with `--history --max-probes N` | Discover the bounded population and adaptively localize one or more observed endpoint changes with at most `N` evaluated versions. |
+| Type/Member-focused Diff with `--history --sample-percent P` | Discover the bounded population and evaluate a deterministic positional survey of approximately `P` percent of its versions. |
 | Package range with `--count` | Count the selected package versions using source metadata alone, outside Diff. |
 
 Plain Diff means endpoint comparison; `--history` explicitly changes the
@@ -187,6 +195,10 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 # Adaptively localize an observed endpoint change within eight probes
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --history --max-probes 8
+
+# Survey half of a population, capped at ten probes
+dotnet-inspect diff --package Polly@7.0.0..8.8.0 \
+  --type Polly.Policy --history --sample-percent 50 --max-probes 10
 
 # Equivalent checkpoint selection without spelling the range
 dotnet-inspect diff --package System.Text.Json \
@@ -245,7 +257,7 @@ evaluating History.
 | Selection | Meaning |
 | --- | --- |
 | Explicit range or inferred exact-checkpoint bounds | The inclusive version population; an explicit range retains caller direction, while inferred bounds use ascending version order. |
-| Evaluation policy | Full population by default, exact checkpoints through repeated `--at ADDRESS`, or bounded adaptive bisection through `--max-probes N`. |
+| Evaluation policy | Full population by default, exact checkpoints through repeated `--at ADDRESS`, a representative positional survey through `--sample-percent P`, or bounded adaptive bisection through `--max-probes N`. |
 | `--rows`, `-n`, and other admitted row gestures | Projection over declared result cohorts, not a request to evaluate more versions. |
 
 Version discovery uses the package owner's normalization, source policy,
@@ -275,13 +287,36 @@ can inspect the evidence and use the returned exact version addresses to form
 the next narrower range. This target selection does not itself request an
 automated bisect operation.
 
-Within `--history`, omitting both `--at` and `--max-probes` selects every
-version in the population, equivalent to explicit `--at all`. History itself
-authorizes that bounded evaluation; `--at` restricts its targets and
-`--max-probes` selects adaptive evaluation. Work limits and acquisition
+Within `--history`, omitting `--at`, `--sample-percent`, and `--max-probes`
+selects every version in the population, equivalent to explicit `--at all`.
+History itself authorizes that bounded evaluation; `--at` restricts its
+targets, `--sample-percent` selects a representative survey, and
+`--max-probes` alone selects adaptive evaluation. Work limits and acquisition
 failures remain visible and cannot silently shorten the request into
 successful full coverage. Version discovery without payload evaluation belongs
 to Package version listing or population Count, not a dormant History mode.
+
+`--sample-percent P` requires an integer from 1 through 100. For population
+size `M`, it authorizes `ceil(M * P / 100)` evaluations, with a minimum of two
+for a multi-Version population and no more than the population size.
+`--max-probes N` may accompany it as an absolute cap, producing:
+
+```text
+min(M, max(2, ceil(M * P / 100)), N)
+```
+
+The one-Version case selects its only Version. A supplied absolute cap retains
+the existing minimum of two. The survey evaluates the first and last
+population Versions, then repeatedly evaluates the midpoint of the largest
+remaining unsampled positional gap until it reaches the selected count. Ties
+choose the earliest gap in caller-directed population order. Selection never
+consults Finding values, so equal endpoints do not stop the survey early.
+
+Survey completion means that the requested positional sample was evaluated;
+it does not claim exhaustive coverage, no change in unsampled Versions, or
+resolved onset across a gap. Unevaluated Versions and non-adjacent transitions
+remain explicit. `--sample-percent 100` selects the full population. `--at`
+cannot be combined with survey or adaptive selection.
 
 `--max-probes N` replaces the default full-population evaluation policy with
 bounded adaptive bisection. It cannot be combined with `--at`, and `N` must be
@@ -291,6 +326,11 @@ Finding evidence, and then repeatedly evaluates the midpoint of the largest
 observed changed interval. Ties choose the earliest interval in
 caller-directed population order. Midpoints use population positions, not
 version-number or publication-time arithmetic.
+
+`N` remains the configured authorization recorded in the plan and result; the
+maximum realizable work and internal capacity are `min(N, M)`. A budget larger
+than the settled population neither fails the request nor allocates storage
+for Versions that cannot be evaluated.
 
 Adaptive History requires at least two semantically distinct population
 Versions. A range that resolves to one Version is rejected before payload
@@ -318,7 +358,7 @@ remaining unresolved intervals, equal endpoints, or blocking failure.
 An exact-Member Analysis History has one additional target-selection rule: the
 selected evaluations must include the first population Version in
 caller-directed order. That Version is the mandatory source where the Member
-selector is resolved. Default full evaluation, `--at all`, and an explicit
+selector is resolved. Default full evaluation, `--at all`, representative survey, and an explicit
 `--at first` satisfy the rule. A restricted selection that omits the first
 Version is rejected before payload evaluation; History never acquires an
 unselected source implicitly. Exact checkpoints that infer their own bounds
@@ -352,8 +392,9 @@ or a mixture of exact and relative selectors cannot infer this population and
 is rejected before discovery. An exact Package pin is not the range-free
 Package-identity form and is not silently widened by checkpoints. This does not
 add latest-version resolution or open-ended ranges.
-Adaptive `--max-probes` also requires an explicit range because it supplies no
-exact checkpoints from which to infer bounded population endpoints.
+Adaptive `--max-probes` and representative `--sample-percent` also require an
+explicit range because they supply no exact checkpoints from which to infer
+bounded population endpoints.
 
 ### History focus and producer
 
@@ -837,6 +878,11 @@ Timeline surface.
 The CLI cutover implements this contract for `diff --history`; Browser/Wasm
 adoption remains a subsequent host slice.
 
+The representative survey CLI gesture is
+`diff --history --sample-percent P`, optionally combined with
+`--max-probes N` as an absolute cap. It uses the same shared History terminal
+and does not add a sampling-specific Document or rendering path.
+
 ## Counted adoption and evidence
 
 The authoritative
@@ -937,6 +983,11 @@ The implementation slices must supply Release gates for:
 - adaptive equal endpoints stopping after two probes without an interior
   recommendation, contrasted with dense change-and-reversion evidence over the
   same endpoints;
+- representative percentage rounding, endpoint-first positional spacing,
+  forward and reverse population order, and absolute-cap composition;
+- representative surveys continuing despite equal endpoint Findings,
+  preserving unsampled intervals, and reporting survey completion without an
+  exhaustive or no-change claim;
 - one and multiple resolved adjacent boundaries, unresolved changed intervals,
   and failed probes, preserving the exact authorized and consumed probe counts;
 - a three-probe `A ... B ... C` observation that splits one changed interval
@@ -951,8 +1002,8 @@ The implementation slices must supply Release gates for:
 - rejection before discovery of unbounded or insufficient range-free requests
   and relative or adaptive selectors without explicit bounds; rejection before
   payload evaluation of invalid/out-of-range selectors, a one-Version adaptive
-  population, combined `--at` and `--max-probes`, or either input without
-  History;
+  population, combined `--at` and automatic selection, or any History-only
+  input without History;
 - count-only versions, filtered version counts, and Count after an explicit
   operation, retaining the declared unit and rejecting insufficient evidence;
 - Type/Member changed-version counts for unchanged adjacent versions, several
@@ -983,6 +1034,9 @@ The implementation slices must supply Release gates for:
 - atomic `diff --history --max-probes` adoption and `timeline` retirement,
   with no Timeline-specific semantic Document, category, compatibility alias,
   or Browser route.
+- `diff --history --sample-percent`, including absolute-cap composition,
+  complete envelope transport, and sparse Count insufficiency without a
+  survey-specific result model.
 
 These new gates are **unverified** in this design-only slice. Deterministic
 contract cases belong in PR-fast suites; real-package/exhaustive cases are

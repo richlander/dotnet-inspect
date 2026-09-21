@@ -77,7 +77,6 @@ public sealed record DependencyInspectionOperationRequest
         PruningSummary = pruningSummary;
         PortableProjection = portableProjection
             ?? new InspectionPortableProjection.NonProjectable(
-                "asset-dependencies/share",
                 InspectionPortableProjectionFailureReason.NotSupported);
     }
 
@@ -190,6 +189,7 @@ public static class DependencyInspectionOperation
                 : [],
         };
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
+            new ResourcePath("asset-dependencies"),
             InspectionContentKind.Document,
             content,
             request.PortableProjection);

@@ -50,10 +50,10 @@ public static class LibraryQueryInspection
         ValidateContent(plan, content);
 
         return new(
+            new ResourcePath("library-query"),
             InspectionContentKind.Document,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "library-query/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 

@@ -183,6 +183,7 @@ internal static class BrowserPackageChangesWireProjection
     internal static BrowserPackageChangesInspection Project(
         InspectionEnvelope<EcosystemChangeReportDocument> inspection) =>
         new(
+            inspection.ResourcePath.Value,
             BrowserInspectionWireProjection.Project(inspection.ContentKind),
             Project(inspection.Content),
             inspection.PortableProjection switch
@@ -192,7 +193,7 @@ internal static class BrowserPackageChangesWireProjection
                         BrowserInspectionPortableProjectionKind.Available,
                         available.FullUrl,
                         available.Packet,
-                        null,
+                        Location: null,
                         null,
                         null),
                 InspectionPortableProjection.NonProjectable nonProjectable =>
@@ -200,7 +201,7 @@ internal static class BrowserPackageChangesWireProjection
                         BrowserInspectionPortableProjectionKind.NonProjectable,
                         null,
                         null,
-                        nonProjectable.Path,
+                        nonProjectable.Location,
                         BrowserInspectionWireProjection.Project(
                             nonProjectable.Reason),
                         nonProjectable.Explanation),

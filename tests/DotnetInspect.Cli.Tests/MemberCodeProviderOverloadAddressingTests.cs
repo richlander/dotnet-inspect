@@ -108,6 +108,7 @@ public class MemberCodeProviderOverloadAddressingTests
         var inspection =
             new InspectionEnvelope<
                 AssemblyMemberDecompilationEntry>(
+                new ResourcePath("member-decompilation"),
                 InspectionContentKind.Outcome,
                 new AssemblyMemberDecompilationEntry
                     .Settled(
@@ -117,7 +118,6 @@ public class MemberCodeProviderOverloadAddressingTests
                         attempt,
                         HouseOutcome: null!),
                 new InspectionPortableProjection.NonProjectable(
-                    "test/member-decompilation",
                     InspectionPortableProjectionFailureReason.NotSupported));
         var request =
             new MemberCodeProvider.Request(

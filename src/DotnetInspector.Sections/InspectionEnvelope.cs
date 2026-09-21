@@ -35,11 +35,14 @@ public sealed record EvidenceInspectionEnvelope<TContent, TEvidence>
 public sealed record InspectionEnvelope<TContent>
 {
     public InspectionEnvelope(
+        ResourcePath resourcePath,
         InspectionContentKind contentKind,
         TContent content,
         InspectionPortableProjection portableProjection,
         IEnumerable<InspectionDiagnostic>? diagnostics = null)
         : this(
+            (resourcePath ?? throw new ArgumentNullException(
+                nameof(resourcePath))).Value,
             contentKind,
             content,
             portableProjection,
@@ -49,11 +52,13 @@ public sealed record InspectionEnvelope<TContent>
 
     [JsonConstructor]
     public InspectionEnvelope(
+        string resourcePathValue,
         InspectionContentKind contentKind,
         TContent content,
         InspectionPortableProjection portableProjection,
         ImmutableArray<InspectionDiagnostic> diagnostics)
     {
+        ResourcePath = new ResourcePath(resourcePathValue);
         if (!Enum.IsDefined(contentKind))
             throw new ArgumentOutOfRangeException(nameof(contentKind));
 
@@ -66,6 +71,12 @@ public sealed record InspectionEnvelope<TContent>
             ? []
             : diagnostics;
     }
+
+    [JsonIgnore]
+    public ResourcePath ResourcePath { get; }
+
+    [JsonPropertyName("resourcePath")]
+    public string ResourcePathValue => ResourcePath.Value;
 
     public InspectionContentKind ContentKind { get; }
 
@@ -80,6 +91,7 @@ public sealed record InspectionEnvelope<TContent>
         if (ReferenceEquals(this, other))
             return true;
         if (other is null
+            || ResourcePath != other.ResourcePath
             || ContentKind != other.ContentKind
             || !EqualityComparer<TContent>.Default.Equals(
                 Content,
@@ -106,6 +118,7 @@ public sealed record InspectionEnvelope<TContent>
     public override int GetHashCode()
     {
         var hash = new HashCode();
+        hash.Add(ResourcePath);
         hash.Add(ContentKind);
         hash.Add(Content);
         hash.Add(PortableProjectionHashCode(PortableProjection));
@@ -135,7 +148,7 @@ public sealed record InspectionEnvelope<TContent>
             (
                 InspectionPortableProjection.NonProjectable a,
                 InspectionPortableProjection.NonProjectable b) =>
-                a.Path == b.Path
+                a.Location == b.Location
                 && a.Reason == b.Reason
                 && a.Explanation == b.Explanation,
             _ => false,
@@ -150,7 +163,7 @@ public sealed record InspectionEnvelope<TContent>
             InspectionPortableProjection.NonProjectable nonProjectable =>
                 HashCode.Combine(
                     1,
-                    nonProjectable.Path,
+                    nonProjectable.Location,
                     nonProjectable.Reason,
                     nonProjectable.Explanation),
             _ => throw new InvalidOperationException(
@@ -231,30 +244,32 @@ public abstract record InspectionPortableProjection
     }
 
     /// <summary>
-    /// The semantic path and typed reason that could not be projected.
+    /// The typed reason and optional operation-local location that could not
+    /// be projected.
     /// </summary>
     public sealed record NonProjectable : InspectionPortableProjection
     {
         [JsonConstructor]
         public NonProjectable(
-            string path,
             InspectionPortableProjectionFailureReason reason,
+            string? location = null,
             string? explanation = null)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(path);
             if (!Enum.IsDefined(reason))
                 throw new ArgumentOutOfRangeException(nameof(reason));
+            if (location is not null)
+                ArgumentException.ThrowIfNullOrWhiteSpace(location);
             if (explanation is not null)
                 ArgumentException.ThrowIfNullOrWhiteSpace(explanation);
 
-            Path = path;
             Reason = reason;
+            Location = location;
             Explanation = explanation;
         }
 
-        public string Path { get; }
-
         public InspectionPortableProjectionFailureReason Reason { get; }
+
+        public string? Location { get; }
 
         public string? Explanation { get; }
 

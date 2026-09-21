@@ -55,10 +55,10 @@ internal static class PackageVersionCountProjection
         InspectionEnvelope<TContent> source,
         PackageVersionPopulationCountOutcome.Completed count) =>
         new(
+            new ResourcePath("package-version-count"),
             InspectionContentKind.Result,
             count.Result.Value,
             new InspectionPortableProjection.NonProjectable(
-                "package-version-count/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             source.Diagnostics);
 }

@@ -173,10 +173,10 @@ public static class DiffHistoryInspection
     static InspectionEnvelope<DiffHistoryOutcome> Envelope(
         DiffHistoryOutcome outcome) =>
         new(
+            new ResourcePath("diff-history"),
             InspectionContentKind.Outcome,
             outcome,
             new InspectionPortableProjection.NonProjectable(
-                "diff-history/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             Diagnostics(outcome));
 

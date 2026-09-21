@@ -300,6 +300,7 @@ public class InspectionResultTests
     {
         const string UnsafeFramework = "net8.0\u202EHOSTILE";
         var envelope = new InspectionEnvelope<PackageInfoMeasurements>(
+            new ResourcePath("package-info-measurements"),
             InspectionContentKind.Result,
             new PackageInfoMeasurements(
                 PackageInfoMeasurementStatus.NoApplicableSlice,
@@ -319,7 +320,6 @@ public class InspectionResultTests
                     "No compile slice applies to net10.0."),
                 unavailableReason: null),
             new InspectionPortableProjection.NonProjectable(
-                "package-info-measurements/share",
                 InspectionPortableProjectionFailureReason.NotSupported),
             []);
         var result = new InspectionResult

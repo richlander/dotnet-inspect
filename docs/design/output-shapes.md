@@ -119,6 +119,17 @@ silently ignoring the option. Rendered-line clipping is rejected for complete Co
 PortableProjection remains the service-issued `NonProjectable` at
 `comparison/endpoints`.
 
+Exact-pair Implementation Diff registers `implementation-diff` at schema
+version `1`. For one local Library on each endpoint, exact
+`-S "Implementation Diff"` selects the operation without projecting Content.
+`--json` and `--envelope.content` use the same
+`ImplementationDiffDocument` serializer and retain request selectors, endpoint
+assembly identity/MVID/provenance, member evidence, complexity, and coverage.
+Type and member selectors remain semantic request inputs. Package/platform
+sources, PDB Source, categories or additional sections, row/field/column
+projection, and alternate formats remain outside this complete transport.
+Share is `NonProjectable` at `comparison/endpoints`.
+
 Package Activity registers `ecosystem-change-report` at schema version `1`.
 Unprojected `--json` and `--envelope.content` share the owner-issued
 `EcosystemChangeReportDocument` serializer. Report scope, interval, security

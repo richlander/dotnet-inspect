@@ -72,10 +72,10 @@ public static class PackageAssemblySemanticQueryInspection
     private static InspectionEnvelope<PackageAssemblySemanticQueryDocument>
         CreateEnvelope(PackageAssemblySemanticQueryDocument document) =>
         new(
+            new ResourcePath("package-assembly-semantic-query"),
             InspectionContentKind.Document,
             document,
             new InspectionPortableProjection.NonProjectable(
-                "package-assembly-semantic-query/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
 
     private sealed class SinkBridge(

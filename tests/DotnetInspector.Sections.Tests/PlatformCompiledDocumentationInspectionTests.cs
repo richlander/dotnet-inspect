@@ -38,6 +38,7 @@ public sealed class PlatformCompiledDocumentationInspectionTests
             SourcesTruncated: false);
         var envelope = new InspectionEnvelope<
             PlatformCompiledDocumentationInspectionOutcome>(
+                new ResourcePath("platform-compiled-documentation"),
                 InspectionContentKind.Outcome,
                 new PlatformCompiledDocumentationInspectionOutcome.Completed(
                     new(
@@ -51,7 +52,6 @@ public sealed class PlatformCompiledDocumentationInspectionTests
                                 .RequireAll),
                         [absent])),
                 new InspectionPortableProjection.NonProjectable(
-                    "platform-compiled-documentation/share",
                     InspectionPortableProjectionFailureReason.NotSupported));
 
         string json = JsonSerializer.Serialize(
@@ -118,6 +118,7 @@ public sealed class PlatformCompiledDocumentationInspectionTests
             PlatformCompiledDocumentationSubjectSelection.RequireAll);
         var envelope = new InspectionEnvelope<
             PlatformCompiledDocumentationInspectionOutcome>(
+                new ResourcePath("platform-compiled-documentation"),
                 InspectionContentKind.Outcome,
                 new PlatformCompiledDocumentationInspectionOutcome
                     .NotAvailable(
@@ -133,7 +134,6 @@ public sealed class PlatformCompiledDocumentationInspectionTests
                                 "InvalidLayout"),
                             Settlement: null)),
                 new InspectionPortableProjection.NonProjectable(
-                    "platform-compiled-documentation/share",
                     InspectionPortableProjectionFailureReason.NotSupported));
 
         string json = JsonSerializer.Serialize(

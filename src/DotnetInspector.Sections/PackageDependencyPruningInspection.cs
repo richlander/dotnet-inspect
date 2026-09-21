@@ -277,10 +277,10 @@ public static class PackageDependencyPruningInspection
         }
 
         return new(
-            InspectionContentKind.Result,
+            new ResourcePath("package-dependency-pruning"),
+            InspectionContentKind.Document,
             new PackageDependencyPruningInspectionResult(outcomes),
             new InspectionPortableProjection.NonProjectable(
-                "package-dependency-pruning/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

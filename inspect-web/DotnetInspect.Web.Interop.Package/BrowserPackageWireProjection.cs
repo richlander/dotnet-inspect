@@ -18,6 +18,7 @@ internal static class BrowserPackageWireProjection
     {
         ArgumentNullException.ThrowIfNull(inspection);
         return new(
+            inspection.ResourcePath.Value,
             BrowserInspectionWireProjection.Project(inspection.ContentKind),
             Project(inspection.Content),
             Project(inspection.PortableProjection),
@@ -224,6 +225,7 @@ internal static class BrowserPackageWireProjection
     {
         ArgumentNullException.ThrowIfNull(inspection);
         return new(
+            inspection.ResourcePath.Value,
             BrowserInspectionWireProjection.Project(inspection.ContentKind),
             Project(inspection.Content),
             Project(inspection.PortableProjection),
@@ -236,6 +238,7 @@ internal static class BrowserPackageWireProjection
         ArgumentNullException.ThrowIfNull(inspection);
         PackageInfoMeasurements content = inspection.Content;
         return new(
+            inspection.ResourcePath.Value,
             BrowserInspectionWireProjection.Project(inspection.ContentKind),
             new BrowserPackageInfoMeasurements(
                 content.Status.ToString(),
@@ -326,7 +329,7 @@ internal static class BrowserPackageWireProjection
                     BrowserInspectionPortableProjectionKind.Available,
                     available.FullUrl,
                     available.Packet,
-                    Path: null,
+                    Location: null,
                     Reason: null,
                     Explanation: null),
             InspectionPortableProjection.NonProjectable nonProjectable =>
@@ -334,7 +337,7 @@ internal static class BrowserPackageWireProjection
                     BrowserInspectionPortableProjectionKind.NonProjectable,
                     FullUrl: null,
                     Packet: null,
-                    nonProjectable.Path,
+                    nonProjectable.Location,
                     BrowserInspectionWireProjection.Project(
                         nonProjectable.Reason),
                     nonProjectable.Explanation),

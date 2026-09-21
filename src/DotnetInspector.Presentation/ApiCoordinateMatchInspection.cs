@@ -48,11 +48,12 @@ public static class ApiCoordinateMatchInspection
 
     static InspectionEnvelope<ApiCoordinateMatchContent> Complete(ApiCoordinateMatchContent content) =>
         new(
-            InspectionContentKind.Result,
+            new ResourcePath("api-coordinate-match"),
+            InspectionContentKind.Outcome,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "correspondence/endpoints",
-                InspectionPortableProjectionFailureReason.NotSupported),
+                InspectionPortableProjectionFailureReason.NotSupported,
+                location: "endpoints"),
             content.Status is ApiCoordinateMatchStatus.Exact or ApiCoordinateMatchStatus.Absent
                 ? []
                 : [new InspectionDiagnostic(

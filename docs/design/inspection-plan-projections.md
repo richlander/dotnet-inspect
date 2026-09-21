@@ -201,8 +201,10 @@ host's inability to execute a structurally applicable portable facet is not by
 itself a reason to erase or replace that facet.
 
 If explicit semantic state has no faithful portable form, the share outcome is
-non-projectable with a typed path and reason. It never chooses the nearest
-supported facet, drops a query, or serializes a CLI display name.
+non-projectable with a typed reason and an optional operation-local failure
+location. That location is not the whole inspection resource path. The
+projection never chooses the nearest supported facet, drops a query, or
+serializes a CLI display name.
 
 A non-projectable share outcome does not invalidate independently valid
 Execute or Discover content. A host that explicitly requested Share
@@ -312,7 +314,7 @@ Each plan adds only failures it owns:
 | --- | --- |
 | Section execution | Plan denial, unavailable authorized closure, or producer failure |
 | Effective discovery | Per-section `Unknown` or `Failed`, plus common plan denial |
-| portable projection | `NonProjectable(path, reason)` or Workspace Definition projection failure |
+| Portable projection | `NonProjectable(reason, location?, explanation?)` or Workspace Definition projection failure |
 
 A content-purpose mismatch is invalid construction, not an empty result. A
 share refusal writes no packet or partial URL and does not discard valid

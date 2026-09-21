@@ -41,10 +41,10 @@ public static class PackageAssemblySemanticFindInspection
                 cancellationToken).ConfigureAwait(false);
 
         return new(
+            new ResourcePath("package-assembly-semantic-find"),
             InspectionContentKind.Document,
             content,
             new InspectionPortableProjection.NonProjectable(
-                "package-assembly-semantic-find/share",
                 InspectionPortableProjectionFailureReason.NotSupported));
     }
 }

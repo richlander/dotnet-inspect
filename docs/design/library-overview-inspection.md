@@ -2,7 +2,9 @@
 
 ## Status
 
-Status: **proposed**.
+Status: **implemented** by
+[#8112](https://github.com/richlander/dotnet-inspect/issues/8112);
+production-host adoption remains tracked by #8088.
 
 This design owns
 [issue #8089](https://github.com/richlander/dotnet-inspect/issues/8089).
@@ -32,9 +34,8 @@ This owner composes existing contracts without redefining them:
   synchronous content snapshots, and retirement.
 - [Library-Metadata correspondence](library-metadata-correspondence.md) owns
   bounded Metadata inspection of owner-attested Library content.
-- [Inspection envelope](inspection-envelope.md) owns ContentKind, Content,
-  PortableProjection, and
-  diagnostics.
+- [Inspection envelope](inspection-envelope.md) owns ResourcePath,
+  ContentKind, Content, PortableProjection, and diagnostics.
 - [Inspection plan projections](inspection-plan-projections.md) owns the
   separation between content execution and required portable projection.
 - [Host-observable content kinds](host-observable-content-kinds.md) owns
@@ -103,9 +104,8 @@ avoid the declared API-surface work, nor can it request the retained full API
 surface through this overview contract.
 
 The content plan and portable projection use the same normalized request.
-PortableProjection
-projection performs no Metadata inspection and cannot change the content
-outcome.
+Portable projection performs no Metadata inspection and cannot change the
+content outcome.
 
 ## Content
 
@@ -233,11 +233,12 @@ The returned envelope contains no live authority. Library-owner retirement
 remains the caller's adjacent obligation after the operation has settled its
 child lease.
 
-## Share
+## Portable projection
 
-Every envelope carries one `InspectionPortableProjection` for the same overview request.
-This first operation always returns `NonProjectable` with the owner-scoped path
-`library-overview/share` and a contained reason that no complete portable
+Every envelope identifies the whole inspection resource as
+`library-overview` and carries one `InspectionPortableProjection` for the same
+overview request. This first operation returns `NonProjectable(Unavailable)`
+at the operation-local `scenario` location because no complete portable
 Workspace scenario was supplied.
 
 The operation does not derive available Share from
@@ -310,8 +311,8 @@ The complete initial operation adoption has six owner-scoped steps:
 
 1. Lock this focused operation design.
 2. Implement the request, portable outcome and Document, envelope assembly,
-   required non-projectable PortableProjection, diagnostics, and lease settlement in
-   `DotnetInspector.Sections`.
+   required non-projectable PortableProjection, diagnostics, and lease
+   settlement in `DotnetInspector.Sections`.
 3. Adopt the operation for one ordinary direct-file CLI Library overview
    through direct-Library realization and an ephemeral Workspace.
 4. Adopt the same operation for the PackageHouse CLI route.
@@ -345,7 +346,8 @@ operation owns no renderer.
 
 ## Evidence
 
-The design remains **unverified** until Release gates prove:
+`DotnetInspector.Sections.Tests.LibraryOverviewInspectionOperationTests`
+provides Release gates for:
 
 - real `System.Text.Json` produces the expected managed identity, non-empty
   MVID, public API counts, measured work, and finite bounds;
@@ -360,8 +362,18 @@ The design remains **unverified** until Release gates prove:
 - malformed Metadata, Windows Metadata, managed modules, identity mismatch,
   and empty MVID remain typed;
 - every returned shape is resource-free and source-generated JSON
-  serialization succeeds under NativeAOT;
-- direct, package, and Platform sources initially return the same truthful
+  serialization succeeds;
+- the initial operation returns its stable `library-overview` ResourcePath and
+  truthful non-projectable portable projection; and
+- cancellation and validation failure settle transferred authority before
+  propagating.
+
+The production-adoption claims remain **unverified** until their later Release
+gates prove:
+
+- the consuming NativeAOT and Browser/Wasm hosts preserve the serialized
+  contract;
+- direct, package, and Platform routes preserve the same ResourcePath and
   non-projectable portable projection;
 - package and Platform adoption preserve the same overview Content for the
   same Library bytes; and

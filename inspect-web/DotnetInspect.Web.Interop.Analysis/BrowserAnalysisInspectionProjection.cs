@@ -13,6 +13,7 @@ internal static class BrowserAnalysisInspectionProjection
         ArgumentNullException.ThrowIfNull(inspection);
 
         return new(
+            inspection.ResourcePath.Value,
             Project(inspection.ContentKind),
             JsonSerializer.SerializeToElement(
                 inspection.Content,
@@ -29,6 +30,7 @@ internal static class BrowserAnalysisInspectionProjection
         ArgumentNullException.ThrowIfNull(inspection);
 
         return new(
+            inspection.ResourcePath.Value,
             Project(inspection.ContentKind),
             JsonSerializer.SerializeToElement(
                 inspection.Content,
@@ -47,7 +49,7 @@ internal static class BrowserAnalysisInspectionProjection
                     "available",
                     available.FullUrl,
                     available.Packet,
-                    Path: null,
+                    Location: null,
                     Reason: null,
                     Explanation: null),
             InspectionPortableProjection.NonProjectable nonProjectable =>
@@ -55,7 +57,7 @@ internal static class BrowserAnalysisInspectionProjection
                     "nonProjectable",
                     FullUrl: null,
                     Packet: null,
-                    nonProjectable.Path,
+                    nonProjectable.Location,
                     Project(nonProjectable.Reason),
                     nonProjectable.Explanation),
             _ => throw new InvalidOperationException(

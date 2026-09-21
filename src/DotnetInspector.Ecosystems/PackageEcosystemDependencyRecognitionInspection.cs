@@ -246,7 +246,6 @@ public static class PackageEcosystemDependencyRecognitionInspection
         new(
             subject,
             new InspectionPortableProjection.NonProjectable(
-                "ecosystem-dependency-recognition/package-share",
                 InspectionPortableProjectionFailureReason.NotSupported));
 
     private static RealizedMemberCoordinate.Package SubjectCoordinate(

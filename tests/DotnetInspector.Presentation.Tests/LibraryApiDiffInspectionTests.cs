@@ -37,10 +37,12 @@ public sealed class LibraryApiDiffInspectionTests
             Assert.IsType<InspectionPortableProjection.NonProjectable>(pathBacked.PortableProjection);
         InspectionPortableProjection.NonProjectable memoryProjection =
             Assert.IsType<InspectionPortableProjection.NonProjectable>(memoryBacked.PortableProjection);
-        Assert.Equal(pathProjection.Path, memoryProjection.Path);
+        Assert.Equal(pathBacked.ResourcePath, memoryBacked.ResourcePath);
+        Assert.Equal(pathProjection.Location, memoryProjection.Location);
         Assert.Equal(pathProjection.Reason, memoryProjection.Reason);
         Assert.Equal(pathProjection.Explanation, memoryProjection.Explanation);
-        Assert.Equal("comparison/endpoints", pathProjection.Path);
+        Assert.Equal("library-api-diff", pathBacked.ResourcePath.Value);
+        Assert.Equal("endpoints", pathProjection.Location);
         Assert.Equal(
             InspectionPortableProjectionFailureReason.NotSupported,
             pathProjection.Reason);

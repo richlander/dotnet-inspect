@@ -745,10 +745,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(host.SymbolRequests);
         Assert.Empty(host.SourceRequests);
         Assert.Equal(
-            "type-decompilation/share",
-            Assert.IsType<InspectionPortableProjection.NonProjectable>(
-                inspection.PortableProjection)
-                .Path);
+            "type-decompilation",
+            inspection.ResourcePath.Value);
         Assert.Empty(inspection.Diagnostics);
     }
 
@@ -1301,8 +1299,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Same(assembly.Assembly.Registration, provenance.SourceRegistration);
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(0, assembly.Policy.SelectionCount);
-        Assert.Equal("type-source/share",
-            Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection).Path);
+        Assert.Equal("type-source", inspection.ResourcePath.Value);
         Assert.Empty(inspection.Diagnostics);
     }
 

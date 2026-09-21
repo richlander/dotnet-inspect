@@ -129,11 +129,13 @@ These values have separate jobs:
 | Product-resource path | Address an installed product contract for explanation. | Resource Explanation |
 | Inspection reference | Carry a reusable subject or occurrence between product operations. | [#7916](https://github.com/richlander/dotnet-inspect/issues/7916) |
 | Address | Select a subordinate IL or metadata point inside an already selected artifact. | The coordinate-child owner |
+| Workspace component path | Address one component in one immutable packet snapshot. | Workspace Definitions |
 | Scenario | Carry broader Workspace and Share context. | Workspace and Share owners |
 
 Resource Explanation does not parse an inspection reference as a resource
 path, treat an artifact-internal address as a subject identity, or infer a
-scenario from either value.
+scenario from either value. It also does not parse a packet-local Workspace
+component path as a product-resource path.
 
 The future `explain` facade may accept a reusable inspection reference to
 answer "which operations accept this item unchanged?" That adoption consumes a
@@ -183,6 +185,12 @@ ResourcePathRegistration
 The registration is explicit and statically enumerable. Reflection,
 assembly scanning, parser-help scraping, rendered-document parsing, and
 display-name normalization are not registration mechanisms.
+
+An `InspectionEnvelope<TContent>` may carry a canonical `ResourcePath` before
+that resource's explanation descriptor is adopted. Envelope construction does
+not register the path or make an unknown path resolvable. A host advertises
+contextual explanation only for registered resources; after registration, it
+passes the envelope's emitted path unchanged to exact resolution.
 
 ### Adopted-domain totality
 

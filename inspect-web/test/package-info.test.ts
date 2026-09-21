@@ -16,12 +16,13 @@ function inspection(
 ): BrowserPackageInfoMeasurementInspection {
   return {
     content,
+    resourcePath: "package-info-measurements",
     contentKind: "result",
     portableProjection: {
       kind: "NonProjectable",
       fullUrl: null,
       packet: null,
-      path: "package-info-measurements/share",
+      location: null,
       reason: "notSupported",
       explanation: "No canonical Workspace share projection.",
     },

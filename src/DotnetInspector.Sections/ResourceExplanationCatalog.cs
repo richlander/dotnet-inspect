@@ -611,13 +611,14 @@ public sealed class ResourceExplanationCatalog
                 relationships,
                 receipt);
         return new InspectionEnvelope<ResourceExplanationDocument>(
+            root.Path,
             InspectionContentKind.Document,
             document,
             new InspectionPortableProjection.NonProjectable(
-                root.Path.Value,
                 InspectionPortableProjectionFailureReason.NotSupported,
-                "Resource Explanation does not yet have a portable "
-                + "Workspace projection."));
+                explanation:
+                    "Resource Explanation does not yet have a portable "
+                    + "Workspace projection."));
     }
 
     private static void ValidateStructuralPaths(

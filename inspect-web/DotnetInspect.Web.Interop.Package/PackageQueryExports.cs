@@ -536,6 +536,7 @@ namespace DotnetInspect.Web.Interop.Package
             ArgumentNullException.ThrowIfNull(envelope);
 
             return new BrowserPackageQueryInspection(
+                envelope.ResourcePath.Value,
                 BrowserInspectionWireProjection.Project(envelope.ContentKind),
                 Project(envelope.Content),
                 Project(envelope.PortableProjection),
@@ -555,7 +556,7 @@ namespace DotnetInspect.Web.Interop.Package
                         BrowserInspectionPortableProjectionKind.Available,
                         available.FullUrl,
                         available.Packet,
-                        Path: null,
+                        Location: null,
                         Reason: null,
                         Explanation: null),
                 InspectionPortableProjection.NonProjectable nonProjectable =>
@@ -563,7 +564,7 @@ namespace DotnetInspect.Web.Interop.Package
                         BrowserInspectionPortableProjectionKind.NonProjectable,
                         FullUrl: null,
                         Packet: null,
-                        nonProjectable.Path,
+                        nonProjectable.Location,
                         BrowserInspectionWireProjection.Project(
                             nonProjectable.Reason),
                         nonProjectable.Explanation),

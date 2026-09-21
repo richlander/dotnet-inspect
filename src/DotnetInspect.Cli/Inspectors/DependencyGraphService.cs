@@ -73,6 +73,7 @@ internal sealed record TypeDependencyExecutionResult(
 
         return new(
             new InspectionEnvelope<TypeDependencySectionResult>(
+                new ResourcePath("type-dependencies"),
                 InspectionContentKind.Result,
                 content,
                 portableProjection,
@@ -104,7 +105,6 @@ internal static class DependencyGraphService
         InspectionPortableProjection ShareFor(string typeName) =>
             shareProjection is null
                 ? new InspectionPortableProjection.NonProjectable(
-                    "share",
                     InspectionPortableProjectionFailureReason.NotSupported)
                 : shareProjection(typeName);
         RowQueryResolutionResult<TypeDependencyRelationship>

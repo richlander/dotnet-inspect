@@ -92,9 +92,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(host.SymbolRequests);
         Assert.Empty(host.SourceRequests);
         Assert.Equal(
-            "member-decompilation/share",
-            Assert.IsType<InspectionPortableProjection.NonProjectable>(
-                inspection.PortableProjection).Path);
+            "member-decompilation",
+            inspection.ResourcePath.Value);
         Assert.Empty(inspection.Diagnostics);
     }
 
@@ -334,8 +333,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(assembly.Assembly.Registration, available.Subject.Registration);
         Assert.Equal(0, assembly.Policy.SelectionCount);
-        Assert.Equal("member-source/share",
-            Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection).Path);
+        Assert.Equal("member-source", inspection.ResourcePath.Value);
         Assert.Empty(inspection.Diagnostics);
     }
 
@@ -708,8 +706,9 @@ public sealed partial class AssemblyContextSourceQueryTests
         }
         Assert.Single(host.SymbolRequests, uri => uri.AbsolutePath.EndsWith(".snupkg"));
         Assert.Single(host.SourceRequests);
-        Assert.Equal("member-source-comparison/share",
-            Assert.IsType<InspectionPortableProjection.NonProjectable>(inspection.PortableProjection).Path);
+        Assert.Equal(
+            "member-source-comparison",
+            inspection.ResourcePath.Value);
         Assert.Empty(inspection.Diagnostics);
     }
 

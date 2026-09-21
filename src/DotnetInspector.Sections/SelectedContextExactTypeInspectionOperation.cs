@@ -195,13 +195,14 @@ public static class SelectedContextExactTypeInspectionOperation
                     request.Type,
                     "The restored Workspace has no selected context.");
             return new(
+                new ResourcePath("exact-type"),
                 InspectionContentKind.Result,
                 new SelectedContextExactTypeInspectionResult(
                     unavailable,
                     []),
                 new InspectionPortableProjection.NonProjectable(
-                    "scenario.context",
-                    InspectionPortableProjectionFailureReason.NotSupported),
+                    InspectionPortableProjectionFailureReason.Unavailable,
+                    location: "scenario.context"),
                 ExactTypeInspectionOperation.Diagnostics(unavailable));
         }
 
@@ -234,13 +235,14 @@ public static class SelectedContextExactTypeInspectionOperation
                     request.Type,
                     "The restored Workspace has no selected context.");
             return new(
+                new ResourcePath("exact-type"),
                 InspectionContentKind.Result,
                 new SelectedContextExactTypeInspectionResult(
                     unavailable,
                     []),
                 new InspectionPortableProjection.NonProjectable(
-                    "scenario.context",
-                    InspectionPortableProjectionFailureReason.NotSupported),
+                    InspectionPortableProjectionFailureReason.Unavailable,
+                    location: "scenario.context"),
                 ExactTypeInspectionOperation.Diagnostics(unavailable));
         }
 
@@ -392,15 +394,14 @@ public static class SelectedContextExactTypeInspectionOperation
             liveTargetConsumer?.Invoke(target);
         InspectionPortableProjection share =
             new InspectionPortableProjection.NonProjectable(
-                "selected-context-exact-type/share",
                 InspectionPortableProjectionFailureReason.NotSupported);
         if (activation is not null
             && inspection.IsAvailable
             && !inspection.IsComplete)
         {
             share = new InspectionPortableProjection.NonProjectable(
-                "selected-context-exact-type/incomplete",
-                InspectionPortableProjectionFailureReason.NotSupported);
+                InspectionPortableProjectionFailureReason.Incomplete,
+                location: "inspection");
         }
         else if (activation is not null
             && inspection.IsAvailable
@@ -426,6 +427,7 @@ public static class SelectedContextExactTypeInspectionOperation
                             + "a failure."));
         }
         return new(
+            new ResourcePath("exact-type"),
             InspectionContentKind.Result,
             content,
             share,
@@ -443,11 +445,11 @@ public static class SelectedContextExactTypeInspectionOperation
     static InspectionPortableProjection NonProjectableShare(
         WorkspaceSharePacketProjectionFailure failure) =>
         new InspectionPortableProjection.NonProjectable(
-            failure.Path,
             failure.Kind
                 is WorkspaceSharePacketProjectionFailureKind
                     .InvalidDefinitionSet
                 ? InspectionPortableProjectionFailureReason.Invalid
                 : InspectionPortableProjectionFailureReason.NotSupported,
-            failure.Message);
+            location: failure.Path,
+            explanation: failure.Message);
 }

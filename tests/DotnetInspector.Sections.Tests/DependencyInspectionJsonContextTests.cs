@@ -49,10 +49,10 @@ public sealed class DependencyInspectionJsonContextTests
                 DependencyInspectionContent,
                 DependencyInspectionEvidenceDocument>(
                 new InspectionEnvelope<DependencyInspectionContent>(
+                    new ResourcePath("asset-dependencies"),
                     InspectionContentKind.Document,
                     content,
                     new InspectionPortableProjection.NonProjectable(
-                        "depends",
                         InspectionPortableProjectionFailureReason.NotSupported)),
                 evidence);
         JsonTypeInfo<

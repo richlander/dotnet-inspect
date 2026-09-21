@@ -56,6 +56,7 @@ export interface BrowserAnalysisInspectionDiagnostic {
 }
 
 export interface BrowserAnalysisInspectionEnvelope {
+  readonly resourcePath: string;
   readonly contentKind: BrowserAnalysisInspectionContentKind;
   readonly content: unknown;
   readonly portableProjection: BrowserAnalysisInspectionPortableProjection;
@@ -66,7 +67,7 @@ export interface BrowserAnalysisInspectionPortableProjection {
   readonly kind: string;
   readonly fullUrl: string | null;
   readonly packet: string | null;
-  readonly path: string | null;
+  readonly location: string | null;
   readonly reason: BrowserAnalysisInspectionPortableProjectionFailureReason | null;
   readonly explanation: string | null;
 }

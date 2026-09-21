@@ -1053,6 +1053,16 @@ public static class EcosystemDependencyRecognizer
         }
 
         return new(
+            new ResourcePath(
+                batch.Subject switch
+                {
+                    EcosystemDependencySubject.Package =>
+                        "ecosystem-dependency-recognition/package",
+                    EcosystemDependencySubject.Library =>
+                        "ecosystem-dependency-recognition/library",
+                    _ => throw new InvalidOperationException(
+                        "Unknown ecosystem dependency subject."),
+                }),
             InspectionContentKind.Outcome,
             Recognize(profile, batch),
             portableProjection.PortableProjection,
