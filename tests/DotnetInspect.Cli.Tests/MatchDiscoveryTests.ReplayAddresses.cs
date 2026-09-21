@@ -546,7 +546,7 @@ public partial class MatchDiscoveryTests
                 AdditionalSources = [Path.Combine(".", "feed's folder")],
                 ConfigDirectory = Path.Combine(".", "config"),
             },
-            "timeline",
+            "diff --history",
             out PackageReplaySources? replaySources,
             out string? error,
             workingDirectory: workingDirectory);
@@ -566,14 +566,14 @@ public partial class MatchDiscoveryTests
     {
         bool accepted = PackageReplaySourceArguments.TryCreate(
             new NuGetSourceOptions { Sources = ["https://feed.invalid/index.json?token=secret"] },
-            "timeline",
+            "diff --history",
             out PackageReplaySources? replaySources,
             out string? error,
             selectedVersionSourceRestriction: restricted);
 
         Assert.False(accepted);
         Assert.Null(replaySources);
-        Assert.StartsWith("timeline cannot disclose", error);
+        Assert.StartsWith("diff --history cannot disclose", error);
         Assert.DoesNotContain("secret", error);
         Assert.Contains(restricted ? "package source mapping" : "--nugetconfig", error);
     }
@@ -607,9 +607,9 @@ public partial class MatchDiscoveryTests
             : new NuGetSourceOptions { ConfigFile = "invalid\0path" };
 
         Assert.False(PackageReplaySourceArguments.TryCreate(
-            options, "timeline", out PackageReplaySources? replaySources, out string? error));
+            options, "diff --history", out PackageReplaySources? replaySources, out string? error));
         Assert.Null(replaySources);
-        Assert.StartsWith("timeline cannot disclose", error);
+        Assert.StartsWith("diff --history cannot disclose", error);
         Assert.Contains(directory ? "--nugetconfig-directory" : "--nugetconfig", error);
         Assert.DoesNotContain('\0', error!);
     }
