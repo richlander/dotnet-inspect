@@ -109,24 +109,32 @@ only when decompilation yields or returns. Consequently the contract promises
 bounded preference and overlap, not preemption or literal first-completion
 publication on every host.
 
-The first delivery keeps existing CLI and Browser product behavior unchanged.
-It proves the completed operation in the desktop query-test executable with
-one-second PDB and 250-millisecond authored preference windows. A following
-stacked slice will measure those initial values in the published
-single-threaded Browser/Wasm application before adopting the operation there.
-Browser cache lifetime remains separately owned by the Browser host and PDB
-acquisition design.
+The first delivery kept existing CLI and Browser product behavior unchanged
+while proving the completed operation in the desktop query-test executable.
+Browser Type Source now adopts the same operation with one-second PDB and
+250-millisecond authored preference windows. The published single-threaded
+Browser/Wasm gate measures the motivating package while deliberately
+withholding its exact MSDL PDB response; the request must publish decompilation
+before that response is released. A representative local Firefox run published
+in 12.9 seconds while the response remained withheld for a 60-second boundary,
+with synchronous Wasm decompilation dominating the elapsed time. This is
+evidence that the initial policy bounds the additional upstream wait, not a
+universal duration or transport-performance guarantee. CLI Type Source remains
+serial. Browser cache lifetime remains separately owned by the Browser host and
+PDB acquisition design.
 
 The motivating production asset is
 `System.Text.Json@11.0.0-preview.7.26381.103`,
 `lib/netstandard2.0/System.Text.Json.dll`, type
 `System.HexConverter+Casing`. Its external Portable PDB is available from MSDL,
-and its SourceLink document is
+and that PDB carries the SourceLink document
 `src/runtime/src/libraries/Common/src/System/HexConverter.cs` at dotnet/dotnet
-commit `e2c1e00b3d0f96afb892fb261d5921565b400246`. The desktop gates use the
-compiler-produced source fixtures to control each scheduling boundary
-deterministically; the Browser adoption slice preserves this real package as
-the published timing scenario.
+commit `e2c1e00b3d0f96afb892fb261d5921565b400246`. Current exact-type mapping does
+not associate that document with the nested enum, so this asset exercises PDB
+preference and decompiled fallback rather than successful authored publication.
+The desktop gates use the compiler-produced source fixtures to control each
+scheduling boundary deterministically; the Browser gate preserves this real
+package and symbol request as the published timing scenario.
 
 ## Explicit authored document
 
@@ -139,10 +147,11 @@ decompiler attempt. The ordinary request remains primary-authored-then-decompile
 
 The CLI resolves `--print --row` against its existing default-first Source Files
 rows, then supplies the exact type, retained assembly descriptor, and selected
-original path to the same completed `TypeSourceInspection.ExecuteAsync`
-operation used by Browser Type Source. Display URLs and projected checksums
-are not acquisition authority. Only the selected document is fetched and
-verified against its own PDB checksum. Source Files listing remains
+original path to the completed serial `TypeSourceInspection.ExecuteAsync`
+operation. The Browser hedge routes any explicit-document request to that same
+serial query path rather than racing decompilation. Display URLs and projected
+checksums are not acquisition authority. Only the selected document is fetched
+and verified against its own PDB checksum. Source Files listing remains
 metadata-only; explicit Decompiled Source remains a separate request.
 
 Member Source Locations `--print --row` also requests a whole authored document,
@@ -164,11 +173,12 @@ shared lifetime rather than a CLI-owned House composition.
 
 ## Production adoption and retirement
 
-`TypeSourceInspection.ExecuteAsync` is the completed host-neutral facade,
+`TypeSourceInspection.ExecuteAsync` is the completed serial host-neutral facade,
 returning `InspectionEnvelope<AssemblyTypeSourceEntry>` with explicit
-non-projectable Share. Browser Type Source consumes its content through the
-existing browser projection and operation/cancellation bridge. Its wire shape,
-source policy, viewer, and rendering substrate remain unchanged.
+non-projectable Share. Browser Type Source instead consumes
+`ExecuteWithLatencyHedgeAsync` through the existing browser projection and
+operation/cancellation bridge. Its wire shape, source policy, viewer, and
+rendering substrate remain unchanged.
 `TypeSourceInspection.DecompileAsync` is the adjacent completed
 decompiled-only facade, returning
 `InspectionEnvelope<AssemblyTypeDecompilationEntry>` after exact Library and

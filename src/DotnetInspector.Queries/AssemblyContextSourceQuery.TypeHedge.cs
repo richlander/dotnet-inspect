@@ -517,12 +517,17 @@ public static partial class AssemblyContextSourceQuery
                 null;
             if (!source.Context.HasEmbeddedPdb)
             {
-                ImmutableArray<byte> image =
-                    source.Context.GetPortablePdbImage()
-                    ?? throw new InvalidOperationException(
-                        "An external Portable PDB source requires retained PDB content.");
+                ImmutableArray<byte>? image =
+                    source.Context.GetPortablePdbImage();
+                if (image is null)
+                {
+                    return new(
+                        IsAvailable: false,
+                        PortablePdb: null,
+                        Failure: opened.Failure);
+                }
                 portablePdb = new(
-                    image,
+                    image.Value,
                     new AssemblySourcePdbProvenance(
                         participant.Assembly.Registration,
                         source.Context.PdbId,

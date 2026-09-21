@@ -190,9 +190,11 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         const string packageId = "Type.Source.Bridge.Success";
         await RegisterSourcePackageAsync(packageId);
         string id = Guid.NewGuid().ToString();
-        BrowserTypeSourceResult result = Read(await DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource(
+        string json = await DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource(
             id, packageId, "1.0.0", "net11.0", "TsJsExport.Contracts.dll",
-            "TsJsExport.JsExportRootAttribute", "[]"));
+            "TsJsExport.JsExportRootAttribute", "[]");
+        output.WriteLine(json);
+        BrowserTypeSourceResult result = Read(json);
 
         Assert.Equal(1, result.Version);
         Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
