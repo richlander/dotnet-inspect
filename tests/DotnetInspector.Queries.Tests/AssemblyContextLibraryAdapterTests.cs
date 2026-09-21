@@ -14,7 +14,7 @@ using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class AssemblyContextLibraryAdapterTests
+public sealed partial class AssemblyContextLibraryAdapterTests
 {
     // Focused image/companion cases are PR-fast.
     [Fact]
