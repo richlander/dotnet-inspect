@@ -5,6 +5,8 @@
 Proposed product workflow and composition contract, requested by the operator
 on 2026-09-12. Focused design: [#6760](https://github.com/richlander/dotnet-inspect/issues/6760).
 End-to-end adoption: [#6761](https://github.com/richlander/dotnet-inspect/issues/6761).
+The QuerySpace-native composition reframe is tracked by
+[#8124](https://github.com/richlander/dotnet-inspect/issues/8124).
 Nothing in this document is a claim that the proposed commands or defaults ship.
 The local-throw refinement is tracked by
 [#6960](https://github.com/richlander/dotnet-inspect/issues/6960).
@@ -22,8 +24,9 @@ here. Its exact claim is:
 
 > Given an exact inspected subject, an explicitly described candidate
 > population, and owner-issued relation evidence, compose one discoverable,
-> bidirectional relation view without losing endpoint identity, evidence
-> meaning, correspondence, or coverage.
+> bidirectional relation view as a QuerySpace operation exposed through subject
+> sections, without losing endpoint identity, evidence meaning,
+> correspondence, or coverage.
 
 This owner defines the product questions, subject/population distinction,
 relation-view semantics, and composition obligations. It does not define
@@ -262,6 +265,76 @@ placement does not depend on cardinality. A subject section is the
 subject-first entrance; top-level Graph is the operation-first entrance. Both
 consume the same typed Graph request and retain the same relationship
 directions and physical evidence.
+
+## QuerySpace-native composition
+
+Subject Relations registers one host-neutral Query Operation with Package,
+Library, Type, and Member subject roles. It has no top-level `relations`
+command. A subject section binds the already resolved focus, retained context,
+candidate population, operation profile, participating row sets, and terminal.
+The CLI and Browser/Wasm lower their gestures to the same accepted QuerySpace
+request.
+
+The operation scope owns facts that authorize or bound work: the exact focus,
+candidate population identity, requested relation families and directions,
+producer demand, and completion consequences. A row-query scope may select,
+order, or limit completed logical rows, but it cannot authorize acquisition or
+producer execution. A public facet that changes work therefore needs an
+operation binding even when an equivalent value is also visible on result
+rows.
+
+`Relations` declares one canonical logical-relation row set. Each row preserves:
+
+- exact source and target identities;
+- the producer-issued relation and evidence identities;
+- direction relative to the focused subject;
+- typed occurrence or match-site evidence when the producer supplies it;
+- zero or more owner-issued Integration associations; and
+- the correspondence needed to relate the row to its retained subject and
+  population.
+
+The content result separately preserves producer availability, failures,
+coverage, and completion. A missing or failed producer cannot become an empty
+successful row set. The completed host-neutral boundary is
+`InspectionEnvelope<SubjectRelationsContent>`; the content type remains owned
+here, while the envelope retains its existing Share and diagnostic contract.
+
+`Integration` is a classified projection of the same composition result. It
+keeps only logical rows carrying producer-issued Integration associations and
+does not run a second scanner, infer classification from package membership, or
+change the physical occurrence count. `Relations` and `Integration` therefore
+use distinct declared row sets with the same schema and executable row-query
+scope. The section owner forms the classified row set from the same completed
+content before row-query execution; it does not depend on the still-unverified
+general QuerySpace projection stage.
+
+Curated local sections remain deliberate views rather than aliases for the
+canonical row set. `Extensions`, `Implementers`, `Derived Types`,
+`Dependencies`, `References`, `Calls`, and `Callers` retain their
+owner-established row units, evidence details, failure behavior, and query
+capabilities. Their producer evidence may also adapt into canonical logical
+rows for `Relations`, but the general view does not replace the focused
+result. A focused section may bind its own compatible QuerySpace row scope or
+consume another retained operation such as Depends or Graph.
+
+`@Relations` is section-category composition, not one universal query space or
+row vocabulary. Structural discovery lists its members. Query discovery
+expands the category and reports each exact section's accepted binding and row
+unit. A predicate accepted by `Relations`, `Integration`, or `Extensions` is
+not silently applied to incompatible neighboring sections; the mixed request
+fails before producer execution.
+
+The currently verified complete-source QuerySpace path resolves one explicit
+row-intent association. That path is sufficient for each exact section and for
+the canonical `Relations`/`Integration` row set. Subject Relations does not
+depend on unverified multiple-association execution. A future gesture that
+truly needs one atomic request over heterogeneous row-query scopes must first
+land the separately owned QuerySpace and section-row composition support.
+
+Depends hierarchies and Graph topology remain their owners' results. Relations
+may preserve the same direct evidence and endpoint identities, but it does not
+flatten rooted occurrences, graph connectedness, paths, or traversal
+characteristics into one-hop logical rows.
 
 ## Worked example: replace the verbs, keep the workflows
 
@@ -1273,6 +1346,7 @@ map, not a specification of the participating components' internals.
 | Workspace | [Registration handoff](workspace-ecosystem-registration-handoff.md) and [scope](workspace-scope-and-expansion.md) retain inert registrations, finite realization, revision and coverage; solve the capacity boundary before claiming complete broad execution. |
 | Source Selection / search binding | [Source intent](search-scope-domain.md) and [search scope](search-scope-resolution.md) preserve explicit selection, authority and bounded prefix expansion; adopt the new default and ecosystem selector in their owners. |
 | Locator | [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) proposes the exact finite-population type-declaration query; its [adoption map](reverse-type-locator-adoption.md) tracks the source/context and host prerequisites. The current [Find service](find-search-service.md) remains CLI-local; member/signature locator adoption is separate. |
+| QuerySpace | [Query Operation Infrastructure](query-operation-infrastructure.md) registers the Relations operation and routes; [Query Space Composition](query-space-composition.md) binds operation and typed row scopes without merging their vocabularies; [section-row shaping](section-row-shaping.md) executes declared rows and terminals. Multiple explicit row-intent associations remain a separate unverified substrate adoption. |
 | Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints. Signature discovery additionally needs parameter/return roles, constructed shapes and match sites; name matching alone is not endpoint correspondence or general assignability. |
 | Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. [Local-throw evidence](analysis-local-throw-evidence.md) owns member/type/site associations and visible evidence limits. Existing [throw counts and constructed-exception signals](graph-signal-annotations.md#exception-risk) are not that projection. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
@@ -1371,33 +1445,35 @@ to transfer code.
 ## Adoption and retirement
 
 The [overall tracker](https://github.com/richlander/dotnet-inspect/issues/6761)
-contains **16 steps**, including the independently counted typed-throw
-producer prerequisite. Existing completed work may satisfy a step with evidence;
-each owner files its focused implementation issue before starting. An owner
-contract that needs further splitting must update the count, not hide several
-unreviewable changes inside a nominal slice.
+contains **19 steps** after the QuerySpace reframe. Existing completed work may
+satisfy a step with evidence; each owner files its focused implementation issue
+before starting. An owner contract that needs further splitting must update the
+count, not hide several unreviewable changes inside a nominal slice.
 
 | Step | Independently owned deliverable |
 | --- | --- |
-| 1 | This Subject Relations workflow/composition design, [#6760](https://github.com/richlander/dotnet-inspect/issues/6760). |
-| 2 | Workspace registration retention and finite population realization. |
-| 3 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
-| 4 | Search Scope Resolution adopts broad versus explicit candidate intent using existing Source Selection declarations. |
-| 5 | Find's exact host-neutral locator/context handoff. |
-| 6 | Metadata-owned typed hierarchy, extension, reference and signature-shape projections, including return/parameter match sites. |
-| 7 | Analysis-owned invocation/correspondence joins. |
-| 8 | Analysis-owned [typed local-throw evidence projection](https://github.com/richlander/dotnet-inspect/issues/6961), with exact member/type/site association and explicit incomplete outcomes; independent of invocation joins. |
-| 9 | Integration-owned semantic annotations and opportunity distinctions. |
-| 10 | A focused language-pattern candidate contract and producer. |
-| 11 | Shared Subject Relations query composition over adopted producers, including local-throw matching and member-versus-edge conjunction semantics. |
-| 12 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
-| 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
-| 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, subject-backed Depends/Graph views, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph design #7624](https://github.com/richlander/dotnet-inspect/issues/7624) and the operation/section placement in [#7623](https://github.com/richlander/dotnet-inspect/issues/7623). |
-| 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
-| 16 | Retire `extensions`, `implements`, and superseded Integration-specific surfaces after population, relation, evidence, failure, and disclosure parity. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 1 | **Complete:** original Subject Relations workflow/composition design, [#6760](https://github.com/richlander/dotnet-inspect/issues/6760) and #6763. |
+| 2 | QuerySpace-native Subject Relations composition reframe, [#8124](https://github.com/richlander/dotnet-inspect/issues/8124). |
+| 3 | Workspace registration retention and finite population realization. Registration retention is complete; realization and honest coverage remain. |
+| 4 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
+| 5 | **Complete:** Search Scope Resolution broad-versus-explicit candidate intent (#6931, #6932). |
+| 6 | Find's exact host-neutral locator/context handoff, including CLI and Browser reopening. |
+| 7 | **Complete for the required exact-section path:** Query Operation registration, QuerySpace descriptors/bindings, and one explicit complete-source row-intent association (#7712, #8007, #8042, #8073). Multiple explicit associations remain unverified and are not required by the initial Relations sections. |
+| 8 | Subject Relations operation, Package/Library/Type/Member routes, canonical logical-row query scope, content result, and `InspectionEnvelope<SubjectRelationsContent>`. |
+| 9 | Metadata-owned hierarchy, extension, reference, and signature adapters, including constructed shapes and return/parameter match sites. |
+| 10 | Analysis-owned invocation and exact correspondence adapters. |
+| 11 | Local-throw relation adapter consuming the **complete** typed local-throw producer (#6961, #6992) without expanding its evidence claim. |
+| 12 | Integration-owned annotations and opportunity distinctions over exact composed evidence. |
+| 13 | A focused language-pattern candidate contract, producer, and relation adapter. |
+| 14 | Subject Relations section projection, per-subject `@Relations` membership and cross-listing, exact-section QuerySpace discovery, and Markout lowerings. |
+| 15 | Workspace Definitions adoption for portable relation views and locator context, retaining typed predicates and evidence meaning. |
+| 16 | CLI ecosystem-to-locator handoff, local sections, shortcuts, query discovery, sharing, and focused ecosystem/relations skill adoption. This consumes the operation/section placement in #7623 and retains top-level Find, Depends, and Graph. |
+| 17 | Inspect Web/Browser-Wasm adoption of the same locator, QuerySpace request, content, Share outcome, diagnostics, typed evidence, and coverage. |
+| 18 | Lightweight production-versus-candidate H2H over the three real discovery scenarios. |
+| 19 | Retire `extensions`, `implements`, and superseded Integration-specific surfaces after population, relation, evidence, failure, format, discovery, sharing, and both-host parity. Retain top-level `diff`, `graph`, `depends`, and ecosystem vocabulary. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
-CLI adoption is step 14 and website adoption step 15; neither is optional
-for this shared substrate. Step 16 is part of completion. Producers may ship
+CLI adoption is step 16 and website adoption step 17; neither is optional
+for this shared substrate. Step 19 is part of completion. Producers may ship
 through existing hosts earlier, but neither host advertises an unimplemented
 relation family or the broad-default workflow prematurely.
 Stages form a dependency map, not a requirement to wait serially where owners
