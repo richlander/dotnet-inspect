@@ -267,6 +267,38 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_RejectsBodyBackedSlotWithoutSkeletonDifference()
+    {
+        var input = Input();
+        CSharpTypeDeclaration constructor = input.Declarations[2];
+        CSharpTypeRenderPart implementation = constructor.Parts[1];
+        input.Declarations[2] = constructor with
+        {
+            Parts = constructor.Parts.SetItem(
+                1,
+                implementation with
+                {
+                    SkeletonText = implementation.FullText,
+                }),
+        };
+
+        Assert.Contains(
+            "requires distinct full and skeleton alternatives",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+    }
+
+    [Fact]
+    public void Create_RequiresNonEmptyDeclarationSignature()
+    {
+        var input = Input();
+        input.Declarations[0] = input.Declarations[0] with { Parts = [] };
+
+        Assert.Contains(
+            "requires a non-empty signature part",
+            Assert.Throws<ArgumentException>(() => Create(input)).Message);
+    }
+
+    [Fact]
     public void Create_RejectsAggregateNodeBudgetExhaustion()
     {
         var input = Input();
@@ -491,6 +523,25 @@ public class CSharpTypeDocumentTests
         Assert.Throws<JsonException>(
             () => CSharpTypeDocumentJson.Deserialize(
                 mismatchedRegion.ToJsonString()));
+
+        JsonObject missingSkeletonDifference =
+            Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        JsonNode constructorPart =
+            missingSkeletonDifference["declarations"]!.AsArray()[2]!["parts"]!
+                .AsArray()[1]!;
+        constructorPart["skeleton_text"] =
+            constructorPart["full_text"]!.GetValue<string>();
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(
+                missingSkeletonDifference.ToJsonString()));
+
+        JsonObject emptyDeclaration =
+            Assert.IsType<JsonObject>(JsonNode.Parse(json));
+        emptyDeclaration["declarations"]!.AsArray()[0]!["parts"] =
+            new JsonArray();
+        Assert.Throws<JsonException>(
+            () => CSharpTypeDocumentJson.Deserialize(
+                emptyDeclaration.ToJsonString()));
 
         Assert.Throws<JsonException>(() => CSharpTypeDocumentJson.Deserialize(
             new string(' ', CSharpTypeDocumentJson.MaxSerializedCharacters + 1)));

@@ -661,6 +661,13 @@ static class CSharpTypeDocumentValidator
                 throw new ArgumentOutOfRangeException(nameof(declaration.Origin));
             ValidateDeclarationToken(declaration);
             ValidateParts(declaration.Parts, $"Declaration {declaration.Id}");
+            if (!declaration.Parts.Any(static part =>
+                part.Kind == CSharpTypeRenderPartKind.Fixed
+                && part.FullText.Length > 0))
+            {
+                throw new ArgumentException(
+                    $"Declaration {declaration.Id} requires a non-empty signature part.");
+            }
             ValidateBodyReferences(declaration, artifacts, bodies);
         }
     }
@@ -1060,6 +1067,13 @@ static class CSharpTypeDocumentValidator
                 {
                     throw new ArgumentException(
                         $"{owner} implementation part {part.Id} must be independently selectable for one owned body.");
+                }
+                if ((!part.OwnedBodies.IsDefaultOrEmpty
+                        || !part.Contributions.IsDefaultOrEmpty)
+                    && part.FullText == part.SkeletonText)
+                {
+                    throw new ArgumentException(
+                        $"{owner} body-backed implementation part {part.Id} requires distinct full and skeleton alternatives.");
                 }
             }
             else
