@@ -961,9 +961,14 @@ it does not by itself make the operation successful.
 
 ## Target-aware dependency-edge realization
 
-[#6424](https://github.com/richlander/dotnet-inspect/issues/6424) owns the
+[Package dependency edge
+realization](package-dependency-edge-realization.md), tracked by
+[#6424](https://github.com/richlander/dotnet-inspect/issues/6424), owns the
 focused handoff from one resolved dependency edge to target package
-realization.
+realization. The host-neutral query now prepares an exact candidate-bound
+PackageHouse compile execution under the traversal target, optionally carries
+the exact Platform pruning receipt, and retains the completed settlement with
+the root-relative edge occurrence.
 
 For every edge that a traversal consumer chooses to realize, PackageHouse
 retains:
@@ -1030,10 +1035,11 @@ Applicability precedence is explicit:
 7. only `NotApplicable` pre-processing evidence proceeds to declaration,
    selection, target, and inventory correspondence checks.
 
-Produced relationships remain non-evaluating until #6424 supplies their exact
-target-aware edge realization. Missing selection, selected-group mismatch,
-missing exact target, requested-framework mismatch, missing platform target,
-and unavailable inventory remain distinct typed target-unavailable results.
+Raw declaration and relationship pruning remain distinct from traversal-edge
+realization. Missing selection, selected-group mismatch, missing exact target,
+requested-framework mismatch, missing platform target, and unavailable
+inventory remain distinct typed target-unavailable results in that
+raw-evidence path.
 
 Only `Subsumed` authorizes delegation. The package decision receipt retains:
 

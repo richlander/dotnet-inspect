@@ -2531,7 +2531,11 @@ public sealed partial class CSharpPrinter
                 ? conditionalType
                 : null;
         bool joinHasExactTypedArm = armTarget is { } anchorTarget && joinArms.Any(arm => JoinArmAnchorsTarget(arm, anchorTarget));
-        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)} : {ConditionalArm(conditional.WhenFalse, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)}";
+        bool elideTrueWidening = armTarget is null
+            && CanElideConditionalInt32Widening(conditional.WhenTrue, conditional.WhenFalse, target);
+        bool elideFalseWidening = armTarget is null
+            && CanElideConditionalInt32Widening(conditional.WhenFalse, conditional.WhenTrue, target);
+        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm, elideTrueWidening)} : {ConditionalArm(conditional.WhenFalse, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm, elideFalseWidening)}";
     }
 
     /// <summary>
@@ -2605,6 +2609,49 @@ public sealed partial class CSharpPrinter
         => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
     /// <summary>
+    /// Omits a plain <c>conv.i8</c> over an <c>int</c> arm when the sibling
+    /// independently keeps the conditional's natural type at <c>long</c>.
+    /// C# then regenerates the same <c>conv.i8</c> on this arm. Two such
+    /// conversions do not anchor one another, so both remain explicit.
+    /// </summary>
+    bool CanElideConditionalInt32Widening(
+        IrExpression arm,
+        IrExpression sibling,
+        TypeRef? target)
+        => IsCoreInt64(target)
+            && IsPlainInt32ToInt64Widening(arm)
+            && IndependentlyRendersAsInt64(sibling);
+
+    static bool IsPlainInt32ToInt64Widening(IrExpression arm)
+        => arm is Convert
+        {
+            IsChecked: false,
+            IsUnsigned: false,
+            Target: { } target,
+            Operand: not Constant and { } operand,
+        }
+        && IsCoreInt64(target)
+        && EffectiveType(operand) is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Int32",
+        };
+
+    bool IndependentlyRendersAsInt64(IrExpression arm)
+    {
+        if (IsPlainInt32ToInt64Widening(arm))
+            return false;
+        if (arm is Convert conversion)
+            return IsCoreInt64(conversion.Target);
+        if (arm is Coerce coercion)
+            return IsCoreInt64(coercion.Target)
+                && VarInfersDeclaredType(coercion.Target, coercion.Operand);
+        return VarInfersDeclaredType(TypeRef.CoreLib("System", "Int64"), arm);
+    }
+
+    /// <summary>
     /// Whether <see cref="ConditionalText(Conditional, TypeRef?)"/> spells this
     /// conditional as a short-circuit <c>&amp;&amp;</c> instead of a ternary —
     /// the one place a Conditional NODE renders at ConditionalAnd precedence.
@@ -2617,7 +2664,12 @@ public sealed partial class CSharpPrinter
             && IsBooleanLike(conditional)
             && IsBooleanLike(conditional.WhenTrue);
 
-    string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
+    string ConditionalArm(
+        IrExpression arm,
+        TypeRef? target,
+        TypeRef? primitiveCoercionSourceType = null,
+        bool joinHasExactTypedArm = true,
+        bool elideInt32Widening = false)
     {
         // The long-literal spelling (#3347, #7763). Only at a join whose target is Int64 or
         // neutralized (EffectiveJoinTarget returns null when the arms already render
@@ -2629,6 +2681,11 @@ public sealed partial class CSharpPrinter
             && TryLongLiteralText(arm, target) is { } longArmLiteral)
         {
             return WithNodeKind(arm, longArmLiteral, "LiteralExpression");
+        }
+        if (elideInt32Widening && arm is Convert widening)
+        {
+            string text = Expression(widening.Operand);
+            return WithNodeKind(widening, text, RenderedNodeKind(widening.Operand));
         }
         if (target is { } charTarget
             && IsCoreChar(charTarget)
