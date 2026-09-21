@@ -2037,6 +2037,8 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             || o.Contains("GC collections/sec", StringComparison.OrdinalIgnoreCase))
         .ToArray();
     var observedGroups = observed
+        .Where(static candidate =>
+            candidate.EligibleForOptimizationVerdict)
         .GroupBy(c => c.Method, StringComparer.Ordinal)
         .Select(g => new
         {
@@ -2068,6 +2070,17 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         .OrderByDescending(g => g.Weight)
         .ThenByDescending(g => g.Hits)
         .ToArray();
+    var confirmedStrings = observed
+        .Where(static candidate =>
+            candidate.RuntimeStringAllocationConfirmed)
+        .OrderByDescending(static candidate =>
+            candidate.EffectiveObservedBytes)
+        .ThenBy(static candidate =>
+            candidate.Method,
+            StringComparer.Ordinal)
+        .ThenBy(static candidate =>
+            candidate.IlOffset)
+        .ToArray();
 
     Console.WriteLine("# runfaster performance report");
     Console.WriteLine();
@@ -2086,30 +2099,53 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     if (observedGroups.Length == 0)
     {
-        int typeConfirmedCount = result.Candidates.Count(
-            static candidate => candidate.TypeConfirmed);
-        if (typeConfirmedCount > 0)
+        if (confirmedStrings.Length > 0)
         {
             Console.WriteLine(
-                $"No exact allocation site joined, but runtime type volume confirmed "
-                + $"{typeConfirmedCount.ToString(CultureInfo.InvariantCulture)} static "
-                + "candidate type(s). Treat that as type-level prioritization, not exact "
-                + "site attribution.");
-        }
-        else if (result.Candidates.Count > 0
-            && result.Candidates.All(static candidate =>
-                !candidate.HasRuntimeCoordinate
-                && !candidate.TypeConfirmed))
-        {
-            Console.WriteLine(
-                "No exact runtime join was possible because the supplied triage rows lack "
-                + "declaring assembly, method token, and IL offset coordinates. Export the "
-                + "nested Performance Triage document with `--json`; compact `--jsonl` rows "
-                + "do not carry deep provenance.");
+                $"Runtime allocation evidence confirmed "
+                + $"{confirmedStrings.Length.ToString(CultureInfo.InvariantCulture)} "
+                + "exact string-materialization site(s), but no automatic optimization "
+                + "verdict is available. Inspect each result consumer and output contract "
+                + "to distinguish required output from removable intermediate text.");
         }
         else
         {
-            Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+            if (observed.Any(static candidate =>
+                    candidate.RequiresConsumerInspection))
+            {
+                Console.WriteLine(
+                    "String-materialization candidates were observed only through "
+                    + "non-allocation diagnostics; no exact `System.String` allocation "
+                    + "evidence confirmed those operations.");
+            }
+            else
+            {
+                int typeConfirmedCount = result.Candidates.Count(
+                    static candidate => candidate.TypeConfirmed);
+                if (typeConfirmedCount > 0)
+                {
+                    Console.WriteLine(
+                        $"No exact allocation site joined, but runtime type volume confirmed "
+                        + $"{typeConfirmedCount.ToString(CultureInfo.InvariantCulture)} static "
+                        + "candidate type(s). Treat that as type-level prioritization, not exact "
+                        + "site attribution.");
+                }
+                else if (result.Candidates.Count > 0
+                    && result.Candidates.All(static candidate =>
+                        !candidate.HasRuntimeCoordinate
+                        && !candidate.TypeConfirmed))
+                {
+                    Console.WriteLine(
+                        "No exact runtime join was possible because the supplied triage rows lack "
+                        + "declaring assembly, method token, and IL offset coordinates. Export the "
+                        + "nested Performance Triage document with `--json`; compact `--jsonl` rows "
+                        + "do not carry deep provenance.");
+                }
+                else
+                {
+                    Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+                }
+            }
         }
     }
     else
@@ -2145,7 +2181,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     }
     Console.WriteLine();
 
-    if (observedGroups.Length > 0)
+    if (observed.Length > 0)
     {
         Console.WriteLine("## Allocation volume by kind");
         Console.WriteLine();
@@ -2168,31 +2204,62 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         }
         Console.WriteLine();
 
-        Console.WriteLine("## Confirmed paydirt");
-        Console.WriteLine();
-        Console.WriteLine("| Runtime Evidence | Method | Static Rows | Row Confidence | Kind | Escape Kind | Confidence | Path | IL Offsets | Top Allocated Types | Why it matters | Fix |");
-        Console.WriteLine("| ---------------- | ------ | ----------: | -------------- | ---- | ----------- | ---------- | ---- | ---------- | ------------------- | -------------- | --- |");
-        foreach (var group in observedGroups.Take(10))
+        if (confirmedStrings.Length > 0)
         {
-            Console.WriteLine("| "
-                + string.Join(" | ",
-                [
-                    group.AllocationHits > 0 ? $"{group.AllocationHits.ToString(CultureInfo.InvariantCulture)} alloc ticks / {FormatBytes(group.AllocationBytes)}" : group.AllocationBytes > 0 ? $"sample weight {group.Weight.ToString("0.##", CultureInfo.InvariantCulture)} / {FormatBytes(group.AllocationBytes)}" : $"sample weight {group.Weight.ToString("0.##", CultureInfo.InvariantCulture)}",
-                    $"`{Escape(group.Method)}`",
-                    group.Rows.ToString(CultureInfo.InvariantCulture),
-                    Escape(group.Ambiguity),
-                    Escape(group.Shapes),
-                    Escape(group.EscapeKinds),
-                    Escape(group.Confidence ?? ""),
-                    Escape(FormatPathSummary(group.Path, group.PathConfidence, group.InLoop)),
-                    Escape(group.Offsets),
-                    Escape(group.TopTypes),
-                    Escape(group.Evidence ?? ""),
-                    Escape(group.Fix ?? ""),
-                ])
-                + " |");
+            Console.WriteLine(
+                "## Runtime-confirmed string materialization");
+            Console.WriteLine();
+            Console.WriteLine(
+                "These exact operations produced sampled `System.String` allocations in "
+                + "this workload. Volume ranks realized production, not removable cost; "
+                + "inspect the result consumer and output contract before choosing a rewrite.");
+            Console.WriteLine();
+            Console.WriteLine(
+                "| Runtime Evidence | Method | Operation | Token+IL | Row Confidence | Loop |");
+            Console.WriteLine(
+                "| ---------------- | ------ | --------- | -------- | -------------- | ---- |");
+            foreach (var candidate in confirmedStrings.Take(15))
+            {
+                Console.WriteLine(
+                    $"| {candidate.EffectiveAllocationHits.ToString(CultureInfo.InvariantCulture)} "
+                    + $"alloc ticks / {FormatBytes(candidate.EffectiveObservedBytes)} "
+                    + $"| `{Escape(candidate.Method)}` "
+                    + $"| {Escape(candidate.Operation ?? "")} "
+                    + $"| {Escape(candidate.TokenAndOffset)} "
+                    + $"| {(candidate.RowAmbiguous ? "row-ambiguous" : "row-likely")} "
+                    + $"| {(candidate.InLoop ? "yes" : "")} |");
+            }
+            Console.WriteLine();
         }
-        Console.WriteLine();
+
+        if (observedGroups.Length > 0)
+        {
+            Console.WriteLine("## Confirmed paydirt");
+            Console.WriteLine();
+            Console.WriteLine("| Runtime Evidence | Method | Static Rows | Row Confidence | Kind | Escape Kind | Confidence | Path | IL Offsets | Top Allocated Types | Why it matters | Fix |");
+            Console.WriteLine("| ---------------- | ------ | ----------: | -------------- | ---- | ----------- | ---------- | ---- | ---------- | ------------------- | -------------- | --- |");
+            foreach (var group in observedGroups.Take(10))
+            {
+                Console.WriteLine("| "
+                    + string.Join(" | ",
+                    [
+                        group.AllocationHits > 0 ? $"{group.AllocationHits.ToString(CultureInfo.InvariantCulture)} alloc ticks / {FormatBytes(group.AllocationBytes)}" : group.AllocationBytes > 0 ? $"sample weight {group.Weight.ToString("0.##", CultureInfo.InvariantCulture)} / {FormatBytes(group.AllocationBytes)}" : $"sample weight {group.Weight.ToString("0.##", CultureInfo.InvariantCulture)}",
+                        $"`{Escape(group.Method)}`",
+                        group.Rows.ToString(CultureInfo.InvariantCulture),
+                        Escape(group.Ambiguity),
+                        Escape(group.Shapes),
+                        Escape(group.EscapeKinds),
+                        Escape(group.Confidence ?? ""),
+                        Escape(FormatPathSummary(group.Path, group.PathConfidence, group.InLoop)),
+                        Escape(group.Offsets),
+                        Escape(group.TopTypes),
+                        Escape(group.Evidence ?? ""),
+                        Escape(group.Fix ?? ""),
+                    ])
+                    + " |");
+            }
+            Console.WriteLine();
+        }
     }
 
     var typeConfirmed = result.Candidates
@@ -2302,6 +2369,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("- Static rows are IL-visible candidates from dotnet-inspect Performance Triage.");
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
+    Console.WriteLine("- Runtime-confirmed `string-materialization` rows prove workload-scoped string production at the joined coordinate, but remain outside the automatic optimization verdict until result-consumer analysis distinguishes required output from removable intermediates.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
     Console.WriteLine("- `superseded-by-triage` means runtime evidence for the same physical candidate is carried by a richer shape-compatible triage row; it is not workload-cold.");
 }
@@ -2842,11 +2910,32 @@ sealed class AllocationCandidate(
     public string MethodKey { get; } = methodKey;
     public string MethodStackKey { get; } = methodStackKey;
     public string AllocationKind { get; } = allocationKind;
-    public string? AllocatedType { get; } = allocatedType;
+    public bool RequiresConsumerInspection =>
+        string.Equals(
+            AllocationKind,
+            "string-materialization",
+            StringComparison.OrdinalIgnoreCase);
+    public bool EligibleForOptimizationVerdict =>
+        !RequiresConsumerInspection;
+    public string? AllocatedType { get; } =
+        string.Equals(
+            allocationKind,
+            "string-materialization",
+            StringComparison.OrdinalIgnoreCase)
+            ? null
+            : allocatedType;
     // The analyzer's string form of the allocated type, populated for kinds that have no simple
     // AllocatedType TypeRef (delegates, closures, state machines). Used as the type-confirmation
     // fallback so those kinds are not blind to the type-level backstop.
-    public string? RuntimeAllocationType { get; } = string.IsNullOrWhiteSpace(runtimeAllocationType) ? null : runtimeAllocationType;
+    public string? RuntimeAllocationType { get; } =
+        string.Equals(
+            allocationKind,
+            "string-materialization",
+            StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(
+                runtimeAllocationType)
+            ? null
+            : runtimeAllocationType;
     public string? PredictedType => AllocatedType ?? RuntimeAllocationType;
     public string? Detail { get; } = detail;
     public bool InLoop { get; } = inLoop;
@@ -2951,6 +3040,13 @@ sealed class AllocationCandidate(
     public long EffectiveObservedBytes => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : TotalObservedBytes;
     public double EffectiveRuntimeWeight => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : RuntimeWeight;
     public int EffectiveAllocationHits => ShapeAllocationHits > 0 ? ShapeAllocationHits : AllocationHits;
+    public bool RuntimeStringAllocationConfirmed =>
+        RequiresConsumerInspection
+        && !SupportingCallSite
+        && ShapeMatched
+        && ShapeAllocationHits > 0
+        && ShapeAllocationBytes > 0
+        && IlOffsetJoinObserved;
     // Objective consistency check (predict-vs-observe). GCAllocationTick reports ~100KB per-tick
     // aggregates by type, NOT per-instance sizes, so per-instance "confirmed/diverged" is not reliably
     // computable from ticks (that needs GCSampledObjectAllocation object sizes — a follow-on). What IS
@@ -3027,6 +3123,13 @@ sealed class AllocationCandidate(
 
     public bool MatchesAllocatedType(string allocatedType)
     {
+        if (RequiresConsumerInspection)
+        {
+            return TypeNamesEquivalent(
+                "System.String",
+                allocatedType);
+        }
+
         if (AllocatedType is { Length: > 0 } staticType
             && TypeNamesEquivalent(staticType, allocatedType))
         {
@@ -3324,6 +3427,13 @@ internal static class ProgramSupport
             coordinateCandidates,
         string allocatedType)
     {
+        if (candidate.RequiresConsumerInspection)
+        {
+            return !candidate.SupportingCallSite
+                && candidate.MatchesAllocatedType(
+                    allocatedType);
+        }
+
         if (!candidate.SupportingCallSite)
         {
             return candidate.MatchesAllocatedType(

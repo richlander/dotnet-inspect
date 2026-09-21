@@ -5,6 +5,30 @@ namespace DotnetInspector.Sections;
 /// <summary>Shared completed type Source operation.</summary>
 public static class TypeSourceInspection
 {
+    public static async Task<InspectionEnvelope<AssemblyTypeDecompilationEntry>>
+        DecompileAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            AssemblyContextLibraryPortablePdb? portablePdb = null,
+            CancellationToken cancellationToken = default)
+    {
+        AssemblyTypeDecompilationEntry content =
+            await AssemblyContextSourceQuery
+                .ExecuteTypeDecompilationAsync(
+                    group,
+                    participant,
+                    request,
+                    context,
+                    portablePdb,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return new(content, new InspectionShare.NonProjectable(
+            "type-decompilation/share",
+            "Type decompilation requests do not yet have a canonical Workspace Share projection."));
+    }
+
     public static async Task<InspectionEnvelope<AssemblyTypeSourceEntry>> ExecuteAsync(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,

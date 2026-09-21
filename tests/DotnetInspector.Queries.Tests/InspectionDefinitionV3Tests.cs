@@ -1,5 +1,5 @@
 using DotnetInspector.Queries.Definitions;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 

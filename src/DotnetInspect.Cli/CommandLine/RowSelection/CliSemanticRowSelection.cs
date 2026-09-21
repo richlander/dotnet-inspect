@@ -1,5 +1,5 @@
 using DotnetInspect.Cli.Output;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;

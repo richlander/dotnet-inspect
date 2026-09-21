@@ -1,4 +1,4 @@
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// Why a payload or an intent was refused.

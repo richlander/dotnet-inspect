@@ -1,6 +1,6 @@
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 
-namespace DotnetInspector.PortableQueries;
+namespace QuerySpace;
 
 /// <summary>
 /// One <c>(key, operator, value)</c> triple.
