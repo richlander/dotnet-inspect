@@ -97,6 +97,7 @@ public abstract class SourceHouseTarget
         {
             if (originalDocumentPath is not null)
                 ArgumentException.ThrowIfNullOrWhiteSpace(originalDocumentPath);
+
             OriginalDocumentPath = originalDocumentPath;
         }
 
