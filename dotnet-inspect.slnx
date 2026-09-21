@@ -163,6 +163,7 @@
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
+    <Project Path="src/DotnetInspector.Sections.Installed/DotnetInspector.Sections.Installed.csproj" />
     <Project Path="src/DotnetInspector.SourceDelegation/DotnetInspector.SourceDelegation.csproj" />
     <Project Path="src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
