@@ -513,17 +513,27 @@ test("Workspace with no committed subject uses an honest focus origin", async ({
     "application-scope-workspace");
 });
 
-test("Chooser focus starts at the first owner-ordered disabled item", async ({
+test("Chooser keeps a disabled owner-ordered item open on activation", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 220, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  const menu = page.getByRole("menu", { name: "Subjects" });
   const packageItem = page.locator(
     "[data-navigation-menu='subject'] [data-scope='package']");
   await packageItem.evaluate(element =>
     element.setAttribute("aria-disabled", "true"));
-  await page.locator("[data-navigation-trigger='subject']").click();
+  await trigger.click();
 
   await expect(packageItem).toBeFocused();
+  await packageItem.press("Enter");
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(packageItem).toBeFocused();
+
+  await packageItem.click({ force: true });
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
 });

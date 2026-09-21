@@ -455,37 +455,46 @@ function bindRovingTabs(tabs: readonly HTMLButtonElement[]): void {
   });
 }
 
+function navigationItemIsDisabled(item: HTMLButtonElement): boolean {
+  return item.disabled || item.ariaDisabled === "true";
+}
+
 function bindItemActions(
   root: ParentNode,
   actions: ScopeBarBindingActions,
 ): void {
-  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+  root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
     button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const scope = button.dataset.scope;
       if (isWorkspaceScope(scope)) actions.onScopeSelect(scope);
     }));
-  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+  root.querySelectorAll<HTMLButtonElement>("[data-package-lens]").forEach(
+    button => button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.packageLens;
       if (isPackageLens(lens)) actions.onPackageLensSelect(lens);
     }));
-  root.querySelectorAll<HTMLElement>("[data-library-lens]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+  root.querySelectorAll<HTMLButtonElement>("[data-library-lens]").forEach(
+    button => button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.libraryLens;
       if (isLibraryLens(lens)) actions.onLibraryLensSelect(lens);
     }));
-  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+  root.querySelectorAll<HTMLButtonElement>("[data-lens]").forEach(button =>
     button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const lens = button.dataset.lens;
       if (isTypeLens(lens)) actions.onTypeLensSelect(lens);
     }));
-  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
-    button.addEventListener("click", () => {
-      if (button.dataset.navigationCurrent === "true") return;
+  root.querySelectorAll<HTMLButtonElement>("[data-member-section]").forEach(
+    button => button.addEventListener("click", () => {
+      if (button.dataset.navigationCurrent === "true"
+        || navigationItemIsDisabled(button)) return;
       const section = button.dataset.memberSection;
       if (isMemberSection(section)) actions.onMemberSectionSelect(section);
     }));
@@ -1450,9 +1459,8 @@ class ScopeBarController implements ScopeBarBinding {
         group.state.focusedId = groupItemId(item);
       });
       item.addEventListener("click", () => {
-        const activates = item.dataset.navigationCurrent !== "true"
-          && !item.disabled
-          && item.getAttribute("aria-disabled") !== "true";
+        if (navigationItemIsDisabled(item)) return;
+        const activates = item.dataset.navigationCurrent !== "true";
         const localAction =
           item.dataset.localNavigationAction !== undefined;
         this.closeMenu(group, !activates);
