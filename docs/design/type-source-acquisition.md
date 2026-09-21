@@ -134,7 +134,10 @@ diagnostics beside the adapted source. Its Debug-only
 `QueryTypeSourceEvidence` export uses
 `EvidenceInspectionBuilder<TContent, TEvidence>` to select exactly one ordinary
 or evidence-enabled operation; Release builds cannot request the evidence
-path. The production worker validates and preserves the added baseline fields.
+path. Browser-owned evidence records project the host-neutral model into the
+facade wire contract rather than registering product-owned query or package
+types in the Browser serializer context. The production worker validates and
+preserves the added baseline fields.
 CLI Type Source remains serial and consumes the baseline envelope; a future
 multi-core hedge may adopt the evidence entry point when it has a production
 consumer.

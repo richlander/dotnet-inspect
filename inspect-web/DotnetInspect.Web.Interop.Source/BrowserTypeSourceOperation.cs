@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using InertText;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -78,7 +80,84 @@ public sealed record BrowserTypeSourceResult(
 
 public sealed record BrowserTypeSourceEvidenceAttachment(
     BrowserTypeCodeView.Source Inspection,
-    TypeSourcePdbAcquisitionEvidence Evidence);
+    BrowserTypeSourcePdbAcquisitionEvidence Evidence);
+
+public sealed record BrowserTypeSourcePdbAcquisitionEvidence(
+    string Disposition,
+    bool UsedForAuthoredSource,
+    bool UsedForDecompilation,
+    string? AuthoredContribution,
+    string? DecompilationContribution,
+    bool? PdbReadyBeforeDecompilation,
+    bool DecompilationStarted,
+    string? Selection,
+    BrowserPortablePdbAcquisitionEvidence ExternalAcquisition)
+{
+    internal static BrowserTypeSourcePdbAcquisitionEvidence From(
+        TypeSourcePdbAcquisitionEvidence evidence)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        return new(
+            evidence.Disposition.ToString(),
+            evidence.UsedForAuthoredSource,
+            evidence.UsedForDecompilation,
+            evidence.AuthoredContribution?.ToString(),
+            evidence.DecompilationContribution?.ToString(),
+            evidence.PdbReadyBeforeDecompilation,
+            evidence.DecompilationStarted,
+            evidence.Selection?.ToString(),
+            BrowserPortablePdbAcquisitionEvidence.From(
+                evidence.ExternalAcquisition));
+    }
+}
+
+public sealed record BrowserPortablePdbAcquisitionEvidence(
+    string Outcome,
+    string? SymbolServer,
+    bool FromCache,
+    bool WindowsPdbDetected,
+    string? StoreFailure,
+    BrowserPortablePdbNetworkAttemptEvidence[] NetworkAttempts)
+{
+    internal static BrowserPortablePdbAcquisitionEvidence From(
+        PortablePdbAcquisitionEvidenceDocument evidence)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        return new(
+            evidence.Outcome.ToString(),
+            evidence.SymbolServer,
+            evidence.FromCache,
+            evidence.WindowsPdbDetected,
+            evidence.StoreFailure?.ToString(),
+            [
+                .. evidence.NetworkAttempts.Select(
+                    BrowserPortablePdbNetworkAttemptEvidence.From),
+            ]);
+    }
+}
+
+public sealed record BrowserPortablePdbNetworkAttemptEvidence(
+    string Route,
+    InertString Url,
+    int RequestCount,
+    string Outcome,
+    int? StatusCode,
+    long BodyBytesRead,
+    double ElapsedMilliseconds)
+{
+    internal static BrowserPortablePdbNetworkAttemptEvidence From(
+        PortablePdbNetworkAttemptEvidence evidence) =>
+        new(
+            evidence.Route.ToString(),
+            evidence.Url,
+            evidence.RequestCount,
+            evidence.Outcome.ToString(),
+            evidence.StatusCode is { } statusCode
+                ? (int)statusCode
+                : null,
+            evidence.BodyBytesRead,
+            evidence.Elapsed.TotalMilliseconds);
+}
 
 public sealed record BrowserTypeSourceEvidenceResult(
     int Version,

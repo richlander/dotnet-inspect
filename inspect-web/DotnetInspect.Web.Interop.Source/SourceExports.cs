@@ -297,7 +297,8 @@ public static partial class SourceExports
                     ? null
                     : new(
                         browserInspection,
-                        evidence.Evidence));
+                        BrowserTypeSourcePdbAcquisitionEvidence.From(
+                            evidence.Evidence)));
         }
     }
 

@@ -254,25 +254,20 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 attachment.Inspection.Diagnostics);
         switch (attachment.Evidence.Disposition)
         {
-            case DotnetInspector.Queries
-                .TypeSourcePortablePdbDisposition.Unavailable:
+            case "Unavailable":
                 Assert.Equal(
                     "type-source.portable-pdb.unavailable",
                     diagnostic.Code);
                 Assert.Equal(
-                    DotnetInspector.Packages
-                        .PortablePdbExternalAcquisitionOutcome.Unavailable,
+                    "Unavailable",
                     attachment.Evidence.ExternalAcquisition.Outcome);
                 break;
-            case DotnetInspector.Queries
-                .TypeSourcePortablePdbDisposition
-                    .PreferenceWindowElapsed:
+            case "PreferenceWindowElapsed":
                 Assert.Equal(
                     "type-source.portable-pdb.preference-window-elapsed",
                     diagnostic.Code);
                 Assert.Equal(
-                    DotnetInspector.Packages
-                        .PortablePdbExternalAcquisitionOutcome.Canceled,
+                    "Canceled",
                     attachment.Evidence.ExternalAcquisition.Outcome);
                 break;
             default:
