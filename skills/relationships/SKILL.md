@@ -44,23 +44,6 @@ dnx dotnet-inspect -y -- depends \
   --package-prefix Microsoft.Extensions --tfm net10.0 -v:n
 ```
 
-## What licenses do the dependent packages declare?
-
-`depends -S Licenses` joins resolved dependency package coordinates with
-nuspec-only license facts. It never reads package payload content. Restored
-projects use exact coordinates from `project.assets.json`; direct nuspec roots
-resolve declared ranges through configured package sources.
-
-```bash
-dnx dotnet-inspect -y -- depends --project ./src/App/App.csproj -S Licenses
-dnx dotnet-inspect -y -- depends --nuspec ./Package.nuspec \
-  -S "Licenses,Failures"
-```
-
-SPDX expressions are returned directly, `OSMFEULA.*` means `OSMF`, other file
-or URL declarations mean `unknown`, no declaration means `none`, and manifest
-acquisition failure means `unavailable`.
-
 ## Would the platform supply a direct dependency?
 
 `depends -S Pruning` explicitly compares each selected direct declaration's

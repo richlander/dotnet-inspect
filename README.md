@@ -1346,9 +1346,6 @@ dotnet-inspect depends \
   --nuspec ./artifacts/package.nuspec \
   -S "Dependencies,Failures" \
   -v:n
-dotnet-inspect depends --project ./src/App/App.csproj -S Licenses
-dotnet-inspect depends --nuspec ./artifacts/package.nuspec \
-  -S "Licenses,Failures"
 dotnet-inspect implements IEquatable --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect extensions string --project ./src/DotnetInspect.Cli -v:q
 dotnet-inspect graph integrations \
@@ -1379,15 +1376,6 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
-
-`depends -S Licenses` lists one distinct dependent package coordinate per row
-with its nuspec-derived license answer. Restored projects use the exact package
-graph already present in `project.assets.json`; nuspec roots resolve their
-declared ranges through configured package sources. The projection acquires
-only nuspec manifests, never package payloads. SPDX expressions are returned
-directly, `OSMFEULA.*` means `OSMF`, other file or URL declarations mean
-`unknown`, an absent declaration means `none`, and failed acquisition means
-`unavailable`. Use `--json` for the separate declaration or failure evidence.
 
 For asset roots, `Dependency Hierarchy` is the rooted explanatory result:
 shared targets reached through different parents remain separate occurrences,
