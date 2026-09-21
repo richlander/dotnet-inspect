@@ -13,12 +13,14 @@ Package Query, Library Query, Find, Depends, and Graph adopt it separately.
 
 The repository already has implemented portable intent, typed row-query
 resolution, semantic row selection, operation-specific plans, and query
-discovery. `DotnetInspector.QueryEngine` now carries
+discovery. `DotnetInspector.QueryEngine` currently carries
 `QueryOperationDefinition<TPredicate, TPlan>`, executable term and order
 bindings, Query Profiles, validated typed routes, profile-scoped portable
 resolution, effective capability projection, and heterogeneous
 `QueryOperationRegistry` lookup. `QueryOperationInfrastructureGateTests` is the
-Release gate for this substrate.
+Release gate for this substrate. [QuerySpace Library
+Boundary](query-space-library.md) owns its target physical migration to
+`QuerySpace`; this document retains semantic authority.
 
 Current CLI query discovery remains partly maintained through command-specific
 catalogs. Package Query is the first production adopter: one effective route
