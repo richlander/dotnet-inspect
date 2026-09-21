@@ -72,6 +72,8 @@ public static class SourceResolver
         IsPackageRelativeLibraryValue(value)
         || (!string.IsNullOrWhiteSpace(value)
             && target.Contains('@')
+            && !value.Contains('/')
+            && !value.Contains('\\')
             && !CommandLineHelpers.IsExplicitLibraryPath(value));
 
     /// <summary>
