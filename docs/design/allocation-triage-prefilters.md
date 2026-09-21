@@ -206,6 +206,10 @@ operation may reuse a string or return `string.Empty`. RunFaster nevertheless
 accepts that row at the same-build nearest-preceding IL coordinate when a GC
 allocation tick reports `System.String`. The trace, rather than static
 analysis, supplies the realized-allocation claim and sampled byte volume.
+Supplied allocation-type fields are ignored for this shape so they cannot
+enable raw-row projection or type-level confirmation. Method-name and other
+non-allocation observations may still establish generic method heat, but they
+do not place a row in the runtime-confirmed string table.
 Aggregate `SupportingCallSite` coordinates do not qualify: they project raw
 allocation evidence to a composite judgment without preserving the exact
 string-producing operation required by this contract.
@@ -226,7 +230,11 @@ intermediate text. Selecting a rewrite requires inspecting the result consumer
 and output contract.
 
 `AllocationTypeMatch_StringMaterializationAcceptsOnlyRuntimeString` pins the
-shape/type boundary, while
+shape/type boundary,
+`Correlate_StringMaterializationMethodHeatIsNotAllocationConfirmation`
+separates method heat from allocation confirmation,
+`Correlate_StringMaterializationContradictoryTypeCannotClaimRawObjectAllocation`
+keeps the shape effectively type-empty, while
 `Correlate_StringMaterializationSupportCannotClaimRawObjectAllocation` rejects
 the aggregate-coordinate bypass and preserves the raw allocation row, and
 `OptimizationVerdict_StringMaterializationRequiresConsumerInspection` keeps

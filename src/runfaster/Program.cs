@@ -2072,7 +2072,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         .ToArray();
     var confirmedStrings = observed
         .Where(static candidate =>
-            candidate.RequiresConsumerInspection)
+            candidate.RuntimeStringAllocationConfirmed)
         .OrderByDescending(static candidate =>
             candidate.EffectiveObservedBytes)
         .ThenBy(static candidate =>
@@ -2110,30 +2110,41 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         }
         else
         {
-            int typeConfirmedCount = result.Candidates.Count(
-                static candidate => candidate.TypeConfirmed);
-            if (typeConfirmedCount > 0)
+            if (observed.Any(static candidate =>
+                    candidate.RequiresConsumerInspection))
             {
                 Console.WriteLine(
-                    $"No exact allocation site joined, but runtime type volume confirmed "
-                    + $"{typeConfirmedCount.ToString(CultureInfo.InvariantCulture)} static "
-                    + "candidate type(s). Treat that as type-level prioritization, not exact "
-                    + "site attribution.");
-            }
-            else if (result.Candidates.Count > 0
-                && result.Candidates.All(static candidate =>
-                    !candidate.HasRuntimeCoordinate
-                    && !candidate.TypeConfirmed))
-            {
-                Console.WriteLine(
-                    "No exact runtime join was possible because the supplied triage rows lack "
-                    + "declaring assembly, method token, and IL offset coordinates. Export the "
-                    + "nested Performance Triage document with `--json`; compact `--jsonl` rows "
-                    + "do not carry deep provenance.");
+                    "String-materialization candidates were observed only through "
+                    + "non-allocation diagnostics; no exact `System.String` allocation "
+                    + "evidence confirmed those operations.");
             }
             else
             {
-                Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+                int typeConfirmedCount = result.Candidates.Count(
+                    static candidate => candidate.TypeConfirmed);
+                if (typeConfirmedCount > 0)
+                {
+                    Console.WriteLine(
+                        $"No exact allocation site joined, but runtime type volume confirmed "
+                        + $"{typeConfirmedCount.ToString(CultureInfo.InvariantCulture)} static "
+                        + "candidate type(s). Treat that as type-level prioritization, not exact "
+                        + "site attribution.");
+                }
+                else if (result.Candidates.Count > 0
+                    && result.Candidates.All(static candidate =>
+                        !candidate.HasRuntimeCoordinate
+                        && !candidate.TypeConfirmed))
+                {
+                    Console.WriteLine(
+                        "No exact runtime join was possible because the supplied triage rows lack "
+                        + "declaring assembly, method token, and IL offset coordinates. Export the "
+                        + "nested Performance Triage document with `--json`; compact `--jsonl` rows "
+                        + "do not carry deep provenance.");
+                }
+                else
+                {
+                    Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+                }
             }
         }
     }
@@ -2906,11 +2917,25 @@ sealed class AllocationCandidate(
             StringComparison.OrdinalIgnoreCase);
     public bool EligibleForOptimizationVerdict =>
         !RequiresConsumerInspection;
-    public string? AllocatedType { get; } = allocatedType;
+    public string? AllocatedType { get; } =
+        string.Equals(
+            allocationKind,
+            "string-materialization",
+            StringComparison.OrdinalIgnoreCase)
+            ? null
+            : allocatedType;
     // The analyzer's string form of the allocated type, populated for kinds that have no simple
     // AllocatedType TypeRef (delegates, closures, state machines). Used as the type-confirmation
     // fallback so those kinds are not blind to the type-level backstop.
-    public string? RuntimeAllocationType { get; } = string.IsNullOrWhiteSpace(runtimeAllocationType) ? null : runtimeAllocationType;
+    public string? RuntimeAllocationType { get; } =
+        string.Equals(
+            allocationKind,
+            "string-materialization",
+            StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(
+                runtimeAllocationType)
+            ? null
+            : runtimeAllocationType;
     public string? PredictedType => AllocatedType ?? RuntimeAllocationType;
     public string? Detail { get; } = detail;
     public bool InLoop { get; } = inLoop;
@@ -3015,6 +3040,13 @@ sealed class AllocationCandidate(
     public long EffectiveObservedBytes => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : TotalObservedBytes;
     public double EffectiveRuntimeWeight => ShapeAllocationBytes > 0 ? ShapeAllocationBytes : RuntimeWeight;
     public int EffectiveAllocationHits => ShapeAllocationHits > 0 ? ShapeAllocationHits : AllocationHits;
+    public bool RuntimeStringAllocationConfirmed =>
+        RequiresConsumerInspection
+        && !SupportingCallSite
+        && ShapeMatched
+        && ShapeAllocationHits > 0
+        && ShapeAllocationBytes > 0
+        && IlOffsetJoinObserved;
     // Objective consistency check (predict-vs-observe). GCAllocationTick reports ~100KB per-tick
     // aggregates by type, NOT per-instance sizes, so per-instance "confirmed/diverged" is not reliably
     // computable from ticks (that needs GCSampledObjectAllocation object sizes — a follow-on). What IS

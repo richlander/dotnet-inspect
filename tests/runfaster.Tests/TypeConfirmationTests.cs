@@ -166,6 +166,10 @@ public class TypeConfirmationTests
             predictedType: "System.Char[]",
             source: "triage",
             allocationKind: "string-materialization");
+        Assert.Null(
+            contradictoryCandidate.AllocatedType);
+        Assert.Null(
+            contradictoryCandidate.PredictedType);
         Assert.True(
             contradictoryCandidate.MatchesAllocatedType(
                 "System.String"));
@@ -182,6 +186,8 @@ public class TypeConfirmationTests
         ProgramSupport.ApplyTypeConfirmation(result);
 
         Assert.False(candidate.TypeConfirmed);
+        Assert.False(
+            candidate.RuntimeStringAllocationConfirmed);
         Assert.Equal(
             "cold-for-this-workload",
             candidate.Status);
