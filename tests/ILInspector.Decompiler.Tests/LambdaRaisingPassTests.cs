@@ -201,15 +201,15 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
-    public void LocalBearingLambda_ApproximatePdbDecisionReachesOuterResult()
+    public void LocalBearingLambdas_ApproximatePdbDecisionsReachOuterResult()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(
             source,
             typeof(CfgSampleClass).FullName!,
-            nameof(CfgSampleClass.AddressTakenLocalBodyLambda));
+            nameof(CfgSampleClass.TwoAddressTakenLocalBodyLambdas));
         Assert.NotNull(function);
-        bool planted = false;
+        int planted = 0;
 
         var result = CSharpPrinter.PrintRaised(
             function!,
@@ -218,7 +218,7 @@ public class LambdaRaisingPassTests
                 var imported = IrImporter.Import(source, method);
                 if (imported is null
                     || !method.Name.Contains(
-                        nameof(CfgSampleClass.AddressTakenLocalBodyLambda),
+                        nameof(CfgSampleClass.TwoAddressTakenLocalBodyLambdas),
                         StringComparison.Ordinal)
                     || imported.Locals.IsEmpty)
                 {
@@ -239,23 +239,32 @@ public class LambdaRaisingPassTests
                         "test PDB local",
                         "test scoped local name is unavailable",
                         DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable));
-                planted = true;
+                planted++;
                 return imported;
             },
             new PrinterOptions { ApproximatePdbLocalNames = true });
 
-        Assert.True(planted);
-        Assert.Contains("int x_1 = x + 1;", result.Output);
+        Assert.Equal(2, planted);
+        string output = Assert.IsType<string>(result.Output);
+        Assert.Contains("int x_1 = x + 1;", output);
+        Assert.Contains("int x_1 = x + 2;", output);
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
-        Assert.Contains(
-            Assert.Single(function.Descendants.OfType<Lambda>()).LocalNameImportCauses,
-            cause => cause.Discriminator
-                == DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable);
-        DecompilerDecision decision = Assert.Single(
-            result.Metadata.Decisions,
-            decision => decision.RuleId == "approximate-pdb-local-name");
-        Assert.Equal("x_1", decision.NewValue);
-        Assert.Contains("fidelity is unchanged", decision.Detail);
+        Lambda[] lambdas = function.Descendants.OfType<Lambda>().ToArray();
+        Assert.Equal(2, lambdas.Length);
+        Assert.All(
+            lambdas,
+            lambda => Assert.Contains(
+                lambda.LocalNameImportCauses,
+                cause => cause.Discriminator
+                    == DecompilerFidelityDiscriminators.ScopedLocalNameUnavailable));
+        DecompilerDecision[] decisions = result.Metadata.Decisions
+            .Where(decision => decision.RuleId == "approximate-pdb-local-name")
+            .ToArray();
+        Assert.Equal(2, decisions.Length);
+        Assert.All(decisions, decision => Assert.Equal("x_1", decision.NewValue));
+        Assert.All(
+            decisions,
+            decision => Assert.Contains("fidelity is unchanged", decision.Detail));
     }
 
     [Fact]

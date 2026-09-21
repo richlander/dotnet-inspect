@@ -6656,7 +6656,8 @@ public sealed partial class CSharpPrinter
                             + "unrepresented and fidelity is unchanged "
                             + "(dotnet_inspect_style_approximate_pdb_local_names).",
                         newValue: approximate,
-                        dedupDiscriminator: i.ToString(CultureInfo.InvariantCulture));
+                        dedupDiscriminator:
+                            $"{_labelScopeSuffix}\0{i.ToString(CultureInfo.InvariantCulture)}");
                 }
             }
 
