@@ -48,6 +48,13 @@ Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
 or `@Audit` doors remain available. The explicit-only whole-package and
 license-file listings remain outside every automatic verbosity preset.
 
+For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
+Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
+the command's authored primary result and diagnostic context at `-v:m`, are
+omitted from the generic bounded `-v:n` preset, and return at `-v:d`. Exact
+section selection and explicit `@Surface` selection retain the complete
+inventories.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are
