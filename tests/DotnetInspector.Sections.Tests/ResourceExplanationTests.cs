@@ -5,6 +5,28 @@ namespace DotnetInspector.Sections.Tests;
 
 public class ResourceExplanationTests
 {
+    [Theory]
+    [InlineData(".hidden")]
+    [InlineData("_private")]
+    [InlineData("-option")]
+    public void ResourcePath_RejectsLeadingPunctuation(string value)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new ResourcePath(value));
+        Assert.Throws<ArgumentException>(() =>
+            new ResourcePath("library").Append(value));
+        Assert.False(
+            ResourcePath.TryCreate(
+                value,
+                out ResourcePath? path,
+                out string? error));
+        Assert.Null(path);
+        Assert.NotNull(error);
+
+        Assert.IsType<ResourcePathResolution.Invalid>(
+            StructuralCatalog().Resolve(value));
+    }
+
     [Fact]
     public void StructuralCatalog_ProjectsTheCompleteAuthoritativeDomain()
     {
@@ -119,6 +141,39 @@ public class ResourceExplanationTests
                 new ResourceExplanationDetail.StructuralItemDetails(
                     "Name",
                     "column")));
+    }
+
+    [Fact]
+    public void Catalog_RequiresRegisteredTargetPathInBothDirections()
+    {
+        ResourceExplanationResource root =
+            Collection("graph/root", "Root");
+        ResourceExplanationResource target =
+            Collection("graph/target", "Target");
+
+        Assert.Throws<ArgumentException>(() =>
+            ResourceExplanationCatalog.Create(
+                [root, target],
+                [
+                    new(
+                        root.Identity,
+                        ResourceExplanationRelationshipKind.Navigation,
+                        target.Identity,
+                        targetPath: null),
+                ]));
+
+        var external =
+            new ResourceExplanationIdentity.Catalog("external");
+        Assert.Throws<ArgumentException>(() =>
+            ResourceExplanationCatalog.Create(
+                [root, target],
+                [
+                    new(
+                        root.Identity,
+                        ResourceExplanationRelationshipKind.Navigation,
+                        external,
+                        target.Path),
+                ]));
     }
 
     [Fact]
@@ -300,6 +355,42 @@ public class ResourceExplanationTests
                 .GetString());
     }
 
+    [Fact]
+    public void Json_SeparatesNavigationCollectionIdentityFromPath()
+    {
+        ResourceExplanationCatalog catalog = StructuralCatalog();
+        var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+            catalog.Resolve("library/sections"));
+        ResourceExplanationDocument explanation =
+            catalog.Explain(
+                resolved,
+                new ResourceExplanationRequest(0, 100, 100))
+                .Content;
+
+        string json = JsonSerializer.Serialize(
+            explanation,
+            ResourceExplanationJsonContext
+                .Default
+                .ResourceExplanationDocument);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement identity =
+            document.RootElement.GetProperty("root_identity");
+
+        Assert.Equal(
+            "navigationCollection",
+            identity.GetProperty("kind").GetString());
+        Assert.Equal(
+            "library",
+            identity
+                .GetProperty("catalog_identity")
+                .GetProperty("catalog_name")
+                .GetString());
+        Assert.Equal(
+            "CatalogSections",
+            identity.GetProperty("collection_kind").GetString());
+        Assert.False(identity.TryGetProperty("key", out _));
+    }
+
     private static ResourceExplanationCatalog StructuralCatalog()
     {
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
@@ -392,7 +483,11 @@ public class ResourceExplanationTests
         var resourcePath = new ResourcePath(path);
         return new ResourceExplanationResource(
             resourcePath,
-            new ResourceExplanationIdentity.NavigationCollection(path),
+            new ResourceExplanationIdentity.NavigationCollection(
+                new ResourceExplanationIdentity.Catalog(
+                    $"test-{name.ToLowerInvariant()}"),
+                parentIdentity: null,
+                ResourceExplanationNavigationCollectionKind.CatalogSections),
             ResourceExplanationResourceKind.NavigationCollection,
             new ResourceExplanationDetail.NavigationCollectionDetails(
                 name,

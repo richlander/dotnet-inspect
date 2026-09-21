@@ -109,15 +109,23 @@ public sealed class ResourceExplanationCatalog
                     + "resource.",
                     nameof(relationships));
             }
-            if (relationship.TargetPath is not null
-                && (!resourcesByPath.TryGetValue(
-                        relationship.TargetPath.Value,
-                        out ResourceExplanationResource? target)
-                    || target.Identity != relationship.Target))
+            bool targetRegistered = resourcesByIdentity.TryGetValue(
+                relationship.Target,
+                out ResourceExplanationResource? registeredTarget);
+            if (targetRegistered
+                && relationship.TargetPath != registeredTarget!.Path)
             {
                 throw new ArgumentException(
-                    "A navigable relationship target must match one "
-                    + "registered resource path and identity.",
+                    "A registered relationship target must carry its "
+                    + "registered canonical path.",
+                    nameof(relationships));
+            }
+            if (!targetRegistered
+                && relationship.TargetPath is not null)
+            {
+                throw new ArgumentException(
+                    "A non-navigable external relationship target must not "
+                    + "carry a resource path.",
                     nameof(relationships));
             }
             if (!relationshipsSeen.Add(relationship))
@@ -215,10 +223,16 @@ public sealed class ResourceExplanationCatalog
         ResourcePath sectionsPath = catalogPath.Append("sections");
         var categoriesIdentity =
             new ResourceExplanationIdentity.NavigationCollection(
-                categoriesPath.Value);
+                catalogIdentity,
+                parentIdentity: null,
+                ResourceExplanationNavigationCollectionKind
+                    .CatalogCategories);
         var sectionsIdentity =
             new ResourceExplanationIdentity.NavigationCollection(
-                sectionsPath.Value);
+                catalogIdentity,
+                parentIdentity: null,
+                ResourceExplanationNavigationCollectionKind
+                    .CatalogSections);
 
         resources.Add(
             new ResourceExplanationResource(
@@ -279,7 +293,10 @@ public sealed class ResourceExplanationCatalog
             ResourcePath itemsPath = sectionPath.Append("items");
             var itemsIdentity =
                 new ResourceExplanationIdentity.NavigationCollection(
-                    itemsPath.Value);
+                    catalogIdentity,
+                    explanationIdentities[section.Identity],
+                    ResourceExplanationNavigationCollectionKind
+                        .StructuralItems);
             itemCollections.Add(section.Identity, itemsIdentity);
             AddCollection(
                 resources,
@@ -300,7 +317,11 @@ public sealed class ResourceExplanationCatalog
                     itemsPath.Append(itemKind);
                 var kindIdentity =
                     new ResourceExplanationIdentity.NavigationCollection(
-                        kindPath.Value);
+                        catalogIdentity,
+                        itemsIdentity,
+                        ResourceExplanationNavigationCollectionKind
+                            .StructuralItemKind,
+                        itemKind);
                 kindCollections.Add(
                     (section.Identity, itemKind),
                     kindIdentity);

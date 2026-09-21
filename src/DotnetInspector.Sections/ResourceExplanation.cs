@@ -21,6 +21,15 @@ public enum ResourceExplanationResourceKind
     StructuralItem,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationNavigationCollectionKind>))]
+public enum ResourceExplanationNavigationCollectionKind
+{
+    CatalogCategories,
+    CatalogSections,
+    StructuralItems,
+    StructuralItemKind,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<ResourceExplanationRelationshipKind>))]
 public enum ResourceExplanationRelationshipKind
 {
@@ -56,8 +65,8 @@ public sealed record ResourcePath
         {
             throw new ArgumentException(
                 "Resource paths must contain lower-case ASCII path segments "
-                + "separated by '/'. Segments may also contain digits, '.', "
-                + "'_', and '-'.",
+                + "separated by '/'. Each segment starts with a letter or "
+                + "digit and may then contain '.', '_', and '-'.",
                 nameof(value));
         }
 
@@ -102,7 +111,8 @@ public sealed record ResourcePath
             path = null;
             error =
                 "Resource paths use lower-case ASCII segments separated by "
-                + "'/'; segments may also contain digits, '.', '_', and '-'.";
+                + "'/'; each segment starts with a letter or digit and may "
+                + "then contain '.', '_', and '-'.";
             return false;
         }
 
@@ -111,19 +121,34 @@ public sealed record ResourcePath
         return true;
     }
 
-    public static bool IsCanonicalSegment(string value) =>
-        value.Length > 0
-        && value.All(static character =>
-            character is >= 'a' and <= 'z'
-            or >= '0' and <= '9'
-            or '.'
-            or '_'
-            or '-');
+    public static bool IsCanonicalSegment(string value)
+    {
+        if (value.Length == 0
+            || !IsCanonicalSegmentStart(value[0]))
+        {
+            return false;
+        }
+
+        for (int index = 1; index < value.Length; index++)
+        {
+            if (!IsCanonicalSegmentCharacter(value[index]))
+                return false;
+        }
+        return true;
+    }
 
     private static bool IsCanonical(string value) =>
         value[0] != '/'
         && value[^1] != '/'
         && value.Split('/').All(IsCanonicalSegment);
+
+    private static bool IsCanonicalSegmentStart(char character) =>
+        character is >= 'a' and <= 'z'
+        or >= '0' and <= '9';
+
+    private static bool IsCanonicalSegmentCharacter(char character) =>
+        IsCanonicalSegmentStart(character)
+        || character is '.' or '_' or '-';
 }
 
 public sealed class ResourcePathJsonConverter : JsonConverter<ResourcePath>
@@ -178,16 +203,81 @@ public abstract record ResourceExplanationIdentity
     public sealed record NavigationCollection :
         ResourceExplanationIdentity
     {
-        public NavigationCollection(string key)
+        public NavigationCollection(
+            Catalog catalogIdentity,
+            ResourceExplanationIdentity? parentIdentity,
+            ResourceExplanationNavigationCollectionKind collectionKind,
+            string? itemKind = null)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(key);
-            Key = key;
+            CatalogIdentity = catalogIdentity
+                ?? throw new ArgumentNullException(nameof(catalogIdentity));
+            ValidateCollectionIdentity(
+                catalogIdentity,
+                parentIdentity,
+                collectionKind,
+                itemKind);
+            ParentIdentity = parentIdentity;
+            CollectionKind = collectionKind;
+            ItemKind = itemKind;
         }
 
-        public string Key { get; }
+        public Catalog CatalogIdentity { get; }
+
+        public ResourceExplanationIdentity? ParentIdentity { get; }
+
+        public ResourceExplanationNavigationCollectionKind CollectionKind
+        {
+            get;
+        }
+
+        public string? ItemKind { get; }
 
         public override ResourceExplanationOwner Owner =>
             ResourceExplanationOwner.ResourceExplanation;
+
+        private static void ValidateCollectionIdentity(
+            Catalog catalogIdentity,
+            ResourceExplanationIdentity? parentIdentity,
+            ResourceExplanationNavigationCollectionKind collectionKind,
+            string? itemKind)
+        {
+            bool valid = collectionKind switch
+            {
+                ResourceExplanationNavigationCollectionKind
+                    .CatalogCategories
+                    or ResourceExplanationNavigationCollectionKind
+                        .CatalogSections =>
+                    parentIdentity is null && itemKind is null,
+                ResourceExplanationNavigationCollectionKind
+                    .StructuralItems =>
+                    parentIdentity
+                        is Structural
+                        {
+                            Resource.Kind:
+                                DiscoveryResourceKind.Section,
+                        }
+                    && itemKind is null,
+                ResourceExplanationNavigationCollectionKind
+                    .StructuralItemKind =>
+                    parentIdentity
+                        is NavigationCollection
+                        {
+                            CollectionKind:
+                                ResourceExplanationNavigationCollectionKind
+                                    .StructuralItems,
+                        } parent
+                    && parent.CatalogIdentity == catalogIdentity
+                    && !string.IsNullOrWhiteSpace(itemKind),
+                _ => false,
+            };
+            if (!valid)
+            {
+                throw new ArgumentException(
+                    "The collection kind, parent identity, and item kind "
+                    + "must describe one valid navigation collection.",
+                    nameof(collectionKind));
+            }
+        }
     }
 
     public sealed record Structural : ResourceExplanationIdentity

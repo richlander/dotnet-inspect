@@ -227,6 +227,15 @@ public class DiscoveryDocumentFactoryTests
                 .Select(static registration => registration.Path.Value)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count());
+        Assert.All(
+            structural.ResourcePaths,
+            registration => Assert.All(
+                registration.Path.Value.Split('/'),
+                segment => Assert.True(
+                    segment[0] is >= 'a' and <= 'z'
+                    or >= '0' and <= '9',
+                    $"Path segment '{segment}' must start with a "
+                    + "lower-case ASCII letter or digit.")));
         Assert.Contains(
             structural.ResourcePaths,
             registration =>
