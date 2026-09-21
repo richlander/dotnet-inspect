@@ -423,7 +423,6 @@ public static class IrPasses
         // typed local BEFORE insertion, so its minted locals are coerced at
         // their sinks like any local (slice 5b-2; the assertion diff caught
         // the reverse ordering leaving them bare).
-        new ReferenceCoalesceBindingPass(),
         new SlotMaterializationPass(),
         new PointerCompoundAssignmentPass(),
         // A value read of an unboxed managed pointer (unbox T; ldobj T) is the

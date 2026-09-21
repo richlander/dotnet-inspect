@@ -91,7 +91,7 @@ public class ReferenceCoalesceBindingTests
     }
 
     [Fact]
-    public void ReferenceWideningInsideCoalesceCanMaterializeObjectStorage()
+    public void ReferenceWideningDoesNotExpandExistingStorageAdmission()
     {
         var coalesce = new Coalesce(new LoadArgument(0, "text", StringType),
             new LoadArgument(1, "fallback", ObjectType));
@@ -100,11 +100,12 @@ public class ReferenceCoalesceBindingTests
             new Return(new LoadStackSlot(0, ObjectType)));
         new ReferenceCoalesceBindingPass().Run(function, PassContext.None);
 
-        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
+        Assert.False(Assert.Single(SlotMaterializationPass.Analyze(function)).WillMaterialize);
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        Assert.Equal(ObjectType, Assert.Single(function.Locals));
-        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(ObjectType, coalesce.AssignmentType);
+        Assert.Empty(function.Locals);
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
         Assert.Contains("object S_0", CSharpPrinter.Print(function).Output);
     }
 
@@ -202,6 +203,29 @@ public class ReferenceCoalesceBindingTests
     }
 
     [Fact]
+    public void CompilerProducedComparerKeepsExistingStorageAdmission()
+    {
+        string path = typeof(ReferenceCoalesceBindingSamples).Assembly.Location;
+        using var metadata = CorpusMetadata.Create([path]);
+        using var source = MetadataSource.Open(path, context: metadata);
+        var function = RaiseToMaterialization(source, typeof(ReferenceCoalesceBindingSamples).FullName!,
+            nameof(ReferenceCoalesceBindingSamples.CacheComparer));
+        var store = Assert.Single(function.Descendants.OfType<StoreStackSlot>(),
+            store => store.Value is Coalesce);
+        var coalesce = Assert.IsType<Coalesce>(store.Value);
+
+        new ReferenceCoalesceBindingPass().Run(function, PassContext.None);
+
+        Assert.Null(coalesce.AssignmentType);
+        Assert.True(Assert.Single(SlotMaterializationPass.Analyze(function),
+            decision => decision.Slot == store.Slot && ReferenceEquals(decision.Scope, function)).WillMaterialize);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(),
+            remaining => remaining.Slot == store.Slot);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     [Trait("Area", "Fidelity")]
     public async Task CompilerProducedReferenceBindingsKeepNativeContracts()
@@ -215,6 +239,7 @@ public class ReferenceCoalesceBindingTests
             nameof(ReferenceCoalesceBindingSamples.ObjectOverload),
             nameof(ReferenceCoalesceBindingSamples.SpilledObjectOverload),
             nameof(ReferenceCoalesceBindingSamples.ConstructorOverload),
+            nameof(ReferenceCoalesceBindingSamples.CacheComparer),
             nameof(ReferenceCoalesceBindingSamples.NestedObjectOverload),
             nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload),
         ];

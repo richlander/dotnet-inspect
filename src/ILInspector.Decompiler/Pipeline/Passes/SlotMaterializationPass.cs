@@ -198,9 +198,9 @@ public sealed class SlotMaterializationPass : IIrPass
                 else if (candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
                     candidate.Vetoes |= SlotMaterializationVeto.PendingStorageSwap;
             }
-            if (candidate.Stores.Any(store => store.Value.AssignmentType?.Equals(slotType) != true
+            if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
                     && !CoercionRendering.CanSpellSlotCoercion(
-                        store.Value.AssignmentType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
+                        store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
             if (candidate.Loads.Any(load => load.Parent is StoreElement element
                     && ReferenceEquals(element.Value, load)

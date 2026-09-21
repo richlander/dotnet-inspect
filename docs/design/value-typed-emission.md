@@ -60,14 +60,24 @@ reference paired with `object`. Unknown reference shapes, hierarchy
 conversions, variance, boxing, and user-defined conversions do not acquire
 proof from this rule. Nullable/value coalesces retain their existing contract.
 
-The expression carries the decision into ordinary assignment and storage
-admission. Binding runs after expression reconstruction and before slot
-materialization, then refreshes the decision at the final coercion boundary.
+The expression carries the decision into residual-slot assignment checks.
+Binding runs at the final coercion boundary, after expression reconstruction
+and existing slot materialization.
 Both raised and lowered pipelines, including nested bodies, use that shared
 path. Printing consumes the issued type rather than inspecting coalesce arms.
 An object-typed call or construction argument whose proven coalesce assignment
 type is narrower retains an explicit reference-conversion witness; allowing
 assignment is not permission to rebind an overload (#3135).
+
+This bounded C# assignment relation does not replace the existing exact-storage
+admission contract or broaden its producer-result testimony. For example,
+Roslyn's `IEqualityComparer<T>` producer `comparer ?? EqualityComparer<T>.Default`
+continues to materialize under that existing contract; this slice does not
+push it back into residual-slot inference merely because the new bounded
+relation does not model its hierarchy conversion.
+`CompilerProducedComparerKeepsExistingStorageAdmission` gates this non-action
+with the same interface/default-comparer relation in a cached-result scenario.
+Hierarchy-aware binding and broader storage-proof work remain on #2095.
 
 The motivating published input is dotnet-inspect.any 0.14.0,
 `ApiOutputFormatter.FormatCallGraphAnnotation` (`0x06000ED9`). Its coalesce
