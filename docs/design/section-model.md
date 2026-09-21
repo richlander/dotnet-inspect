@@ -371,6 +371,28 @@ capability-gated and explicit despite their size classification.
 
 Other command families remain separate work under issue #3284.
 
+#### `depends` evidence
+
+Both `depends` catalogs expose target-growing row or edge populations. Their
+producer contracts place no section-level cap on the number of emitted items:
+
+| Sections | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Dependency Hierarchy, Dependencies, Restored Edges | One row per selected or traversed dependency edge; Dependencies has 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Roots, Dependency Groups, Restored Packages | One row per input root, authored dependency group, or restored package | `Verbose` |
+| Licenses, Pruning, Failures | One row per inspected package, pruning decision, or failed dependency operation | `Verbose` |
+| Dependency Graph | One row per discovered type relationship; `System.Int128` has 32 rows on .NET 11 RC1 | `Verbose` |
+
+The asset route keeps Dependency Hierarchy as its authored `Info` section.
+Minimal therefore retains that primary result, Normal omits every uncapped
+inventory, and Detailed restores the bounded-cost Dependency Hierarchy,
+Dependencies, and Failures sections. Licenses and Pruning remain explicit
+because their execution cost is unbounded. The positional-Type route follows
+the same primary-section rule for Dependency Graph: Minimal retains it, Normal
+is a valid empty automatic view, and Detailed restores it. Exact section or
+category selection retains complete evidence and promotes the effective
+verbosity to Detailed.
+
 #### Library domain and exact-name evidence
 
 The residual library audit covers the command's domain categories, exact-name
