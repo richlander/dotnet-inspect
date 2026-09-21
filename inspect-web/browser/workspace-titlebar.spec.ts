@@ -1557,9 +1557,14 @@ test("the Application menu owns global actions and modal focus return", async ({
   await button.focus();
   await page.keyboard.press("ArrowDown");
   const items = page.getByRole("menuitem");
-  await expect(items).toHaveText(["Share", "Settings", "Keyboard help"]);
+  await expect(items).toHaveText([
+    "Open Library…",
+    "Share",
+    "Settings",
+    "Keyboard help",
+  ]);
   await expect(items.first()).toBeFocused();
-  await expect(page.getByRole("separator")).toHaveCount(1);
+  await expect(page.getByRole("separator")).toHaveCount(2);
   await expect(page.locator("#application-menu-overlay > #application-menu"))
     .toBeVisible();
   const popup = await box(page, "#application-menu");
@@ -1623,14 +1628,14 @@ test("the Application menu owns global actions and modal focus return", async ({
   await expect(page.locator("body")).toHaveAttribute("data-drill-in", "true");
 
   await button.click();
-  await items.first().click();
+  await page.getByRole("menuitem", { name: "Share", exact: true }).click();
   await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
   await expect(button).toBeFocused();
 
   await page.setViewportSize({ width: 800, height: 520 });
   await page.evaluate(() => delete document.body.dataset.shared);
   await button.click();
-  await items.first().click();
+  await page.getByRole("menuitem", { name: "Share", exact: true }).click();
   await page.locator(".brand").focus();
   await expect(page.locator(".brand")).toBeFocused();
   await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
@@ -1776,7 +1781,9 @@ test("application menu returns focus to its replacement shell identity", async (
   await page.goto("/browser/workspace-titlebar.html?member=1");
   const button = page.locator("#application-menu-button");
   await button.click();
-  await expect(page.getByRole("menuitem", { name: "Share" })).toBeFocused();
+  await expect(
+    page.getByRole("menuitem", { name: "Open Library…", exact: true }),
+  ).toBeFocused();
 
   await page.evaluate(() => window.rerenderApplicationMenuProbe());
 

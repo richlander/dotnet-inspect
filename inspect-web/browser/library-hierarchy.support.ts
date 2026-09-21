@@ -816,6 +816,7 @@ async function installFacades(
           compileLibrary: surface.compileLibrary
         };
       }`,
+    library: "",
     metadata: `
       ${surfaceLookup}
       export async function queryPlatformMetadata(tfm, version, file, pack) {

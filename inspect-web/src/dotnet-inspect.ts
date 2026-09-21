@@ -5752,7 +5752,7 @@ function renderNavPane(
   if (scope() === "library" && state.rootKind === "library") {
     return renderTypeNavPane(current, visible);
   }
-  if (scope() === "library") {
+  if (scope() === "library" && state.rootKind !== "platform") {
     const matchingLibraryIds = currentLibraryQueryMatchIds();
     return renderLibrarySubjectNav({
       libraries: packageLibraries(),
