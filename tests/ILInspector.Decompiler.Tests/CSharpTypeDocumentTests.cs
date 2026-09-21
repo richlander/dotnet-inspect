@@ -109,6 +109,13 @@ public class CSharpTypeDocumentTests
             Fingerprint = new string('B', 64),
         };
         Assert.NotEqual(first.Revision, Create(changedEvidence).Revision);
+
+        var changedDiagnostics = Input();
+        changedDiagnostics.Bodies[0] = changedDiagnostics.Bodies[0] with
+        {
+            Diagnostics = [new("D2000", "Different body evidence.")],
+        };
+        Assert.NotEqual(first.Revision, Create(changedDiagnostics).Revision);
     }
 
     [Fact]
@@ -324,6 +331,7 @@ public class CSharpTypeDocumentTests
         {
             Outcome = CSharpTypeBodyOutcome.Failed,
             Fidelity = DecompilationFidelity.Failed,
+            Diagnostics = [new("D1000", "Body production failed.")],
         };
         CSharpTypeDocument document = Create(input);
 
@@ -558,7 +566,8 @@ public class CSharpTypeDocumentTests
             HasManagedBody: true,
             CSharpTypeBodyOutcome.Available,
             DecompilationFidelity.Full,
-            new string(fingerprint, 64));
+            new string(fingerprint, 64),
+            []);
 
     static CSharpTypeRenderPart Fixed(int id, string text)
         => new(

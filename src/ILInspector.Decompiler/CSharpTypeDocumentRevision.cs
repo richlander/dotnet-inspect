@@ -93,6 +93,16 @@ static class CSharpTypeDocumentRevision
             if (body.Fidelity is { } fidelity)
                 writer.WriteNumber("fidelity", (int)fidelity);
             writer.WriteString("fingerprint", body.Fingerprint);
+            writer.WritePropertyName("diagnostics");
+            writer.WriteStartArray();
+            foreach (DecompilerDiagnostic diagnostic in body.Diagnostics)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", diagnostic.Id);
+                writer.WriteString("message", diagnostic.Message);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
         writer.WriteEndArray();

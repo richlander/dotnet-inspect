@@ -150,7 +150,8 @@ public sealed record CSharpTypePhysicalBody(
     bool HasManagedBody,
     CSharpTypeBodyOutcome Outcome,
     DecompilationFidelity? Fidelity,
-    string Fingerprint);
+    string Fingerprint,
+    ImmutableArray<DecompilerDiagnostic> Diagnostics = default);
 
 public sealed record CSharpTypeOwnedBodyReference(
     int BodyId,
@@ -320,6 +321,9 @@ public sealed class CSharpTypeDocument
             return body with
             {
                 Fingerprint = body.Fingerprint?.ToUpperInvariant()!,
+                Diagnostics = body.Diagnostics.IsDefault
+                    ? []
+                    : [.. body.Diagnostics],
             };
         })];
 
@@ -511,6 +515,7 @@ static class CSharpTypeDocumentValidator
             if (body.Outcome != CSharpTypeBodyOutcome.NoBody && !body.HasManagedBody)
                 throw new ArgumentException($"Physical body {body.Id} without a managed body must use NoBody.");
             ValidateFingerprint(body.Fingerprint, $"Physical body {body.Id}");
+            ValidateDiagnostics(body.Diagnostics, $"Physical body {body.Id}");
             if (!addresses.Add(body.Address))
                 throw new ArgumentException("Physical body addresses must be unique.");
         }
@@ -884,6 +889,24 @@ static class CSharpTypeDocumentValidator
         if (text.Length > MetadataSafetyPolicy.MaxStructuralSignatureChars)
             throw new ArgumentException($"{owner} exceeds the text budget.");
         ValidateText(text, owner);
+    }
+
+    static void ValidateDiagnostics(
+        ImmutableArray<DecompilerDiagnostic> diagnostics,
+        string owner)
+    {
+        if (diagnostics.IsDefault)
+            throw new ArgumentException($"{owner} diagnostics must be initialized.");
+        if (diagnostics.Length > MetadataSafetyPolicy.MaxRelationshipNodes)
+            throw new ArgumentException($"{owner} has too many diagnostics.");
+
+        foreach (DecompilerDiagnostic diagnostic in diagnostics)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(diagnostic.Id);
+            ArgumentException.ThrowIfNullOrWhiteSpace(diagnostic.Message);
+            ValidateText(diagnostic.Id, $"{owner} diagnostic id");
+            ValidateText(diagnostic.Message, $"{owner} diagnostic message");
+        }
     }
 
     static void ValidateTextBudget(CSharpTypeDocumentData data)

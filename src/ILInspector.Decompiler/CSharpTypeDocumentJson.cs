@@ -155,7 +155,11 @@ public static class CSharpTypeDocumentJson
                 body.HasManagedBody,
                 body.Outcome,
                 body.Fidelity,
-                body.Fingerprint))],
+                body.Fingerprint,
+                [.. body.Diagnostics.Select(static diagnostic =>
+                    new CSharpTypeDiagnosticWire(
+                        diagnostic.Id,
+                        diagnostic.Message))]))],
             [.. document.Declarations.Select(static declaration =>
                 new CSharpTypeDeclarationWire(
                     declaration.Id,
@@ -249,7 +253,19 @@ public static class CSharpTypeDocumentJson
                     body.HasManagedBody,
                     body.Outcome,
                     body.Fidelity,
-                    body.Fingerprint);
+                    body.Fingerprint,
+                    [.. RequireArray(
+                        body.Diagnostics,
+                        "bodies[].diagnostics")
+                        .Select(static diagnostic =>
+                        {
+                            RequireInitialized(
+                                diagnostic,
+                                "bodies[].diagnostics[]");
+                            return new DecompilerDiagnostic(
+                                diagnostic.Id,
+                                diagnostic.Message);
+                        })]);
             })],
             [.. wire.Declarations.Select(static declaration =>
             {
@@ -414,7 +430,10 @@ internal sealed record CSharpTypeBodyWire(
     bool HasManagedBody,
     CSharpTypeBodyOutcome Outcome,
     DecompilationFidelity? Fidelity,
-    string Fingerprint);
+    string Fingerprint,
+    ImmutableArray<CSharpTypeDiagnosticWire> Diagnostics);
+
+internal sealed record CSharpTypeDiagnosticWire(string Id, string Message);
 
 internal sealed record CSharpTypeMethodAddressWire(Guid ModuleVersionId, int Token);
 
