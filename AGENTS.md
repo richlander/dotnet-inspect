@@ -93,29 +93,27 @@ two sentences and propose the next work within it; if none remains, say so and
 ask whether to find a new theme or take on ad-hoc work. Follow
 [Agent session state](docs/agent-session-state.md) for the full lifecycle.
 
+At the start, after every resume, and after completing each meaningful block of
+work, emit this visible operator reminder before continuing:
+
+```text
+Theme: <stable session theme>. <completed block and current status>.
+<Next action or tool-evaluable waiting condition>.
+```
+
+Do not replace it with tool output or omit it because the theme is unchanged.
+The merge handoff remains the more specific final form.
+
 ## Making your work findable
 
-This section is tmux-specific and applies only inside a tmux pane — check
-`[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
-attach state to, so skip it entirely. Each window name must identify its work
-item, domain, and purpose; its pane title reports current activity, while
-window options carry structured state. Full naming, pane-title, and state-
-publishing mechanics (exact commands, `@agent_state` fields, `blocked` vs.
-`waiting`) live in [Agent session state](docs/agent-session-state.md).
-
-- **Name the window and title the pane**, always targeting `"${TMUX_PANE:?}"`,
-  at the start of work, after every resume, and at meaningful phase changes.
-- **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
-  plus branch or expected head — at the start of work, after every resume, and
-  at every round start. Round completions use the
-  [round report](docs/round-orchestration.md#the-round-report).
-- **Separate status from approval prompts.** Emit supporting status or analysis
-  as normal visible output first; only after it appears in the session log may
-  you open an approval prompt containing just the concise decision question and
-  answer labels — never the report, checkpoint, or evidence itself.
-- **Publish `@agent`/`@agent_state`** after every state change; clear both
-  only when the window no longer owns the work. **Signal `HELP`** when
-  blocked on a human decision; clear only `HELP` once the decision arrives.
+Inside tmux only, set the stable window identity at work start and when identity
+or scope changes; update the pane title at start, resume, and meaningful phase
+changes; publish `@agent`/`@agent_state` after every state change; and signal
+`HELP` while awaiting a human decision. Always announce the PR number and
+branch or expected head at start, resume, and each round start. Emit supporting
+status before opening a concise approval prompt. Exact commands, naming, state
+fields, and clear rules live in
+[Agent session state](docs/agent-session-state.md).
 
 ### Keep the review-clean label current
 
@@ -462,47 +460,21 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 
 ### Clean reviews are not spent by main moving
 
-When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
-head, or a head with a pending/approved trivial-interaction waiver, and
-an agent observes that `origin/main` moved while the PR remains open, assess the
-landed range before an agent-driven merge or mutation — do not integrate
-blindly and do not start another round by default. An upper stack slice follows
-its parent instead: parent movement is a restack requiring review at the new
-head.
-
-After a non-mutating fetch, classify the landed range into exactly one
-outcome, act on it, and report the classification and action as normal session
-output before changing labels or dispatching reviewers; re-classify only when
-the landed range itself changes, not on every poll. Merging still needs a live
-readiness check and explicit user authorization.
-The analysis is a point-in-time decision aid, not an exact-base lock: later base
-movement does not trigger branch integration or CI chasing; exact-base
-revalidation needs a merge queue, not repeated branch updates.
-Full detection, classification, and action procedure:
+For a `main`-targeting PR with clean reviews or a pending/approved
+trivial-interaction waiver, base movement alone does not spend that evidence or
+justify integration. Before an agent-driven merge or mutation, classify the
+landed range as no interaction, trivial interaction, significant interaction,
+or conflict; report and apply that outcome before changing labels or
+dispatching reviewers. Upper stack slices follow their parent and must restack.
+The full procedure lives in
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-The four outcomes: **no interaction** (keep the reviewed or waived head
-unchanged, preserve its state and merge authorization, and start no new CI run
-or other gate — the common case), **trivial interaction** (if still open,
-expire authorization, disable any armed auto-merge first, remove
-`review-clean`, integrate, run affected gates, and offer the exact-head
-re-review waiver), **significant interaction, no conflict** (if still open,
-expire authorization, disable any armed auto-merge first, remove
-`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
-as a normal round), and **merge conflict requiring semantic resolution**
-(expire authorization, disable any armed auto-merge first, and recover under
-[Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
 
-| Tier | Requirement |
-| --- | --- |
-| Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol** by default, one seat. |
-
-Use GPT-6 Astra for complex changes. GPT-5.6 Terra or Luna may review relatively
-simple changes that still require review. Full selection and substitution rules
-live in [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch
-IDs live in [Agent model mapping](docs/agent-models.md).
+Trivial changes need no review; state why. Everything else gets one GPT seat:
+GPT-5.6 Sol by default, GPT-6 Astra for complex work, or Terra/Luna for
+relatively simple work. Selection, substitution, and dispatch rules live in
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster).
 
 ### Running the round
 
@@ -514,11 +486,40 @@ optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
 
+After every completed round and before any next round or approval prompt, emit
+this complete visible report as the assistant response. Fill every field,
+choose one feedback classification and recommendation, omit only empty
+`Blocked`/`Waiting` lines, and never replace it with a shorter summary:
+
+```text
+Round <n> is complete for PR <number>.
+- Theme: <one-sentence session theme>.
+- Review model <model> was used for adversarial review.
+- Design basis: normative owner <path#section> — <owned claim>; supporting
+  <path and role for each model, adjacent contract, constraint, or consumer>.
+- Review feedback is: [converging, diverging, neutral, clean].
+- Round start: <datetime>.
+- Round end: <datetime>.
+- Round duration: <hours:minutes>
+
+Progress: <pushed candidates> candidates, <usable reviews> usable reviews,
+<accepted findings> accepted findings.
+Reviews: <clean>/<required> clean — <status by reviewer>
+Blocked: <PR or issue numbers not yours to fix>
+Waiting: <comma-separated tool-evaluable predicates>
+Recommendation: [continue, wait, merge, split into focused successors,
+approve next rounds, stop (reason)]
+
+Resolution: <completed changes or accepted next-round resolution plan>.
+```
+
+The detailed classification and recommendation rules remain in
+[The round report](docs/round-orchestration.md#the-round-report).
+
 ### Keep review proportional to the contract
 
-The prompt's finding-admission and trust-boundary rules are binding. A
-reviewer concern outside them is a scope proposal, not a landing requirement,
-unless the operator explicitly approves it.
+The canonical prompt's finding-admission and trust-boundary rules are binding;
+anything outside them is a scope proposal unless the operator approves it.
 
 ### Stop after six rounds
 
@@ -527,15 +528,10 @@ replacement within an authorized block dispatches without asking, setting
 `HELP`, or waiting for user input. Approval is required only before rounds 7,
 13, 19, and so on; each approval authorizes at most six more rounds.
 
-At a block boundary, conflict recovery may push immediately unless an immutable
-split decision hold is active; reviewer dispatch waits for approval. Before
-asking, acquire fresh green current-head `ci-required` and definite positive
-mergeability under the 60-minute status budget; if it expires, publish its
-report and stop without asking.
-
-Round 12 and every later six-round boundary presume splitting into focused
-successors unless a strong, user-approved reason keeps the PR intact. Full
-checkpoint and split mechanics:
+At each block boundary, reviewer dispatch waits for approval after fresh green
+current-head CI and positive mergeability; round 12 and later presume splitting
+unless the checkpoint establishes a strong reason and the user explicitly
+approves keeping the PR intact. Full checkpoint mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## Lead with the demo
