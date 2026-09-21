@@ -70,61 +70,161 @@ public sealed class PackageSectionGrowthTests
             "net481", "net48", "net472", "net471", "net47", "net462", "net461",
             "net46",
         ];
+        (string packagePath, string tempDirectory) = await CreatePackageAsync(
+            "Target.Framework.Probe",
+            archive =>
+            {
+                foreach (string targetFramework in targetFrameworks)
+                    archive.CreateEntry($"lib/{targetFramework}/_._");
+            });
+
+        try
+        {
+            await AssertCountAsync(
+                packagePath,
+                "Target Frameworks",
+                targetFrameworks.Length);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageBaseInventory_NuspecPathsCanExceedInformativeRange()
+    {
+        (string packagePath, string tempDirectory) = await CreatePackageAsync(
+            "Nuspec.Growth",
+            archive =>
+            {
+                for (int index = 0; index < 30; index++)
+                    AddTextEntry(
+                        archive,
+                        $"content/spec-{index:D2}.nuspec",
+                        "<package/>");
+            });
+
+        try
+        {
+            await AssertCountAsync(
+                packagePath,
+                "Package nuspec file",
+                31);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageBaseInventory_ManifestRidPackagesCanExceedInformativeRange()
+    {
+        string ridPackages = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, 31).Select(index =>
+                $"""<RuntimeIdentifierPackage RuntimeIdentifier="rid-{index:D2}" Id="Manifest.Growth.rid-{index:D2}" />"""));
+        (string packagePath, string tempDirectory) = await CreatePackageAsync(
+            "Manifest.Growth",
+            archive => AddTextEntry(
+                archive,
+                "tools/net11.0/any/DotnetToolSettings.xml",
+                $$"""
+                <DotNetCliTool Version="2">
+                  <Commands>
+                    <Command Name="manifest-growth" EntryPoint="Manifest.Growth.dll" Runner="dotnet" />
+                  </Commands>
+                  <RuntimeIdentifierPackages>
+                    {{ridPackages}}
+                  </RuntimeIdentifierPackages>
+                </DotNetCliTool>
+                """),
+            isTool: true);
+
+        try
+        {
+            await AssertCountAsync(packagePath, "Manifest", 36);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    static async Task AssertCountAsync(
+        string packagePath,
+        string section,
+        int expectedCount)
+    {
+        var result = await Run(
+            "package",
+            packagePath,
+            "-S",
+            section,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.True(result.ExitCode == 0, result.Error);
+        Assert.Equal(
+            expectedCount.ToString(CultureInfo.InvariantCulture),
+            result.Output.Trim());
+    }
+
+    static async Task<(string PackagePath, string TempDirectory)> CreatePackageAsync(
+        string id,
+        Action<ZipArchive> addEntries,
+        bool isTool = false)
+    {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-package-growth-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDirectory);
         string packagePath = Path.Combine(
             tempDirectory,
-            "target.framework.probe.1.0.0.nupkg");
+            $"{id.ToLowerInvariant()}.1.0.0.nupkg");
 
-        try
+        using (ZipArchive archive = ZipFile.Open(
+                   packagePath,
+                   ZipArchiveMode.Create))
         {
-            using (ZipArchive archive = ZipFile.Open(
-                       packagePath,
-                       ZipArchiveMode.Create))
+            ZipArchiveEntry nuspec = archive.CreateEntry($"{id}.nuspec");
+            await using (Stream stream = nuspec.Open())
+            await using (var writer = new StreamWriter(stream))
             {
-                ZipArchiveEntry nuspec = archive.CreateEntry(
-                    "Target.Framework.Probe.nuspec");
-                await using (Stream stream = nuspec.Open())
-                await using (var writer = new StreamWriter(stream))
-                {
-                    await writer.WriteAsync(
-                        """
-                        <?xml version="1.0"?>
-                        <package>
-                          <metadata>
-                            <id>Target.Framework.Probe</id>
-                            <version>1.0.0</version>
-                            <authors>dotnet-inspect</authors>
-                            <description>Target framework growth probe.</description>
-                          </metadata>
-                        </package>
-                        """);
-                }
-
-                foreach (string targetFramework in targetFrameworks)
-                    archive.CreateEntry($"lib/{targetFramework}/_._");
+                string packageTypes = isTool
+                    ? "<packageTypes><packageType name=\"DotnetTool\" /></packageTypes>"
+                    : "";
+                await writer.WriteAsync(
+                    $$"""
+                    <?xml version="1.0"?>
+                    <package>
+                      <metadata>
+                        <id>{{id}}</id>
+                        <version>1.0.0</version>
+                        <authors>dotnet-inspect</authors>
+                        <description>Package section growth probe.</description>
+                        {{packageTypes}}
+                      </metadata>
+                    </package>
+                    """);
             }
 
-            var result = await Run(
-                "package",
-                packagePath,
-                "-S",
-                "Target Frameworks",
-                "--count",
-                "--tips",
-                "q");
+            addEntries(archive);
+        }
 
-            Assert.True(result.ExitCode == 0, result.Error);
-            Assert.Equal(
-                targetFrameworks.Length.ToString(CultureInfo.InvariantCulture),
-                result.Output.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDirectory, recursive: true);
-        }
+        return (packagePath, tempDirectory);
+    }
+
+    static void AddTextEntry(
+        ZipArchive archive,
+        string path,
+        string content)
+    {
+        using Stream stream = archive.CreateEntry(path).Open();
+        using var writer = new StreamWriter(stream);
+        writer.Write(content);
     }
 
     static Task<(int ExitCode, string Output, string Error)> Run(

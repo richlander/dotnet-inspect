@@ -143,6 +143,12 @@ public partial class SectionPipelineTests
         Assert.Equal(
             SectionSizeClass.Verbose,
             PackageSectionDescriptors.SkillFiles.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.NuspecFiles.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.Manifest.SizeClass);
     }
 
     [Fact]
@@ -204,9 +210,7 @@ public partial class SectionPipelineTests
                 PackageSections.Summary,
                 PackageSections.PackageInfo,
                 PackageSections.FilesReadme,
-                PackageSections.FilesNuspec,
                 PackageSections.Signature,
-                PackageSections.Manifest,
             }.OrderBy(name => name, StringComparer.Ordinal),
             pipeline.GetCandidateSections(Verbosity.Normal)
                 .OrderBy(name => name, StringComparer.Ordinal));
@@ -234,9 +238,7 @@ public partial class SectionPipelineTests
             [
                 PackageSections.PackageInfo,
                 PackageSections.FilesReadme,
-                PackageSections.FilesNuspec,
                 PackageSections.Signature,
-                PackageSections.Manifest
             ],
             pipeline.BareSelectSectionNames);
     }
@@ -247,6 +249,8 @@ public partial class SectionPipelineTests
     [InlineData(PackageSections.EcosystemDependencies)]
     [InlineData(PackageSections.RuntimeDependencies)]
     [InlineData(PackageSections.FilesSkills)]
+    [InlineData(PackageSections.FilesNuspec)]
+    [InlineData(PackageSections.Manifest)]
     public void PackagePipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
         string section)
     {
@@ -387,7 +391,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void PackagePipeline_Normal_ShowsManifestWhenPresent()
+    public void PackagePipeline_Detailed_ShowsManifestWhenPresent()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
         var model = new InspectionResult
@@ -397,7 +401,7 @@ public partial class SectionPipelineTests
             RuntimeIdentifierPackages = [new RidPackageReference { RuntimeIdentifier = "win-x64", PackageId = "Test.win-x64" }]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Contains("Manifest", effective);
     }
