@@ -2237,22 +2237,21 @@ public partial class DependsCommand
             IncludeSections = includeSections,
             SectionOrder = DependsAssetSections.SectionOrder,
         };
-        var writer = new MarkoutWriter(
-            new MarkdownFormatter(
-                options.EmbeddedMermaid
-                    ? MarkdownGraphMode.Mermaid
-                    : MarkdownGraphMode.FencedTree),
-            writerOptions);
         DependsAssetView view = BuildAssetView(
             projection,
             includeSections,
             options.Rows,
             hierarchyRows,
             options.EmbeddedMermaid);
-        DependsAssetViewContext.Default.Serialize(
+        MarkoutSerializer.Serialize(
             DependsAssetMarkdownView.From(view),
-            writer);
-        output.WriteLine(writer.ToString());
+            output,
+            new MarkdownFormatter(
+                options.EmbeddedMermaid
+                    ? MarkdownGraphMode.Mermaid
+                    : MarkdownGraphMode.FencedTree),
+            DependsAssetViewContext.Default,
+            writerOptions);
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -2266,11 +2265,12 @@ public partial class DependsCommand
             options.Columns,
             options.Fields);
         writerOptions.IncludeSections = includeSections;
-        var writer = new MarkoutWriter(
+        MarkoutSerializer.Serialize(
+            tableView,
+            output,
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
+            DependsAssetViewContext.Default,
             writerOptions);
-        DependsAssetViewContext.Default.Serialize(tableView, writer);
-        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(
