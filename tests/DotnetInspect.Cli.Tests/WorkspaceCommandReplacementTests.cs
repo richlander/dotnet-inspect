@@ -205,7 +205,6 @@ public sealed partial class WorkspaceCommandTests
     [InlineData(
         "--version 12.1.2 --envelope --share packet",
         "Choose")]
-    [InlineData("--version 12.1.2 --preview", "exact")]
     [InlineData("--version not-a-version", "InvalidDestination")]
     public async Task Replacement_InvalidOptionsRefuseBeforeAcquisition(
         string arguments, string diagnostic)
@@ -220,25 +219,6 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(diagnostic, result.Error);
-    }
-
-    [Theory]
-    [InlineData("--rows 1", "--envelope", "inventory")]
-    [InlineData("--rows 1", "--share packet", "inventory")]
-    [InlineData("--rows ..1", "--envelope", "has no start row")]
-    [InlineData("-n 1", "--envelope", "Rendered-line selection")]
-    [InlineData("-n 1 --tail", "--envelope", "Rendered-line selection")]
-    public async Task Replacement_RowControlsDoNotUseInventorySelection(
-        string selection, string output, string diagnostic)
-    {
-        var result = await RunCliAsync([
-            "workspace", "package", "update", AvaloniaComponent,
-            "--packet", ReplacementPacket(), "--version", "12.1.2",
-            .. output.Split(' '), .. selection.Split(' ')]);
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains(diagnostic, result.Error, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -2146,7 +2146,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
+    /// Asserts the block-separation invariant over one rendered aggregate Library document:
     /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
     /// line, and it carries no trailing whitespace.
     /// </summary>

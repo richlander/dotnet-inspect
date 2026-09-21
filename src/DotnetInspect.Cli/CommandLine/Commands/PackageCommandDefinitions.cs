@@ -75,12 +75,17 @@ public static class PackageCommandDefinitions
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
         var libraryOption = new Option<string?>("--library")
         {
-            Description = "Inspect a library from this package; omit value to select the primary library when unambiguous",
+            Description = "Inspect this package's compile libraries; provide a DLL name to narrow exactly",
             Arity = ArgumentArity.ZeroOrOne
+        };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description =
+                "Narrow to the Library whose assembly name matches the package ID",
         };
         var allLibrariesOption = new Option<bool>("--all-libraries")
         {
-            Description = "Inspect all compatible libraries from this package"
+            Hidden = true,
         };
         var versionsOption = new Option<bool>("--versions")
         {
@@ -135,6 +140,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
+        packageCommand.Options.Add(namesakeLibraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
@@ -152,7 +158,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
@@ -212,7 +218,7 @@ public static class PackageCommandDefinitions
             opts.Lines, opts.TailLines,
             dependenciesOption, layoutOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, allLibrariesOption,
+            libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, versionOption, rootsOption);
         packageCommand.Validators.Add(result =>

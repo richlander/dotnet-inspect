@@ -208,7 +208,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
+    public async Task Router_BareSimpleType_UsesTargetBoundPlatformCatalog()
     {
         var (exit, output, error) = await RunAppAsync(
             "Regex", "--format=markdown", "--tips", "q");
@@ -216,7 +216,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
         AssertLibraryAsset(output, "System.Text.RegularExpressions");
-        Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
+        Assert.Contains(
+            "Note: Type 'Regex' resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Theory]
@@ -234,7 +236,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
         Assert.DoesNotContain("## Package Info", output);
-        Assert.Contains("resolved via platform find", error);
+        Assert.Contains(
+            "resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Fact]
@@ -247,11 +251,13 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "# System.Runtime.InteropServices.JavaScript.JSType.String",
             output);
-        Assert.Contains("resolved via platform find", error);
+        Assert.Contains(
+            "resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Fact]
-    public async Task Router_AmbiguousPlatformFind_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformCatalog_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer", "--format=markdown", "--tips", "q");
@@ -265,7 +271,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_AmbiguousPlatformMemberFind_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformMember_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer.Start", "--format=markdown", "--tips", "q");
@@ -279,7 +285,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
+    public async Task Router_BareGenericType_UsesTargetBoundPlatformCatalog()
     {
         var (exit, output, error) = await RunAppAsync(
             "List<T>", "--format=markdown", "--tips", "q");
@@ -287,7 +293,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
         AssertLibraryAsset(output, "System.Collections");
-        Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
+        Assert.Contains(
+            "Note: Type 'List<T>' resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Theory]
@@ -563,19 +571,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_UnqualifiedGenericPlatformMember_AmbiguityFails()
+    public async Task Router_UnqualifiedGenericPlatformMember_UsesSelectedRuntimeCatalog()
     {
-        SkipUnlessAspNetCoreAvailable();
-
         var (exit, output, error) = await RunAppAsync(
             "SequenceReader<T>.TryRead", "--all", "--format=markdown", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "Platform type lookup is ambiguous",
-            error,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Buffers.SequenceReader&lt;T&gt;", output);
+        Assert.Contains("TryRead", output);
     }
 
     [Fact]
@@ -2748,29 +2752,37 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--library=")]
-    [InlineData("--library:")]
-    public async Task Router_AttachedEmptyLibraryValue_PreservesBoundedParseError(
-        string libraryOption)
+    [InlineData("--library=", null)]
+    [InlineData("--library:", null)]
+    [InlineData("--library", "")]
+    [InlineData("--library", " ")]
+    public async Task Router_EmptyLibraryValue_RoutesPackageAggregate(
+        string libraryOption,
+        string? libraryValue)
     {
-        var direct = await RunAppAsync(
-            "type",
-            "System.String",
-            libraryOption);
-        var routed = await RunAppAsync(
-            "System.String",
-            libraryOption);
+        string target = $"Missing.Package.{Guid.NewGuid():N}";
+        string[] libraryTokens = libraryValue is null
+            ? [libraryOption]
+            : [libraryOption, libraryValue];
+        string[] executionTail =
+            [.. libraryTokens, "--offline", "--tips", "q"];
+        string[] schemaTail =
+            [.. libraryTokens, "-D", "--schema", "--offline", "--tips", "q"];
 
-        Assert.Equal(direct, routed);
-        Assert.Equal(1, routed.Exit);
-        Assert.Empty(routed.Output);
-        Assert.Single(
-            routed.Error.Split(
-                Environment.NewLine,
-                StringSplitOptions.RemoveEmptyEntries));
-        Assert.DoesNotContain("Usage:", routed.Error);
-        Assert.DoesNotContain("Options:", routed.Error);
-        Assert.DoesNotContain("Commands:", routed.Error);
+        var directExecution = await RunAppAsync(
+            ["package", target, .. executionTail]);
+        var routedExecution = await RunAppAsync(
+            [target, .. executionTail]);
+        var directSchema = await RunAppAsync(
+            ["package", target, .. schemaTail]);
+        var routedSchema = await RunAppAsync(
+            [target, .. schemaTail]);
+
+        Assert.Equal(directExecution, routedExecution);
+        Assert.Equal(1, routedExecution.Exit);
+        Assert.DoesNotContain("File not found: --tips", routedExecution.Error);
+        Assert.Equal(directSchema, routedSchema);
+        Assert.DoesNotContain("File not found: --tips", routedSchema.Error);
     }
 
     [Theory]
@@ -3361,8 +3373,10 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(packagePath, "--library", "-S", "Library Info");
 
             Assert.Equal(0, exit);
-            Assert.Contains("# Test.Primary.dll", output);
-            Assert.Contains("## Library Info", output);
+            Assert.Contains("# Test.Primary 1.0.0", output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Test.Primary.dll)",
+                output);
             Assert.DoesNotContain("## Package Info", output);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -3372,23 +3386,46 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Router_LibraryValue_RoutesPackageToLibraryInspection()
+    [Theory]
+    [InlineData("Newtonsoft.Json.dll")]
+    [InlineData("Newtonsoft.Json")]
+    public async Task Router_LibraryValue_RoutesPackageToLibraryInspection(
+        string library)
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] arguments =
+        [
             "Newtonsoft.Json@13.0.4",
             "--library",
-            "Newtonsoft.Json.dll",
+            library,
             "-S",
             "Library Info",
             "--tips",
-            "q");
+            "q",
+        ];
+        var direct = await RunAppAsync(["package", .. arguments]);
+        var routed = await RunAppAsync(arguments);
+        string[] schemaArguments =
+        [
+            "Newtonsoft.Json@13.0.4",
+            "--library",
+            library,
+            "-D",
+            "--schema",
+            "--offline",
+            "--tips",
+            "q",
+        ];
+        var directSchema = await RunAppAsync(
+            ["package", .. schemaArguments]);
+        var routedSchema = await RunAppAsync(schemaArguments);
 
-        Assert.Equal(0, exit);
-        Assert.Contains("# Newtonsoft.Json.dll", output);
-        Assert.Contains("## Library Info", output);
-        Assert.DoesNotContain("## Package Info", output);
-        Assert.DoesNotContain("best-effort prefix matches", error);
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("## Library Info", routed.Output);
+        Assert.DoesNotContain("## Package Info", routed.Output);
+        Assert.DoesNotContain("best-effort prefix matches", routed.Error);
+        Assert.Equal(directSchema, routedSchema);
     }
 
     [Theory]
@@ -3705,7 +3742,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("# newtonsoft.json 13.0.4", routed.Output);
+        Assert.Contains(
+            "## Library Info (lib/net6.0/Newtonsoft.Json.dll)",
+            routed.Output);
     }
 
     [Fact]

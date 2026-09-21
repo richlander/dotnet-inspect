@@ -30,7 +30,7 @@ public partial class CommandExecutionTests
         // be one this package genuinely has no rows for, not an unknown name: an unknown -S is
         // rejected before the render path is ever reached, so it would prove nothing here.
         var (exit, output, _) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "--all-libraries", "-S", "Non-normalized Paths",
+            "package", "Newtonsoft.Json@13.0.4", "--library", "-S", "Non-normalized Paths",
             "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -44,7 +44,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "@Library",
+                "package", packagePath, "--library", "-S", "@Library",
                 "--count", "--format=json", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -70,13 +70,13 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Metadata: TypeRef",
+                "package", packagePath, "--library", "-S", "Metadata: TypeRef",
                 "--count", "--tips", "q");
             var (singleExit, singleOutput, singleError) = await RunAppAsync(
                 "package", packagePath, "--library", "Layout.dll", "-S", "Metadata: TypeRef",
                 "--count", "--tips", "q");
             var (renderExit, rendered, renderError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Metadata: TypeRef",
+                "package", packagePath, "--library", "-S", "Metadata: TypeRef",
                 "--format=markdown", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -102,12 +102,12 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S",
+                "package", packagePath, "--library", "-S",
                 "--count", "--format=json", "--tips", "q");
             var (renderExit, rendered, renderError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "--tips", "q");
+                "package", packagePath, "--library", "-S", "--tips", "q");
             var (treeExit, treeOutput, treeError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S",
+                "package", packagePath, "--library", "-S",
                 "--count", "--tree", "--tips", "q");
 
             Assert.Equal(0, exit);
@@ -148,7 +148,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 SectionNames.IdentifierConfusion,
                 "--tips",
@@ -185,7 +185,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 SectionNames.IdentifierConfusion,
                 "--tips",
@@ -230,7 +230,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 SectionNames.IdentifierConfusion,
                 "--tips",
@@ -248,7 +248,7 @@ public partial class CommandExecutionTests
             var signals = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 SectionNames.Signals,
                 "--tips",
@@ -275,7 +275,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The aggregate <c>--all-libraries</c> sections pool rows across libraries and pick their
+    /// The aggregate Library sections pool rows across libraries and pick their
     /// columns from the pooled data, so they are declared as a runtime-column
     /// <c>MarkoutTable</c> rather than appended as Markdown text. This is the gate for that
     /// routing on the real command path: <c>--rows</c> must window the aggregate table even
@@ -290,9 +290,9 @@ public partial class CommandExecutionTests
     public async Task PackageCommand_AllLibraries_AggregatedSection_WindowsRowsAtTheWriterSeam()
     {
         var (exit, all, _) = await RunAppAsync(
-            "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
+            "package", "System.Text.Json", "--library", "-S", "Switches");
         var (windowedExit, windowed, _) = await RunAppAsync(
-            "package", "System.Text.Json", "--all-libraries", "-S", "Switches", "--rows", "2");
+            "package", "System.Text.Json", "--library", "-S", "Switches", "--rows", "2");
 
         Assert.Equal(0, exit);
         Assert.Equal(0, windowedExit);
@@ -311,7 +311,7 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The <c>--all-libraries</c> document is assembled by hand, and every block boundary is
+    /// The aggregate Library document is assembled by hand, and every block boundary is
     /// produced by one helper that appends a block plus its trailing blank line. That is easy to
     /// break silently in either direction: #3963 doubled the blank before every section on Windows,
     /// and a separator rewritten to emit one newline instead of two would run the sections
@@ -340,7 +340,7 @@ public partial class CommandExecutionTests
     public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
     {
         var (exit, aggregated, _) = await RunAppAsync(
-            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,References");
+            "package", "System.Text.Json", "--library", "-S", "Switches,References");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Switches", aggregated, StringComparison.Ordinal);
@@ -354,7 +354,7 @@ public partial class CommandExecutionTests
         try
         {
             var (localExit, perLibrary, _) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Library Info");
+                "package", packagePath, "--library", "-S", "Library Info");
 
             Assert.Equal(0, localExit);
             AssertBlocksSeparatedByOneBlankLine(perLibrary, "# test.libraryfiles");
@@ -372,9 +372,9 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Library Info");
+                "package", packagePath, "--library", "-S", "Library Info");
             var (windowedExit, windowed, windowedError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+                "package", packagePath, "--library", "-S", "Library Info", "--rows", "20");
 
             Assert.Equal(0, exit);
             Assert.Equal(0, windowedExit);
@@ -391,17 +391,14 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("Microsoft.CSharp@4.7.0")]
-    [InlineData("Microsoft.TestPlatform.TestHost@17.14.1")]
-    [InlineData("System.Private.ServiceModel@4.10.3")]
-    public async Task PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput(
-        string package)
+    [Fact]
+    public async Task
+        PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput()
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
-            package,
-            "--all-libraries",
+            "Microsoft.TestPlatform.TestHost@17.14.1",
+            "--library",
             "-S",
             "@Integrations",
             "--format=markdown",
@@ -416,6 +413,55 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("Microsoft.CSharp@4.7.0", "netcoreapp2.0")]
+    [InlineData("System.Private.ServiceModel@4.10.3", "netstandard2.0")]
+    public async Task
+        PackageLibraryRoutes_SelectedEmptyCompileGroupDoNotFallback(
+            string package,
+            string selectedTfm)
+    {
+        string library =
+            $"{package[..package.IndexOf('@')]}.dll";
+        var aggregate = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
+        var packageExact = await RunAppAsync(
+            "package",
+            package,
+            "--library",
+            library,
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
+        var libraryExact = await RunAppAsync(
+            "library",
+            library,
+            "--package",
+            package,
+            "-S",
+            "Library Info",
+            "--tips",
+            "q");
+
+        foreach (var (exit, output, error) in
+            new[] { aggregate, packageExact, libraryExact })
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"selected compile group for TFM '{selectedTfm}'",
+                error,
+                StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public async Task Package_AllLibraries_RejectsTree()
     {
@@ -423,11 +469,13 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "--tree", "--tips", "q");
+                "package", packagePath, "--library", "--tree", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("--all-libraries cannot be combined with --tree", error);
+            Assert.Contains(
+                "Library aggregate inspection cannot be combined with --tree",
+                error);
         }
         finally
         {
@@ -442,7 +490,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries",
+                "package", packagePath, "--library",
                 "-S", "Reference Hierarchy", "--count", "--tips", "q");
 
             Assert.Equal(1, exit);
@@ -457,20 +505,44 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task PackageCommand_LibraryFlag_BareSelectsUnambiguousLibrary()
+    [Theory]
+    [InlineData("--library", null)]
+    [InlineData("--library=", null)]
+    [InlineData("--library:", null)]
+    [InlineData("--library", "")]
+    [InlineData("--library", " ")]
+    public async Task PackageCommand_LibraryFlag_BareUsesSingleLibraryAggregate(
+        string libraryOption,
+        string? libraryValue)
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
         try
         {
+            string[] libraryTokens = libraryValue is null
+                ? [libraryOption]
+                : [libraryOption, libraryValue];
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library", "-S", "Library Info");
+                ["package", packagePath, .. libraryTokens, "-S", "Library Info"]);
+            var schema = await RunAppAsync(
+                [
+                    "package",
+                    packagePath,
+                    .. libraryTokens,
+                    "-D",
+                    "--schema",
+                    "--tips",
+                    "q",
+                ]);
 
             Assert.Equal(0, exit);
-            Assert.Contains("# Test.Primary.dll", output);
-            Assert.Contains("## Library Info", output);
+            Assert.Contains("# Test.Primary 1.0.0", output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Test.Primary.dll)",
+                output);
             Assert.DoesNotContain("## Package Info", output);
             Assert.DoesNotContain("Tip:", error);
+            Assert.Equal(0, schema.Exit);
+            Assert.Contains("@Library", schema.Output);
         }
         finally
         {
@@ -488,8 +560,10 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--library", "-S", "References");
 
             Assert.Equal(0, exit);
-            Assert.Contains("# Test.Primary.dll", output);
-            Assert.Contains("## References", output);
+            Assert.Contains("# Test.Primary 1.0.0", output);
+            Assert.Contains(
+                "## References (lib/net10.0/Test.Primary.dll)",
+                output);
             Assert.Contains("System.Runtime", output);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -591,20 +665,132 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_LibraryFlag_BareReportsAmbiguousLibraries()
+    public async Task PackageCommand_LibraryFlag_BareUsesMultiLibraryAggregate()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--library");
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "-S",
+                "Library Info");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("contains multiple libraries", error);
-            Assert.Contains("lib/net10.0/Latest.One.dll", error);
-            Assert.Contains("lib/net10.0/Latest.Two.dll", error);
-            Assert.Contains("dotnet-inspect package", error);
-            Assert.Contains("--library <dll>", error);
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.One.dll)",
+                output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.Two.dll)",
+                output);
+            Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_LibraryFlag_UsesCompatibleCompileProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--library",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var exact = await RunAppAsync(
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.True(
+                result.Exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {result.Error}{Environment.NewLine}"
+                    + $"Output: {result.Output}");
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.One.dll)",
+                result.Output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.Two.dll)",
+                result.Output);
+            Assert.DoesNotContain("lib/net8.0/Older.dll", result.Output);
+            Assert.True(
+                exact.Exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {exact.Error}{Environment.NewLine}"
+                    + $"Output: {exact.Output}");
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Latest.One.dll", exact.Output);
+            Assert.DoesNotContain("lib/net8.0/Older.dll", exact.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_LibraryFlag_HonorsExplicitEmptyCompileGroup()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                archive.CreateEntry("ref/net11.0/_._");
+            }
+
+            var package = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--library",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var library = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, package.Exit);
+            Assert.Empty(package.Output);
+            Assert.Contains(
+                "selected compile group for TFM 'net11.0'",
+                package.Error);
+            Assert.Equal(package, library);
         }
         finally
         {
@@ -621,10 +807,149 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, _, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "@Hidden", "--tips", "q");
+                "package", packagePath, "--library", "-S", "@Hidden", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Contains("not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PackageSource_DefaultsToAggregateAndExactNarrows()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var exact = await RunAppAsync(
+                "library",
+                "Latest.Two.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.One.dll)",
+                aggregate.Output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Latest.Two.dll)",
+                aggregate.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Latest.Two.dll", exact.Output);
+            Assert.DoesNotContain("Latest.One.dll", exact.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_NamesakeLibrary_UsesManagedAssemblyIdentity()
+    {
+        string packageId =
+            typeof(CommandExecutionTests).Assembly.GetName().Name!;
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libDir = Path.Combine(
+                packageRoot,
+                "lib",
+                "net10.0");
+            Directory.CreateDirectory(libDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(libDir, "Unexpected.FileName.dll"));
+            var (systemRuntime, _, _, resolveError) =
+                PlatformResolver.ResolveAssembly("System.Runtime");
+            Assert.True(
+                resolveError is null && systemRuntime is not null,
+                resolveError);
+            File.Copy(
+                systemRuntime!,
+                Path.Combine(libDir, "Neighbor.dll"));
+            string packagePath = Path.Combine(
+                tempDir,
+                $"{packageId}.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--namesake-library",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var libraryResult = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--namesake-library",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.True(
+                result.Exit == 0,
+                $"Expected success.{Environment.NewLine}"
+                    + $"Error: {result.Error}{Environment.NewLine}"
+                    + $"Output: {result.Output}");
+            Assert.Empty(result.Error);
+            Assert.Contains("# Unexpected.FileName.dll", result.Output);
+            Assert.DoesNotContain("Neighbor.dll", result.Output);
+            Assert.Equal(result, libraryResult);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_BarePackageRemainsPackageScoped()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("## Package Info", result.Output);
+            Assert.DoesNotContain("## Library Info", result.Output);
         }
         finally
         {
@@ -646,9 +971,9 @@ public partial class CommandExecutionTests
         try
         {
             var (renderExit, renderOutput, renderError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "--tips", "q");
+                "package", packagePath, "--library", "-S", "--tips", "q");
             var (countExit, countOutput, countError) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "--count", "--tips", "q");
+                "package", packagePath, "--library", "-S", "--count", "--tips", "q");
 
             Assert.Equal(0, renderExit);
             Assert.Equal(0, countExit);
@@ -728,7 +1053,7 @@ public partial class CommandExecutionTests
                     await RunAppAsync(
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "-S",
                         "--count",
                         format,
@@ -804,7 +1129,7 @@ public partial class CommandExecutionTests
                 await RunAppAsync(
                     "package",
                     packagePath,
-                    "--all-libraries",
+                    "--library",
                     "-S",
                     SectionCategoryNames.Library,
                     "--count",
@@ -827,7 +1152,7 @@ public partial class CommandExecutionTests
                 await RunAppAsync(
                     "package",
                     packagePath,
-                    "--all-libraries",
+                    "--library",
                     "-S",
                     SectionCategoryNames.Metadata,
                     "--count",
@@ -851,7 +1176,7 @@ public partial class CommandExecutionTests
                 await RunAppAsync(
                     "package",
                     packagePath,
-                    "--all-libraries",
+                    "--library",
                     "-S",
                     MetadataSectionNames.Image,
                     "--tips",
@@ -880,7 +1205,7 @@ public partial class CommandExecutionTests
                 await RunAppAsync(
                     "package",
                     packagePath,
-                    "--all-libraries",
+                    "--library",
                     "-S",
                     $"{SectionNames.IdentifierConfusion},{SectionNames.NonNormalizedPaths}",
                     "--count",
@@ -921,7 +1246,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+                "package", packagePath, "--library", "-S", "Library Info", "--rows", "20");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Library Info (lib/net10.0/Latest.One.dll)", output);
@@ -942,7 +1267,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "--tfm", "all", "-S", "Library Info", "--rows", "12");
+                "package", packagePath, "--library", "--tfm", "all", "-S", "Library Info", "--rows", "12");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Library Info (lib/net8.0/Older.dll)", output);
@@ -1005,7 +1330,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "--tfm",
                 "all",
                 "-S", "Integrations",
@@ -1031,7 +1356,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--rows", "40");
+                "package", packagePath, "--library", "-S", "@Integrations", "--rows", "40");
 
             Assert.Equal(0, exit);
             Assert.Contains("## Integrations", output);
@@ -1082,7 +1407,7 @@ public partial class CommandExecutionTests
             var (exit, output, _) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S", "Integrations");
 
             Assert.Equal(0, exit);
@@ -1097,7 +1422,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants()
+    public async Task PackageCommand_AllLibraries_BlankAssemblyNameReportsFailureWithoutAbortingHealthyParticipants()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
             "Microsoft.Extensions.Configuration");
@@ -1123,18 +1448,25 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S", "Integrations",
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
+            Assert.Equal(1, exit);
+            Assert.False(
+                string.IsNullOrWhiteSpace(output),
+                error);
             Assert.Contains(
                 "## Integrations",
                 output,
                 StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                "Value cannot be null or whitespace",
+            Assert.Contains(
+                "Could not select library descriptor for",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "BlankName.dll",
                 error,
                 StringComparison.Ordinal);
         }
@@ -1145,7 +1477,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities()
+    public async Task PackageCommand_AllLibraries_BlankAssemblyNameReportsFailureAndSuppressesOpportunities()
     {
         string tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -1165,26 +1497,29 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
+            Assert.Equal(1, exit);
             Assert.DoesNotContain(
                 "Azure.Test.ExampleClient",
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "matched sections have no data",
+                "Could not select library descriptor for",
                 error,
                 StringComparison.Ordinal);
-            Assert.Equal(
-                1,
-                error.Split(
-                    "matched section",
-                    StringSplitOptions.None).Length - 1);
+            Assert.Contains(
+                "BlankName.dll",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "No libraries could be read",
+                error,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -1231,7 +1566,7 @@ public partial class CommandExecutionTests
                 [
                     "package",
                     packagePath,
-                    "--all-libraries",
+                    "--library",
                     "-S", "Integrations",
                     "--tips",
                     "q",
@@ -1320,18 +1655,21 @@ public partial class CommandExecutionTests
             var (exit, output, commandError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S", "Integrations",
                 "--tips",
                 "q");
 
             Assert.Equal(1, exit);
+            Assert.False(
+                string.IsNullOrWhiteSpace(output),
+                commandError);
             Assert.Contains(
                 "## Integrations",
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "Integrations inspection failed for",
+                "Could not select library descriptor for",
                 commandError,
                 StringComparison.Ordinal);
             Assert.Contains(
@@ -1403,7 +1741,7 @@ public partial class CommandExecutionTests
                 [
                     "package",
                     packagePath,
-                    "--all-libraries",
+                    "--library",
                     "-S", "Integrations",
                     "--tips",
                     "q",
@@ -1417,7 +1755,7 @@ public partial class CommandExecutionTests
                 if (outputOption.Length == 0)
                     Assert.DoesNotContain('\r', output);
                 Assert.Contains(
-                    "Integrations inspection failed for",
+                    "Could not select library descriptor for",
                     commandError,
                     StringComparison.Ordinal);
                 Assert.Contains(
@@ -1442,7 +1780,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--tips",
@@ -1476,7 +1814,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--tips",
@@ -1506,7 +1844,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--rows",
@@ -1583,7 +1921,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Integrations", "--format=tsv");
+                "package", packagePath, "--library", "-S", "Integrations",
+                "--format=tsv");
 
             Assert.Equal(0, exit);
             string[] lines = output.ReplaceLineEndings("\n").Split(
@@ -1627,7 +1966,7 @@ public partial class CommandExecutionTests
             var (countExit, countOutput, countError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1638,7 +1977,7 @@ public partial class CommandExecutionTests
             var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1649,7 +1988,7 @@ public partial class CommandExecutionTests
             var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1710,7 +2049,7 @@ public partial class CommandExecutionTests
             var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1721,7 +2060,7 @@ public partial class CommandExecutionTests
             var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1733,7 +2072,7 @@ public partial class CommandExecutionTests
             var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1795,7 +2134,7 @@ public partial class CommandExecutionTests
             var (countExit, countOutput, countError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S", "Integrations",
                 "--rows",
                 "1",
@@ -1805,7 +2144,7 @@ public partial class CommandExecutionTests
             var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S", "Integrations",
                 "--rows",
                 "1",
@@ -1839,7 +2178,7 @@ public partial class CommandExecutionTests
             var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Switches",
                 "--rows",
@@ -1849,7 +2188,7 @@ public partial class CommandExecutionTests
             var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Switches",
                 "--rows",
@@ -1902,7 +2241,7 @@ public partial class CommandExecutionTests
             var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--rows",
@@ -1912,7 +2251,7 @@ public partial class CommandExecutionTests
             var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--rows",
@@ -1965,7 +2304,7 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--rows",
@@ -1999,7 +2338,7 @@ public partial class CommandExecutionTests
             var result = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "-S",
@@ -2031,7 +2370,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "@Integrations", "--format=tsv");
+                "package", packagePath, "--library", "-S", "@Integrations",
+                "--format=tsv");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -2052,7 +2392,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Integrations", "--format=jsonl");
+                "package", packagePath, "--library", "-S", "Integrations",
+                "--format=jsonl");
 
             Assert.Equal(0, exit);
             var documents = SplitOutputLines(output)
@@ -2074,17 +2415,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_CannotCombineWithLibrary()
+    public async Task PackageCommand_AllLibrariesOption_ReturnsReplacementGuidance()
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "--library");
+                "package", packagePath, "--all-libraries");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("--all-libraries cannot be combined with --library", error);
+            Assert.Contains(
+                "'--all-libraries' is no longer valid",
+                error);
+            Assert.Contains(
+                "Use '--library'",
+                error);
+
+            var help = await RunAppAsync("package", "--help");
+            Assert.Equal(0, help.Exit);
+            Assert.Contains("--namesake-library", help.Output);
+            Assert.DoesNotContain("--all-libraries", help.Output);
         }
         finally
         {
@@ -2096,8 +2447,10 @@ public partial class CommandExecutionTests
     public async Task Package_LibrarySourceFilesSection_PreservesTypeFilterAndPreferRenderedUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json", "--library",
-            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--format=tsv", "--no-headers", "--tips", "q");
+            "package", "Newtonsoft.Json", "--library", "Newtonsoft.Json.dll",
+            "-S", "Source Files", "-t", "JsonConvert",
+            "--prefer-rendered-urls", "--format=tsv", "--no-headers",
+            "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2137,7 +2490,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library",
+                "package", packagePath, "--library", "System.Runtime.dll",
                 "-S", "Library Info", "--fields", "Assembly Version",
                 "--value", "--json-array", "--row", "first", "--tips", "q");
 
@@ -2161,7 +2514,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library",
+                "package", packagePath, "--library", "System.Runtime.dll",
                 "-S", "Library Info", "--fields", "Assembly Version",
                 "--value", "--row", "2", "--tips", "q");
 
@@ -2188,7 +2541,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--library",
+                "package", packagePath, "--library", "System.Runtime.dll",
                 "-S", "Library Info", option, "--tips", "q");
 
             Assert.Equal(1, exit);
@@ -2247,7 +2600,7 @@ public partial class CommandExecutionTests
                     [
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "--tips",
                         "q",
                         .. arguments
@@ -2256,7 +2609,7 @@ public partial class CommandExecutionTests
                     [
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "--tips",
                         "q",
                         .. arguments,
@@ -2304,7 +2657,7 @@ public partial class CommandExecutionTests
                     [
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "-S",
                         "Library Info",
                         "--format=table",
@@ -2317,7 +2670,7 @@ public partial class CommandExecutionTests
                     [
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "-S",
                         "Library Info",
                         "--format=table",
@@ -2357,7 +2710,7 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--format=table",
@@ -2366,7 +2719,7 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--format=table",
@@ -2421,7 +2774,7 @@ public partial class CommandExecutionTests
                     [
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "-S",
                         "@Library",
                         "--count",
@@ -2434,7 +2787,7 @@ public partial class CommandExecutionTests
                     [
                         "package",
                         packagePath,
-                        "--all-libraries",
+                        "--library",
                         "-S",
                         "@Library",
                         "--count",
@@ -2489,7 +2842,7 @@ public partial class CommandExecutionTests
             var result = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--format=tsv",
@@ -2510,7 +2863,7 @@ public partial class CommandExecutionTests
             var invalidSelection = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "@Integrations",
                 "--format=tsv",
@@ -2531,7 +2884,7 @@ public partial class CommandExecutionTests
             var unsupportedSelection = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "-S",
@@ -2557,7 +2910,7 @@ public partial class CommandExecutionTests
             var invalid = await RunAppAsync(
                 "package",
                 packagePath,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Integration Opportunities",
                 "--format=tsv",
@@ -2585,29 +2938,21 @@ public partial class CommandExecutionTests
             var allRows = await RunAppAsync(
                 "package",
                 package,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--format=jsonl");
             var allCount = await RunAppAsync(
                 "package",
                 package,
-                "--all-libraries",
-                "-S",
-                "Library Info",
-                "--count");
-            var singleCount = await RunAppAsync(
-                "package",
-                package,
                 "--library",
-                "Latest.One.dll",
                 "-S",
                 "Library Info",
                 "--count");
             var rows = await RunAppAsync(
                 "package",
                 package,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--format=jsonl",
@@ -2616,7 +2961,7 @@ public partial class CommandExecutionTests
             var count = await RunAppAsync(
                 "package",
                 package,
-                "--all-libraries",
+                "--library",
                 "-S",
                 "Library Info",
                 "--count",
@@ -2625,25 +2970,18 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, allRows.Exit);
             Assert.Equal(0, allCount.Exit);
-            Assert.Equal(0, singleCount.Exit);
             Assert.Equal(0, rows.Exit);
             Assert.Equal(0, count.Exit);
             Assert.Empty(allRows.Error);
             Assert.Empty(allCount.Error);
             Assert.Empty(rows.Error);
             Assert.Empty(count.Error);
-            Assert.Empty(singleCount.Error);
             string[] all = allRows.Output.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(
                 all.Length.ToString(CultureInfo.InvariantCulture),
                 allCount.Output.Trim());
-            Assert.Equal(
-                2 * int.Parse(
-                    singleCount.Output,
-                    CultureInfo.InvariantCulture),
-                all.Length);
             Assert.Contains(
                 all,
                 row => row.Contains(

@@ -88,21 +88,31 @@ public partial class PackageCommand
         out PackageHouseTargetContext? targetContext)
     {
         targetContext = null;
+        bool packageLibraryMode =
+            options.AllLibraries
+            || options.PackageLibrary is not null;
         if (options.ListVersions
             || options.ListLayout
             || options.ListTfms
             || options.ShowContent
-            || options.PackageLibrary is not null
-            || options.AllLibraries
-            || !RequestsPackageHouseCompileRealization(
-                producerOptions,
-                pipeline))
+            || (!packageLibraryMode
+                && !RequestsPackageHouseCompileRealization(
+                    producerOptions,
+                    pipeline)))
         {
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Tfm)
-            || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase))
+        if (options.Tfm?.Equals(
+                "all",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            if (!packageLibraryMode)
+                targetContext = PackageHouseTargetContext.OwnerDefault();
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Tfm))
         {
             targetContext = PackageHouseTargetContext.OwnerDefault();
             return true;
@@ -115,6 +125,11 @@ public partial class PackageCommand
         }
         catch (ArgumentException)
         {
+            // Legacy package framework folders can be selected exactly even
+            // when they are not valid PackageHouse acquisition targets.
+            if (packageLibraryMode)
+                return true;
+
             CommandError.Write(
                 $"Invalid --tfm value '{options.Tfm}': expected a bounded ASCII target moniker.");
             return false;

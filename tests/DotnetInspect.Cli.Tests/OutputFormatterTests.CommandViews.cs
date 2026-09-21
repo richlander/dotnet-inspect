@@ -603,7 +603,7 @@ public partial class OutputFormatterTests
     }
 
     /// <summary>
-    /// The aggregate <c>--all-libraries</c> sections declare a <see cref="MarkoutTable"/> rather
+    /// The aggregate Library sections declare a <see cref="MarkoutTable"/> rather
     /// than appending Markdown, so their rows reach the writer and <c>--rows</c> applies at the
     /// writer seam. This is the gate for that routing: a window set on the writer options must
     /// drop rows from a runtime-column table it never saw at compile time.
