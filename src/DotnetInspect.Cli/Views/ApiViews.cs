@@ -127,21 +127,21 @@ public class TypeView
     public List<EnumValueRow>? EnumValuesWithDocs { get; set; }
 
     /// <summary>
-    /// Type parameters table (Normal+ verbosity). Null → section skipped.
+    /// Type parameters table. The section pipeline controls visibility.
     /// </summary>
     [MarkoutSection(Name = "Type Parameters")]
     [JsonIgnore]
     public List<TypeParameterRow>? TypeParameterRows { get; set; }
 
     /// <summary>
-    /// Implemented interfaces (Detailed+ verbosity). Null → section skipped.
+    /// Implemented interfaces. The section pipeline controls visibility.
     /// </summary>
     [MarkoutSection(Name = "Interfaces")]
     [JsonIgnore]
     public List<InterfaceRow>? InterfaceRows { get; set; }
 
     /// <summary>
-    /// Base class hierarchy (Detailed+ verbosity). Null → section skipped.
+    /// Base class hierarchy. The section pipeline controls visibility.
     /// </summary>
     [MarkoutSection(Name = "Baseclass")]
     [JsonIgnore]

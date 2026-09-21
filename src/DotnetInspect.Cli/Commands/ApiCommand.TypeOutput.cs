@@ -193,8 +193,8 @@ public partial class ApiCommand
         bool projectedFactsJson = IsProjectedFactsJson(options);
         bool callsJson = IsCallsJson(options);
         bool callersJson = IsCallersJson(options);
-        bool barePayloadRenderer =
-            options.Bare && !options.Count && !options.JsonOutput;
+        bool nativePayloadRenderer =
+            options.UsesNativePayloadDefault;
         string? exactSourceFailure =
             options is MemberOptions exactSourceOptions
                 ? ExactSourceFailure(exactSourceOptions)
@@ -212,7 +212,7 @@ public partial class ApiCommand
                         || (!memberOptions.MemberHasNoPdbDeclaration
                             && exactSourceFailure is { Length: > 0 }))))
             && !IsProjectionRequested(options)
-            && !barePayloadRenderer
+            && !nativePayloadRenderer
             && (options.Count
                 || options.Tabular
                 || options.JsonOutput)
@@ -929,19 +929,14 @@ public partial class ApiCommand
             return 0;
         }
 
-        // --bare: only the selected payload — no heading, fence, separator, or tips.
-        if (options.Bare)
+        if (options.UsesNativePayloadDefault)
         {
-            if (!TryGetBareApiPayload(view, options, out var raw, out var error))
+            if (TryGetNativeApiPayload(view, options, out var raw))
             {
-                CommandError.Write(error);
-                return 1;
+                OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
             }
-            // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
-            // it with LF too so --bare stays byte-stable for machine consumers.
-            OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
-            ApiOutputFormatter.WriteCallGraphWarning(view);
-            return 0;
         }
 
         if (options.Tabular)
@@ -1288,8 +1283,8 @@ public partial class ApiCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                options.Bare,
-                new ProjectionDestination(null, options.Rows)));
+                new ProjectionDestination(null, options.Rows),
+                Markdown: options.UsesMarkdownPayloadFormat));
     }
 
     private static int WriteApiShapeProjection(TypeView view, ApiOptions options)
@@ -1413,10 +1408,22 @@ public partial class ApiCommand
                 static diagnostic => diagnostic.ToString())));
     }
 
-    private static List<PrintableDocument> CodeSectionDocument(string section, string label, string? url, string? content)
+    private static List<PrintableDocument> CodeSectionDocument(
+        string section,
+        string label,
+        string? url,
+        string? content)
         => string.IsNullOrEmpty(content)
             ? []
-            : [new PrintableDocument(1, section, label, null, url, content)];
+            : [new PrintableDocument(1, section, label, null, url, content)
+            {
+                Language = section switch
+                {
+                    SectionNames.IL => "il",
+                    SectionNames.SourceDiff => "diff",
+                    _ => "csharp"
+                }
+            }];
 
     /// <summary>
     /// Selects the row addressed by <paramref name="selector"/> from the rows a
@@ -1466,16 +1473,15 @@ public partial class ApiCommand
         return selected;
     }
 
-    private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)
+    private static bool TryGetNativeApiPayload(
+        TypeView view,
+        ApiOptions options,
+        out string raw)
     {
         raw = "";
-        error = "";
 
         if (options.IncludeSections is not { Count: 1 } included)
-        {
-            error = "--bare requires exactly one -S section.";
             return false;
-        }
 
         var section = included.First();
         raw = section switch
@@ -1488,32 +1494,13 @@ public partial class ApiCommand
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
             SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode?.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
-            SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
-            SectionNames.SourceLocations => BareUrlColumn(view.SourceLocationRows?.Select(row => row.Url), SectionNames.SourceLocations, out error),
             _ => ""
         };
 
         if (raw.Length > 0)
             return true;
 
-        if (error.Length == 0)
-            error = "--bare requires a single selected payload with content.";
         return false;
-    }
-
-    private static string BareUrlColumn(IEnumerable<string?>? urls, string section, out string error)
-    {
-        error = "";
-        var values = urls?
-            .Where(url => !string.IsNullOrWhiteSpace(url))
-            .Select(url => url!)
-            .ToList() ?? [];
-
-        if (values.Count > 0)
-            return string.Join('\n', values);
-
-        error = $"--bare found no URL in section '{section}'.";
-        return "";
     }
 
 }
