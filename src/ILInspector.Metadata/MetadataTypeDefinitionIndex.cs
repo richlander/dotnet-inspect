@@ -367,11 +367,12 @@ public sealed class MetadataTypeDefinitionIndex
                     .BudgetExceeded,
                 subject);
         }
-        beforeRetainText?.Invoke(charge);
         beforeMaterialize?.Invoke(charge);
         try
         {
-            return reader.GetString(handle);
+            string value = reader.GetString(handle);
+            beforeRetainText?.Invoke(value.Length);
+            return value;
         }
         catch (Exception ex)
             when (ex is BadImageFormatException

@@ -1864,22 +1864,25 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
         StringHandle handle,
         MetadataMethodImplementationFailureSite site)
     {
-        int encodedLength = Read(
+        int utf8Length = Read(
             site,
             () => _reader.GetBlobReader(handle).Length);
-        EnsureCanCharge(
-            site,
-            MetadataOperationDimension.RetainedText,
-            encodedLength);
         Charge(
             site,
             MetadataOperationDimension.StructuredNodes,
-            encodedLength);
+            utf8Length);
         _context.ObserveWork(
             MetadataOperationWorkKind.TypeNameMaterialization);
-        return Read(
+        string value = Read(
             site,
             () => _reader.GetString(handle));
+        EnsureCanCharge(
+            site,
+            MetadataOperationDimension.RetainedText,
+            VisualEncoder.MeasureEncodedLength(
+                TextPolicy.Field,
+                value));
+        return value;
     }
 
     static AssemblyReferenceIdentity ProjectAssemblyIdentity(
@@ -2372,23 +2375,17 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
             MetadataOperationWorkKind.GenericContextConstruction);
         try
         {
-            return Read(
+            GenericContext context = Read(
                 site,
                 () => GenericContext
                     .ForMethodWithRelationshipObserver(
                         _reader,
                         type,
                         method,
-                        encodedLength =>
-                        {
-                            Charge(
-                                site,
-                                MetadataOperationDimension.RetainedText,
-                                encodedLength);
+                        _ =>
                             _context.ObserveWork(
                                 MetadataOperationWorkKind
-                                    .GenericParameterNameMaterialization);
-                        },
+                                    .GenericParameterNameMaterialization),
                         active =>
                             Charge(
                                 site with
@@ -2397,6 +2394,21 @@ internal sealed class MetadataMethodImplementationEvidenceOperation
                                 },
                                 MetadataOperationDimension
                                     .RelationshipEdges)));
+            foreach (string name in context.TypeParameters)
+            {
+                Charge(
+                    site,
+                    MetadataOperationDimension.RetainedText,
+                    name.Length);
+            }
+            foreach (string name in context.MethodParameters)
+            {
+                Charge(
+                    site,
+                    MetadataOperationDimension.RetainedText,
+                    name.Length);
+            }
+            return context;
         }
         catch (GenericContextRelationshipRejectedException ex)
         {

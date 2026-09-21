@@ -18,6 +18,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
     const string CycleWorkerVariable =
         "DOTNET_INSPECT_METHODIMPL_CYCLE_WORKER";
     const int LongDeclarationNameLength = 128;
+    const int UnicodeMetadataNameLength = 64;
     const int UnicodeOwnerNameLength = 2_000;
     const int OverlongDeclarationNameLength =
         MetadataSafetyPolicy.MaxStructuralSignatureChars + 1;
@@ -2341,6 +2342,157 @@ public sealed class MetadataMethodImplementationEvidenceTests
         Assert.Equal(exactLimit, above.Counters.RetainedText);
     }
 
+    [Theory]
+    [InlineData(
+        Scenario.UnicodeCurrentModuleScopeName,
+        MetadataTypeScopeKind.CurrentModule)]
+    [InlineData(
+        Scenario.UnicodeExternalModuleScopeName,
+        MetadataTypeScopeKind.ModuleReference)]
+    public void UnicodeModuleScopeNameUsesRetainedTextUnitsAtExactBoundary(
+        Scenario scenario,
+        MetadataTypeScopeKind expectedScopeKind)
+    {
+        using Fixture fixture = Fixture.Create(scenario);
+        string expectedName =
+            new('\u4E00', UnicodeMetadataNameLength);
+
+        MetadataMethodImplementationResult.Related baseline =
+            AssertRelated(Run(fixture, fixture.Body));
+        MetadataMethodImplementationCertificate certificate =
+            Assert.Single(baseline.Relationships);
+        var owner = Assert.IsType<MetadataTypeIdentity.Named>(
+            certificate.DeclarationOwner);
+        long exactLimit = baseline.Counters.RetainedText;
+
+        Assert.Equal(expectedScopeKind, owner.Definition.Scope.Kind);
+        Assert.Equal(
+            expectedName,
+            owner.Definition.Scope.ModuleName!.ToString());
+
+        MetadataMethodImplementationResult.Rejected below =
+            AssertRejected(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit - 1)),
+                MetadataMethodImplementationFailureReason.BudgetExceeded,
+                expectedRow: 1);
+        Assert.Equal(
+            MetadataOperationDimension.RetainedText,
+            below.Failure.BudgetDimension);
+
+        MetadataMethodImplementationResult.Related exact =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit)));
+        MetadataMethodImplementationResult.Related above =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit + 1)));
+
+        Assert.Equal(exactLimit, exact.Counters.RetainedText);
+        Assert.Equal(exactLimit, above.Counters.RetainedText);
+    }
+
+    [Fact]
+    public void UnicodeLocalTypeIndexNameUsesRetainedTextUnitsAtExactBoundary()
+    {
+        using Fixture fixture =
+            Fixture.Create(Scenario.UnicodeLocalTypeName);
+        string expectedName =
+            new('\u4E00', UnicodeMetadataNameLength);
+
+        MetadataMethodImplementationResult.Related baseline =
+            AssertRelated(Run(fixture, fixture.Body));
+        var owner = Assert.IsType<MetadataTypeIdentity.Named>(
+            Assert.Single(baseline.Relationships).DeclarationOwner);
+        long exactLimit = baseline.Counters.RetainedText;
+
+        Assert.Equal(
+            expectedName,
+            Assert.Single(owner.Definition.Segments).ToString());
+
+        AssertRejected(
+            Run(
+                fixture,
+                fixture.Body,
+                Policy(
+                    MetadataOperationDimension.RetainedText,
+                    exactLimit - 1)),
+            MetadataMethodImplementationFailureReason.BudgetExceeded,
+            expectedRow: 1);
+        MetadataMethodImplementationResult.Related exact =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit)));
+        MetadataMethodImplementationResult.Related above =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.Body,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit + 1)));
+
+        Assert.Equal(exactLimit, exact.Counters.RetainedText);
+        Assert.Equal(exactLimit, above.Counters.RetainedText);
+    }
+
+    [Fact]
+    public void UnicodeGenericParameterNameUsesRetainedTextUnitsAtExactBoundary()
+    {
+        using Fixture fixture =
+            Fixture.Create(Scenario.UnicodeGenericParameterName);
+
+        MetadataMethodImplementationResult.Related baseline =
+            AssertRelated(Run(fixture, fixture.BodyInt));
+        long exactLimit = baseline.Counters.RetainedText;
+
+        AssertRejected(
+            Run(
+                fixture,
+                fixture.BodyInt,
+                Policy(
+                    MetadataOperationDimension.RetainedText,
+                    exactLimit - 1)),
+            MetadataMethodImplementationFailureReason.BudgetExceeded,
+            expectedRow: 1);
+        MetadataMethodImplementationResult.Related exact =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.BodyInt,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit)));
+        MetadataMethodImplementationResult.Related above =
+            AssertRelated(
+                Run(
+                    fixture,
+                    fixture.BodyInt,
+                    Policy(
+                        MetadataOperationDimension.RetainedText,
+                        exactLimit + 1)));
+
+        Assert.Equal(exactLimit, exact.Counters.RetainedText);
+        Assert.Equal(exactLimit, above.Counters.RetainedText);
+    }
+
     [Fact]
     public void LargePublicKeyExhaustsMaterializationBeforeHash()
     {
@@ -2892,6 +3044,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
     {
         Standard,
         GenericOnly,
+        UnicodeGenericParameterName,
         Absent,
         UnreadableBody,
         UnreadableUnrelatedDeclaration,
@@ -2899,6 +3052,9 @@ public sealed class MetadataMethodImplementationEvidenceTests
         UnsupportedParent,
         LocalMissingDeclaration,
         LocalReferenceOnly,
+        UnicodeCurrentModuleScopeName,
+        UnicodeExternalModuleScopeName,
+        UnicodeLocalTypeName,
         LocalOwnerAmbiguity,
         LocalDeclarationAmbiguity,
         SignatureMismatch,
@@ -3014,7 +3170,13 @@ public sealed class MetadataMethodImplementationEvidenceTests
             var metadata = new MetadataBuilder();
             metadata.AddModule(
                 generation: 0,
-                metadata.GetOrAddString("fixture.dll"),
+                metadata.GetOrAddString(
+                    scenario
+                        == Scenario.UnicodeCurrentModuleScopeName
+                        ? new string(
+                            '\u4E00',
+                            UnicodeMetadataNameLength)
+                        : "fixture.dll"),
                 metadata.GetOrAddGuid(mvid),
                 default,
                 default);
@@ -3340,7 +3502,12 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     | TypeAttributes.Abstract
                     | TypeAttributes.Public,
                 metadata.GetOrAddString("Contracts"),
-                metadata.GetOrAddString("ILocal"),
+                metadata.GetOrAddString(
+                    scenario == Scenario.UnicodeLocalTypeName
+                        ? new string(
+                            '\u4E00',
+                            UnicodeMetadataNameLength)
+                        : "ILocal"),
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 special);
@@ -3381,7 +3548,13 @@ public sealed class MetadataMethodImplementationEvidenceTests
             metadata.AddGenericParameter(
                 genericType,
                 GenericParameterAttributes.None,
-                metadata.GetOrAddString("T"),
+                metadata.GetOrAddString(
+                    scenario
+                        == Scenario.UnicodeGenericParameterName
+                        ? new string(
+                            '\u4E00',
+                            UnicodeMetadataNameLength)
+                        : "T"),
                 index: 0);
             metadata.AddGenericParameter(
                 bodyMethodGeneric,
@@ -3603,7 +3776,12 @@ public sealed class MetadataMethodImplementationEvidenceTests
                 metadata.AddTypeReference(
                     moduleScope,
                     metadata.GetOrAddString("Contracts"),
-                    metadata.GetOrAddString("ILocal"));
+                    metadata.GetOrAddString(
+                        scenario == Scenario.UnicodeLocalTypeName
+                            ? new string(
+                                '\u4E00',
+                                UnicodeMetadataNameLength)
+                            : "ILocal"));
             AssemblyReferenceHandle externalAssembly =
                 AddAssemblyReference(metadata, "External.Contracts");
             TypeReferenceHandle externalType =
@@ -3674,6 +3852,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     break;
 
                 case Scenario.GenericOnly:
+                case Scenario.UnicodeGenericParameterName:
                     AddGenericRelationship(
                         metadata,
                         target,
@@ -3732,10 +3911,35 @@ public sealed class MetadataMethodImplementationEvidenceTests
                     break;
 
                 case Scenario.LocalReferenceOnly:
+                case Scenario.UnicodeCurrentModuleScopeName:
+                case Scenario.UnicodeLocalTypeName:
                     metadata.AddMethodImplementation(
                         target,
                         body,
                         localThroughReference);
+                    break;
+
+                case Scenario.UnicodeExternalModuleScopeName:
+                    ModuleReferenceHandle unicodeModuleReference =
+                        metadata.AddModuleReference(
+                            metadata.GetOrAddString(
+                                new string(
+                                    '\u4E00',
+                                    UnicodeMetadataNameLength)));
+                    TypeReferenceHandle unicodeModuleType =
+                        metadata.AddTypeReference(
+                            unicodeModuleReference,
+                            metadata.GetOrAddString("Contracts"),
+                            metadata.GetOrAddString("IExternal"));
+                    MemberReferenceHandle unicodeModuleDeclaration =
+                        metadata.AddMemberReference(
+                            unicodeModuleType,
+                            metadata.GetOrAddString("External"),
+                            voidSignature);
+                    metadata.AddMethodImplementation(
+                        target,
+                        body,
+                        unicodeModuleDeclaration);
                     break;
 
                 case Scenario.LocalOwnerAmbiguity:
