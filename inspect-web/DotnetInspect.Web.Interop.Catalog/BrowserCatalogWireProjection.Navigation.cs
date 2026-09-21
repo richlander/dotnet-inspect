@@ -76,6 +76,7 @@ internal static partial class BrowserCatalogWireProjection
             descriptor.State.ToString(),
             descriptor.IsActive,
             descriptor.IsRetained,
+            [.. descriptor.Evidence.Select(Project)],
             Project(descriptor.Action));
 
     static BrowserRetainedNavigationPackageDescriptor Project(

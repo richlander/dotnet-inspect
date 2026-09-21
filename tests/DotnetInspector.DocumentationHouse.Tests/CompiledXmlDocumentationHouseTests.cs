@@ -61,7 +61,8 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             available.Documentation.Summary,
             StringComparison.Ordinal);
         Assert.Same(contribution, available.Selected);
-        Assert.Same(request, completed.Receipt.Request);
+        Assert.Same(completed.Request, completed.Receipt.Request);
+        Assert.Same(request.Identity, completed.Request.Identity);
         Assert.Same(
             available,
             completed.Receipt.CompiledXmlAttempt);
@@ -995,11 +996,18 @@ public sealed partial class CompiledXmlDocumentationHouseTests
         var seen = new HashSet<Type>();
         foreach (Type root in new[]
         {
-            typeof(DocumentationHouseRequest),
+            typeof(DocumentationHouseRequestEvidence),
             typeof(CompiledXmlContribution),
             typeof(DocumentationCompiledXmlAttempt),
+            typeof(DocumentationAuthoredSourceChannelPlan),
+            typeof(DocumentationAuthoredSourceAttempt),
+            typeof(DocumentationFieldSettlement),
             typeof(DocumentationHouseReceipt),
             typeof(DocumentationHouseOutcome),
+            typeof(DocumentationAuthoredSourceOperationBinding),
+            typeof(DocumentationAuthoredSourceContribution),
+            typeof(DocumentationAuthoredSourceOperationReceipt),
+            typeof(DocumentationAuthoredSourceOperationOutcome),
         })
         {
             Visit(root);
@@ -1267,6 +1275,99 @@ public sealed partial class CompiledXmlDocumentationHouseTests
                                         LibraryContentRole
                                             .CompiledXmlDocumentation,
                                         artifacts[0])));
+                var owner = new LibraryContentOwner(
+                    reference,
+                    artifacts.IssueContentLeases());
+                return new LibraryFixture(
+                    artifacts,
+                    reference,
+                    owner);
+            }
+            catch
+            {
+                await artifacts.DisposeAsync();
+                throw;
+            }
+        }
+
+        public static async Task<LibraryFixture> CreateSourceAsync(
+            byte[] assembly,
+            byte[] portablePdb,
+            byte[]? compiledXml = null)
+        {
+            byte[][] contents = compiledXml is null
+                ? [assembly, portablePdb]
+                : [assembly, portablePdb, compiledXml];
+            ArtifactFixture artifacts =
+                await ArtifactFixture.CreateAsync(contents);
+            try
+            {
+                ManagedMetadataIdentity.Assembly identity =
+                    AssemblyIdentity(assembly);
+                var companions =
+                    new List<LibraryCompanionCorrespondence>
+                    {
+                        new(
+                            artifacts[1],
+                            LibraryContentRole.PortablePdb,
+                            artifacts[0]),
+                    };
+                if (compiledXml is not null)
+                {
+                    companions.Add(
+                        new(
+                            artifacts[2],
+                            LibraryContentRole
+                                .CompiledXmlDocumentation,
+                            artifacts[0]));
+                }
+                LibraryReference reference =
+                    LibraryReference.CreateDirect(
+                        new LibraryAssemblyCorrespondence(
+                            artifacts[0],
+                            identity,
+                            artifacts[0],
+                            identity),
+                        companions);
+                var owner = new LibraryContentOwner(
+                    reference,
+                    artifacts.IssueContentLeases());
+                return new LibraryFixture(
+                    artifacts,
+                    reference,
+                    owner);
+            }
+            catch
+            {
+                await artifacts.DisposeAsync();
+                throw;
+            }
+        }
+
+        public static async Task<LibraryFixture> CreateDistinctSourceAsync(
+            byte[] assembly,
+            byte[] portablePdb)
+        {
+            ArtifactFixture artifacts =
+                await ArtifactFixture.CreateAsync(
+                    [assembly, assembly, portablePdb]);
+            try
+            {
+                ManagedMetadataIdentity.Assembly identity =
+                    AssemblyIdentity(assembly);
+                LibraryReference reference =
+                    LibraryReference.CreateDirect(
+                        new LibraryAssemblyCorrespondence(
+                            artifacts[0],
+                            identity,
+                            artifacts[1],
+                            identity),
+                        [
+                            new LibraryCompanionCorrespondence(
+                                artifacts[2],
+                                LibraryContentRole.PortablePdb,
+                                artifacts[1]),
+                        ]);
                 var owner = new LibraryContentOwner(
                     reference,
                     artifacts.IssueContentLeases());

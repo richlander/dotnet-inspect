@@ -2493,11 +2493,13 @@ public class ResearchDiffTests
             FakeProfile(logical, newLambdaB, conditionalBranchCount: 0));
         var oldResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
+            FakeCoverage(receipt, oldProfiles),
             oldProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
         var newResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
+            FakeCoverage(receipt, newProfiles),
             newProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
@@ -2591,11 +2593,13 @@ public class ResearchDiffTests
             FakeProfile(methodD, methodD));
         var oldResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
+            FakeCoverage(receipt, oldProfiles),
             oldProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
         var newResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
+            FakeCoverage(receipt, newProfiles),
             newProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
@@ -2701,11 +2705,13 @@ public class ResearchDiffTests
             FakeProfile(methodF, methodF, conditionalBranchCount: 2));
         var oldResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
+            FakeCoverage(receipt, oldProfiles),
             oldProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
         var newResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
+            FakeCoverage(receipt, newProfiles),
             newProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
@@ -2795,11 +2801,13 @@ public class ResearchDiffTests
         var newProfiles = ImmutableArray<MethodImplementationProfile>.Empty;
         var oldResult = new LibraryImplementationProfileAnalysisResult(
             diagnosticReceipt,
+            FakeCoverage(diagnosticReceipt, oldProfiles),
             oldProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
         var newResult = new LibraryImplementationProfileAnalysisResult(
             cleanReceipt,
+            FakeCoverage(cleanReceipt, newProfiles),
             newProfiles,
             ImmutableArray<OverloadCallRelationship>.Empty,
             ImmutableHashSet<TypeRef>.Empty);
@@ -2959,6 +2967,34 @@ public class ResearchDiffTests
             OutgoingOverloadTargetCount: 0,
             IsComplete: true,
             IncompleteReasons: []);
+
+    static ImplementationProfilePopulationCoverageReceipt FakeCoverage(
+        LibraryBodyAnalysisReceipt receipt,
+        ImmutableArray<MethodImplementationProfile> profiles)
+    {
+        ImmutableArray<MethodIdentity> declaredMethods =
+        [
+            .. profiles
+                .Select(static profile => profile.Method)
+                .DistinctBy(static method => method.MetadataToken),
+        ];
+        ImmutableArray<MethodIdentity> managedBodies =
+        [
+            .. profiles
+                .Select(static profile => profile.EvidenceMethod)
+                .DistinctBy(static method => method.MetadataToken),
+        ];
+
+        return new(
+            WasRequested: receipt.Features.HasFlag(
+                LibraryBodyAnalysisFeatures.ImplementationProfiles),
+            receipt.HasFullMethodEvidenceScope,
+            declaredMethods,
+            managedBodies,
+            managedBodies,
+            [],
+            receipt.Diagnostics);
+    }
 
     static ImplementationAssemblyInput IdentityInput(
         byte[] image,

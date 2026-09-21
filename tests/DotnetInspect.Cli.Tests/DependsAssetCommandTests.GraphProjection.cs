@@ -44,7 +44,7 @@ public partial class DependsAssetCommandTests
         (int markdownExit, string markdown, string markdownError) =
             await RunCapturedAsync(arguments);
         (int projectedExit, string projected, string projectedError) =
-            await RunCapturedAsync([.. arguments, "--columns", "Target"]);
+            await RunCapturedAsync([.. arguments, "--columns", "Root"]);
         (int jsonExit, string json, string jsonError) =
             await RunCapturedAsync([.. arguments, "--json", "--compact"]);
 
@@ -62,6 +62,17 @@ public partial class DependsAssetCommandTests
             "## Dependencies",
             markdown,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "```text",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.True(
+            markdown.IndexOf(
+                "## Dependency Hierarchy",
+                StringComparison.Ordinal)
+            < markdown.IndexOf(
+                "## Dependencies",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             "| Root Set |",
             markdown,
@@ -74,6 +85,17 @@ public partial class DependsAssetCommandTests
             "## Dependency Hierarchy",
             projected.TrimStart(),
             StringComparison.Ordinal);
+        Assert.Contains(
+            "## Dependencies",
+            projected,
+            StringComparison.Ordinal);
+        Assert.True(
+            projected.IndexOf(
+                "## Dependency Hierarchy",
+                StringComparison.Ordinal)
+            < projected.IndexOf(
+                "## Dependencies",
+                StringComparison.Ordinal));
         Assert.DoesNotContain(
             "| Root Set |",
             projected,
@@ -85,6 +107,37 @@ public partial class DependsAssetCommandTests
 
         using JsonDocument document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.TryGetProperty("summary", out _));
+    }
+
+    [Fact]
+    public async Task MarkdownRendersEmbeddedMermaidWithNeighboringSection()
+    {
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Hierarchy,Dependencies",
+            "--markdown",
+            "--mermaid",
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "## Dependency Hierarchy",
+            output.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.Contains("```mermaid", output, StringComparison.Ordinal);
+        Assert.Contains("## Dependencies", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Root Set |", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            output.Split(Environment.NewLine),
+            StringComparer.Ordinal);
     }
 
     [Fact]
@@ -395,6 +448,68 @@ public partial class DependsAssetCommandTests
         }
     }
 #endif
+
+    [Fact]
+    public async Task
+        PackageHierarchyJson_UsesDefaultTraversalTargetWithoutReselectingRoot()
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Root",
+            "1.0.0",
+            Dependency("Contoso.Child", "[1.0.0]"));
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Child",
+            "1.0.0",
+            """
+            <group targetFramework="net6.0">
+              <dependency id="Contoso.Legacy" version="[1.0.0]" />
+            </group>
+            <group targetFramework="net8.0" />
+            """);
+
+        using JsonDocument document = await HierarchyJsonAsync(
+        [
+            "--package",
+            "Contoso.Root@1.0.0",
+            "--source",
+            source,
+        ]);
+
+        JsonElement[] projections =
+        [
+            .. document.RootElement.GetProperty("dependency_hierarchy")
+                .GetProperty("package_projections")
+                .EnumerateArray(),
+        ];
+        JsonElement acquired = Assert.Single(
+            projections,
+            projection =>
+                projection.GetProperty("kind").GetString()
+                    == "CandidateAcquired");
+        JsonElement supplied = Assert.Single(
+            projections,
+            projection =>
+                projection.GetProperty("kind").GetString()
+                    == "RootSupplied");
+
+        JsonElement acquiredEvidence = acquired.GetProperty("evidence");
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            acquiredEvidence.GetProperty("requested_framework").GetString());
+        Assert.Equal(
+            "net8.0",
+            acquiredEvidence.GetProperty("selected_framework").GetString());
+
+        JsonElement suppliedEvidence = supplied.GetProperty("evidence");
+        Assert.False(
+            suppliedEvidence.TryGetProperty("requested_framework", out _));
+        Assert.Equal(
+            "net8.0",
+            suppliedEvidence.GetProperty("selected_framework").GetString());
+    }
 
     [Fact]
     public async Task PackageDepthBoundary_RetainsAllAffectedRootOccurrences()

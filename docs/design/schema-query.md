@@ -102,8 +102,8 @@ The resolved selection distinguishes the addressed resources from the row
 identities projected by compact discovery. For example, addressing one
 category retains the category identity while its compact rows are the complete
 member-section identities. This lets `-D`, tree output, temporary detailed
-output, and the future `explain` facade consume one completed value without
-re-resolving membership.
+output, and [Resource Explanation](resource-explanation.md) consume one
+completed value without re-resolving membership.
 
 Presentation still selects the resource kinds defined by its existing shape.
 In particular, a section tree projects structural `field` and `column` items;
@@ -280,9 +280,11 @@ The capability and complete-selection rules are owned by
 [output-shapes.md](output-shapes.md#structural-format-capabilities).
 
 `--details` is a temporary Library-only bridge proven by #7834. It will not
-accumulate additional implicit columns. The structural `explain` adoption
-tracked by #7814 will present Formats and later owner-issued properties from
-the same `DiscoveryDocument`, then remove `--details`.
+accumulate additional implicit columns. The
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will present
+Formats and later owner-issued properties from the same `DiscoveryDocument`,
+then remove `--details`.
 
 Section patterns and category doors are resolved against the complete
 owner-issued section vocabulary. Categories, costs, and visibility remain
@@ -405,8 +407,8 @@ The current Release CLI suite owns the executable contract:
 | `InspectionResultTests.PackageInfo_OwnerVocabularyDrivesDiscoverySchema` | The complete package-info discovery vocabulary is derived from the same typed descriptor catalog that drives rendering, with stable order and no duplicate names. |
 | `CloneCandidatesSectionTests.StructuralSchemaUsesGeneratedCandidateColumns`, `FieldsAreRejectedAcrossOutputFormats`, and `SummaryFieldNamesAreRejectedWithoutAliases` | Clone-candidate discovery is generated from the row view, columns remain projectable, and field projection fails visibly without stale-name aliases. |
 | `DiscoveryDocumentTests` | The shared model preserves section identity across category membership, distinguishes same-named section items by item kind, rejects dangling joins, and has no direct CLI or Markout assembly reference. |
-| `DiscoveryDocumentFactoryTests` | The authentic Library catalog constructs one resource graph with stable catalog order, complete category capabilities, canonical shared sections, and section-scoped item identities. |
-| `OutputFormatterTests.DiscoverOutput_DocumentSelectionControlsAutomaticTreePromotion`, `CommandExecutionTests.LibraryCommand_DiscoverDetails_*`, `LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog`, `LibraryCommand_DiscoverSchema_GroupsOptInSections`, `LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically`, `LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns`, and `LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems` | The completed selection controls presentation shape, while compact, tree, and temporary detailed Library discovery preserve their established output and diagnostics, including flat query-item vocabulary without leaking query-only items into trees. |
+| `DiscoveryDocumentFactoryTests.Catalog_ExposesCategoryAndSectionResourcesInStableOrder`, `CategorySelection_ProjectsDeclaredMembersAndSharedCapabilities`, `SharedSection_HasOneResourceAcrossCategoryMemberships`, `SameNamedItems_RetainOwningSectionIdentity`, and `QueryItems_RetainKindBesideSameNamedColumns` | Synthetic schemas prove stable resource construction and ordering, category capability intersection, canonical shared sections, and section-scoped item identity without depending on a live product inventory. |
+| `DiscoveryDocumentFactoryTests.LibraryDependencyCategory_ExposesEcosystemDependencies`, `CommandExecutionTests.LibraryCommand_DiscoverDetails_*`, `LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog`, `LibraryCommand_DiscoverSchema_GroupsOptInSections`, `LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically`, `LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns`, `LibraryCommand_DiscoverPerformanceTree_ListsOnlyRenderableItems`, `LibraryInfo_ListsRecognizedEcosystemsInProductOrder`, and `LibraryEcosystemDependencies_PreserveOverlapAndPairEvidence` | Focused Library conformance plus production-route smoke preserve established discovery output and diagnostics, including ecosystem dependency discovery, category formats, and flat query-item vocabulary without leaking query-only items into trees. |
 
 New schema composition forms require a focused gate that proves their generated,
 merged, augmented, or dynamic vocabulary matches the product document. A

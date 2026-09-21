@@ -1,9 +1,10 @@
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries.EmbeddedFixtures;
-using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace.Operations;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -132,6 +133,63 @@ public sealed class LibraryQueryTests
         Assert.Equal("System.Runtime", Assert.Single(
             match.MatchedReferences).ToString());
         Assert.Empty(document.Failures);
+        Assert.True(document.Summary.IsComplete);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipants_PreservesProductIssuedMetadata()
+    {
+        string assemblyPath = typeof(LibraryQueryTests).Assembly.Location;
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.CreateFromPath(
+                        assemblyPath,
+                        AssemblyResolutionProvenance.Local(
+                            "Library Query participant tests")),
+                    new TestBindingPolicy()),
+            ]);
+        var references = Assert.IsType<AssemblyContextEntry<
+            System.Collections.Immutable.ImmutableArray<
+                AssemblyReferenceIdentity>>.Available>(
+                    AssemblyContextReferencesQuery.ExecuteParticipant(
+                        group,
+                        group.Participants[0]));
+        string reference = Assert.Single(
+            references.Value,
+            candidate => candidate.Name == "System.Runtime").Name;
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(new([Reference(reference)])));
+
+        LibraryQueryDocument document = LibraryQuery.ExecuteParticipants(
+            group,
+            [
+                new(
+                    group.Participants[0],
+                    "ref/net11.0/LibraryQuery.Tests.dll",
+                    "LibraryQuery.Package",
+                    "1.2.3",
+                    AssemblySetSourceKind.Package,
+                    "net11.0"),
+            ],
+            plan,
+            TestContext.Current.CancellationToken);
+
+        LibraryQueryMatch match = Assert.Single(document.Results);
+        Assert.Equal(
+            "DotnetInspector.Queries.Tests",
+            match.Library.ToString());
+        Assert.Equal(
+            "ref/net11.0/LibraryQuery.Tests.dll",
+            match.Path.ToString());
+        Assert.Equal("LibraryQuery.Package", match.Source.ToString());
+        Assert.Equal("1.2.3", match.Version?.ToString());
+        Assert.Equal(AssemblySetSourceKind.Package, match.SourceKind);
+        Assert.Equal("net11.0", match.TargetFramework?.ToString());
+        Assert.Equal(reference, Assert.Single(match.MatchedReferences).ToString());
+        Assert.Equal(1, document.Summary.PopulationCandidates);
+        Assert.Equal(1, document.Summary.Candidates);
         Assert.True(document.Summary.IsComplete);
     }
 
@@ -269,4 +327,17 @@ public sealed class LibraryQueryTests
     private static LibraryQueryPlan Accepted(
         LibraryQueryPlanResult result) =>
         Assert.IsType<LibraryQueryPlanResult.Accepted>(result).Plan;
+
+    private sealed class TestBindingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            new(
+                Version,
+                AssemblyBindingSelection.CannotSelect(
+                    new(
+                        AssemblyBindingFailureKind.CandidateUnavailable)));
+    }
 }

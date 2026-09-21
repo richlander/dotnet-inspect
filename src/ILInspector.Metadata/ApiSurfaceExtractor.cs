@@ -522,6 +522,8 @@ public static partial class ApiSurfaceExtractor
 
         try
         {
+            using var operationContext = new MetadataOperationContext(
+                new MetadataOperationPolicy(bounds.MaxMetadataRows));
             var budget = new ExtractionBudget(bounds);
             TypeParameterConstraintResolution? constraintResolution =
                 source is null ? null : new(
@@ -534,7 +536,8 @@ public static partial class ApiSurfaceExtractor
                 typesOnly,
                 includeCompilerGenerated,
                 budget,
-                constraintResolution);
+                constraintResolution,
+                operationContext);
             if (constraintResolution is not null)
             {
                 CompleteConstraintResolution(
@@ -543,7 +546,7 @@ public static partial class ApiSurfaceExtractor
             }
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
-                budget.MetadataRows,
+                (int)operationContext.Counters.MetadataRows,
                 budget.RetainedTextCharacters);
         }
         catch (ExtractionBoundExceededException exceeded)
@@ -558,7 +561,8 @@ public static partial class ApiSurfaceExtractor
         bool typesOnly,
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
-        TypeParameterConstraintResolution? constraintResolution)
+        TypeParameterConstraintResolution? constraintResolution,
+        MetadataOperationContext? operationContext = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -567,9 +571,26 @@ public static partial class ApiSurfaceExtractor
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
+        if (operationContext is not null)
+        {
+            switch (operationContext.AdmitImage(reader))
+            {
+                case MetadataImageAdmissionResult.Admitted:
+                    break;
+                case MetadataImageAdmissionResult.Rejected
+                    {
+                        Failure.Kind:
+                            MetadataOperationFailureKind.MetadataRowsExceeded,
+                    }:
+                    throw new ExtractionBoundExceededException(
+                        ApiSurfaceExtractionBound.MetadataRows);
+                default:
+                    throw new InvalidOperationException(
+                        "The metadata image admission returned an unsupported outcome.");
+            }
+        }
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
-        budget?.AdmitMetadataRows(reader);
         MemorySafetyMetadataIndex? memorySafetyIndex = null;
         MemorySafetyMetadataIndex GetMemorySafetyIndex() =>
             memorySafetyIndex ??= MemorySafetyMetadataIndex.Create(reader);
@@ -726,6 +747,8 @@ public static partial class ApiSurfaceExtractor
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
             MetadataTypeDefinitionName? owningTypeDefinition = null;
+            TypeAttributes? owningTypeAttributes = null;
+            TypeDefinitionHandle owningTypeParent = default;
             int publicMethodCount = surface.PublicMethodCount;
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
@@ -737,6 +760,8 @@ public static partial class ApiSurfaceExtractor
             {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             var attributes = typeDef.Attributes;
+            owningTypeAttributes = attributes;
+            owningTypeParent = typeDef.GetDeclaringType();
 
             budget?.BeginTypeCandidate();
             observeDecodeWork?.Invoke(
@@ -1748,6 +1773,18 @@ public static partial class ApiSurfaceExtractor
                         observeAttributeMaterialize)
                 };
 
+                if (!isEnum && member.IsConst)
+                {
+                    ConstantHandle constantHandle = field.GetDefaultValue();
+                    if (!constantHandle.IsNil)
+                    {
+                        member.ConstantValueLiteral =
+                            FormatFieldConstantLiteral(
+                                reader,
+                                reader.GetConstant(constantHandle));
+                    }
+                }
+
                 // Read enum constant value
                 if (isEnum && (field.Attributes & FieldAttributes.Literal) != 0)
                 {
@@ -1997,7 +2034,9 @@ public static partial class ApiSurfaceExtractor
                     typeDefHandle,
                     ex.Failure,
                     owningType: typeDefHandle,
-                    owningTypeDefinition: owningTypeDefinition);
+                    owningTypeParent: owningTypeParent,
+                    owningTypeDefinition: owningTypeDefinition,
+                    owningTypeAttributes: owningTypeAttributes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
@@ -2014,7 +2053,9 @@ public static partial class ApiSurfaceExtractor
                     typeDefHandle,
                     MetadataTypeNameFailure.Malformed(typeDefHandle, ex.Message),
                     owningType: typeDefHandle,
-                    owningTypeDefinition: owningTypeDefinition);
+                    owningTypeParent: owningTypeParent,
+                    owningTypeDefinition: owningTypeDefinition,
+                    owningTypeAttributes: owningTypeAttributes);
             }
         }
 

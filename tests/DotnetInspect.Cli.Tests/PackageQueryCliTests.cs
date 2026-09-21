@@ -8,7 +8,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.PackageQueries;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;
@@ -63,9 +63,13 @@ public class PackageQueryCliTests
             Assert.Equal(
                 registeredInspectionTerms[index].Operators.Select(
                     @operator =>
-                        @operator == PortableQueryOperator.Equal
-                            ? "="
-                            : throw new InvalidOperationException()),
+                        @operator switch
+                        {
+                            PortableQueryOperator.Equal => "=",
+                            PortableQueryOperator.StartsWith =>
+                                "starts-with",
+                            _ => throw new InvalidOperationException(),
+                        }),
                 PackageQueryOptions.QueryKeys[index].Comparisons);
             Assert.Equal(
                 PackageQuery.ExecutionClassIdentity(
@@ -123,6 +127,33 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void DependsStartsWithTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                ["depends starts-with Microsoft.Extensions."],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        BoundPackageQueryTerm term = Assert.Single(options!.Plan.BoundTerms);
+        Assert.Equal(PackageQuery.DependsTermKey, term.Term.Key);
+        Assert.Equal(
+            PortableQueryOperator.StartsWith,
+            term.Term.Operator);
+        Assert.Equal(
+            "Microsoft.Extensions.",
+            term.Predicate.PackagePrefix!.Prefix);
+        Assert.True(options.Plan.RequiresManifest);
+        Assert.False(options.Plan.RequiresPackageContent);
     }
 
     [Fact]
@@ -477,7 +508,9 @@ public class PackageQueryCliTests
     [InlineData("facet!=package.query.dotnet-tool", "support equality")]
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
-    [InlineData("depends-prefix=Microsoft.Extensions", "does not define term")]
+    [InlineData(
+        "depends starts-with Microsoft.*",
+        "term value is invalid")]
     [InlineData("depends=not/a/package", "term value is invalid")]
     [InlineData("dependencies=other", "term value is invalid")]
     [InlineData(
@@ -833,6 +866,26 @@ public class PackageQueryCliTests
         Assert.Contains("Contoso.Third", result.Output);
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.Contains("cross-prefix", result.Output);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task DependsStartsWithTerm_UsesManifestEvidenceWithoutPackageContent()
+    {
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends starts-with Dependency."),
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.Contains("Contoso.Third", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.Contains("Dependency.", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -2077,6 +2130,18 @@ public class PackageQueryCliTests
         [
             .. expressions.Select(expression =>
             {
+                const string StartsWith = " starts-with ";
+                int startsWith = expression.IndexOf(
+                    StartsWith,
+                    StringComparison.Ordinal);
+                if (startsWith > 0)
+                {
+                    return new PortableQueryTerm(
+                        expression[..startsWith],
+                        PortableQueryOperator.StartsWith,
+                        expression[(startsWith + StartsWith.Length)..]);
+                }
+
                 string[] parts = expression.Split('=', 2);
                 return new PortableQueryTerm(
                     parts[0],

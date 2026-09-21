@@ -176,20 +176,24 @@ internal static class MemberCodeProvider
                 && (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay)
                 ? Decompiler.SelectedPropertyAccessorSource.Create(
                     pipelineSource, propertyMethodToken, method,
-                    includeAttributes: request.AnnotatedSource)
+                    includeAttributes: request.AnnotatedSource,
+                    includeContainingContext: true)
                 : null;
             var propertySource =
-                directPropertySource
-                ?? sharedDecompilation?.PropertySource;
+                sharedDecompilation?.PropertySource
+                ?? directPropertySource;
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
             Decompiler.DecompilerResult? projectionResult = null;
             IrFunction? raisedFunction = null;
             bool styledProjectionProduced = false;
+            bool needsInitializationProjection = propertySource?.RequiresInitializationProjection == true
+                && sharedDecompilation?.Result.Output is null;
             if ((needsDirectDecompiledProjection
                     || request.FidelityCauses
-                    || request.AppliedTaste)
+                    || request.AppliedTaste
+                    || needsInitializationProjection)
                 && pipelineSource is not null)
             {
                 // The style options (renderOptions) affect the printed C# string
@@ -206,6 +210,7 @@ internal static class MemberCodeProvider
                 var projectionRenderOptions =
                     needsDirectDecompiledProjection
                     || request.AppliedTaste
+                    || needsInitializationProjection
                         ? renderOptions
                         : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
@@ -232,9 +237,13 @@ internal static class MemberCodeProvider
                 // an Applied-Taste-only run too, not just Decompiled Source.
                 styledProjectionProduced =
                     (needsDirectDecompiledProjection
-                        || request.AppliedTaste)
+                        || request.AppliedTaste
+                        || needsInitializationProjection)
                     && projectionResult.Output is not null;
             }
+
+            if ((sharedDecompilation?.Result ?? projectionResult) is { } initializationProjection)
+                propertySource?.BindInitializationContext(initializationProjection);
 
             if (request.DecompiledSource)
             {
@@ -423,7 +432,7 @@ internal static class MemberCodeProvider
                 researchProjection?.SourceDocumentFactIdentities,
                 researchProjection?.FactCensusReceipt,
                 propertySource,
-                propertySource?.Attributes)));
+                directPropertySource?.Attributes ?? propertySource?.Attributes)));
         }
 
         return results;

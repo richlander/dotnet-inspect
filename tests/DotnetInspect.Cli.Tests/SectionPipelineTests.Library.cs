@@ -141,10 +141,194 @@ public partial class SectionPipelineTests
     public void LibraryPipeline_MeasuredBaseInventoriesAreVerbose()
     {
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.References.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            LibrarySections.EcosystemDependencies.SizeClass);
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.Switches.SizeClass);
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.PInvokeMethods.SizeClass);
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.TypeForwarders.SizeClass);
         Assert.Equal(SectionSizeClass.Verbose, LibrarySections.UnionTypes.SizeClass);
+    }
+
+    [Fact]
+    public void LibraryPipeline_DomainAndExactDescriptorsDeclareAuditedGrowth()
+    {
+        (string Name, SectionSizeClass SizeClass)[] fixedSections =
+        [
+            (LibrarySections.ILOffset.Name, LibrarySections.ILOffset.SizeClass),
+            (LibrarySections.MemberContext.Name,
+                LibrarySections.MemberContext.SizeClass),
+            (LibrarySections.InstructionContext.Name,
+                LibrarySections.InstructionContext.SizeClass),
+            (LibrarySections.CallsiteContext.Name,
+                LibrarySections.CallsiteContext.SizeClass),
+            (LibrarySections.ReturnAddressContext.Name,
+                LibrarySections.ReturnAddressContext.SizeClass),
+            (LibrarySections.AllocationContext.Name,
+                LibrarySections.AllocationContext.SizeClass),
+            (LibrarySections.SafetyContext.Name,
+                LibrarySections.SafetyContext.SizeClass),
+            (LibrarySections.CostContext.Name,
+                LibrarySections.CostContext.SizeClass),
+            (LibrarySections.SourceLinkAudit.Name,
+                LibrarySections.SourceLinkAudit.SizeClass),
+            (LibrarySections.SourceIntegrity.Name,
+                LibrarySections.SourceIntegrity.SizeClass),
+        ];
+        (string Name, SectionSizeClass SizeClass)[] terseSections =
+        [
+            (LibrarySections.IntegrationOpportunities.Name,
+                LibrarySections.IntegrationOpportunities.SizeClass),
+        ];
+        (string Name, SectionSizeClass SizeClass)[] verboseSections =
+        [
+            (LibrarySections.CloneCandidates.Name,
+                LibrarySections.CloneCandidates.SizeClass),
+            (LibrarySections.ExceptionContext.Name,
+                LibrarySections.ExceptionContext.SizeClass),
+            (LibrarySections.SourceFiles.Name,
+                LibrarySections.SourceFiles.SizeClass),
+            (LibrarySections.SourceLinkDiagnostics.Name,
+                LibrarySections.SourceLinkDiagnostics.SizeClass),
+            (LibrarySections.IdentifierConfusion.Name,
+                LibrarySections.IdentifierConfusion.SizeClass),
+            (LibrarySections.Integrations.Name,
+                LibrarySections.Integrations.SizeClass),
+            (LibrarySections.MissingSourceFiles.Name,
+                LibrarySections.MissingSourceFiles.SizeClass),
+            (LibrarySections.ReferenceHierarchy.Name,
+                LibrarySections.ReferenceHierarchy.SizeClass),
+            (LibrarySections.UnsafeMembers.Name,
+                LibrarySections.UnsafeMembers.SizeClass),
+            (LibrarySections.TopLeverage.Name,
+                LibrarySections.TopLeverage.SizeClass),
+            (LibrarySections.MemberMetrics.Name,
+                LibrarySections.MemberMetrics.SizeClass),
+            (LibrarySections.BodyShapes.Name,
+                LibrarySections.BodyShapes.SizeClass),
+            (LibrarySections.BodyShapeSummary.Name,
+                LibrarySections.BodyShapeSummary.SizeClass),
+            (LibrarySections.PerformanceBoxing.Name,
+                LibrarySections.PerformanceBoxing.SizeClass),
+            (LibrarySections.PerformanceArrays.Name,
+                LibrarySections.PerformanceArrays.SizeClass),
+            (LibrarySections.PerformanceClosures.Name,
+                LibrarySections.PerformanceClosures.SizeClass),
+            (LibrarySections.PerformanceEnumerators.Name,
+                LibrarySections.PerformanceEnumerators.SizeClass),
+            (LibrarySections.PerformanceStrings.Name,
+                LibrarySections.PerformanceStrings.SizeClass),
+            (LibrarySections.PerformanceLoops.Name,
+                LibrarySections.PerformanceLoops.SizeClass),
+            (LibrarySections.PerformanceHotspots.Name,
+                LibrarySections.PerformanceHotspots.SizeClass),
+            (LibrarySections.PerformanceAsync.Name,
+                LibrarySections.PerformanceAsync.SizeClass),
+            (LibrarySections.PerformanceOther.Name,
+                LibrarySections.PerformanceOther.SizeClass),
+            (LibrarySections.ArrayPoolEscapes.Name,
+                LibrarySections.ArrayPoolEscapes.SizeClass),
+            (LibrarySections.NonNormalizedPaths.Name,
+                LibrarySections.NonNormalizedPaths.SizeClass),
+        ];
+
+        Assert.All(
+            fixedSections,
+            section => Assert.Equal(
+                SectionSizeClass.Fixed,
+                section.SizeClass));
+        Assert.All(
+            terseSections,
+            section => Assert.Equal(
+                SectionSizeClass.Terse,
+                section.SizeClass));
+        Assert.All(
+            verboseSections,
+            section => Assert.Equal(
+                SectionSizeClass.Verbose,
+                section.SizeClass));
+
+        var pipeline = LibrarySections.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+        HashSet<string> baseSections =
+        [
+            .. pipeline.BaseSectionNames,
+        ];
+        HashSet<string> categorized =
+        [
+            .. categories.SelectMany(static pair => pair.Value),
+        ];
+        HashSet<string> specialized =
+        [
+            .. MetadataSectionNames.All,
+            .. ReadyToRunSectionNames.All,
+        ];
+        string[] expected =
+        [
+            .. categories
+                .Where(pair => !pipeline.GetBaseCategoryDoors().Contains(
+                    pair.Key,
+                    StringComparer.OrdinalIgnoreCase))
+                .SelectMany(static pair => pair.Value)
+                .Where(section => !baseSections.Contains(section))
+                .Concat(pipeline.SelectableSectionNames.Where(
+                    section => !categorized.Contains(section)))
+                .Where(section => !specialized.Contains(section))
+                .Append(SectionNames.EcosystemDependencies)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.Ordinal),
+        ];
+        string[] audited =
+        [
+            .. fixedSections
+                .Concat(terseSections)
+                .Concat(verboseSections)
+                .Select(static section => section.Name)
+                .Append(SectionNames.EcosystemDependencies)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(expected, audited);
+
+        HashSet<string> automatic =
+        [
+            .. pipeline.GetCandidateSections(Verbosity.Detailed),
+        ];
+        Assert.All(
+            audited.Where(section =>
+                !section.Equals(
+                    SectionNames.EcosystemDependencies,
+                    StringComparison.OrdinalIgnoreCase)),
+            section => Assert.DoesNotContain(section, automatic));
+
+        HashSet<string> normalSelections =
+        [
+            LibrarySections.ILOffset.Name,
+            LibrarySections.MemberContext.Name,
+            LibrarySections.InstructionContext.Name,
+            LibrarySections.CallsiteContext.Name,
+            LibrarySections.ReturnAddressContext.Name,
+            LibrarySections.AllocationContext.Name,
+            LibrarySections.SafetyContext.Name,
+            LibrarySections.CostContext.Name,
+        ];
+        Assert.All(
+            normalSelections,
+            section => Assert.Equal(
+                Verbosity.Normal,
+                pipeline.GetRequiredVerbosity(
+                    new HashSet<string>(
+                        [section],
+                        StringComparer.OrdinalIgnoreCase))));
+        Assert.All(
+            audited.Where(section => !normalSelections.Contains(section)),
+            section => Assert.Equal(
+                Verbosity.Detailed,
+                pipeline.GetRequiredVerbosity(
+                    new HashSet<string>(
+                        [section],
+                        StringComparer.OrdinalIgnoreCase))));
     }
 
     [Fact]
@@ -167,7 +351,6 @@ public partial class SectionPipelineTests
         Assert.Equal(
             new[]
             {
-                SectionNames.EcosystemDependencies,
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.Signals,
@@ -202,7 +385,144 @@ public partial class SectionPipelineTests
             pipeline.BareSelectSectionNames);
     }
 
+    [Fact]
+    public void LibraryDomainInventory_MissingSourcePreservesCompleteRows()
+    {
+        var inspection = new LibraryInspection
+        {
+            MissingSourceFiles =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    $"/src/Missing.{index:D2}.cs"),
+            ],
+        };
+
+        Assert.Equal(
+            31,
+            new LibraryInspectionView(inspection)
+                .MissingSourceFilesSection?
+                .Count);
+    }
+
+    [Fact]
+    public void LibraryDomainInventory_IdentifierConfusionCanExceedInformativeRange()
+    {
+        var inspection = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Identifier.Growth",
+                References =
+                [
+                    .. Enumerable.Range(0, 31).Select(index =>
+                        new AssemblyReference(
+                            $"Ѕystem.Dependency.{index:D2}",
+                            "1.0.0.0",
+                            null,
+                            null)),
+                ],
+            },
+        };
+
+        Assert.Equal(
+            31,
+            new LibraryInspectionView(inspection)
+                .IdentifierConfusion
+                .Count);
+    }
+
+    [Fact]
+    public void LibraryDomainInventory_ExceptionContextCanExceedInformativeRange()
+    {
+        var inspection = new LibraryInspection
+        {
+            ILOffset = new ILOffsetProjection
+            {
+                ExceptionContext =
+                [
+                    .. Enumerable.Range(0, 31).Select(index =>
+                        new ILOffsetExceptionContext
+                        {
+                            Region = index + 1,
+                            Context = "try",
+                            Clause = "finally",
+                            TryRange = "IL_0000..IL_0001",
+                            HandlerRange = "IL_0001..IL_0002",
+                        }),
+                ],
+            },
+        };
+
+        Assert.Equal(
+            31,
+            new LibraryInspectionView(inspection)
+                .ILOffsetExceptionContextSection?
+                .Count);
+    }
+
+    [Fact]
+    public void LibraryDomainInventory_PerformanceKindCanExceedInformativeRange()
+    {
+        var inspection = new LibraryInspection
+        {
+            PerformanceTriageOpportunities =
+            [
+                .. Enumerable.Range(0, 31).Select(_ =>
+                    PerformanceOpportunity("enumerator-allocation")),
+            ],
+        };
+
+        Assert.Equal(
+            31,
+            new LibraryInspectionView(inspection)
+                .PerformanceEnumeratorsSection?
+                .Count);
+    }
+
+    [Fact]
+    public void LibraryDomainInventory_IntegrationSignalsCanExceedInformativeRange()
+    {
+        var inspection = new LibraryInspection
+        {
+            OpenTelemetryInspection =
+                MetadataFindings.InspectOpenTelemetrySignals(
+                    [
+                        .. Enumerable.Range(0, 31).Select(index =>
+                            new OpenTelemetrySignalInfo(
+                                "Tracing",
+                                $"System.Diagnostics.ActivitySource{index:D2}")),
+                    ],
+                    FindingTestData.Subject),
+        };
+
+        Assert.Equal(
+            31,
+            new LibraryInspectionView(inspection)
+                .IntegrationsSection?
+                .Count);
+    }
+
+    [Fact]
+    public void LibraryDomainInventory_NonNormalizedPathsCanExceedInformativeRange()
+    {
+        var inspection = new LibraryInspection
+        {
+            NonNormalizedPaths =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    $"C:\\src\\Path.{index:D2}.cs"),
+            ],
+        };
+
+        Assert.Equal(
+            31,
+            new LibraryInspectionView(inspection)
+                .NonNormalizedPathsSection?
+                .Count);
+    }
+
     [Theory]
+    [InlineData(SectionNames.EcosystemDependencies)]
     [InlineData(SectionNames.References)]
     [InlineData(SectionNames.Switches)]
     [InlineData(SectionNames.PInvokeMethods)]
@@ -286,7 +606,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.UnsafeMembers,
-                SectionNames.ImplementationProfiles,
+                SectionNames.MemberMetrics,
                 SectionNames.BodyShapes,
                 SectionNames.BodyShapeSummary,
                 SectionNames.CloneCandidates,

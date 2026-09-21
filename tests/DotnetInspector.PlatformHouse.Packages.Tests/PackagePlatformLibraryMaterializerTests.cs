@@ -72,20 +72,68 @@ public sealed class PackagePlatformLibraryMaterializerTests
                 Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
                     await EcosystemPopulationLoadOperation.InvokeAsync(
                         known.CreateRequest(inputs, cancellationToken)));
+        EcosystemPopulationAdmissionResult admission =
+                await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                    workspace,
+                    outcome);
 
-        Assert.Equal(2, outcome.Owners.Libraries.Count);
+        Assert.Equal(2, admission.Libraries.Count);
         Assert.All(
-                outcome.Owners.Libraries,
-                static library =>
+                admission.Libraries,
+                static correspondence =>
                 {
                     Assert.Equal(
                         EcosystemPopulationLibraryRole.Focus,
-                        library.Roles);
+                        correspondence.LoadedLibrary.Roles);
                     Assert.IsType<PackageReferenceArtifactProvenance>(
                         Assert.IsType<PlatformLibraryArtifactProvenance>(
-                                library.Reference.ApiAssembly
+                                correspondence.LoadedLibrary
+                                    .Reference.ApiAssembly
                                     .ArtifactReference.Provenance)
                             .SourceProvenance);
+                });
+        Assert.Equal(2, admission.Contributions.Count);
+        IReadOnlyList<EcosystemPopulationNavigationContribution>
+            navigation =
+                EcosystemPopulationNavigationProjection.Project(
+                    revision,
+                    admission);
+        Assert.Equal(2, navigation.Count);
+        Assert.All(
+            navigation,
+            contribution =>
+            {
+                Assert.Contains(
+                    contribution.Source,
+                    admission.Contributions);
+                var available = Assert.IsType<
+                    EcosystemPopulationNavigationOutcome.Available>(
+                        contribution.Outcome);
+                Assert.Same(
+                    registration,
+                    available.Contribution.Ecosystem.Declaration);
+                Assert.Same(
+                    contribution.Source.Correspondence.Occurrence,
+                    available.Contribution.Library);
+            });
+        var accepted =
+                Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    Assert.IsType<
+                            EcosystemPopulationChildAdmission.Attempted>(
+                            Assert.Single(admission.ChildAdmissions))
+                        .Outcome);
+        Assert.Same(revision, accepted.Receipt.RegistrationRevision);
+        Assert.All(
+                admission.Libraries,
+                correspondence =>
+                {
+                    Assert.Same(outcome.Receipt, correspondence.LoadReceipt);
+                    Assert.Same(
+                        accepted.Receipt,
+                        correspondence.Admission);
+                    Assert.Same(
+                        correspondence.LoadedLibrary.Reference,
+                        correspondence.Occurrence.Library);
                 });
         Assert.Equal(
                 PlatformFamily.DotNetRuntime,
@@ -95,7 +143,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                     .Target
                     .Family);
 
-        await outcome.Owners.DisposeAsync();
+        await workspace.CloseAsync();
         await environment.AssertSettledAsync();
     }
 

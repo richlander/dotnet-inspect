@@ -1492,6 +1492,8 @@ static class ReturnToSender
         int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
 
         var propertySource = SelectedPropertyAccessorSource.Create(source, getterHandle, out bool automaticGetterBody);
+        var initializationConstructor = bodyPolicy == RoundTripBodyPolicy.Selected
+            ? propertySource?.FindInitializationConstructor(source) : null;
         var targetBody = CompileBackSourceComposer.CreateTargetBody(
             source, getterHandle, fullType, methodName, out var function, propertySource) with
         {
@@ -1534,6 +1536,7 @@ static class ReturnToSender
             {
                 BodyPolicy = bodyPolicy,
                 BodySource = source,
+                InitializationConstructor = initializationConstructor,
             },
             scope: scope,
             bodyPolicy: bodyPolicy);

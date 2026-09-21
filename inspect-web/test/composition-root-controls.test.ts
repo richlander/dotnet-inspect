@@ -628,7 +628,7 @@ test("typed library controls own library and Platform picker bindings", () => {
     ?? "";
   assert.match(
     libraryControlsSource,
-    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
+    /export function bindLibraryControls\([\s\S]*\[data-library-chip\][\s\S]*\[data-access-chip\][\s\S]*\[data-library-query-form\][\s\S]*\[data-library-query-reference\][\s\S]*#library-jump[\s\S]*\[data-platform-library-select\]/);
   for (const lens of [
     "integrations",
     "analysis",
@@ -656,6 +656,12 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onLibraryJump: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
+  assert.match(
+    binding,
+    /onLibraryQueryClear: \(\) => \{\s*clearLibraryQuery\(\);[\s\S]*renderPreservingContentFrameFocus\(\)/);
+  assert.match(
+    binding,
+    /onLibraryQuerySubmit: reference =>\s*observeAsync\(\s*runLibraryQuery\(reference\),\s*"Qualifying package libraries"\)/);
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack, \{ inPlace: true \}\),\s*"Opening a platform library"\)/);
@@ -1142,7 +1148,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
   assert.match(
     binding,
-    /onCopyMemberSource: \(\) => \{[\s\S]*sourceResultForSignature\([\s\S]*memberSourceText\([\s\S]*memberSourcePartSelector\.current\(signature, source\)[\s\S]*"source copied"[\s\S]*onMemberSourcePartSelect: part => \{[\s\S]*memberSourcePartSelector\.select\(signature, source, part\)[\s\S]*render\(\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
+    /onCopyMemberSource: \(\) => \{[\s\S]*sourceResultForSignature\([\s\S]*memberSourceText\([\s\S]*memberSourcePartSelector\.current\(signature, source\)[\s\S]*"source copied"[\s\S]*onMemberSourcePartSelect: part => \{[\s\S]*memberSourcePartSelector\.select\(signature, source, part\)[\s\S]*render\(\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status !== "ready"[\s\S]*typeCodeViewText\(state\.typeSource\.source\)[\s\S]*text !== null[\s\S]*void copyText\(text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);
@@ -1231,8 +1237,7 @@ test("typed scope bar owns its rendered control bindings", () => {
     statementSignatures(libraryLens.body.body),
     [
       'assign:contentFramePane = "detail"',
-      "assign:state.libraryLens = lens",
-      "call:render()",
+      "call:selectLibraryLens(lens)",
     ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");

@@ -1,6 +1,6 @@
 ---
 name: update-agents-md
-description: Use before adding, growing, or restructuring content in AGENTS.md — keeps it under its 600-line cap, free of a large table of contents, and limited to cross-cutting binding rules.
+description: Use before adding, growing, or restructuring content in AGENTS.md — keeps it under its 600-line cap, protects operator templates, and limits it to cross-cutting binding rules.
 ---
 
 # Updating AGENTS.md
@@ -20,6 +20,10 @@ rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
   `docs/README.md` provides immediate acquisition and curates broader routes,
   but does not catalog every focused document. Do not grow a second TOC inside
   AGENTS.md.
+- **Protect operator templates.** The theme/status reminder, tmux command and
+  state block, round report, and their invocation rules must remain directly
+  in `AGENTS.md`. Never remove, shorten to a pointer, or move them to meet the
+  line cap; extract another whole section instead.
 
 ## What belongs in AGENTS.md vs. a doc
 
@@ -42,11 +46,14 @@ agent is deep in a specific task, it belongs in that task's owning doc instead.
 3. Put any accompanying detail (steps, tables, worked cases) in the owning doc
    and link to it. Prefer creating a new focused doc over inflating an
    unrelated one or leaving the detail in AGENTS.md.
-4. Re-run `wc -l AGENTS.md`. If still over 600, migrate another whole section
+4. Confirm the protected theme/status, tmux, and round-report templates and
+   their invocation rules are still present verbatim enough to use without
+   opening another file.
+5. Re-run `wc -l AGENTS.md`. If still over 600, migrate another whole section
    or subsection to its owning doc — see the extraction checklist below.
    Repeat with a full section each time; do not switch to shaving individual
    lines to close a small remaining gap.
-5. Run `npx markdownlint-cli AGENTS.md` (and any doc you edited) before
+6. Run `npx markdownlint-cli AGENTS.md` (and any doc you edited) before
    committing.
 
 ## Extraction checklist when over budget
@@ -63,6 +70,8 @@ depend on, or otherwise degrade the file it was supposed to keep skimmable.
   the bullet, delete the restatement.
 - A rarely invoked scenario (well under one PR in twenty): reduce to a single
   pointer sentence, as with the Markout co-development loop.
+- The protected operator templates are never extraction candidates. If they
+  create pressure, move a different whole subsection.
 
 If after moving the obvious block-sized candidates the file is still over (or
 barely under) 600, that is a signal to find one more whole section to

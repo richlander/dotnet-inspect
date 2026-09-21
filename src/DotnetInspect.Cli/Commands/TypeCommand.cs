@@ -123,7 +123,6 @@ public static class TypeCommand
             PlainText = options.PlainText,
             MermaidOutput = options.MermaidOutput,
             EmbeddedMermaid = options.EmbeddedMermaid,
-            Bare = options.Bare,
             NoHeader = options.NoHeader,
             MemberFilter = memberFilter,
             KindFilter = options.KindFilter,
@@ -587,6 +586,33 @@ public static class TypeCommand
                             fallbackPackageVersion: packageVersion);
                     }
 
+                    if (AuthorizesTypeApiDeclarations(
+                            apiType,
+                            effectiveOptions))
+                    {
+                        effectiveOptions =
+                            await AttachTypeApiDeclarationInspectionAsync(
+                                apiType,
+                                effectiveOptions,
+                                loaded,
+                                cancellationToken);
+                    }
+
+                    if (effectiveOptions.DllPath is { } decompilationPath
+                        && AuthorizesWholeTypeDecompilation(
+                            apiType,
+                            effectiveOptions))
+                    {
+                        effectiveOptions =
+                            await AttachTypeDecompilationInspectionAsync(
+                                apiType,
+                                effectiveOptions,
+                                decompilationPath,
+                                sourceAssembly,
+                                context.HttpClient,
+                                cancellationToken);
+                    }
+
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
                     bool validatesProjection = hasProjection
                         && (!effectiveOptions.JsonOutput || effectiveOptions.Count)
@@ -918,7 +944,6 @@ public static class TypeCommand
             || options.EnvelopeOutput;
 
         return completeFormat
-            && !options.Bare
             && !options.Tree
             && !options.ShapeOutput
             && !options.Print
@@ -1146,62 +1171,67 @@ public static class TypeCommand
             return 1;
         }
 
-        await using WorkspacePacketRestoration restoration =
+        WorkspacePacketRestoration restoration =
             ((WorkspacePacketRestorationResult.Restored)result).Value;
-        WorkspaceTypeShareChoice shareChoice =
-            WorkspaceTypeShareChoice.From(options);
-        SelectedContextExactTypeLiveTarget? liveTarget = null;
-        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
-            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
-                restoration.Authority,
-                restoration.Workspace,
-                new SelectedContextExactTypeInspectionRequest(
-                    options.TypeName!),
-                target => liveTarget = target,
-                facet: shareChoice.Facet,
-                scope: options.IncludeAll
-                    ? ApiSurfaceScope.IncludeAll
-                    : ApiSurfaceScope.PublicWithNonPublicTypes);
-        ExactTypeInspectionResult inspection =
-            envelope.Content.Inspection;
-        if (!inspection.IsAvailable)
+        return await restoration.ExecuteAsync(async activeRestoration =>
         {
-            WriteExactTypeNonSuccess(
-                inspection,
-                envelope.Diagnostics,
-                envelope.Content.DefiningSources.Select(
-                    FormatDefiningSource));
-            return 1;
-        }
+            WorkspaceTypeShareChoice shareChoice =
+                WorkspaceTypeShareChoice.From(options);
+            SelectedContextExactTypeLiveTarget? liveTarget = null;
+            InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+                envelope =
+                    SelectedContextExactTypeInspectionOperation
+                        .ExecuteWithLiveTarget(
+                            activeRestoration.Workspace,
+                            activeRestoration.Activation,
+                            new SelectedContextExactTypeInspectionRequest(
+                                options.TypeName!),
+                            target => liveTarget = target,
+                            facet: shareChoice.Facet,
+                            scope: options.IncludeAll
+                                ? ApiSurfaceScope.IncludeAll
+                                : ApiSurfaceScope.PublicWithNonPublicTypes);
+            ExactTypeInspectionResult inspection =
+                envelope.Content.Inspection;
+            if (!inspection.IsAvailable)
+            {
+                WriteExactTypeNonSuccess(
+                    inspection,
+                    envelope.Diagnostics,
+                    envelope.Content.DefiningSources.Select(
+                        FormatDefiningSource));
+                return 1;
+            }
 
-        SelectedContextExactTypeSource source =
-            AssertSingleDefiningSource(envelope.Content);
-        int outputExitCode =
-            await ExecuteWorkspaceExactTypeResultAsync(
-                options with
-                {
-                    WorkspacePacket = null,
-                    ShareFormat = null,
-                },
-                plan,
-                inspection,
-                envelope.Diagnostics,
-                ExactTypeRenderSource.From(source),
-                liveTarget
-                    ?? throw new InvalidOperationException(
-                        "An available Workspace Type result requires a "
-                            + "live inspection target."))
-                .ConfigureAwait(false);
-        if (options.ShareFormat is not { } shareFormat)
-            return outputExitCode;
+            SelectedContextExactTypeSource source =
+                AssertSingleDefiningSource(envelope.Content);
+            int outputExitCode =
+                await ExecuteWorkspaceExactTypeResultAsync(
+                    options with
+                    {
+                        WorkspacePacket = null,
+                        ShareFormat = null,
+                    },
+                    plan,
+                    inspection,
+                    envelope.Diagnostics,
+                    ExactTypeRenderSource.From(source),
+                    liveTarget
+                        ?? throw new InvalidOperationException(
+                            "An available Workspace Type result requires a "
+                                + "live inspection target."))
+                    .ConfigureAwait(false);
+            if (options.ShareFormat is not { } shareFormat)
+                return outputExitCode;
 
-        InspectionShare share =
-            shareChoice.Refusal ?? envelope.Share;
-        int shareExitCode =
-            WorkspaceShareOutput.Write(share, shareFormat);
-        return outputExitCode != 0 || shareExitCode != 0
-            ? 1
-            : 0;
+            InspectionShare share =
+                shareChoice.Refusal ?? envelope.Share;
+            int shareExitCode =
+                WorkspaceShareOutput.Write(share, shareFormat);
+            return outputExitCode != 0 || shareExitCode != 0
+                ? 1
+                : 0;
+        }).ConfigureAwait(false);
     }
 
     static SelectedContextExactTypeSource AssertSingleDefiningSource(
@@ -1792,7 +1822,6 @@ public static class TypeCommand
            && !options.Jsonl
            && !options.NoHeader
            && !options.PlainText
-           && !options.Bare
            && !options.Count
            && !options.MarkdownExplicitlySet;
 
@@ -1813,6 +1842,136 @@ public static class TypeCommand
         TypeOptions options)
         => ApiCommand.GetRequestedMemberSections(apiType, options)
             .Contains(SectionNames.SourceFiles);
+
+    private static bool AuthorizesWholeTypeDecompilation(
+        ApiType apiType,
+        TypeOptions options)
+        => options.Verbosity != Verbosity.Quiet
+           && options.IncludeSections is { Count: > 0 }
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Contains(SectionNames.DecompiledSource);
+
+    private static bool AuthorizesTypeApiDeclarations(
+        ApiType apiType,
+        TypeOptions options)
+        => options.Verbosity != Verbosity.Quiet
+           && options.IncludeSections is { Count: > 0 }
+           && ApiCommand.GetRequestedMemberSections(apiType, options)
+               .Contains(SectionNames.ApiDeclarations);
+
+    private static async Task<TypeOptions>
+        AttachTypeApiDeclarationInspectionAsync(
+        ApiType apiType,
+        TypeOptions options,
+        ApiServices.LoadedApiSurface loaded,
+        CancellationToken cancellationToken)
+    {
+        MetadataTypeDefinitionName type =
+            apiType.DefinitionName
+            ?? throw new InvalidOperationException(
+                $"Type '{apiType.FullName}' has no exact metadata definition "
+                    + "identity for API Declarations.");
+        ResolvedAssemblyReference definingAssembly =
+            loaded.TryGetSourceAssembly(apiType)
+            ?? ResolvedAssemblyReference.CreateFromPath(
+                apiType.SourceAssemblyPath
+                    ?? loaded.ApiDllPath,
+                AssemblyResolutionProvenance.Local(
+                    "type API declarations"));
+        SelectedTypeBindingContext? bindingContext =
+            loaded.TryGetBindingContext(apiType)
+            ?? loaded.RootBindingContext;
+        IAssemblyBindingPolicy bindingPolicy =
+            bindingContext?.Policy
+            ?? (definingAssembly.Path is { } definingAssemblyPath
+                ? new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(
+                        definingAssemblyPath)
+                {
+                    ProjectAssetsPath = options.ProjectAssetsPath,
+                    TargetFramework = options.Tfm,
+                    IncludeDepsJsonAssets = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    PreferImplementationAssemblies = true,
+                    AllowPlatformAssemblyVersionRollForward = true,
+                })
+                : throw new InvalidOperationException(
+                    "A pathless selected API participant requires its "
+                        + "authoritative binding policy."));
+        var participant =
+            new AssemblyContextParticipant(
+                definingAssembly,
+                bindingPolicy);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+        InspectionEnvelope<TypeApiDeclarationResult> inspection =
+            TypeApiDeclarationInspection.Execute(
+                group,
+                participant,
+                type,
+                options.IncludeAll
+                    ? TypeApiDeclarationScope.All
+                    : TypeApiDeclarationScope.ApiVisible,
+                new ApiSurfaceProjectionLimits(
+                    1,
+                    1_000_000,
+                    1_000_000,
+                    1_000,
+                    1_000_000,
+                    10_000_000),
+                cancellationToken);
+        WriteInspectionDiagnostics(inspection.Diagnostics);
+        return options with
+        {
+            TypeApiDeclarationInspection = inspection,
+        };
+    }
+
+    private static async Task<TypeOptions>
+        AttachTypeDecompilationInspectionAsync(
+            ApiType apiType,
+            TypeOptions options,
+            string apiDllPath,
+            ResolvedAssemblyReference? sourceAssembly,
+            HttpClient httpClient,
+            CancellationToken cancellationToken)
+    {
+        string typeAssemblyPath =
+            apiType.SourceAssemblyPath
+            ?? apiDllPath;
+        DecompilationInspectionPreparation.Prepared preparation =
+            await DecompilationInspectionPreparation.CreateAsync(
+                    typeAssemblyPath,
+                    sourceAssembly,
+                    options,
+                    httpClient,
+                    "type decompilation",
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [preparation.Participant]);
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                        group,
+                        preparation.Participant,
+                        AssemblyTypeSourceRequest.From(
+                            apiType,
+                            options.RenderOptions),
+                        preparation.QueryContext,
+                        preparation.PortablePdb,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+        return options with
+        {
+            TypeDecompilationInspection = inspection,
+        };
+    }
 
     private static bool ShouldRejectQuietShape(TypeOptions options)
     {

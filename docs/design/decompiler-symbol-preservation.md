@@ -91,7 +91,17 @@ Two bindings in one scope, an enclosing reservation, or a flattened
 local-function declaration still collide and lower fidelity when the exact
 local cannot be emitted. Structured statement ranges may retain an explicit
 block when needed to preserve disjoint names; retaining that block must not
-strand another binder's uses or change control flow.
+strand another binder's uses or change control flow. Crossing candidates issued
+by the same Portable PDB `LocalScope` row are retained from the later
+declaration inward so an already completed inner scope remains one statement
+for its enclosing candidate. Candidates co-declared by one statement share its
+declaration position and compose longer-lived first, so the outer lifetime
+contains shorter sibling `out` declarations instead of stranding the
+longer-lived local. A
+`RetainsPdbLocalScope` label anchor remains valid entry evidence when generated
+lexical wrappers leave it immediately before the declaration path or nest it
+inside the allowed statement range; the shared control-flow proof must still
+reject every unaccounted external entry.
 
 A PDB local's identity includes its source method, local-variable row, physical
 IL slot, and half-open scope range. Import must not replace two such identities
@@ -101,6 +111,34 @@ reference crosses the proposed split. Unknown, overlapping, or uncovered
 associations retain storage semantics and report the naming limitation rather
 than applying one scope's name to another. These are Decompiler obligations over
 already acquired PDB records; they do not change symbol acquisition.
+Compiler-lowered pattern tests may initialize a carrier before the PDB scope
+begins. When final IR proves only non-addressed pre-scope writes, a carrier
+value established by reaching assignment or CLR local initialization, an exact
+scope entry, and read-only in-scope references, the carrier may remain unnamed
+while a logical local receives the exact identity at that entry. Ambiguous
+entry, write/address use, unsupported storage, or a remaining emitted-scope
+collision declines this projection.
+The opt-in `dotnet_inspect_style_approximate_pdb_local_names` presentation may
+flatten a declined exact identity to one deterministic physical-slot label.
+Strict exact allocation runs first; then the earliest usable, non-hidden
+declaration by scope start, scope row, and variable row supplies a
+collision-resolved display name. This choice never changes the IR binding,
+removes a `scoped-local-name-unavailable` cause, or upgrades `Partial`
+fidelity. Incomplete method-wide declaration evidence has no eligible slot,
+and hidden, invalid-slot, malformed-range, and unspellable rows remain
+ineligible. Every applied substitution records a
+`approximate-pdb-local-name` taste decision. This intentionally mirrors the
+slot-label convention used by ILSpy, dnSpyEx, and the published JustDecompile
+engine without making that convention the exact default
+([#8036](https://github.com/richlander/dotnet-inspect/issues/8036)).
+The motivating real asset is
+[`dotnet-inspect.any` 0.14.0](https://www.nuget.org/packages/dotnet-inspect.any/0.14.0):
+its Portable-PDB-backed `ObjectInitializerPass.Apply` has two exact
+`initializer` identities whose reconstructed declaration scopes overlap.
+Strict rendering keeps distinct synthesized names and reports `DEC0009`; the
+opt-in renders `initializer_1` and `initializer_2`, records both choices, and
+retains the same fidelity cause. The current source rebuild reaches `Full` and
+is the neighboring exact-path control.
 `PdbLocalNameScopeTests` and `PdbLocalDeclarationScopeTests` own the Release
 fixtures for [#5617](https://github.com/richlander/dotnet-inspect/issues/5617).
 Printer-only receiver recomposition does not elide a slot carrying an exact PDB
@@ -363,7 +401,7 @@ RUNTIME=artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILIns
 inspect_member() {
   dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
     member "$1" "$2" --library "$3" \
-    -S "Decompiled Source" --bare --tips q
+    -S "Decompiled Source" --tips q
 }
 ```
 
@@ -377,7 +415,7 @@ inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StackAllocGe
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
-  -S "Decompiled Source" --bare --tips q
+  -S "Decompiled Source" --tips q
 ```
 
 Expected name observations:
@@ -464,7 +502,7 @@ inspect_member ILInspector.Decompiler.Tests.CfgSampleClass TuplePair "$CFG"
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
-  -S "Decompiled Source" --bare --tips q
+  -S "Decompiled Source" --tips q
 ```
 
 Expected:
@@ -664,7 +702,7 @@ dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   RuntimeAsyncNoAwaitUnsafe \
   --library "$CFG" \
   --repo "$PWD" \
-  -S "PDB Source" --bare --tips q
+  -S "PDB Source" --tips q
 ```
 
 Expected boundary: `Decompiled Source` preserves `value` but has no `pointer`
@@ -766,7 +804,7 @@ inspect_member \
 dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Decompiler.Tests.PrimaryCtorSample \
   --library "$CFG" \
-  -S "Decompiled Source" --bare --tips q
+  -S "Decompiled Source" --tips q
 ```
 
 Current output maps `<Number>k__BackingField` to the property name `Number` and

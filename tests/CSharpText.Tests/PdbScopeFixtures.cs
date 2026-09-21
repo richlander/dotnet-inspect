@@ -194,6 +194,64 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int NestedScopeLocalsWithEntryLabels(bool secondPath, int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int currentPos = 0;
+            int splitIdx = 0;
+            string currentSplit = value.ToString();
+            int typeIndex = 0;
+            goto FirstCheck;
+        FirstLoop:
+            {
+                Type type = typeof(int);
+                int splitPoint = currentPos + currentSplit.Length;
+                Increment(ref splitPoint);
+                total += type.Name.Length + splitIdx;
+                currentPos = splitPoint;
+            }
+            splitIdx++;
+            typeIndex++;
+        FirstCheck:
+            if (typeIndex < value)
+                goto FirstLoop;
+            total += currentPos;
+        }
+        if (total < -value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            int currentPos = value;
+            int splitIdx = value;
+            string currentSplit = value.ToString();
+            int typeIndex = value;
+            goto SecondCheck;
+        SecondLoop:
+            {
+                Type type = typeof(string);
+                int splitPoint = currentPos - currentSplit.Length;
+                Increment(ref splitPoint);
+                total += type.Name.Length + splitIdx;
+                currentPos = splitPoint;
+            }
+            splitIdx--;
+            typeIndex--;
+        SecondCheck:
+            if (typeIndex > 0)
+                goto SecondLoop;
+            total += currentPos;
+        }
+        if (total < -value)
+            goto First;
+    Done:
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;
@@ -224,6 +282,28 @@ public static class PdbScopeFixtures
 
         return 0;
     }
+
+    public static Type? ScopeEntryPatternLocals(ScopeEntryPointer pointer)
+    {
+        Type? type = pointer.Parent switch
+        {
+            ScopeEntryLocal same when ReferenceEquals(same.Value, pointer) => same.Type,
+            ScopeEntryField same when ReferenceEquals(same.Value, pointer) => same.Type,
+            ScopeEntryReturn result when ReferenceEquals(result.Value, pointer) => result.Type,
+            _ => null,
+        };
+        return type is null || type == typeof(void) ? null : type;
+    }
+
+    public abstract record ScopeEntryNode;
+
+    public sealed record ScopeEntryPointer(ScopeEntryNode Parent);
+
+    public sealed record ScopeEntryLocal(object Value, Type Type) : ScopeEntryNode;
+
+    public sealed record ScopeEntryField(object Value, Type Type) : ScopeEntryNode;
+
+    public sealed record ScopeEntryReturn(object Value, Type Type) : ScopeEntryNode;
 
     public static int SequentialOutVariables(string first, string second)
     {

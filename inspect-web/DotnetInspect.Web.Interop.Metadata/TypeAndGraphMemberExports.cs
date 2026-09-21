@@ -7,6 +7,7 @@ using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using QuerySpace.Rows;
 using Analysis = ILInspector.Analysis;
 
 using DotnetInspect.Web;

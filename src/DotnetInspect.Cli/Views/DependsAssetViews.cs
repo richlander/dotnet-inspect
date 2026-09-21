@@ -68,6 +68,25 @@ public sealed class DependsAssetView
         init => field = DependencyEvidenceViewText.Field(value).ToString();
     }
 
+    [MarkoutPropertyName("License Inventory")]
+    public required string LicenseInventory
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("License Packages")]
+    [MarkoutSkipNull]
+    public int? LicensePackages { get; init; }
+
+    [MarkoutPropertyName("License Available")]
+    [MarkoutSkipNull]
+    public int? LicenseAvailable { get; init; }
+
+    [MarkoutPropertyName("License Unavailable")]
+    [MarkoutSkipNull]
+    public int? LicenseUnavailable { get; init; }
+
     [MarkoutPropertyName("Pruning Roots")]
     [MarkoutSkipNull]
     public int? PruningRoots { get; init; }
@@ -138,8 +157,55 @@ public sealed class DependsAssetView
     [MarkoutSection(Name = DependsAssetSections.Dependencies)]
     public List<DependsDependencyView>? Dependencies { get; init; }
 
+    [MarkoutSection(Name = DependsAssetSections.Licenses)]
+    public List<DependsLicenseView>? Licenses { get; init; }
+
     [MarkoutSection(Name = DependsAssetSections.Pruning)]
     public List<DependsPruningView>? PruningRows { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
+    public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Failures)]
+    public List<DependsFailureView>? Failures { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.DependencyGroups)]
+    public List<DependsDependencyGroupView>? DependencyGroups { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.RestoredPackages)]
+    public List<DependsRestoredPackageView>? RestoredPackages
+    { get; init; }
+}
+
+[MarkoutSerializable]
+public sealed class DependsAssetMarkdownView
+{
+    internal static DependsAssetMarkdownView From(DependsAssetView view) =>
+        new()
+        {
+            DependencyHierarchy = view.DependencyHierarchy,
+            Roots = view.Roots,
+            Dependencies = view.Dependencies,
+            Pruning = view.PruningRows,
+            RestoredEdges = view.RestoredEdges,
+            Failures = view.Failures,
+            DependencyGroups = view.DependencyGroups,
+            RestoredPackages = view.RestoredPackages,
+        };
+
+    [MarkoutSection(
+        Name = DependsAssetSections.DependencyHierarchy,
+        EmptyText = "No dependency relationships.")]
+    public Markout.Graph? DependencyHierarchy { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Roots)]
+    public List<DependsRootView>? Roots { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Dependencies)]
+    public List<DependsDependencyView>? Dependencies { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Pruning)]
+    public List<DependsPruningView>? Pruning { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
     public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
@@ -167,6 +233,9 @@ public sealed class DependsAssetTableView
 
     [MarkoutSection(Name = DependsAssetSections.Dependencies)]
     public List<DependsDependencyView>? Dependencies { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Licenses)]
+    public List<DependsLicenseView>? Licenses { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.Pruning)]
     public List<DependsPruningView>? Pruning { get; init; }
@@ -668,6 +737,7 @@ public sealed class DependsDependencyView
         get => field;
         init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
     }
+
     [MarkoutPropertyName("Canonical Package")]
     public required string CanonicalPackage
     {
@@ -692,6 +762,36 @@ public sealed class DependsDependencyView
     }
     public required int Occurrences { get; init; }
     public required bool Selected { get; init; }
+}
+
+[MarkoutSerializable]
+public sealed class DependsLicenseView
+{
+    internal static DependsLicenseView From(
+        DependencyInspectionLicense row) =>
+        new()
+        {
+            Package = row.PackageId,
+            Version = row.PackageVersion,
+            LicenseText = row.License,
+        };
+
+    public required string Package
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    public required string Version
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    public string License => LicenseText.ToString();
+
+    [MarkoutIgnore]
+    public InertString LicenseText { get; init; }
 }
 
 [MarkoutSerializable]
@@ -1121,6 +1221,7 @@ public sealed class DependsFailureView
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(DependsAssetView))]
+[MarkoutContext(typeof(DependsAssetMarkdownView))]
 [MarkoutContext(typeof(DependsAssetTableView))]
 [MarkoutContext(typeof(LibraryReferenceHierarchyTableView))]
 [MarkoutContext(typeof(DependsGraphTableView))]
@@ -1128,6 +1229,7 @@ public sealed class DependsFailureView
 [MarkoutContext(typeof(DependsHierarchyOccurrenceView))]
 [MarkoutContext(typeof(DependsGraphEdgeView))]
 [MarkoutContext(typeof(DependsDependencyView))]
+[MarkoutContext(typeof(DependsLicenseView))]
 [MarkoutContext(typeof(DependsPruningView))]
 [MarkoutContext(typeof(DependsDependencyGroupView))]
 [MarkoutContext(typeof(DependsRestoredEdgeView))]

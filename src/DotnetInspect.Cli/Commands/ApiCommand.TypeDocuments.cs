@@ -458,8 +458,8 @@ public partial class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && GetRequestedMemberSections(type, renderOptions)
-                    .Contains(SectionNames.ImplementationProfiles))
+                && SectionNames.IncludesBodyMetrics(
+                    GetRequestedMemberSections(type, renderOptions)))
             {
                 bool restrictImplementationProfiles =
                     ApiMemberSectionPipelines
@@ -475,7 +475,8 @@ public partial class ApiCommand
                             renderOptions)
                         : type,
                     TypeAnalysisIndex(),
-                    restrictToModelMembers:
+                            renderOptions is MemberOptions,
+                            restrictToModelMembers:
                         restrictImplementationProfiles,
                     selectedMethodToken:
                         (renderOptions as MemberOptions)?

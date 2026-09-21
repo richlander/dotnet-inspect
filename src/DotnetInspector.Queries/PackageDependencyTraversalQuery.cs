@@ -61,18 +61,19 @@ public static class PackageDependencyTraversalQuery
     /// <summary>
     /// Projects <see cref="PackageSourceManifest"/> bytes through
     /// <see cref="PackageManifestFactsQuery"/> and
-    /// <see cref="PackageDependencyEvidenceQuery"/> under the typed traversal
-    /// framework mode. This is the Queries-owned manifest-bytes adapter the design
-    /// requires: it never acquires network evidence itself.
+    /// <see cref="PackageDependencyEvidenceQuery"/> under the traversal target.
+    /// This is the Queries-owned manifest-bytes adapter the design requires: it
+    /// never acquires network evidence itself.
     /// </summary>
     internal static (PackageDependencyEvidenceRoot? Root, PackageManifestFailure? Failure)
         ProjectManifestBytes(
             PackageSourceManifest manifest,
             PackageSourceCoordinate expectedCoordinate,
-            string? requestedFramework)
+            TraversalTargetFrameworkPolicy traversalTargetPolicy)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         byte[] manifestBytes = manifest.Content.ToArray();
         PackageManifestFactsResult factsResult = PackageManifestFactsQuery.Execute(
             manifestBytes,
@@ -86,9 +87,10 @@ public static class PackageDependencyTraversalQuery
             PackageDependencyEvidenceQuery.CreatePackageInput(
                 facts,
                 PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
-                requestedFramework,
+                traversalTargetPolicy.TargetFramework,
                 sourceLabel: null,
-                source: manifest.Source);
+                source: manifest.Source,
+                allowCompatibleFallbackForRequestedTfm: true);
         PackageDependencyEvidenceOutcome outcome =
             PackageDependencyEvidenceQuery.Execute(
                 new PackageDependencyEvidenceRequest([input]));
@@ -406,7 +408,7 @@ public static class PackageDependencyTraversalQuery
                         ProjectManifestBytes(
                             acquired.Manifest,
                             projection.Candidate!.Coordinate,
-                            request.FrameworkMode.RequestedFramework);
+                            request.TraversalTargetPolicy);
                     token.ThrowIfCancellationRequested();
                     if (manifestFailure is not null)
                     {
@@ -1004,6 +1006,7 @@ public static class PackageDependencyTraversalQuery
             }
 
             return new PackageDependencyTraversalOutcome(
+                request.TraversalTargetPolicy,
                 rootResults.MoveToImmutable(),
                 reachability.MoveToImmutable(),
                 nodes,

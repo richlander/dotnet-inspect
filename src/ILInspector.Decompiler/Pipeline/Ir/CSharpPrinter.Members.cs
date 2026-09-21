@@ -870,11 +870,20 @@ public sealed partial class CSharpPrinter
                 continue;
 
             IrExpression argument = call.Arguments[i];
-            if (argument is Lambda)
+            if (argument is Lambda lambda)
             {
-                if (!LambdaOutputPreservesGenericInference(parameter))
+                if (!LambdaOutputPreservesGenericInference(
+                    parameter,
+                    lambda,
+                    call.Callee.TypeArguments))
                     return false;
                 continue;
+            }
+
+            if (call.Callee.TypeArgumentElisionLambdaOutputs.Any(
+                output => output.ArgumentIndex == i))
+            {
+                return false;
             }
 
             if (argument is CollectionExpression collection)
@@ -979,7 +988,10 @@ public sealed partial class CSharpPrinter
         return parameterCount < 0 || lambda.Parameters.Length == parameterCount;
     }
 
-    static bool LambdaOutputPreservesGenericInference(TypeRef parameter)
+    static bool LambdaOutputPreservesGenericInference(
+        TypeRef parameter,
+        Lambda lambda,
+        ImmutableArray<TypeRef> typeArguments)
     {
         if (parameter.Kind != TypeRefKind.GenericInstance
             || parameter.ElementType is not { } definition)
@@ -991,7 +1003,10 @@ public sealed partial class CSharpPrinter
             && definition.Name == "Expression`1"
             && parameter.TypeArguments is [var delegateType])
         {
-            return LambdaOutputPreservesGenericInference(delegateType);
+            return LambdaOutputPreservesGenericInference(
+                delegateType,
+                lambda,
+                typeArguments);
         }
 
         if (definition.Assembly != TypeRef.CoreLibrary)
@@ -1002,10 +1017,22 @@ public sealed partial class CSharpPrinter
             return true;
         }
 
-        return definition.Namespace == "System"
-            && definition.Name.StartsWith("Func`", StringComparison.Ordinal)
-            && parameter.TypeArguments.Length > 0
-            && !ContainsMethodGenericParameter(parameter.TypeArguments[^1]);
+        if (definition.Namespace != "System"
+            || definition.Name != $"Func`{parameter.TypeArguments.Length}"
+            || parameter.TypeArguments.IsEmpty)
+        {
+            return false;
+        }
+
+        TypeRef output = parameter.TypeArguments[^1];
+        if (!ContainsMethodGenericParameter(output))
+            return true;
+
+        int index = output.GenericParameterIndex;
+        return output.Kind == TypeRefKind.MethodGenericParameter
+            && (uint)index < (uint)typeArguments.Length
+            && lambda.ExpressionBody is { } expression
+            && VarInfersDeclaredType(typeArguments[index], expression);
     }
 
     static bool ContainsMethodGenericParameter(TypeRef type)

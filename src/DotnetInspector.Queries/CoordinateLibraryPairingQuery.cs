@@ -283,15 +283,12 @@ public static class CoordinateLibraryPairingQuery
         ArgumentNullException.ThrowIfNull(after);
 
         if (!ReferenceEquals(
-                before.Occurrence.Identity.WorkspaceIdentity,
-                after.Occurrence.Identity.WorkspaceIdentity)
-            || !ReferenceEquals(
                 source.Workspace.Identity,
                 before.Occurrence.Identity.WorkspaceIdentity))
         {
             return Refused(
                 CoordinateLibraryPairingFailureKind.ForeignWorkspace,
-                "Library pairing is confined to one exact Workspace.");
+                "The source Library and source observation belong to different Workspaces.");
         }
         if (!ReferenceEquals(source.Package.Occurrence.Identity, before.Occurrence.Identity))
         {
@@ -466,6 +463,7 @@ public static class CoordinateLibraryPairingQuery
         if (occurrence.Occurrence.Correspondence
                 is not PackageArtifactRootCorrespondence candidate
             || !candidate.Matches(PackageArtifactRootRequest.From(binding))
+            || !occurrence.Occurrence.Package.Matches(binding)
             || !binding.ReferencesRetainedContent())
         {
             return new(

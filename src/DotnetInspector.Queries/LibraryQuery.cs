@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
-using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using InertText;
@@ -56,6 +55,7 @@ public enum LibraryQueryFailureKind
     Unreadable,
     InvalidImage,
     UnsupportedMetadataFormat,
+    ResourceBudget,
     MissingAssemblyIdentity,
     IncompleteReferences,
 }
@@ -105,6 +105,18 @@ public sealed record LibraryQueryDocument(
     public bool HasLibraries => !Results.IsEmpty;
 }
 
+/// <summary>
+/// One caller-owned assembly-context participant and its product-issued
+/// Library Query metadata.
+/// </summary>
+public sealed record LibraryQueryParticipant(
+    AssemblyContextParticipant Participant,
+    string Path,
+    string Source,
+    string? Version,
+    AssemblySetSourceKind SourceKind,
+    string? TargetFramework = null);
+
 public static partial class LibraryQuery
 {
     public const int DefaultMaximumCandidates = 256;
@@ -124,7 +136,7 @@ public static partial class LibraryQuery
         PortableQueryIntent intent = PortableQueryIntent.Create(
             request.Terms is null ? [] : [.. request.Terms],
             bounds,
-            ToPortableStages(request.RowSelection),
+            PortableQueryRowSelection.ToStages(request.RowSelection),
             []);
         return ResolveIntent(intent);
     }
@@ -153,6 +165,72 @@ public static partial class LibraryQuery
         ArgumentNullException.ThrowIfNull(populationDiagnostics);
         ArgumentNullException.ThrowIfNull(plan);
 
+        return ExecuteCore(
+            population.Select(entry =>
+                new Candidate<AssemblySetEntry>(
+                    entry,
+                    entry.Path,
+                    entry.Source,
+                    entry.Version,
+                    entry.SourceKind,
+                    entry.Tfm)),
+            populationDiagnostics,
+            plan,
+            static candidate => Evaluate(candidate.Value),
+            cancellationToken);
+    }
+
+    public static LibraryQueryDocument ExecuteParticipants(
+        AssemblyContextGroup? group,
+        IReadOnlyList<LibraryQueryParticipant> population,
+        LibraryQueryPlan plan,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (population.Count > 0)
+            ArgumentNullException.ThrowIfNull(group);
+
+        foreach (LibraryQueryParticipant candidate in population)
+        {
+            ArgumentNullException.ThrowIfNull(candidate);
+            ArgumentNullException.ThrowIfNull(candidate.Participant);
+            ArgumentException.ThrowIfNullOrWhiteSpace(candidate.Path);
+            ArgumentException.ThrowIfNullOrWhiteSpace(candidate.Source);
+            if (group is null
+                || !group.Participants.Any(participant =>
+                    ReferenceEquals(
+                        participant,
+                        candidate.Participant)))
+            {
+                throw new ArgumentException(
+                    "Every Library Query participant must belong to the supplied assembly context group.",
+                    nameof(population));
+            }
+        }
+
+        return ExecuteCore(
+            population.Select(candidate =>
+                new Candidate<LibraryQueryParticipant>(
+                    candidate,
+                    candidate.Path,
+                    candidate.Source,
+                    candidate.Version,
+                    candidate.SourceKind,
+                    candidate.TargetFramework)),
+            [],
+            plan,
+            candidate => Evaluate(group!, candidate.Value),
+            cancellationToken);
+    }
+
+    private static LibraryQueryDocument ExecuteCore<TValue>(
+        IEnumerable<Candidate<TValue>> population,
+        IReadOnlyList<AssemblySetDiagnostic> populationDiagnostics,
+        LibraryQueryPlan plan,
+        Func<Candidate<TValue>, CandidateEvaluation> evaluate,
+        CancellationToken cancellationToken)
+    {
         var results = ImmutableArray.CreateBuilder<LibraryQueryMatch>();
         var failures = ImmutableArray.CreateBuilder<LibraryQueryFailure>();
         LibraryQueryIncompleteReason incomplete =
@@ -171,11 +249,11 @@ public static partial class LibraryQuery
         if (populationDiagnostics.Count > 0)
             incomplete |= LibraryQueryIncompleteReason.PopulationFailure;
 
-        AssemblySetEntry[] ordered =
+        Candidate<TValue>[] ordered =
         [
             .. population
-                .OrderBy(entry => entry.Source, StringComparer.Ordinal)
-                .ThenBy(entry => entry.Path, StringComparer.Ordinal),
+                .OrderBy(candidate => candidate.Source, StringComparer.Ordinal)
+                .ThenBy(candidate => candidate.Path, StringComparer.Ordinal),
         ];
         int candidateCount = Math.Min(
             ordered.Length,
@@ -186,88 +264,68 @@ public static partial class LibraryQuery
         for (int index = 0; index < candidateCount; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            AssemblySetEntry candidate = ordered[index];
-            try
+            Candidate<TValue> candidate = ordered[index];
+            switch (evaluate(candidate))
             {
-                AssemblyIdentityNames names =
-                    AssemblyIdentityScanner.Scan(candidate.Path);
-                if (string.IsNullOrWhiteSpace(names.Name))
-                {
+                case CandidateEvaluation.Failed failed:
                     failures.Add(Failure(
                         candidate,
                         library: null,
-                        LibraryQueryFailureKind.MissingAssemblyIdentity,
-                        "The candidate contains managed metadata but does not define an assembly identity."));
+                        failed.Kind,
+                        failed.Message));
                     incomplete |=
                         LibraryQueryIncompleteReason.EvaluationFailure;
                     continue;
-                }
 
-                ImmutableArray<string> matched =
-                    MatchReferences(plan.References, names.ReferenceNames);
-                if (matched.Length == plan.References.Length)
-                {
-                    results.Add(
-                        new(
-                            Field(names.Name),
-                            Field(candidate.Path),
-                            Field(candidate.Source),
-                            OptionalField(candidate.Version),
-                            candidate.SourceKind,
-                            OptionalField(candidate.Tfm),
-                            [
-                                .. matched.Select(Field),
-                            ]));
-                    continue;
-                }
+                case CandidateEvaluation.Available available:
+                    if (string.IsNullOrWhiteSpace(available.Library))
+                    {
+                        failures.Add(Failure(
+                            candidate,
+                            library: null,
+                            LibraryQueryFailureKind.MissingAssemblyIdentity,
+                            "The candidate contains managed metadata but does not define an assembly identity."));
+                        incomplete |=
+                            LibraryQueryIncompleteReason.EvaluationFailure;
+                        continue;
+                    }
 
-                if (!names.ReferencesComplete
-                    && plan.References.Length > 0)
-                {
-                    failures.Add(Failure(
-                        candidate,
-                        names.Name,
-                        LibraryQueryFailureKind.IncompleteReferences,
-                        "The AssemblyRef table is incomplete, so missing requested references cannot be treated as absent."));
-                    incomplete |=
-                        LibraryQueryIncompleteReason.EvaluationFailure;
-                }
-            }
-            catch (UnsupportedMetadataFormatException ex)
-            {
-                AddFailure(
-                    candidate,
-                    LibraryQueryFailureKind.UnsupportedMetadataFormat,
-                    ex.Message);
-            }
-            catch (MalformedMetadataRootException ex)
-            {
-                AddFailure(
-                    candidate,
-                    LibraryQueryFailureKind.InvalidImage,
-                    ex.Message);
-            }
-            catch (Exception ex) when (
-                ex is IOException
-                    or UnauthorizedAccessException)
-            {
-                AddFailure(
-                    candidate,
-                    LibraryQueryFailureKind.Unreadable,
-                    ex.Message);
-            }
-            catch (Exception ex) when (
-                ex is BadImageFormatException
-                    or InvalidOperationException
-                    or ArgumentException
-                    or NotSupportedException
-                    or OverflowException
-                    or IndexOutOfRangeException)
-            {
-                AddFailure(
-                    candidate,
-                    LibraryQueryFailureKind.InvalidImage,
-                    ex.Message);
+                    ImmutableArray<string> matched =
+                        MatchReferences(
+                            plan.References,
+                            available.ReferenceNames);
+                    if (matched.Length == plan.References.Length)
+                    {
+                        results.Add(
+                            new(
+                                Field(available.Library),
+                                Field(candidate.Path),
+                                Field(candidate.Source),
+                                OptionalField(candidate.Version),
+                                candidate.SourceKind,
+                                OptionalField(candidate.TargetFramework),
+                                [
+                                    .. matched.Select(Field),
+                                ]));
+                        continue;
+                    }
+
+                    if (!available.ReferencesComplete
+                        && plan.References.Length > 0)
+                    {
+                        failures.Add(Failure(
+                            candidate,
+                            available.Library,
+                            LibraryQueryFailureKind.IncompleteReferences,
+                            "The AssemblyRef table is incomplete, so missing requested references cannot be treated as absent."));
+                        incomplete |=
+                            LibraryQueryIncompleteReason.EvaluationFailure;
+                    }
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Library Query candidate evaluation.");
             }
         }
 
@@ -281,20 +339,140 @@ public static partial class LibraryQuery
                 results.Count,
                 failures.Count,
                 incomplete));
+    }
 
-        void AddFailure(
-            AssemblySetEntry candidate,
-            LibraryQueryFailureKind kind,
-            string message)
+    private static CandidateEvaluation Evaluate(
+        AssemblySetEntry candidate)
+    {
+        try
         {
-            failures.Add(Failure(
-                candidate,
-                library: null,
-                kind,
-                message));
-            incomplete |= LibraryQueryIncompleteReason.EvaluationFailure;
+            AssemblyIdentityNames names =
+                AssemblyIdentityScanner.Scan(candidate.Path);
+            return new CandidateEvaluation.Available(
+                names.Name,
+                names.ReferenceNames,
+                names.ReferencesComplete);
+        }
+        catch (UnsupportedMetadataFormatException ex)
+        {
+            return new CandidateEvaluation.Failed(
+                LibraryQueryFailureKind.UnsupportedMetadataFormat,
+                ex.Message);
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return new CandidateEvaluation.Failed(
+                LibraryQueryFailureKind.InvalidImage,
+                ex.Message);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException)
+        {
+            return new CandidateEvaluation.Failed(
+                LibraryQueryFailureKind.Unreadable,
+                ex.Message);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or NotSupportedException
+                or OverflowException
+                or IndexOutOfRangeException)
+        {
+            return new CandidateEvaluation.Failed(
+                LibraryQueryFailureKind.InvalidImage,
+                ex.Message);
         }
     }
+
+    private static CandidateEvaluation Evaluate(
+        AssemblyContextGroup group,
+        LibraryQueryParticipant candidate)
+    {
+        AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> entry =
+            AssemblyContextReferencesQuery.ExecuteParticipant(
+                group,
+                candidate.Participant);
+        return entry switch
+        {
+            AssemblyContextEntry<
+                ImmutableArray<AssemblyReferenceIdentity>>.Available available =>
+                new CandidateEvaluation.Available(
+                    candidate.Participant.Assembly.Identity.Name,
+                    [
+                        .. available.Value.Select(reference =>
+                            reference.Name),
+                    ],
+                    ReferencesComplete: true),
+            AssemblyContextEntry<
+                ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected =>
+                new CandidateEvaluation.Failed(
+                    FailureKind(rejected.Failure.Kind),
+                    rejected.Failure.Detail),
+            AssemblyContextEntry<
+                ImmutableArray<AssemblyReferenceIdentity>>.Failed failed =>
+                new CandidateEvaluation.Failed(
+                    FailureKind(failed.Error),
+                    failed.Error.Message),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-reference query result."),
+        };
+    }
+
+    private static LibraryQueryFailureKind FailureKind(
+        CandidateOpenFailureKind kind) =>
+        kind switch
+        {
+            CandidateOpenFailureKind.Unreadable =>
+                LibraryQueryFailureKind.Unreadable,
+            CandidateOpenFailureKind.InvalidImage =>
+                LibraryQueryFailureKind.InvalidImage,
+            CandidateOpenFailureKind.ResourceBudget =>
+                LibraryQueryFailureKind.ResourceBudget,
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                LibraryQueryFailureKind.UnsupportedMetadataFormat,
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-context candidate failure."),
+        };
+
+    private static LibraryQueryFailureKind FailureKind(
+        Exception error) =>
+        error switch
+        {
+            IOException or UnauthorizedAccessException =>
+                LibraryQueryFailureKind.Unreadable,
+            UnsupportedMetadataFormatException =>
+                LibraryQueryFailureKind.UnsupportedMetadataFormat,
+            _ => LibraryQueryFailureKind.InvalidImage,
+        };
+
+    private abstract record CandidateEvaluation
+    {
+        private CandidateEvaluation()
+        {
+        }
+
+        internal sealed record Available(
+            string? Library,
+            ImmutableArray<string> ReferenceNames,
+            bool ReferencesComplete)
+            : CandidateEvaluation;
+
+        internal sealed record Failed(
+            LibraryQueryFailureKind Kind,
+            string Message)
+            : CandidateEvaluation;
+    }
+
+    private sealed record Candidate<TValue>(
+        TValue Value,
+        string Path,
+        string Source,
+        string? Version,
+        AssemblySetSourceKind SourceKind,
+        string? TargetFramework);
 
     private static ImmutableArray<string> MatchReferences(
         ImmutableArray<LibraryQueryReferencePredicate> requested,
@@ -318,8 +496,8 @@ public static partial class LibraryQuery
         return matched.ToImmutable();
     }
 
-    private static LibraryQueryFailure Failure(
-        AssemblySetEntry candidate,
+    private static LibraryQueryFailure Failure<TValue>(
+        Candidate<TValue> candidate,
         string? library,
         LibraryQueryFailureKind kind,
         string message) =>
@@ -339,27 +517,4 @@ public static partial class LibraryQuery
     private static InertString? OptionalField(string? value) =>
         string.IsNullOrEmpty(value) ? null : Field(value);
 
-    private static IReadOnlyList<PortableQueryStage> ToPortableStages(
-        RowSelectionIntent<string>? rowSelection) =>
-        rowSelection is null
-            ? []
-            :
-            [
-                .. rowSelection.Operations.Select(operation =>
-                    operation.Kind switch
-                    {
-                        RowSelectionStageKind.Head =>
-                            PortableQueryStage.Head(operation.Count),
-                        RowSelectionStageKind.Tail =>
-                            PortableQueryStage.Tail(operation.Count),
-                        RowSelectionStageKind.Window =>
-                            PortableQueryStage.Window(
-                                operation.Start,
-                                operation.End),
-                        RowSelectionStageKind.Top =>
-                            PortableQueryStage.Top(operation.Count),
-                        _ => throw new InvalidOperationException(
-                            "Unknown row-selection stage."),
-                    }),
-            ];
 }

@@ -340,6 +340,32 @@ public abstract record AssemblyTypeSource(string Text)
         : AssemblyTypeSource(Text);
 }
 
+/// <summary>The result-selection path taken by one type-source latency hedge.</summary>
+public enum TypeSourceLatencyHedgeSelection
+{
+    AuthoredBeforeDecompilation,
+    AuthoredAfterDecompilation,
+    DecompiledAfterPdbUnavailable,
+    DecompiledAfterAuthoredUnavailable,
+    DecompiledAfterPdbPreferenceWindow,
+    Unavailable,
+}
+
+/// <summary>Detached scheduling evidence for one completed type-source hedge.</summary>
+public sealed record TypeSourceLatencyHedgeEvidence(
+    bool PdbReadyBeforeDecompilation,
+    bool DecompilationStarted,
+    bool DecompilationUsedPdb,
+    TypeSourceLatencyHedgeSelection Selection)
+{
+    /// <summary>Terminal from the independent authored Library admission.</summary>
+    public AssemblyContextLibraryAdapterResult.Terminal?
+        AuthoredLibraryFailure { get; init; }
+    /// <summary>Terminal from the independent decompilation Library admission.</summary>
+    public AssemblyContextLibraryAdapterResult.Terminal?
+        DecompilationLibraryFailure { get; init; }
+}
+
 public abstract record AssemblyMemberSourceEntry(
     AssemblyContextSubject Subject,
     AssemblyMemberSourceRequest Request)
@@ -450,6 +476,8 @@ public abstract record AssemblyTypeSourceEntry(
     public SourceHouseDecompilationOutcome?
         DecompilationHouseOutcome { get; init; }
     public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+    /// <summary>Present only for the opt-in latency-hedged operation.</summary>
+    public TypeSourceLatencyHedgeEvidence? LatencyHedgeEvidence { get; init; }
 
     public sealed record Available(
         AssemblyContextSubject Subject,
@@ -701,12 +729,52 @@ public static partial class AssemblyContextSourceQuery
         }
     }
 
-    public static async Task<AssemblyTypeSourceEntry> ExecuteTypeAsync(
+    public static Task<AssemblyTypeSourceEntry> ExecuteTypeAsync(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         AssemblyTypeSourceRequest request,
         AssemblyContextSourceQueryContext context,
         CancellationToken cancellationToken = default)
+        => ExecuteTypeCoreAsync(
+            group,
+            participant,
+            request,
+            context,
+            executionPlan: null,
+            cancellationToken);
+
+    /// <summary>
+    /// Executes ordinary type source with a bounded Portable PDB preference
+    /// window and serial authored settlement after prompt PDB availability.
+    /// Explicit document requests use the serial operation.
+    /// </summary>
+    public static Task<AssemblyTypeSourceEntry>
+        ExecuteTypeWithPdbLatencyHedgeAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyTypeSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            TypeSourcePdbLatencyHedge latencyHedge,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(latencyHedge);
+        return ExecuteTypeCoreAsync(
+            group,
+            participant,
+            request,
+            context,
+            new TypeSourceExecutionPlan.Pdb(
+                latencyHedge),
+            cancellationToken);
+    }
+
+    static async Task<AssemblyTypeSourceEntry> ExecuteTypeCoreAsync(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyTypeSourceRequest request,
+        AssemblyContextSourceQueryContext context,
+        TypeSourceExecutionPlan? executionPlan,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
@@ -765,15 +833,34 @@ public static partial class AssemblyContextSourceQuery
 
         try
         {
+            if (request.OriginalDocumentPath is null)
+            {
+                if (executionPlan
+                    is TypeSourceExecutionPlan.Pdb pdb)
+                {
+                    return await InspectTypeWithPdbLatencyHedgeAsync(
+                            group,
+                            subject,
+                            participant,
+                            request,
+                            context,
+                            available.Value.Retained,
+                            bindingPolicyVersion,
+                            pdb.LatencyHedge,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
             return await InspectTypeAsync(
-                    group,
-                    subject,
-                    participant,
-                    request,
-                    context,
-                    available.Value.Retained,
-                    bindingPolicyVersion,
-                    cancellationToken)
+                group,
+                subject,
+                participant,
+                request,
+                context,
+                available.Value.Retained,
+                bindingPolicyVersion,
+                cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (IsInspectionFailure(ex))
@@ -783,6 +870,13 @@ public static partial class AssemblyContextSourceQuery
                 request,
                 InspectionFailure(ex));
         }
+    }
+
+    private abstract record TypeSourceExecutionPlan
+    {
+        internal sealed record Pdb(
+            TypeSourcePdbLatencyHedge LatencyHedge)
+            : TypeSourceExecutionPlan;
     }
 
     internal static async Task<AssemblyMemberSourceEntry> InspectMemberAsync(
@@ -1215,7 +1309,8 @@ public static partial class AssemblyContextSourceQuery
                     SourceHouseDecompilationOutcome houseOutcome) =
                     await DecompileAsync(
                         participant,
-                        new SourceHouseTarget.TypeTarget(request.Type),
+                        new SourceHouseTarget.TypeTarget(
+                            request.Type),
                         request.PrinterOptions,
                         pdb.RetainedLibrary
                             ?? throw new InvalidOperationException(

@@ -73,6 +73,7 @@ public sealed class ProductionFacadeContextTests
             "MatchPackageDependencyCoordinate",
             "PackageCacheStats",
             "PrefetchPlatformPacks",
+            "QueryLibraries",
             "QueryLibraryApi",
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
@@ -202,10 +203,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 92 operations, and no operation name in two modules: a move that forgot to delete its
+        // 93 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(92, everyExport.Length);
+        Assert.Equal(93, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -283,10 +284,13 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        var sharedSourceContractTypes = new HashSet<Type>();
+        Collect(typeof(InspectionEnvelope<TypeApiDeclarationResult>), sharedSourceContractTypes);
         foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
                      .Where(type => type.BaseType == typeof(InspectionShare)))
         {
             Collect(derived, sharedContractTypes);
+            Collect(derived, sharedSourceContractTypes);
         }
 
         foreach (Type root in RootTypes())
@@ -315,8 +319,8 @@ public sealed class ProductionFacadeContextTests
             foreach (Type type in closure)
             {
                 string declaring = AssemblyNameOf(type.Assembly);
-                if (owner == MetadataAssembly
-                    && sharedContractTypes.Contains(type))
+                if ((owner == MetadataAssembly && sharedContractTypes.Contains(type))
+                    || (owner == SourceAssembly && sharedSourceContractTypes.Contains(type)))
                 {
                     continue;
                 }
@@ -328,7 +332,7 @@ public sealed class ProductionFacadeContextTests
                     continue;
                 }
 
-                // No raw product object reaches TypeScript: each facade transports its own record.
+                // Other product models are projected into the facade's own transport records.
                 Assert.False(
                     declaring.StartsWith("ILInspector.", StringComparison.Ordinal)
                     || declaring.StartsWith("DotnetInspector.", StringComparison.Ordinal)

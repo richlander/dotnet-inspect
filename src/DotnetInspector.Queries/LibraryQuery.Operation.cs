@@ -1,9 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
-using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Operations;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 

@@ -14,12 +14,13 @@ settlement.
 The model uses the product's join currencies:
 
 - one fresh realization identity per Workspace;
-- one immutable definition identity per realization; and
+- one immutable definition association per realization; and
 - one operation lease associated with that exact realization and definition.
 
-The fixed definition value abstracts the operation's captured
-`WorkspaceDefinitionSnapshot`. Dynamic append-only definition publication is
-owned by issue
+The fixed definition value abstracts the operation's captured exact Workspace,
+registration-revision, and Scope-revision tuple. The model defines no
+additional snapshot token. Dynamic append-only definition publication is owned
+by issue
 [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and is not
 copied into this model.
 
@@ -139,7 +140,7 @@ npx --no-install markdownlint-cli "$model/README.md"
 ```
 
 The close lifecycle is a formal-evidence correction for the existing
-`WorkspaceRealizationCoordinator.CloseAsync` contract under
+`WorkspaceReplacementCoordinator.CloseAsync` contract under
 [Active Workspace realization
 cutover](../../artifact-acquisition-and-workspaces.md#active-workspace-realization-cutover).
 It introduces no reusable product abstraction, host policy, compatibility

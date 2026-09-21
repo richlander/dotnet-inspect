@@ -505,8 +505,10 @@ exact enrolled package assets, verifies every assembly SHA-256, and emits all
 four paths for the benchmark.
 
 The periodic authored-corpus Deep Inspect lane runs this perfection gate before
-the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
-is the non-vacuity gate for that workflow wiring.
+the separate EVIL regression ratchet. The Deep Inspect job and step conclusions
+are the operational evidence that preparation and the real source-oracle
+benchmark completed; local tests own the harness and manifest contracts rather
+than workflow or shell spelling.
 
 #### Source-oracle candidate ledger (`--source-oracle-candidates`)
 
@@ -1862,17 +1864,21 @@ placement; broader work remains in
 
 **Slot residual census** (`--slot-residual-census`): the post-F2 measurement
 lane for #2386/#2209. It runs each method to the late slots-only
-`ExpressionInliningPass` immediately before `SlotMaterializationPass`, captures
-`StoreStackSlot`/`LoadStackSlot` counts before and after that pass, and
+`ExpressionInliningPass`, captures `StoreStackSlot`/`LoadStackSlot` counts before
+and after that pass, and
 classifies the remaining stack-slot webs by deferral class (`multi-use`,
 `multi-def/merged`, `cross-block`, `effect/order-interleaved`, `nested-scope`,
-and store/load-only residuals). It then reports the product-owned
-`SlotMaterializationPass` decision for every post-F2 web and an overlapping
+and store/load-only residuals). Separate materialization-entry and exit snapshots
+report intervening-pass and materialization deltas independently: an intervening
+raise's removals are not credited to materialization. It then reports the
+product-owned `SlotMaterializationPass` decision for every entry web and an overlapping
 veto histogram covering testimony, scope, rendering, fold, identity-recovery,
 and direct-copy-component gates. An exact-combination histogram shows which
 vetoes co-occur without double-counting slot webs. The census fails if those
-scope-and-slot identities do not equal the web sets that materialization
-removes or retains. This is C2 entry evidence, not a correctness gate; use
+scope-and-slot identities do not equal the entry and retained web sets.
+`SlotResidualBoundaryTests` gates the separate boundaries with the real Roslyn
+`XxHashShared.Accumulate512Inlined` pointer-spill witness and compiler-produced
+accepted/retained neighbors. This is C2 entry evidence, not a correctness gate; use
 `--corpus-method-cap N` for a quick bounded read.
 
 **Slot unifier census** (`--slot-unifier-census`): the C2/#2209 reduction view

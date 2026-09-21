@@ -9,10 +9,10 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -50,6 +50,7 @@ public partial class PackageCommand
             options,
             context,
             preResolved: null,
+            admittedPackageRoot: null,
             admittedPackageManifest: null,
             admittedPackageInfoMeasurements: null,
             admittedPackageEcosystemDependencies: null,
@@ -64,6 +65,7 @@ public partial class PackageCommand
             options,
             context,
             preResolved: null,
+            admittedPackageRoot: null,
             admittedPackageManifest: null,
             admittedPackageInfoMeasurements: null,
             admittedPackageEcosystemDependencies: null,
@@ -74,6 +76,7 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         PackageExtractionResult? preResolved,
+        PackageRootBinding? admittedPackageRoot,
         byte[]? admittedPackageManifest,
         Func<InspectionEnvelope<PackageInfoMeasurements>>?
             admittedPackageInfoMeasurements,
@@ -1230,6 +1233,7 @@ public partial class PackageCommand
                     resolution,
                     nuspec?.PackageName,
                     nuspec?.Version,
+                    admittedPackageRoot,
                     options);
             }
 
@@ -1241,6 +1245,7 @@ public partial class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
+                    resolution,
                     options);
             }
 

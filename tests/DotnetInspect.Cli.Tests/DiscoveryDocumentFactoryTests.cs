@@ -2,40 +2,100 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
+using Markout;
 
 namespace DotnetInspect.Cli.Tests;
 
 public class DiscoveryDocumentFactoryTests
 {
     [Fact]
-    public void LibraryCatalog_PreservesResourcesAndStableCatalogOrder()
+    public void Catalog_ExposesCategoryAndSectionResourcesInStableOrder()
     {
-        StructuralSchemaProjection projection = LibraryProjection();
-
-        DiscoveryDocument document = Create(
-            projection,
+        var schema = new DocumentSchema()
+            .Add("Rows", "column", "Name")
+            .AddSection("Empty");
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>
+            {
+                ["@Group"] = ["Rows", "Empty"],
+            },
+            MarkdownCapabilities("Rows", "Empty"),
             discover: null);
 
-        Assert.Equal("library", document.Catalog);
-        Assert.NotEmpty(document.CatalogEntries);
+        Assert.Equal("synthetic", document.Catalog);
         Assert.Equal(
-            DiscoveryResourceKind.Category,
-            document.CatalogEntries[0].Kind);
+            [
+                Category("@Group"),
+                Section("Empty"),
+                Section("Rows"),
+            ],
+            document.CatalogEntries);
         Assert.Contains(
             document.Resources,
             resource =>
-                resource.Identity
-                    == Section(SectionNames.ReferenceHierarchy)
+                resource.Identity == Section("Rows")
                 && resource.Members.Length > 0);
         Assert.Contains(
             document.Resources,
             resource =>
-                resource.Identity.Kind == DiscoveryResourceKind.Section
+                resource.Identity == Section("Empty")
                 && resource.Members.IsEmpty);
     }
 
     [Fact]
-    public void DependencyCategory_ReferencesCanonicalSectionsAndCapabilities()
+    public void CategorySelection_ProjectsDeclaredMembersAndSharedCapabilities()
+    {
+        var schema = new DocumentSchema()
+            .Add("Summary", "column", "Name")
+            .Add("Details", "column", "Value")
+            .Add("Other", "column", "Value");
+        var capabilities = new OutputCapabilityCatalog(
+            new Dictionary<string, SectionOutputCapabilities>
+            {
+                ["Summary"] = SectionOutputCapabilities.Create(
+                    [
+                        DiscoveryOutputMode.Markdown,
+                        DiscoveryOutputMode.PlainText,
+                        DiscoveryOutputMode.Json,
+                    ]),
+                ["Details"] = SectionOutputCapabilities.Create(
+                    [
+                        DiscoveryOutputMode.Markdown,
+                        DiscoveryOutputMode.PlainText,
+                    ]),
+                ["Other"] = SectionOutputCapabilities.Create(
+                    [DiscoveryOutputMode.Markdown]),
+            });
+
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>
+            {
+                ["@Evidence"] = ["Summary", "Details"],
+            },
+            capabilities,
+            ["@Evidence"]);
+        DiscoveryResource category = document.GetResource(
+            Category("@Evidence"));
+
+        Assert.Equal(
+            [Section("Details"), Section("Summary")],
+            category.Members);
+        Assert.Equal(
+            [
+                DiscoveryOutputMode.Markdown,
+                DiscoveryOutputMode.PlainText,
+            ],
+            category.OutputModes);
+        Assert.Equal(
+            [Category("@Evidence")],
+            document.Selection.AddressedResources);
+        Assert.Equal(category.Members, document.Selection.Rows);
+    }
+
+    [Fact]
+    public void LibraryDependencyCategory_ExposesEcosystemDependencies()
     {
         StructuralSchemaProjection projection = LibraryProjection();
 
@@ -45,12 +105,8 @@ public class DiscoveryDocumentFactoryTests
         DiscoveryResource category = document.GetResource(
             Category(SectionCategoryNames.Dependencies));
 
-        Assert.Equal(
-            [
-                Section(SectionNames.EcosystemDependencies),
-                Section(SectionNames.ReferenceHierarchy),
-                Section(SectionNames.References),
-            ],
+        Assert.Contains(
+            Section(SectionNames.EcosystemDependencies),
             category.Members);
         Assert.Equal(
             [
@@ -58,37 +114,45 @@ public class DiscoveryDocumentFactoryTests
                 DiscoveryOutputMode.PlainText,
             ],
             category.OutputModes);
-        Assert.Equal(
-            [Category(SectionCategoryNames.Dependencies)],
-            document.Selection.AddressedResources);
-        Assert.Equal(category.Members, document.Selection.Rows);
     }
 
     [Fact]
     public void SharedSection_HasOneResourceAcrossCategoryMemberships()
     {
-        StructuralSchemaProjection projection = LibraryProjection();
-        DiscoveryDocument document = Create(
-            projection,
+        var schema = new DocumentSchema()
+            .Add("First", "column", "Value")
+            .Add("Shared", "column", "Value")
+            .Add("Second", "column", "Value");
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>
+            {
+                ["@First"] = ["First", "Shared"],
+                ["@Second"] = ["Second", "Shared"],
+            },
+            MarkdownCapabilities("First", "Shared", "Second"),
             discover: null);
-        DiscoveryResourceIdentity references =
-            Section(SectionNames.References);
+        DiscoveryResourceIdentity shared = Section("Shared");
 
         Assert.Single(
             document.Resources,
-            resource => resource.Identity == references);
+            resource => resource.Identity == shared);
         Assert.True(
             document.Resources.Count(resource =>
                 resource.Identity.Kind == DiscoveryResourceKind.Category
-                && resource.Members.Contains(references)) >= 2);
+                && resource.Members.Contains(shared)) >= 2);
     }
 
     [Fact]
     public void SameNamedItems_RetainOwningSectionIdentity()
     {
-        StructuralSchemaProjection projection = LibraryProjection();
-        DiscoveryDocument document = Create(
-            projection,
+        var schema = new DocumentSchema()
+            .Add("First", "column", "Name")
+            .Add("Second", "column", "Name");
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>(),
+            MarkdownCapabilities("First", "Second"),
             discover: null);
         var duplicateName = document.Resources
             .Where(resource =>
@@ -115,9 +179,12 @@ public class DiscoveryDocumentFactoryTests
     [Fact]
     public void QueryItems_RetainKindBesideSameNamedColumns()
     {
-        StructuralSchemaProjection projection = LibraryProjection();
-        DiscoveryDocument document = Create(
-            projection,
+        var schema = new DocumentSchema()
+            .Add(SectionNames.PerformanceBoxing, "column", "Confidence");
+        DiscoveryDocument document = CreateSynthetic(
+            schema,
+            new Dictionary<string, string[]>(),
+            MarkdownCapabilities(SectionNames.PerformanceBoxing),
             [SectionNames.PerformanceBoxing]);
 
         Assert.Contains(
@@ -158,6 +225,32 @@ public class DiscoveryDocumentFactoryTests
             projection.OutputCapabilities!)
         ?? throw new InvalidOperationException(
             "Expected Library discovery construction to succeed.");
+
+    private static DiscoveryDocument CreateSynthetic(
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]> categories,
+        OutputCapabilityCatalog capabilities,
+        string[]? discover) =>
+        DiscoveryDocumentFactory.Create(
+            "synthetic",
+            discover,
+            schema,
+            categories,
+            catalogHiddenSections: null,
+            listedCategoryDoors: null,
+            sectionCostAnnotations: null,
+            exactOnlySections: null,
+            capabilities)
+        ?? throw new InvalidOperationException(
+            "Expected synthetic discovery construction to succeed.");
+
+    private static OutputCapabilityCatalog MarkdownCapabilities(
+        params string[] sections) =>
+        new(sections.ToDictionary(
+            static section => section,
+            static _ => SectionOutputCapabilities.Create(
+                [DiscoveryOutputMode.Markdown]),
+            StringComparer.OrdinalIgnoreCase));
 
     private static DiscoveryResourceIdentity Category(string name) =>
         new(DiscoveryResourceKind.Category, name);

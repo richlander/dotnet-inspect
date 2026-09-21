@@ -19,6 +19,7 @@ using ILInspector.Research;
 using Markout;
 using System.Collections.Immutable;
 using System.Text.Json;
+using QuerySpace.Rows;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -28,8 +29,30 @@ namespace DotnetInspect.Cli.Commands;
 public class DiffCommand
 {
     public const string Name = "diff";
-    public static async Task<int> ExecuteAsync(DiffOptions options)
+    public static async Task<int> ExecuteAsync(
+        DiffOptions options,
+        CancellationToken cancellationToken = default)
     {
+        if (options.History)
+        {
+            return await DiffHistoryCommand.ExecuteAsync(
+                options,
+                cancellationToken);
+        }
+        if (options.At.Length > 0
+            || options.MaxProbes is not null
+            || options.IncludePrerelease)
+        {
+            CommandError.Write(
+                "--at, --max-probes, and --preview require --history.");
+            return 1;
+        }
+        if (options.Count)
+        {
+            CommandError.Write(
+                "--count requires --history; pairwise Diff does not declare a countable cohort.");
+            return 1;
+        }
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
         bool implementationTransport =
@@ -3974,7 +3997,7 @@ public class DiffCommand
 /// <summary>
 /// Options for the diff command.
 /// </summary>
-public record DiffOptions
+public record DiffOptions : IProjectionOptions
 {
     public string? PackageVersionRange { get; init; }
     public string? PlatformVersionRange { get; init; }
@@ -3982,6 +4005,12 @@ public record DiffOptions
     public string? Framework { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
+    public bool History { get; init; }
+    public string[] At { get; init; } = [];
+    public int? MaxProbes { get; init; }
+    public bool IncludePrerelease { get; init; }
+    public bool Count { get; init; }
+    public RowSelectionIntent<string>? SemanticRowSelection { get; init; }
     public bool Verbose { get; init; }
     public HashSet<string> TypeFilter { get; init; } = [];
     public HashSet<string> MemberFilter { get; init; } = [];

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
 using ILInspector.Metadata;

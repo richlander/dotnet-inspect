@@ -22,11 +22,14 @@ const typeSourceResult: BrowserTypeSourceResult = {
   version: 1,
   kind: "Succeeded",
   value: {
-    provider: "decompiled",
-    provenance: inertString("facade transport probe"),
-    url: null,
-    pdbSourceLimitation: null,
-    text: "class Example {}",
+    kind: "source",
+    value: {
+      provider: "decompiled",
+      provenance: inertString("facade transport probe"),
+      url: null,
+      pdbSourceLimitation: null,
+      text: "class Example {}",
+    },
   },
   failureKind: null,
   error: null,
@@ -453,7 +456,7 @@ assert.ok(
 const source = facadeModule("inspect-web-source");
 const sourceArguments = [
   "page-owned-source-id", "Example.Package", "1.0.0", "net11.0",
-  "Example.dll", "Example.Type", "[]",
+  "Example.dll", "Example.Type", "[]", "source",
 ];
 assert.deepEqual(
   await callableOperation(source, "queryTypeSource")(...sourceArguments),

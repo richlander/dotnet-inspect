@@ -123,6 +123,7 @@ async function typeSourceBoundary(page: Page) {
       assembly: coordinate.assembly,
       type: "TsJsExport.JsExportRootAttribute",
       taste: "[]",
+      view: "source",
       signature: "worker-binding-gate",
       isVisible: () => true,
     });
@@ -254,11 +255,13 @@ test("published generated facades boot in a real Worker and serve cold, warm, an
   const sourceOutcome = await typeSourceBoundary(page);
   expect(sourceOutcome).toMatchObject({
     kind: "succeeded",
-    value: { provider: "decompiled" },
+    value: { kind: "source", value: { provider: "decompiled" } },
   });
   if (sourceOutcome.kind !== "succeeded")
     throw new Error("Type Source did not succeed through the Worker.");
-  expect(sourceOutcome.value.text).toContain(
+  if (sourceOutcome.value.kind !== "source")
+    throw new Error("Expected the source arm of the type code view.");
+  expect(sourceOutcome.value.value.text).toContain(
     "sealed class JsExportRootAttribute",
   );
   expect(workers).toHaveLength(1);

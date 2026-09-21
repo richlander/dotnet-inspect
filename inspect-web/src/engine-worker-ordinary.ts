@@ -47,6 +47,7 @@ type PackageOperationName =
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
+  | "queryLibraries"
   | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
@@ -454,6 +455,18 @@ function createValueDecoder<TResult>(): BoundedPayloadDecoder<TResult> {
       }
     },
   };
+}
+
+export function decodeEngineWorkerJsonValue<TResult>(
+  value: unknown,
+): BoundedPayloadDecodeResult<TResult> {
+  try {
+    return createValueDecoder<TResult>().decode(
+      encodeTransportTuple([value], "Worker inspection value"));
+  } catch (error: unknown) {
+    if (!(error instanceof OrdinaryPayloadError)) throw error;
+    return rejectedPayload(error);
+  }
 }
 
 function isVoidMarker(value: unknown): boolean {
@@ -872,6 +885,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryLibraryApi"]>
       ) => facades.package.queryLibraryApi(...args),
+    ),
+    queryLibraries: valueOperation(
+      "ordinary-package-query-libraries",
+      5,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryLibraries"]>
+      ) => facades.package.queryLibraries(...args),
     ),
     queryPackageDependencies: valueOperation(
       "ordinary-package-query-dependencies",
@@ -1469,6 +1490,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryLibraryApi: bind(
         engineWorkerOrdinaryOperations.package.queryLibraryApi,
+      ),
+      queryLibraries: bind(
+        engineWorkerOrdinaryOperations.package.queryLibraries,
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,

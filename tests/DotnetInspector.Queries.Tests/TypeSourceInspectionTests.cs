@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 
 using DotnetInspector.Fixtures;
@@ -15,6 +16,1027 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
+    // PR-fast: a prompt PDB preserves the complete serial authored-first path
+    // and does not start decompilation.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_PromptPdbPreservesAuthoredFirstPath()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1));
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection =
+                await TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        Assert.IsType<AssemblyTypeSource.Pdb>(
+            available.Source);
+        Assert.Equal(
+            new TypeSourceLatencyHedgeEvidence(
+                PdbReadyBeforeDecompilation:
+                    true,
+                DecompilationStarted: false,
+                DecompilationUsedPdb: false,
+                TypeSourceLatencyHedgeSelection
+                    .AuthoredBeforeDecompilation),
+            available.LatencyHedgeEvidence);
+        Assert.Single(host.SourceRequests);
+    }
+
+    // PR-fast: a prompt PDB keeps authored settlement serial even after the
+    // PDB preference window would have elapsed.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_PromptPdbDoesNotHedgeAuthoredSource()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        var sourceEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        var sourceRelease =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1),
+            beforeSourceResponse:
+                async cancellationToken =>
+                {
+                    sourceEntered.TrySetResult();
+                    await sourceRelease.Task
+                        .WaitAsync(cancellationToken);
+                });
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
+            operation =
+                TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+        await sourceEntered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        time.Advance(
+            TimeSpan.FromSeconds(10));
+        await Task.Yield();
+        Assert.False(operation.IsCompleted);
+        sourceRelease.TrySetResult();
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection = await operation;
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        Assert.IsType<AssemblyTypeSource.Pdb>(
+            available.Source);
+        TypeSourceLatencyHedgeEvidence evidence =
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(
+                available.LatencyHedgeEvidence);
+        Assert.False(evidence.DecompilationStarted);
+        Assert.Equal(
+            TypeSourceLatencyHedgeSelection
+                .AuthoredBeforeDecompilation,
+            evidence.Selection);
+    }
+
+    // PR-fast: prompt PDB unavailability starts the ordinary no-PDB
+    // decompiler fallback without waiting for the preference window.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_PromptPdbUnavailableStartsDecompiler()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithoutPdb();
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection =
+                await TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        var source =
+            Assert.IsType<
+                AssemblyTypeSource.Decompiled>(
+                    available.Source);
+        Assert.Equal(
+            PdbTypeSourceOutcome
+                .PortablePdbUnavailable,
+            source.PdbAttempt.Outcome);
+        Assert.Equal(
+            TypeSourceLatencyHedgeSelection
+                .DecompiledAfterPdbUnavailable,
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(
+                available.LatencyHedgeEvidence).Selection);
+    }
+
+    // PR-fast: expiry of the PDB-only window publishes available no-PDB
+    // decompilation without adding an authored-source grace period.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_PdbStallPublishesNoPdbDecompilation()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        var symbolEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        var symbolRelease =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        var symbolCancelled =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1),
+            beforeSymbolResponse:
+                async cancellationToken =>
+                {
+                    symbolEntered.TrySetResult();
+                    try
+                    {
+                        await symbolRelease.Task
+                            .WaitAsync(cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        symbolCancelled.TrySetResult();
+                        throw;
+                    }
+                });
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
+            operation =
+                TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+        await symbolEntered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        await time.WaitForTimerAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        time.Advance(
+            TimeSpan.FromSeconds(1));
+        await symbolCancelled.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection = await operation;
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        var source =
+            Assert.IsType<
+                AssemblyTypeSource.Decompiled>(
+                    available.Source);
+        Assert.False(
+            source.Decompilation.PdbSupplied);
+        Assert.Equal(
+            PdbTypeSourceOutcome
+                .PortablePdbPreferenceWindowElapsed,
+            source.PdbAttempt.Outcome);
+        Assert.Equal(
+            new TypeSourceLatencyHedgeEvidence(
+                PdbReadyBeforeDecompilation:
+                    false,
+                DecompilationStarted: true,
+                DecompilationUsedPdb: false,
+                TypeSourceLatencyHedgeSelection
+                    .DecompiledAfterPdbPreferenceWindow),
+            available.LatencyHedgeEvidence);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    // PR-fast: unavailable no-PDB decompilation cannot truncate the only
+    // remaining late-PDB authored path.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_UnavailableDecompilationPreservesLateAuthored()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        var symbolEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        var symbolRelease =
+            new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1),
+            maxDecompilerBodyProjections: 0,
+            beforeSymbolResponse:
+                async cancellationToken =>
+                {
+                    symbolEntered.TrySetResult();
+                    await symbolRelease.Task
+                        .WaitAsync(cancellationToken);
+                });
+        var time = new ObservedFakeTimeProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Task<InspectionEnvelope<AssemblyTypeSourceEntry>>
+            operation =
+                TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        host.Context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1),
+                            time),
+                        TestContext.Current.CancellationToken);
+        await symbolEntered.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        await time.WaitForTimerAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        time.Advance(
+            TimeSpan.FromSeconds(1));
+        await Task.Yield();
+        Assert.False(operation.IsCompleted);
+        symbolRelease.TrySetResult();
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection = await operation;
+
+        var available =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Available>(
+                    inspection.Content);
+        Assert.IsType<AssemblyTypeSource.Pdb>(
+            available.Source);
+        Assert.Equal(
+            new TypeSourceLatencyHedgeEvidence(
+                PdbReadyBeforeDecompilation:
+                    false,
+                DecompilationStarted: true,
+                DecompilationUsedPdb: false,
+                TypeSourceLatencyHedgeSelection
+                    .AuthoredAfterDecompilation),
+            available.LatencyHedgeEvidence);
+        Assert.Single(host.SourceRequests);
+    }
+
+    // PR-fast: sequential authored and decompilation admissions retain both
+    // terminal results when their distinct Library limits reject the assembly.
+    [Fact]
+    public async Task
+        TypeSourcePdbLatencyHedge_DualLibraryFailuresRemainDistinct()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourcePairBytes(
+                FixtureCatalog.SourceDiffV1));
+        SourceHouseLimits defaults =
+            host.Context.TypeSourceLimits;
+        var context =
+            new AssemblyContextSourceQueryContext(
+                host.Context.SymbolClient,
+                host.Context.PdbStore,
+                host.Context
+                    .PackageSourceAuthorization,
+                host.Context.SourceFetch)
+            {
+                TypeSourceLimits = new(
+                    1,
+                    1,
+                    defaults.TargetBounds,
+                    defaults.SourceLinkReadLimits,
+                    defaults.MaximumDocuments,
+                    defaults.MaximumTargetMappings,
+                    defaults.MaximumCandidateAttempts,
+                    defaults.MaximumSourceBytes,
+                    defaults
+                        .MaximumSourceTextCharacters),
+                TypeDecompilationLimits = new(
+                    2,
+                    2,
+                    defaults.TargetBounds,
+                    defaults.SourceLinkReadLimits),
+            };
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeSourceEntry>
+            inspection =
+                await TypeSourceInspection
+                    .ExecuteWithPdbLatencyHedgeAsync(
+                        group,
+                        assembly.Participant,
+                        assembly.TypeRequest("Counter"),
+                        context,
+                        new TypeSourcePdbLatencyHedge(
+                            TimeSpan.FromSeconds(1)),
+                        TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                AssemblyTypeSourceEntry.Unavailable>(
+                    inspection.Content);
+        TypeSourceLatencyHedgeEvidence evidence =
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(
+                unavailable.LatencyHedgeEvidence);
+        var authored =
+            Assert.IsType<
+                AssemblyContextLibraryAdapterResult
+                    .Incomplete>(
+                        evidence.AuthoredLibraryFailure);
+        var decompilation =
+            Assert.IsType<
+                AssemblyContextLibraryAdapterResult
+                    .Incomplete>(
+                        evidence
+                            .DecompilationLibraryFailure);
+        Assert.Equal(
+            1,
+            authored.MaxCapturedImageBytes);
+        Assert.Equal(
+            2,
+            decompilation.MaxCapturedImageBytes);
+        Assert.Same(
+            decompilation,
+            unavailable.LibraryFailure);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    sealed class ObservedFakeTimeProvider : TimeProvider
+    {
+        readonly object _gate = new();
+        readonly List<ManualTimer> _active = [];
+        readonly Dictionary<
+            TimeSpan,
+            TaskCompletionSource> _timers = [];
+        DateTimeOffset _utcNow =
+            DateTimeOffset.UnixEpoch;
+        long _timestamp;
+
+        public override DateTimeOffset GetUtcNow() =>
+            _utcNow;
+
+        public override long TimestampFrequency =>
+            TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() =>
+            _timestamp;
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            var timer = new ManualTimer(
+                this,
+                callback,
+                state);
+            lock (_gate)
+            {
+                timer.ChangeCore(
+                    dueTime,
+                    period,
+                    _utcNow);
+                _active.Add(timer);
+                if (_timers.TryGetValue(
+                        dueTime,
+                        out TaskCompletionSource? created))
+                {
+                    created.TrySetResult();
+                }
+                else
+                {
+                    _timers.Add(
+                        dueTime,
+                        CompletedSignal());
+                }
+            }
+
+            return timer;
+        }
+
+        internal void Advance(TimeSpan delta)
+        {
+            List<(TimerCallback Callback, object? State)>
+                callbacks = [];
+            lock (_gate)
+            {
+                _utcNow += delta;
+                _timestamp += delta.Ticks;
+                foreach (ManualTimer timer in _active)
+                {
+                    if (timer.TryTakeCallback(
+                            _utcNow,
+                            out var callback))
+                    {
+                        callbacks.Add(callback);
+                    }
+                }
+            }
+
+            foreach (var callback in callbacks)
+            {
+                callback.Callback(
+                    callback.State);
+            }
+        }
+
+        internal Task WaitForTimerAsync(
+            TimeSpan dueTime,
+            CancellationToken cancellationToken)
+        {
+            TaskCompletionSource signal;
+            lock (_timers)
+            {
+                if (_timers.TryGetValue(
+                        dueTime,
+                        out TaskCompletionSource? existing))
+                {
+                    return existing.Task;
+                }
+
+                signal = new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+                _timers.Add(
+                    dueTime,
+                    signal);
+            }
+
+            return signal.Task.WaitAsync(
+                cancellationToken);
+        }
+
+        sealed class ManualTimer(
+            ObservedFakeTimeProvider owner,
+            TimerCallback callback,
+            object? state) : ITimer
+        {
+            DateTimeOffset _dueAt;
+            TimeSpan _period;
+            bool _enabled;
+            bool _disposed;
+
+            public bool Change(
+                TimeSpan dueTime,
+                TimeSpan period)
+            {
+                lock (owner._gate)
+                {
+                    if (_disposed)
+                        return false;
+
+                    ChangeCore(
+                        dueTime,
+                        period,
+                        owner._utcNow);
+                    return true;
+                }
+            }
+
+            internal void ChangeCore(
+                TimeSpan dueTime,
+                TimeSpan period,
+                DateTimeOffset now)
+            {
+                _enabled =
+                    dueTime != Timeout.InfiniteTimeSpan;
+                _dueAt =
+                    _enabled
+                        ? now + dueTime
+                        : DateTimeOffset.MaxValue;
+                _period = period;
+            }
+
+            internal bool TryTakeCallback(
+                DateTimeOffset now,
+                out (TimerCallback Callback, object? State)
+                    invocation)
+            {
+                if (_disposed
+                    || !_enabled
+                    || _dueAt > now)
+                {
+                    invocation = default;
+                    return false;
+                }
+
+                invocation = (callback, state);
+                if (_period == Timeout.InfiniteTimeSpan)
+                {
+                    _enabled = false;
+                }
+                else
+                {
+                    _dueAt = now + _period;
+                }
+
+                return true;
+            }
+
+            public void Dispose()
+            {
+                lock (owner._gate)
+                {
+                    _disposed = true;
+                    _enabled = false;
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        static TaskCompletionSource CompletedSignal()
+        {
+            var signal = new TaskCompletionSource(
+                TaskCreationOptions
+                    .RunContinuationsAsynchronously);
+            signal.SetResult();
+            return signal;
+        }
+    }
+
+    // PR-fast: the completed decompiled-only facade retains exact House evidence.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        TypeDecompilationInspection_PathlessTargetUsesOnlySuppliedEvidence(
+            bool supplyPdb)
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.DecompilerUnsafeLegacy);
+        AssemblyTypeSourceRequest request =
+            assembly.TypeRequest(
+                "SelectedAutoPropertySamples");
+        AssemblyContextLibraryPortablePdb? portablePdb =
+            supplyPdb
+                ? new(
+                    ImmutableArray.CreateRange(
+                        File.ReadAllBytes(
+                            assembly.PdbPath)),
+                    new AssemblySourcePdbProvenance(
+                        assembly.Assembly.Registration,
+                        Identity: null,
+                        Location: assembly.PdbPath,
+                        Path: assembly.PdbPath,
+                        SymbolServer: null))
+                : null;
+        using var host = QueryHost.WithoutPdb();
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection;
+        await using (var workspace =
+            new InspectionWorkspace())
+        {
+            using AssemblyContextGroup group =
+                workspace.CreateAssemblyContextGroup(
+                    [assembly.Participant]);
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                    group,
+                    assembly.Participant,
+                    request,
+                    host.Context,
+                    portablePdb,
+                    TestContext.Current.CancellationToken);
+        }
+
+        var settled =
+            Assert.IsType<
+                AssemblyTypeDecompilationEntry.Settled>(
+                    inspection.Content);
+        Assert.Equal(
+            CSharpDecompilationStatus.Available,
+            settled.Attempt.Status);
+        Assert.Contains(
+            "class SelectedAutoPropertySamples",
+            settled.Attempt.Text);
+        Assert.Equal(
+            supplyPdb,
+            settled.Attempt.PdbSupplied);
+        var house =
+            Assert.IsType<
+                SourceHouseDecompilationOutcome.Completed>(
+                    settled.HouseOutcome);
+        Assert.Same(
+            settled.Attempt,
+            house.Attempt);
+        Assert.Equal(
+            request.Type,
+            Assert.IsType<SourceHouseTarget.TypeTarget>(
+                house.Request.Target)
+                .Type);
+        Assert.Equal(
+            supplyPdb
+                ? SourceHousePdbContributionKind.SuppliedCompanion
+                : SourceHousePdbContributionKind.Unavailable,
+            house.PdbContribution.Kind);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            house.LeaseSettlement.Consumer);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(
+            "type-decompilation/share",
+            Assert.IsType<InspectionShare.NonProjectable>(
+                inspection.Share)
+                .Path);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilationInspection_IgnoresFilteredRequestModelMembers()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture:
+                    FixtureCatalog.DecompilerUnsafeLegacy);
+        ApiType selected =
+            assembly.TypeTarget(
+                "SelectedAutoPropertySamples");
+        selected.Members =
+        [
+            Assert.Single(
+                selected.Members,
+                member => member.Name == "Count"),
+        ];
+        AssemblyTypeSourceRequest request =
+            AssemblyTypeSourceRequest.From(selected);
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                    group,
+                    assembly.Participant,
+                    request,
+                    host.Context,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+        var settled =
+            Assert.IsType<
+                AssemblyTypeDecompilationEntry.Settled>(
+                    inspection.Content);
+        Assert.Equal(
+            CSharpDecompilationStatus.Available,
+            settled.Attempt.Status);
+        Assert.Contains(
+            "public int Count { get; }",
+            settled.Attempt.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SharedCount",
+            settled.Attempt.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            request.Type,
+            Assert.IsType<SourceHouseTarget.TypeTarget>(
+                settled.HouseOutcome.Request.Target)
+                .Type);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilationInspection_TerminalLibraryAdmissionRetainsEvidence()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb();
+        SourceHouseDecompilationLimits defaults =
+            host.Context.TypeDecompilationLimits;
+        var context =
+            new AssemblyContextSourceQueryContext(
+                host.Context.SymbolClient,
+                host.Context.PdbStore,
+                host.Context.PackageSourceAuthorization,
+                host.Context.SourceFetch)
+            {
+                TypeDecompilationLimits = new(
+                    maximumAssemblyBytes: 1,
+                    maximumPortablePdbBytes: 1,
+                    defaults.TargetBounds,
+                    defaults.EmbeddedPdbReadLimits),
+            };
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    context,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                AssemblyTypeDecompilationEntry.Unavailable>(
+                    inspection.Content);
+        Assert.Equal(
+            AssemblySourceFailureKind.InspectionFailed,
+            unavailable.Failure.Kind);
+        Assert.IsType<
+            AssemblyContextLibraryAdapterResult.Incomplete>(
+                unavailable.LibraryFailure);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilationInspection_InvalidSuppliedPdbIsTerminal()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb();
+        var portablePdb =
+            new AssemblyContextLibraryPortablePdb(
+                [1, 2, 3, 4],
+                new AssemblySourcePdbProvenance(
+                    assembly.Assembly.Registration,
+                    Identity: null,
+                    Location: "invalid.pdb",
+                    Path: null,
+                    SymbolServer: null));
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    portablePdb,
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                AssemblyTypeDecompilationEntry.Unavailable>(
+                    inspection.Content);
+        Assert.Equal(
+            AssemblySourceFailureKind.InspectionFailed,
+            unavailable.Failure.Kind);
+        Assert.IsType<
+            AssemblyContextLibraryAdapterResult.PortablePdbRejected>(
+                unavailable.LibraryFailure);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilationInspection_PreservesIncompleteNativeAttempt()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb();
+        var context =
+            new AssemblyContextSourceQueryContext(
+                host.Context.SymbolClient,
+                host.Context.PdbStore,
+                host.Context.PackageSourceAuthorization,
+                host.Context.SourceFetch)
+            {
+                MaxDecompilerBodyProjections = 0,
+            };
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    context,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+        var settled =
+            Assert.IsType<
+                AssemblyTypeDecompilationEntry.Settled>(
+                    inspection.Content);
+        Assert.Equal(
+            CSharpDecompilationStatus.Incomplete,
+            settled.Attempt.Status);
+        var house =
+            Assert.IsType<
+                SourceHouseDecompilationOutcome.Completed>(
+                    settled.HouseOutcome);
+        Assert.Same(
+            settled.Attempt,
+            house.Attempt);
+        Assert.Equal(
+            0,
+            house.Work.BodyProjectionsAttempted);
+        Assert.Equal(
+            SourceHouseLibraryLeaseConsumer.SourceHouse,
+            house.LeaseSettlement.Consumer);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilationInspection_RejectsAuthoredDocumentSelector()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => TypeSourceInspection.DecompileAsync(
+                group,
+                assembly.Participant,
+                AssemblyTypeSourceRequest.AuthoredDocument(
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name)
+                        .Type,
+                    "SourceFixture.cs"),
+                host.Context,
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+    }
+
+    [Fact]
+    public async Task
+        TypeDecompilationInspection_BindingChangePreventsPublication()
+    {
+        byte[] bytes =
+            WithoutDebugDirectory(
+                File.ReadAllBytes(
+                    typeof(AssemblyContextSourceQueryTests)
+                        .Assembly.Location));
+        TestAssembly assembly =
+            TestAssembly.Create(bytes);
+        assembly.Policy.BeforeSelection =
+            assembly.Policy.ChangeVersion;
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyTypeDecompilationEntry>
+            inspection =
+                await TypeSourceInspection.DecompileAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<
+                AssemblyTypeDecompilationEntry.Unavailable>(
+                    inspection.Content);
+        Assert.IsType<InvalidOperationException>(
+            unavailable.Failure.Error);
+        Assert.True(
+            assembly.Policy.SelectionCount > 0);
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+    }
+
     // PR-fast: bounded single-type requests over this repository's two-document type.
     [Theory]
     [InlineData("SourceLinkService.cs", PdbTypeSourceUnitScope.PrimaryTypeDocument)]

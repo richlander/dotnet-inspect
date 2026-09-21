@@ -74,11 +74,42 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     }
 
     [Theory]
+    [InlineData("InitializedFieldGetter", true)]
+    [InlineData("CalculatedFieldGetter", false)]
+    public async Task MemberSourceExport_PreservesProvenInitializerContext(string typeName, bool initialized)
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        BrowserSourceComparisonRequest request = await pair.Request(typeName, "Count");
+        string json = await SourceExports.QueryMemberSource(
+            request.PackageId, request.BeforeVersion, request.Framework, request.Assembly,
+            request.TypeIdentity, request.MemberName, request.SelectorKey,
+            request.MetadataToken, "[]");
+        using var document = JsonDocument.Parse(json);
+        var source = document.RootElement.GetProperty("source");
+        Assert.Equal("decompiled", source.GetProperty("provider").GetString());
+        string text = source.GetProperty("text").GetString()!;
+        Assert.Contains("field + 1", text);
+        if (initialized)
+        {
+            Assert.Contains("readonly struct InitializedFieldGetter(int value)", text);
+            Assert.Contains("} = value;", text);
+        }
+        else
+        {
+            Assert.DoesNotContain("struct ", text);
+            Assert.DoesNotContain("} = ", text);
+        }
+    }
+
+    [Theory]
     [InlineData("authored")]
     [InlineData("missing")]
     [InlineData("deadline")]
-    public async Task TypeSourceEnvelope_PreservesBrowserPreferenceAndFallback(string scenario)
+    public async Task TypeSourcePdbHedgeEnvelope_PreservesBrowserPreferenceAndFallback(string scenario)
     {
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            SourceExports.BrowserTypeSourcePdbLatencyHedge.PortablePdbPreferenceWindow);
         await using Pair pair = await Pair.OpenAsync();
         using var host = new SourcePairHost(
             scenario == "missing" ? null : FixtureSource(FixtureCatalog.InspectWebSourceComparisonPair.Old),
@@ -98,17 +129,25 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
 
         var inspection = await resolved.Scope.UseImplementationParticipant(
             resolved.ImplementationParticipant,
-            (group, participant) => TypeSourceInspection.ExecuteAsync(
+            (group, participant) => TypeSourceInspection.ExecuteWithPdbLatencyHedgeAsync(
                 group, participant, AssemblyTypeSourceRequest.From(resolved.Member.Type),
-                context, TestContext.Current.CancellationToken));
+                context, SourceExports.BrowserTypeSourcePdbLatencyHedge,
+                TestContext.Current.CancellationToken));
         var available = Assert.IsType<AssemblyTypeSourceEntry.Available>(inspection.Content);
+        TypeSourceLatencyHedgeEvidence evidence =
+            Assert.IsType<TypeSourceLatencyHedgeEvidence>(available.LatencyHedgeEvidence);
         BrowserSource source = SourceExports.Adapt(inspection.Content, resolved.ImplementationParticipant);
 
         Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
+        Assert.True(evidence.PdbReadyBeforeDecompilation);
         Assert.Equal(scenario == "authored" ? "pdb" : "decompiled", source.Provider);
         Assert.Contains("Counter", source.Text);
         if (scenario == "authored")
         {
+            Assert.Equal(
+                TypeSourceLatencyHedgeSelection.AuthoredBeforeDecompilation,
+                evidence.Selection);
+            Assert.False(evidence.DecompilationStarted);
             SourceHouseOutcome.Available outcome = Assert.IsType<SourceHouseOutcome.Available>(
                 available.HouseOutcome);
             Assert.Equal(SourceHouseSourceUnitScope.PrimaryTypeDocument,
@@ -118,6 +157,11 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         }
         else
         {
+            Assert.True(evidence.DecompilationStarted);
+            Assert.True(evidence.DecompilationUsedPdb);
+            Assert.Equal(
+                TypeSourceLatencyHedgeSelection.DecompiledAfterAuthoredUnavailable,
+                evidence.Selection);
             Assert.True(Assert.IsType<AssemblyTypeSource.Decompiled>(available.Source)
                 .Decompilation.PdbSupplied);
             var decompilationHouse =

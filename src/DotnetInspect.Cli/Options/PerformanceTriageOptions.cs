@@ -374,17 +374,10 @@ public sealed record PerformanceTriageOptions
         out RowQueryOperator @operator)
     {
         ArgumentNullException.ThrowIfNull(field);
-        @operator = syntax switch
-        {
-            RowPredicateOperator.Equals => RowQueryOperator.Equals,
-            RowPredicateOperator.NotEquals => RowQueryOperator.NotEquals,
-            RowPredicateOperator.GreaterOrEqual =>
-                RowQueryOperator.GreaterOrEqual,
-            RowPredicateOperator.LessOrEqual =>
-                RowQueryOperator.LessOrEqual,
-            _ => throw new InvalidOperationException(
-                $"Unknown row predicate operator '{syntax}'."),
-        };
+        if (!RowPredicateSyntaxParser.TryRowOperator(
+                syntax,
+                out @operator))
+            return false;
         return field.Operators.Contains(@operator);
     }
 
@@ -393,7 +386,8 @@ public sealed record PerformanceTriageOptions
     {
         string[] comparisons =
         [
-            .. operators.Select(RowQueryKeyProjection.Comparison),
+            .. operators.Select(
+                RowPredicateSyntaxParser.Comparison),
         ];
         return comparisons.Length switch
         {

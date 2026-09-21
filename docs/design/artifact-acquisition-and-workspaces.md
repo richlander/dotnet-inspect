@@ -3979,11 +3979,14 @@ or a second query-access protocol.
 
 ##### Owner and exact claim
 
-Artifact Acquisition owns one host-local active-realization authority. It
-associates zero or one active `InspectionWorkspace` with the exact
-resource-free `WorkspacePlan` that constructed it, admits operations to that
-realization, cuts over to one ready replacement, and drains predecessor
-authority through ordinary awaited Workspace close.
+Artifact Acquisition owns one optional host-local active-realization authority
+for a replacement-capable host. It associates zero or one active
+`InspectionWorkspace` with the exact resource-free `WorkspacePlan` that
+constructed it, admits operations to that realization, cuts over to one ready
+replacement, and drains predecessor authority through ordinary awaited
+Workspace close. It layers replacement over the direct owner-backed operation
+pipeline below; it is not the universal entry path for a host that owns and
+awaits one Workspace operation before close.
 
 Definitions still owns portable requests and lowering. Workspace Scope still
 owns logical membership and its revisions. Retained hosts still own definition
@@ -4003,16 +4006,20 @@ One admitted operation retains this resource-free definition snapshot:
 ```text
 WorkspaceDefinitionSnapshot
   Workspace               exact InspectionWorkspaceIdentity
-  Identity                fresh opaque snapshot identity
   Registrations           exact WorkspaceRegistrationRevision
   Scope                   exact WorkspaceScopeRevision
 ```
 
-The snapshot identity is stable while those exact owner-issued revisions
-remain current and advances when either revision advances. Capturing the pair
-occurs under the Workspace runtime gate. The adjacent Scope snapshot separately
-supplies its exact physical-composition observation; neither definition
-identity nor plan equality authorizes Artifact access.
+The association is the exact Workspace, registration revision, and Scope
+revision tuple. Capturing the tuple occurs under the Workspace runtime gate.
+An immutable snapshot object may retain and reuse that tuple, but no additional
+identity is required to distinguish it. The adjacent Scope snapshot separately
+supplies its exact physical-composition observation; neither the definition
+association nor plan equality authorizes Artifact access.
+
+`WorkspaceDefinitionSnapshot` is identified by its exact Workspace,
+registration revision, and Scope revision tuple. It exposes no additional
+snapshot identity.
 
 The live `WorkspaceRealizationOperationLease` joins the selected realization,
 that definition snapshot, and the corresponding Scope observation. The lease
@@ -4039,6 +4046,11 @@ Candidate completion closes new construction admission, waits for every
 already-admitted construction lease to release, and then captures one complete
 definition snapshot. A Scope snapshot that still reports unfinished
 preparation is not ready for publication.
+
+A candidate is identified by its exact coordinator-owned object and realization
+state; it exposes no second candidate identity. Concurrent candidate starts use
+one coordinator-private sequencing token that never enters a candidate,
+result, settlement, or consumer contract.
 
 A newer replacement attempt supersedes the older unpublished candidate,
 closes its construction admission, lets already-admitted construction finish,
@@ -4075,20 +4087,37 @@ The drainage records are settlement evidence, not a live-Workspace registry.
 There is no rollback or switch-back authority. Reusing an earlier retained
 definition constructs a fresh realization.
 
-##### Shared immutable resources
+##### Cross-Workspace composition and sharing
 
-Candidate, active, and draining realizations may hold independently releasable
-lower-owner references to the same immutable package payload, content
-generation, source cache entry, or validated derivation. Each realization
-still owns distinct Roots, occurrence identities, binding contexts, query
-leases, reservations, and operation authority.
+Workspace composition distinguishes logical authority from lower-owner
+physical reuse. “Shared” never means that one Workspace grants another its
+resolution state or live access:
 
-Closing a predecessor releases only its ownership. It cannot invalidate a
-successor's reference, relabel one content generation as another, or transfer a
-Root or live lease to the successor. Coordinates and equal definitions never
-prove shared content identity. Deduplication, cache validity, aggregate
-reference counting, and final reclamation remain with their existing lower
-owners.
+| Surface | Cross-Workspace contract | Availability |
+| --- | --- | --- |
+| Roots, occurrence identities, registrations, binding contexts, query leases, reservations, and operation authority | Each realization owns distinct values. They are never transferred, relabeled, or inferred from equal coordinates or definitions. | Structurally isolated. |
+| Resource-free observations and detached evidence | An owner-defined operation may accept them as explicit inputs. They carry association or outcome evidence, never an opener or live authority. | Structurally composable after successful production; production itself may fail. |
+| Retained immutable package-content snapshots, source-cache entries, and validated derivations | Realizations may hold independently releasable lower-owner references to the same snapshot or backing content when that owner validates identity, authorization, freshness, and lifetime. | Optional reuse, never promised. |
+| Persistent-cache evidence | A cache-category owner may admit a validated result under its complete semantic key and current authorization contract. A hit never supplies Workspace identity or operation authority. | Optional reuse; a miss or invalid entry takes the ordinary typed path. |
+
+A focused owner-defined operation may take a caller-selected source Workspace
+and destination Workspace as explicit arguments. It accesses the named source
+only under the source Workspace's authority and, while that access remains
+valid, accesses the named destination only under the destination Workspace's
+authority. These are operation-scoped accesses to the two supplied endpoints,
+not a facility for discovering or borrowing from a set of active Workspaces.
+Either access may fail visibly, and accessed content remains inside both
+owners' lifetimes. The operation may compare the inputs or detach resource-free
+evidence; it does not install one Workspace's Root, registration, binding
+context, resolution index, lease, or authority in the other.
+
+Candidate, active, and draining realizations may therefore reuse lower-owner
+immutable backing without depending on that reuse. Closing a predecessor
+releases only its ownership. It cannot invalidate a successor's reference,
+relabel one retained snapshot as another, or transfer a Root or live lease to
+the successor. Coordinates and equal definitions never prove shared content
+identity. Deduplication, cache validity, aggregate reference counting, and
+final reclamation remain with their existing lower owners.
 
 ##### Settlement and host progress
 
@@ -4109,16 +4138,19 @@ leases and lower-owner close reaches a terminal outcome.
 
 Repeated cutover can temporarily retain several draining predecessors.
 Aggregate replacement admission and memory backpressure are host policy; the
-Browser owner must define a bound before production adoption. The CLI normally
-constructs one realization, admits its operation, and closes the coordinator at
-invocation completion.
+Browser owner must define a bound before production adoption. A one-shot CLI
+or Sections operation instead owns one Workspace directly when its complete
+awaited work is lexical, or uses an independent operation scope when work can
+overlap close. It does not create candidate, cutover, predecessor, or aggregate
+settlement state merely to execute one realization.
 
-The implementation is `WorkspaceRealizationCoordinator`,
+The implementation is `WorkspaceReplacementCoordinator`,
 `WorkspaceRealizationConstructionLease`,
 `WorkspaceRealizationOperationLease`, and `WorkspaceDefinitionSnapshot`.
-Existing direct Workspace operations remain compatibility surfaces; only
-adopters that enter construction and active operations through the coordinator
-satisfy the active-realization authority claim.
+These types implement the replacement-capable path. Direct owner-backed
+operations satisfy the universal Workspace claim below without a coordinator;
+only replacement-capable adopters require the active-realization authority
+claim.
 
 The focused model under
 [`docs/design/models/workspace-realization-cutover/`](models/workspace-realization-cutover/)
@@ -4129,6 +4161,7 @@ single-thread progress.
 
 The corresponding Release gates are:
 
+- `ReplacementSurface_OmitsRedundantIdentityTypes`;
 - `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
 - `CandidateFailure_PreservesActiveRealization`;
 - `CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization`;
@@ -4230,6 +4263,37 @@ package acquisition is not yet a supported CLI input.
 
 ### Workspace composition and query execution
 
+The universal Workspace pipeline follows conventional structured ownership:
+the caller constructs one fresh owner, holds every live dependency for the
+complete operation that consumes it, posts detached results or typed failure,
+and observes awaited cleanup. Additional operation admission is required only
+when work can overlap owner close or active-realization replacement.
+
+| Stage | Workspace contract |
+| --- | --- |
+| Acquire | Consume one immutable resource-free `WorkspacePlan` and explicit lower-owner acquisition inputs. No prior live Workspace or hidden observation participates. |
+| Construct | Create one fresh `InspectionWorkspace`. It owns aggregate physical composition and lifetime; Scope and lower resource owners retain their own authority. |
+| Access | Use direct owner access for complete lexical awaited work, or one exact operation scope when work may overlap close or replacement. |
+| Operate | Consume only the exact owner-issued observations and lower-owner authority the query needs. Definition or Scope state is not a universal prerequisite. |
+| Post | Return detached immutable facts, owner-issued correspondence evidence, or typed failure. No Workspace, group, session, lease, reader, callback, opener, or mutable policy escapes. |
+| Retire | Await `InspectionWorkspace.CloseAsync()`, inspect its complete report, and surface unsuccessful cleanup. |
+
+For example, a one-shot CLI inspection of
+`System.Text.Json@9.0.4` constructs one Workspace from its plan, completes the
+requested operation, detaches the result, and observes one close report. It
+does not need an unpublished candidate, active pointer, cutover, predecessor,
+or settlement collection. The neighboring Browser case that constructs B
+while A has admitted work still requires the replacement-capable protocol
+above; direct ownership does not weaken that boundary.
+
+The Release gate
+`DirectOneShotOperation_PostsDetachedResultAndObservesCloseReport` exercises
+the direct pipeline without a realization coordinator.
+`WorkspaceDispose_AwaitsSharedReleaseAuthorityAndRetainsFailures` and
+`WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance` preserve
+the required cleanup observation. The replacement-specific gates above remain
+unchanged.
+
 The Workspace owns one or more artifact set sessions and one or more assembly
 context groups. Its
 [logical scope owner](workspace-scope-and-expansion.md) decides which exact
@@ -4261,6 +4325,53 @@ workspace
 
 The query owns session use. A host or presentation layer cannot open raw
 readers and invoke producers around the query registry.
+
+Workspace also accepts an already materialized, session-backed Library batch
+without reconstructing assembly-context participants. The neutral admission
+operation consumes one exact `ArtifactSetSession` and a non-empty ordered set
+of `LibraryContentOwner` values whose content all belongs to that session
+generation. It validates the caller's exact current
+`WorkspaceRegistrationRevision` and commits the whole batch under the same
+Workspace gate that serializes registration replacement and close. Argument
+validation and duplicate submission of a session already owned by the
+receiving Workspace occur before ownership transfer. Acceptance transfers the
+supplied authorities to that Workspace; callers must not resubmit them to
+another Workspace. Once the operation returns an outcome, Workspace has either
+accepted every supplied authority or settled every Library owner and then the
+Artifact session.
+
+Acceptance issues one `WorkspaceLibraryAdmissionReceipt` and one distinct
+`WorkspaceLibraryOccurrence` per submitted Library. These values record
+physical Workspace admission only. They do not add logical scope membership,
+choose order or replacement, identify an Ecosystem contribution, or change
+Navigation. Repeated admission may therefore issue distinct physical
+occurrences even when source coordinates compare equal. The accepted
+registration revision is historical correspondence for the commit; a later
+registration replacement does not revoke direct use of the admitted Library.
+
+The Workspace issues a `LibraryOperationLease` only for an exact occurrence it
+admitted and only while it remains open. Issuance and close are serialized:
+leases issued before close drain normally, while closing rejects new issuance.
+Workspace close requests retirement of every Library owner in an admission
+before retiring that admission's Artifact session, attempts every owner even
+when another retirement fails, and retains owner and Artifact cleanup failures
+in the terminal close report. A foreign or stale registration revision, or a
+closing Workspace, rejects the whole batch and applies the same ordered
+settlement. Cleanup failure is a typed failed outcome rather than a
+success-shaped rejection.
+
+`WorkspaceAdmission_OwnsOperationsAndRetiresOwnersBeforeArtifacts`,
+`WorkspaceAdmission_RejectsStaleRevisionAndSettlesTransferredResources`,
+`WorkspaceAdmission_RejectsForeignRevisionAndSettlesTransferredResources`, and
+`WorkspaceAdmission_RegistrationChangesDoNotRevokeAcceptedOccurrence` gate
+the accepted and clean-rejection paths through the public API.
+`WorkspaceAdmission_SameWorkspaceDuplicateDoesNotRetireAcceptedResources`
+gates the pre-transfer duplicate-session boundary.
+`WorkspaceAdmission_CloseRejectsNewAdmissionAndOperationIssuance` gates
+close serialization, closing and closed rejection, and rejected-batch
+settlement.
+`WorkspaceAdmission_CleanupFailureProducesTypedFailedOutcome` directly gates
+failure visibility.
 
 For an accepted analysis plan,
 [analysis universe realization](analysis-universe-realization.md) owns the

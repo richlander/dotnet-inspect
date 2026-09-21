@@ -99,6 +99,15 @@ gates duplicate coalescing before row windows/counts, root-only and explicit-emp
 Packages, display/framework preservation, JSON/JSONL shape, and absence of a
 successful prefix after a failed Add batch. Browser adoption remains unverified.
 
+Issue [#7961](https://github.com/richlander/dotnet-inspect/issues/7961)
+extends that production adoption to every remaining fresh, unpublished
+Workspace producer. Complete Restoration, exact API-coordinate matching,
+configured package search, and Package version-cell inspection now populate
+the initial empty Scope with one `AddPackages` batch. The Package version-cell
+paths retain their owner-issued realization limits. `ReplaceScope` remains an
+explicit compatibility operation for protected Navigation coordinate
+replacement; it is no longer a fresh-Workspace population path.
+
 The Release implementation gate is
 [`WorkspaceScopeTests`](../../tests/DotnetInspector.Queries.Tests/WorkspaceScopeTests.cs).
 Its boundary evidence includes:
@@ -179,7 +188,9 @@ The claim is:
 > For one exact open Workspace, construction or replacement retains one
 > complete ordered registration revision. Replacement either publishes the
 > entire validated request against the exact current revision, reports a
-> no-op, or leaves that revision unchanged.
+> no-op, or leaves that revision unchanged. Each retained Ecosystem declaration
+> has one exact Workspace-bound occurrence and one Workspace-to-Ecosystem
+> contribution relation.
 
 `WorkspaceRegistration` is a closed union of exact-library coordinates,
 package-prefix declarations, and lower ecosystem declarations. Each arm
@@ -283,6 +294,24 @@ sequence, not parallel state. A closing or closed
 Workspace instead returns `Unavailable` with its historical last revision
 and the existing Workspace lifetime failure. It does not return that revision
 as current.
+
+`EcosystemContributions` is the revision's owner-ordered sequence of exact
+Workspace-to-Ecosystem contribution relations. Each relation binds a separate
+opaque relation identity and one
+`WorkspaceEcosystemRegistrationOccurrence`, whose occurrence identity binds
+the exact Workspace and exact lower declaration object. Subject and route
+consumers use those issued values rather than the declaration ID, list
+position, or display text.
+
+Publishing a replacement preserves an Ecosystem occurrence and its contribution
+relation only when the exact declaration object remains in the new
+registration set. Reordering that declaration preserves both identities while
+changing owner order. An equal-value replacement declaration receives fresh
+identities. Removal retires the current occurrence and relation; later
+re-adding even the original declaration object issues fresh identities rather
+than reviving historical evidence. Historical revisions remain immutable.
+Constructing two Workspaces from one reusable plan issues independent live
+occurrences and relations for each Workspace.
 
 `ReplaceRegistrations(expectedRevision, registrations)` is a synchronous,
 in-memory operation. It shares the existing Workspace
@@ -485,6 +514,14 @@ factory, CLI flag or browser behavior is introduced here.
 Platform and `Microsoft.Extensions.` declarations. They cover complete initial
 state, identity/equality boundaries, stale/foreign requests, close, historical
 revisions, competing replacements, and unchanged physical/Package state.
+`EcosystemOccurrenceAndContributionFollowExactDeclarationAcrossRevisions`
+gates exact Workspace/declaration binding, owner order, historical immutability,
+and identity preservation across reorder.
+`SameEcosystemIdWithNewDeclarationReplacesIssuedCorrespondence` gates fresh
+occurrence and relation issuance for equal-text replacement and
+removal/re-addition.
+`ReusedPlanIssuesWorkspaceLocalEcosystemOccurrences` gates independent live
+identities when one resource-free plan constructs multiple Workspaces.
 The plan cases also exercise non-friend construction, sharing across independent
 owners, exact revision-to-plan association, unchanged historical plans, and
 reuse after close without transferring revision authority.
@@ -575,6 +612,8 @@ It owns:
 - one independent immutable current `WorkspaceRegistrationRevision`;
 - ordered committed Package occurrences, typed Package descriptors, and their
   Workspace-bound identities;
+- ordered exact Ecosystem registration occurrences and Workspace-to-Ecosystem
+  contribution relations;
 - explicit Package addition, replacement, removal, and Clear operations;
 - complete ordered inert registration and exact-revision replacement;
 - one immutable traversal target-framework policy issued by
@@ -1181,10 +1220,18 @@ WorkspaceScopeOperation
 ```
 
 Inside a fresh unpublished Workspace, package **Open**, resolved package-set
-**Open**, and canonical restoration lower their complete explicit Package set to
-`ReplaceScope`. Workspace-editor **Add package** and resolved **Add package
-set** on the active Workspace lower to `AddPackages`. Source-selection owners
-resolve their inputs before this owner receives exact Package requests.
+**Open**, and canonical restoration lower their complete explicit Package set
+to one `AddPackages` batch. Workspace-editor **Add package** and resolved
+**Add package set** on the active Workspace use the same operation.
+Source-selection owners resolve their inputs before this owner receives exact
+Package requests.
+
+`ReplaceScope` remains in the operation vocabulary for the protected
+Navigation coordinate-replacement compatibility path and the not-yet-adopted
+complete Package-plus-expansion-policy operation. It does not populate a fresh
+production Workspace. Host-created successor realization is the retirement
+path tracked by
+[#6751](https://github.com/richlander/dotnet-inspect/issues/6751).
 
 ```text
 WorkspaceScopeReplacement
@@ -1196,8 +1243,9 @@ An ordinary package Open supplies an empty expansion-scope sequence and is
 therefore closed. An explicitly scope-only demo or definition action may
 supply its own complete typed expansion policy. The previous Workspace's
 expansion scopes are never inherited by omission. Canonical restoration
-supplies the complete sequences to ordinary `ReplaceScope` in the fresh
-Workspace before that Workspace becomes active.
+supplies its complete exact Package sequence to one `AddPackages` operation in
+the fresh Workspace before that Workspace becomes active; its ordinary profile
+supplies no expansion scopes.
 
 Package-set Browser adoption is not enabled by this transfer alone.
 [Static Ecosystem Packs](ecosystem-packs.md) may expose an **Add curated
@@ -1205,9 +1253,9 @@ packages** action, but selection returns only its referenced `PackageSetId`.
 Issue #5720 preserves one Package Set Registry membership authority, while
 issue #5602 owns typed source declaration and normalization, and package-source
 owners resolve exact coordinates. Only then does the front end choose
-`ReplaceScope` for Open or `AddPackages` for editor accumulation. Pack identity,
-discovery metadata, prefix actions, and scanner bindings never enter scope
-state or Artifact publication.
+`AddPackages` for either a fresh Open or editor accumulation. Pack identity,
+discovery metadata, prefix actions, and scanner bindings never enter scope state
+or Artifact publication.
 
 ### Common operation envelope
 
@@ -1778,9 +1826,9 @@ Package sets are explicit Package-request producers, not dependency-expansion
 scopes. An ecosystem-pack package-set selection returns only `PackageSetId`;
 issue #5720 and the Package Set Registry own membership, #5602 owns typed
 declaration and normalization, and source owners resolve every member before
-the front end lowers exact requests to `ReplaceScope` or `AddPackages`. This
-design defines no pack-to-scope identity, floating-descriptor-to-exact-
-dependency membership relation, or implicit expansion policy.
+the front end lowers exact requests to `AddPackages`. This design defines no
+pack-to-scope identity, floating-descriptor-to-exact-dependency membership
+relation, or implicit expansion policy.
 
 Package-prefix query remains a different operation:
 
@@ -1789,8 +1837,8 @@ Package-prefix query remains a different operation:
 - a prefix query enumerates packages matching that source-owned intent;
 - an expansion scope authorizes exact dependency candidates already carrying
   package correspondence; and
-- opening or adding selected query results is an explicit `ReplaceScope` or
-  `AddPackages` request.
+- opening or adding selected query results is an explicit `AddPackages`
+  request.
 
 Selecting or executing a recorded prefix action never registers a Workspace
 expansion scope. The editor may separately register a package-prefix expansion
@@ -2089,7 +2137,7 @@ action, and receipt identities.
    stateless inventory through the CLI.
 7. Complete #5720's Package Set Registry/ecosystem-pack composition and #5602's
    typed source-intent adoption, then lower selected package-set actions to
-   exact `ReplaceScope` or `AddPackages` requests. Prove the current complete
+   exact `AddPackages` requests. Prove the current complete
    `Microsoft.Extensions` membership under the 64-Package logical profile. Browser
    adoption #5576 separately owns the physical budget needed to realize that
    complete set.

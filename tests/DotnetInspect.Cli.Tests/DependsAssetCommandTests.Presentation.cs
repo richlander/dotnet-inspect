@@ -458,6 +458,39 @@ public partial class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task UnsupportedDependencyQueryOperatorFailsWithoutException()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-query-{Guid.NewGuid():N}.dll");
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "Example.Type",
+                "--library",
+                missing,
+                "--where",
+                "Source starts-with System",
+            ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "does not support 'starts-with' predicates",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Exception",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task HostileNuspecText_RemainsContained()
     {
         string path = WriteTemporaryFile(

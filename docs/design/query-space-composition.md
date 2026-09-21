@@ -10,10 +10,17 @@ the target contract agreed before the held Depends and Library Query changes in
 [#7945](https://github.com/richlander/dotnet-inspect/pull/7945), and
 [#7872](https://github.com/richlander/dotnet-inspect/pull/7872) continue.
 
-The current implementation has several prerequisites:
+The current implementation has several prerequisites and one executable row
+composition slice:
 
-- `DotnetInspector.QueryEngine` carries portable intent, operation
-  registration, row-query resolution, and semantic row selection;
+- `QuerySpace` carries portable intent, row-query resolution, semantic row
+  selection, Query Operation registration, and the immutable
+  `QuerySpaceDescriptor`, `QuerySpaceRequest`, and explicit row-intent
+  association contracts;
+- `QuerySpaceBinding` retains the executable operation route beside typed row
+  scope bindings, and each typed row binding validates that its structural
+  facets, operators, named orders, and order capabilities match one owner-issued
+  `RowQueryVocabulary<TRow>`;
 - [Query Operation Infrastructure](query-operation-infrastructure.md) derives
   effective route capabilities from executable operation registration;
 - [L2 row query and ordering](row-query-order.md) resolves typed row predicates
@@ -26,9 +33,30 @@ The current implementation has several prerequisites:
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
 
-No implementation gate yet verifies this complete design. Every target gate in
-[Required gates](#required-gates) is **unverified** until its named
-implementation slice lands and runs in Release.
+The Query Operation, Sections, and direct-consumer Release gates verify that
+descriptors
+project operation terms and work-bound dimensions from executable routes,
+project order and semantic-stage capabilities only through explicit row
+scopes, reject duplicate canonical keys, and that requests preserve explicit
+compatible row-set associations while separating operation bounds from row
+order and semantic selection. The complete-source, one-association path lowers
+one structural row intent through its typed row binding, retains the resolved
+plan beside the structural association, constructs the matching Sections
+execution request, retains the selected terminal, and executes Rows or Count
+without section-name or presentation-schema inference. A mismatched terminal
+cannot be invoked through the composed executor. The independent consumer
+exercises that path over application-owned types.
+Because the current structural descriptor cannot distinguish unqualified Top
+from explicit-ranking-only Top, a scope advertises Top only when its executable
+vocabulary supplies a default Top ranking. A future richer capability may
+represent the explicit-ranking-only form separately.
+
+Transitional Query Operation route order and stage capabilities are not
+operation-scope capabilities. Multiple row-intent associations, source
+evidence, projection stages, continuation binding, the full structural-plan
+meaning record, and the remaining gates in
+[Required gates](#required-gates) remain **unverified** until their named
+implementation slices land and run in Release.
 
 ## Owner and exact claim
 
@@ -73,14 +101,12 @@ This owner does not define:
 - `explain` resource paths, structural-discovery documents, value-vocabulary
   contents, or envelope wire-contract registration;
 - a universal executable plan shared by operation owners; or
-- the name, packaging, or publication schedule of the eventual reusable
-  library.
+- the physical package, namespace, dependency, lifetime, or extension boundary
+  owned by [QuerySpace Library Boundary](query-space-library.md).
 
-The current `DotnetInspector.QueryEngine` project is the strongest physical
-candidate for this contract, but a project boundary is not the owner. The
-eventual substrate must have a product-neutral name, remain dependency-light,
-support NativeAOT and single-threaded Browser/Wasm, and be consumable without a
-CLI dependency.
+The `QuerySpace` library now carries the portable, row, Query Operation, and
+initial structural-composition contracts without becoming their semantic
+owner.
 
 ## Product goal
 
@@ -455,13 +481,14 @@ associations, semantic stages, effects, terminal requirement, and
 source-delegation boundary for one request. It remains inspectable without
 executing that request.
 
-`-Q` may be a compact projection of the descriptor, and a future `explain`
-experience may compose it with structural discovery, value vocabulary, and
-output-contract catalogs. Those consumers must follow typed links rather than
-copying query metadata into `DiscoveryDocument`, parsing labels, or inferring
-semantics from rendered companion sections. Query Space does not own the
-`explain` command, resource-path grammar, discovery document, envelope
-registration, Content Kind, or schema generation.
+`-Q` may be a compact projection of the descriptor, and
+[Resource Explanation](resource-explanation.md) may compose it with structural
+discovery, value vocabulary, and output-contract catalogs. Those consumers
+must follow typed links rather than copying query metadata into
+`DiscoveryDocument`, parsing labels, or inferring semantics from rendered
+companion sections. Query Space does not own the `explain` command,
+resource-path grammar, discovery document, envelope registration, Content
+Kind, or schema generation.
 
 ## Terminal requirements
 
@@ -652,7 +679,9 @@ segments, but each source operation and result remains visible.
 ## Source-generation seam
 
 Source generation is optional mechanical lowering from explicit declarations.
-The handwritten declarations remain authoritative.
+The handwritten declarations remain authoritative. The
+[QuerySpace library boundary](query-space-library.md) owns the separation
+between the Roslyn-free runtime package and any generated execution witnesses.
 
 A generator may produce:
 
@@ -752,28 +781,30 @@ Implementation proceeds as focused owner adoptions:
 1. Lock this composition contract and its owner map.
 2. Extend Portable Query Intent with the explicit StartsWith, NotStartsWith,
    Contains, and NotContains identities.
-3. Have Query Operation Infrastructure introduce the host-neutral query-space
+3. Lock the QuerySpace library boundary, establish the product-neutral project,
+   and migrate the reusable contracts without changing their semantic owners.
+4. Have Query Operation Infrastructure introduce the host-neutral query-space
    request, compose the operation intent with ordered row-intent associations,
    project an operation-only query vocabulary, move existing operation-level
    result predicates, order, and selection into result row-query scopes, and
    retire its transitional `ResultPredicate` role.
-4. Preserve structural predicate and order nodes through row-query resolution
+5. Preserve structural predicate and order nodes through row-query resolution
    beside local executable bindings.
-5. Extend Source Delegation through a separate focused continuation-receipt
+6. Extend Source Delegation through a separate focused continuation-receipt
    design and implementation.
-6. Rework #7944 onto the shared `depends starts-with VALUE` operator model.
-7. Use #7945 as the focused Library Query operation adoption, then restack the
+7. Rework #7944 onto the shared `depends starts-with VALUE` operator model.
+8. Use #7945 as the focused Library Query operation adoption, then restack the
    Browser work from #7872 onto its settled query space.
-8. Add the References row space and Assembly Reference Prefixes summary over
+9. Add the References row space and Assembly Reference Prefixes summary over
    owner-issued assembly-reference evidence.
-9. Rebase Inspect Web result demand on the shared execution/continuation
+10. Rebase Inspect Web result demand on the shared execution/continuation
    boundary without moving scroll or virtualization policy into the substrate;
    migrate `-Q` to the descriptor while leaving future `explain` adoption with
    its owning effort.
-10. Add one small non-CLI .NET consumer, including descriptor enumeration and
-    owner-issued value-vocabulary and result-contract links, before selecting
-    the final package name and enabling supported package publication.
-11. Evaluate source generation after the first three explicit query-space
+11. Add one small non-CLI .NET consumer, including descriptor enumeration and
+    owner-issued value-vocabulary and result-contract links, before enabling
+    supported package publication.
+12. Evaluate source generation after the first three explicit query-space
     adopters establish repeated boilerplate.
 
 Each step names one adopting owner and retains every other owner's contract.

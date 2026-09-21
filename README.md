@@ -565,6 +565,10 @@ considers all package manifest groups by default; add
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
 dependency under the same scope. Use
+`depends starts-with <literal-package-id-prefix>` to require a direct
+dependency whose package ID begins with that prefix. The match is literal and
+case-insensitive; include a trailing `.` to express a dot-delimited family.
+Use
 `depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
 against the ecosystem's registered exact packages and package prefixes:
 
@@ -577,6 +581,9 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends starts-with Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
@@ -1407,6 +1414,12 @@ Traversal ordering through `-Q "Dependency Graph"`. `--top` requires a Source,
 Target, or Kind field order; Traversal is a sequence order. Asset-mode
 `Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
 `--depth` capability from the Dependency operation.
+
+For recursive package traversal, `--tfm` selects the root package dependency
+group and configures the stable traversal target. When `--tfm` is omitted, the
+root keeps its package-local selection while newly reached packages use the
+product traversal default, currently `net12.0`; a compatible destination
+selection does not replace that target on later edges.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

@@ -16,9 +16,12 @@ the typed resource-free Document through `InspectionEnvelope<DiffHistoryOutcome>
 The second shared terminal slice is tracked by
 [#7229](https://github.com/richlander/dotnet-inspect/issues/7229): it makes
 Changed Versions an evidence-bearing row cohort and binds optional exact Count
-success or typed Count non-success into that same available Outcome. Population
-discovery, exact-Member Analysis, serializer/output lowering, and host adoption
-remain later slices.
+success or typed Count non-success into that same available Outcome. Producer
+completion is tracked by
+[#7882](https://github.com/richlander/dotnet-inspect/issues/7882): it composes
+exact API Member focus and exact-Member Analysis through that shared Document
+and envelope. Population discovery, serializer/output lowering, and host
+adoption remain later slices.
 The bounded investigation revision is tracked by
 [#7805](https://github.com/richlander/dotnet-inspect/issues/7805): it adds an
 adaptive bisection evaluation policy, a settled chronological methodology
@@ -815,9 +818,9 @@ no implementation step or gate.
 The
 [operation/section composition](operation-command-and-subject-section-composition.md)
 retains top-level `diff` and owns the subject-section equivalence obligation.
-Focused Diff adoption owns atomic retirement of `timeline`, migration of
-existing top-level Diff routes into the unified operation, obsolete-input
-handling, replacement coverage, and active guidance. This History adoption
+Focused Diff adoption atomically retires `timeline`, migrates its History route
+into the unified operation, covers obsolete input, and updates active guidance.
+This History adoption
 supplies the shared semantic implementation and authored section presets; it
 does not preserve a second algorithm or route. The proposed `--timeline` and
 `--pairwise` spellings do not become aliases.
@@ -830,8 +833,8 @@ in the same focused adoption. There is no separately shipped
 `TimelineInvestigationDocument`, `@Timeline` category, or temporary Browser
 Timeline surface.
 
-This specification PR changes no runtime behavior. Current README/skills remain
-truthful until the cutover; they must not advertise the new consumers early.
+The CLI cutover implements this contract for `diff --history`; Browser/Wasm
+adoption remains a subsequent host slice.
 
 ## Counted adoption and evidence
 

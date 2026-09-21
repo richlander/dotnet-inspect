@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 
 namespace DotnetInspector.Queries.Definitions;
 

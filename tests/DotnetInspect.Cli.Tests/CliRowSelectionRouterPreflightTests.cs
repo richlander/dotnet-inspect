@@ -1,6 +1,6 @@
 using System.CommandLine;
 using DotnetInspect.Cli.CommandLine;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 

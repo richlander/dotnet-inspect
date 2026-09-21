@@ -1,6 +1,10 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Research;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -84,6 +88,132 @@ public class RenderAbSensorTests
         Assert.Contains("Semantic: valid->valid: 0, invalid->valid: 0, valid->invalid: 1, invalid->invalid: 0", output);
         Assert.Contains("==== Semantic Regressions (valid->invalid) ====", output);
         Assert.Contains("return 1++;", output);
+    }
+
+    [Fact]
+    public void RenderAbSemanticLane_BindsInspectedSiblingApiDuringInference()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-render-ab-sibling-").FullName;
+        try
+        {
+            string siblingPath = Path.Combine(
+                root,
+                "DotnetInspector.Services.dll");
+            ImmutableArray<MetadataReference> frameworkReferences =
+                [.. RoslynTestReferences.TrustedPlatform.Where(
+                    reference => !string.Equals(
+                        Path.GetFileName(reference.Display),
+                        Path.GetFileName(siblingPath),
+                        StringComparison.OrdinalIgnoreCase))];
+            EmitAssembly(
+                siblingPath,
+                "DotnetInspector.Services",
+                """
+                namespace DotnetInspector.Services;
+
+                public sealed class NuspecData
+                {
+                    public string Description { get; set; } = "";
+                }
+                """,
+                frameworkReferences);
+
+            string targetPath = Path.Combine(
+                root,
+                "RenderAbCollisionTarget.dll");
+            EmitAssembly(
+                targetPath,
+                "RenderAbCollisionTarget",
+                """
+                using DotnetInspector.Services;
+
+                public static class CollisionTarget
+                {
+                    public static string Read(NuspecData value) =>
+                        value.Description;
+                }
+                """,
+                [.. frameworkReferences,
+                    MetadataReference.CreateFromFile(siblingPath)]);
+
+            const string key = "fixture.dll!T::M()";
+            TypeRef valueType = TypeRef.Definition(
+                "DotnetInspector.Services",
+                "DotnetInspector.Services",
+                "NuspecData",
+                ValueTypeHint.ReferenceType);
+            TypeRef valuesType = TypeRef.GenericInstance(
+                TypeRef.CoreLib(
+                    "System.Collections.Generic",
+                    "IReadOnlyList`1"),
+                [valueType]);
+            var function = new IrFunction(
+                "M",
+                TypeRef.CoreLib("Synthetic", "T"),
+                new MethodSignature(
+                    TypeRef.CoreLib("System", "Void"),
+                    [new Parameter("values", valuesType)],
+                    HasThis: false,
+                    GenericParameterCount: 0),
+                [],
+                new BlockContainer());
+            var shellContext = ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: false);
+            var baseline =
+                new Dictionary<string, RenderAbSensor.BaselineMethod>(
+                    StringComparer.Ordinal)
+                {
+                    [key] = new(
+                        """
+                        foreach (string description in values.Select<DotnetInspector.Services.NuspecData, string>(value => value.Description))
+                        {
+                        }
+                        """,
+                        shellContext),
+                };
+            var current =
+                new Dictionary<string, RenderAbSensor.RenderedMethod>(
+                    StringComparer.Ordinal)
+                {
+                    [key] = new(
+                        "T",
+                        "M",
+                        "(System.Collections.Generic.IReadOnlyList<DotnetInspector.Services.NuspecData> values)",
+                        targetPath,
+                        "fixture.dll",
+                        """
+                        foreach (string description in values.Select(value => value.Description))
+                        {
+                        }
+                        """,
+                        shellContext,
+                        new RenderAbSensor.SemanticContext(
+                            "T",
+                            "M",
+                            function,
+                            new Dictionary<string, Dictionary<string, string>>(
+                                StringComparer.Ordinal),
+                            ProductParameterList: null)),
+                };
+
+            string output = CaptureConsole(
+                () => RenderAbSensor.Compare(
+                    baseline,
+                    current,
+                    maxExamples: 5),
+                expectedExitCode: 2);
+
+            Assert.Contains("Changed: 1", output);
+            Assert.Contains(
+                "Semantic: valid->valid: 1, invalid->valid: 0, valid->invalid: 0, invalid->invalid: 0",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -423,11 +553,12 @@ public class RenderAbSensorTests
     [Fact]
     public void RenderAbChangedCompilerMethod_UsesExactProductDocuments()
     {
-        var type = typeof(AuthoredCorpusRatchetTests);
-        string methodName =
-            nameof(AuthoredCorpusRatchetTests
-                .DeepInspect_RunsAuthoredCorpusDailyAndKeepsPackageDiscoveryWeekly);
-        int methodToken = type.GetMethod(methodName)!.MetadataToken;
+        var type = typeof(RenderAbSensorTests);
+        string methodName = nameof(ReadableLocalNameFixture);
+        int methodToken = type.GetMethod(
+            methodName,
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .MetadataToken;
         using var source = MetadataSource.Open(type.Assembly.Location);
         var function = IrImporter.Import(source, methodToken);
         Assert.NotNull(function);
@@ -518,6 +649,16 @@ public class RenderAbSensorTests
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
+    }
+
+    static string ReadableLocalNameFixture(string text)
+    {
+        // Repeated range lowering leaves a compiler temporary for the readable-name A/B comparison.
+        int firstStart = text.IndexOf("first", StringComparison.Ordinal);
+        int secondStart = text.IndexOf("second", StringComparison.Ordinal);
+        string first = text[firstStart..text.IndexOf(":", firstStart, StringComparison.Ordinal)];
+        string second = text[secondStart..text.IndexOf(":", secondStart, StringComparison.Ordinal)];
+        return first + second;
     }
 
     [Fact]
@@ -703,6 +844,29 @@ public class RenderAbSensorTests
         {
             File.Delete(path);
         }
+    }
+
+    static void EmitAssembly(
+        string path,
+        string assemblyName,
+        string source,
+        ImmutableArray<MetadataReference> references)
+    {
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                nullableContextOptions: NullableContextOptions.Enable));
+        using var stream = File.Create(path);
+        var result = compilation.Emit(stream);
+        Assert.True(
+            result.Success,
+            string.Join(Environment.NewLine, result.Diagnostics));
     }
 
     static IrFunction SyntheticFunction()

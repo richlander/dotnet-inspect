@@ -14,6 +14,7 @@ using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using PropertyInitializationConstructor = ILInspector.Decompiler.SelectedPropertyAccessorSource.PropertyInitializationConstructor;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -60,7 +61,8 @@ public static partial class CompileBackSourceComposer
             produced.Projection.ConstructorChain,
             produced.Body.RequiresAsyncModifier,
             produced.Body.RequiresUnsafeModifier,
-            produced.Projection.Fidelity);
+            produced.Projection.Fidelity,
+            SingleLineExpression: produced.SingleLineExpression);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"
@@ -98,7 +100,9 @@ public static partial class CompileBackSourceComposer
                 closure.MemberRequirements,
                 request.BodyPolicy,
                 request.TargetBody.RequiresUnsafeModifier,
-                request.TargetBody.UsesAutomaticGetterBody),
+                request.TargetBody.UsesAutomaticGetterBody,
+                getter.InitializationConstructor,
+                request.TargetBody.SingleLineExpression),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -694,7 +698,9 @@ public static partial class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
         bool targetBodyRequiresUnsafeModifier = false,
-        bool usesAutomaticGetterBody = false)
+        bool usesAutomaticGetterBody = false,
+        PropertyInitializationConstructor? initializationConstructor = null,
+        string? targetExpressionBody = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -764,7 +770,36 @@ public static partial class CompileBackSourceComposer
                     targetBodyRequiresUnsafeModifier
                     || function.RequiresUnsafeContract)
         };
-        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
+        CompileBackPrimaryConstructor? primaryConstructor = null;
+        if (initializationConstructor?.GetInitializerSource(targetBody) is { } initializer)
+        {
+            var parameters = ToCompileBackParameters([initializer.Parameter]);
+            primaryConstructor = new CompileBackPrimaryConstructor(
+                string.Join(", ", parameters.Select(RenderParameter)), parameters, []);
+            targetMembers[0] = targetMembers[0] with
+            {
+                PropertyInitializer = initializer.Expression,
+                PropertyGetterExpression = targetExpressionBody,
+            };
+            targetFacts.Add(new CompileBackFact("product", "getter-initialization-constructor",
+                $"0x{MetadataTokens.GetToken(initializationConstructor.Address.Handle):X8}"));
+        }
+        else if (initializationConstructor is { } constructor)
+        {
+            var requirement = TypeProducer.MethodRequirement(
+                reader, targetTypeDef, targetIdentity, constructor.Address.Handle)
+                ?? throw new CompileBackSourceUnavailableException(
+                    "The proven property initialization constructor has no supported declaration shell.");
+            targetMembers.Add(requirement with
+            {
+                CompanionBody = constructor.Body,
+                MetadataToken = MetadataTokens.GetToken(constructor.Address.Handle),
+                SourceFacts = [.. requirement.SourceFacts,
+                    new CompileBackFact("product", "getter-initialization-constructor",
+                        $"0x{MetadataTokens.GetToken(constructor.Address.Handle):X8}")],
+            });
+        }
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetType, primaryConstructor);
 
         var requirements = new List<CompileBackTypeRequirement>
         {
@@ -772,13 +807,13 @@ public static partial class CompileBackSourceComposer
                 targetIdentity,
                 ShellKind(reader, targetTypeDef, targetFacts),
                 targetMembers,
-                PrimaryConstructor: null,
+                PrimaryConstructor: primaryConstructor,
                 targetFacts)
             {
                 IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member")
             }
         };
-        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
+        AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot, primaryConstructor);
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
 
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
@@ -2633,9 +2668,39 @@ public static partial class CompileBackSourceComposer
         CompileBackMemberRequirement requirement,
         int primaryConstructorParameterCount,
         bool usesUpdatedMemorySafetyRules)
-        => CSharpMemberShellProducer.BuildPolicy(
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(
             ToMemberShellSpec(requirement, usesUpdatedMemorySafetyRules),
             primaryConstructorParameterCount);
+        if (requirement.PropertyInitializer is { } initializer)
+        {
+            var propertyBody = policy.Body switch
+            {
+                CSharpPropertyBody property => property,
+                null when requirement.StubBody == CompileBackStubBodyKind.AutoProperty
+                    => new CSharpPropertyBody(CSharpAccessorBody.Auto, null),
+                _ => throw new InvalidOperationException(
+                    "A proven property initializer requires its getter body."),
+            };
+            if (propertyBody.Getter is { Kind: CSharpAccessorBodyKind.Block } getter
+                && requirement.PropertyGetterExpression is { } expression)
+            {
+                propertyBody = propertyBody with
+                {
+                    Getter = CSharpAccessorBody.Expression(expression) with
+                    {
+                        IsReplacementTarget = getter.IsReplacementTarget,
+                    },
+                };
+            }
+            return new CSharpMemberPolicy(
+                policy.Member, CSharpBodyPolicy.Full,
+                propertyBody with { Initializer = initializer });
+        }
+        return requirement.CompanionBody is { } body
+            ? new CSharpMemberPolicy(policy.Member, CSharpBodyPolicy.Full, body)
+            : policy;
+    }
 
     static CSharpMemberShellSpec ToMemberShellSpec(
         CompileBackMemberRequirement requirement,

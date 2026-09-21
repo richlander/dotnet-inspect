@@ -118,6 +118,106 @@ public class FindingInspectionTopologyTests
     }
 
     [Fact]
+    public void FindingComparison_FocusRetainsOnlyTheSelectedExactPair()
+    {
+        Finding<string> target = Finding("target");
+        Finding<string> unrelated = Finding("unrelated");
+        FindingComparison<string>.Complete focused = Complete(
+            FindingComparison.Compare(
+                CompleteInspection(target, unrelated),
+                CompleteInspection(target, unrelated))
+            .Focus(FindingCorrelationKey.From(target)));
+
+        PairFinding<string> pair = Assert.Single(focused.Pairs);
+        Assert.Equal(PairKind.Present, pair.Kind);
+        Assert.Same(target, Assert.Single(focused.OldAtoms));
+        Assert.Same(target, Assert.Single(focused.NewAtoms));
+        FindingEdge edge = Assert.Single(focused.Match.Edges);
+        Assert.Equal((0, 0), (edge.OldIndex, edge.NewIndex));
+    }
+
+    [Fact]
+    public void FindingComparison_FocusRetainsSoftCorrespondenceProvenance()
+    {
+        var tier = new FindingMatchTier("test.rename", 85);
+        Finding<string> oldTarget = Finding(
+            "old-target",
+            [new FindingSoftKey(tier, "target", "old")]);
+        Finding<string> newTarget = Finding(
+            "new-target",
+            [new FindingSoftKey(tier, "target", "new")]);
+        FindingComparison<string>.Complete focused = Complete(
+            FindingComparison.Compare(
+                CompleteInspection(oldTarget, Finding("old-unrelated")),
+                CompleteInspection(newTarget, Finding("new-unrelated")),
+                new FindingMatchOptions
+                {
+                    MatchMode = FindingMatchMode.IdentitySet,
+                },
+                acceptanceThreshold: 85)
+            .Focus(FindingCorrelationKey.From(oldTarget)));
+
+        var changed = Assert.IsType<PairFinding<string>.Changed>(
+            Assert.Single(focused.Pairs).Value);
+        Assert.Equal(tier, changed.Match?.Tier);
+        var candidate = Assert.Single(focused.Match.SoftCandidates);
+        Assert.Equal((0, 0), (candidate.OldIndex, candidate.NewIndex));
+        Assert.Equal(tier, candidate.Match.Tier);
+    }
+
+    [Fact]
+    public void FindingComparison_FocusRetainsRemovalAndExcludesUnrelatedPairs()
+    {
+        Finding<string> target = Finding("target");
+        FindingComparison<string>.Complete focused = Complete(
+            FindingComparison.Compare(
+                CompleteInspection(target, Finding("old-unrelated")),
+                CompleteInspection(Finding("new-unrelated")),
+                new FindingMatchOptions
+                {
+                    MatchMode = FindingMatchMode.IdentitySet,
+                })
+            .Focus(FindingCorrelationKey.From(target)));
+
+        Assert.Equal(
+            PairKind.Removed,
+            Assert.Single(focused.Pairs).Kind);
+        Assert.Single(focused.OldAtoms);
+        Assert.Empty(focused.NewAtoms);
+        FindingEdge edge = Assert.Single(focused.Match.Edges);
+        Assert.Equal((0, -1), (edge.OldIndex, edge.NewIndex));
+    }
+
+    [Fact]
+    public void FindingComparison_FocusPreservesAbsentAndFailedTopology()
+    {
+        Finding<string> target = Finding("target");
+        FindingCorrelationKey key = FindingCorrelationKey.From(target);
+        FindingComparison<string>.Complete absent = Complete(
+            FindingComparison.Compare(
+                new FindingInspection<string>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent),
+                CompleteInspection(target))
+            .Focus(key));
+        FindingComparison<string> failed = FindingComparison.Compare(
+            new FindingInspection<string>.Failed(
+                new InspectionError(Subject, Descriptor, "failed")),
+            CompleteInspection(target, Finding("unrelated")))
+            .Focus(key);
+
+        Assert.Equal(
+            FindingInspectionState.SubjectAbsent,
+            absent.Transition.Old);
+        Assert.Equal(
+            PairKind.Added,
+            Assert.Single(absent.Pairs).Kind);
+        var focusedFailure =
+            Assert.IsType<FindingComparison<string>.Failed>(failed.Value);
+        Assert.Single(Assert.IsType<FindingInspection<string>.Complete>(
+            focusedFailure.NewInspection.Value).Findings);
+    }
+
+    [Fact]
     public void FindingCorrelation_PreservesBothAbsenceKinds()
     {
         var finding = new Finding<string>(
@@ -178,6 +278,22 @@ public class FindingInspectionTopologyTests
                 detail),
             _ => throw new ArgumentOutOfRangeException(nameof(state)),
         };
+
+    static Finding<string> Finding(
+        string identity,
+        ImmutableArray<FindingSoftKey> softKeys = default)
+        => new(
+            Subject,
+            Descriptor,
+            new FindingKey(
+                identity,
+                null,
+                SoftKeys: softKeys.IsDefault ? [] : softKeys),
+            identity);
+
+    static FindingInspection<string> CompleteInspection(
+        params Finding<string>[] findings)
+        => new FindingInspection<string>.Complete([.. findings]);
 
     static FindingComparison<string>.Complete Complete(
         FindingComparison<string> comparison)

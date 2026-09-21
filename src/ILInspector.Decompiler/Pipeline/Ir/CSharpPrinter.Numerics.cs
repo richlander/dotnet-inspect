@@ -1086,12 +1086,12 @@ public sealed partial class CSharpPrinter
             : mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered, context: demand)
             : castLeft ? UnsignedOperand(binary.Left)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))
-            : BinaryOperand(binary.Left, demand, rightSide: false);
+            : BinaryNumericOperand(binary, binary.Left, binary.Right, demand, rightSide: false);
         string right = isShift ? ShiftCount(binary)
             : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered, context: demand)
             : castBoth ? UnsignedOperand(binary.Right)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Right, EffectiveType(binary))
-            : BinaryOperand(binary.Right, demand, rightSide: true);
+            : BinaryNumericOperand(binary, binary.Right, binary.Left, demand, rightSide: true);
         string text = $"{left} {BinaryOperator(binary)} {right}";
         // add.ovf/sub.ovf/mul.ovf (and their .un forms) carry an overflow check
         // the default (unchecked) C# context would drop — spell it explicitly so
@@ -1100,6 +1100,70 @@ public sealed partial class CSharpPrinter
         if (wrap)
             return $"checked({text})";
         return uncheckedConstant || uncheckedOverflow ? $"unchecked({text})" : text;
+    }
+
+    string BinaryNumericOperand(
+        Binary binary,
+        IrExpression operand,
+        IrExpression sibling,
+        Precedence parentPrecedence,
+        bool rightSide)
+    {
+        if (TryElideBinaryLongLiteralMarker(binary, operand, sibling, out string literal))
+        {
+            var demand = rightSide ? TighterThan(parentPrecedence) : parentPrecedence;
+            return new Rendered(
+                WithNodeKind(operand, literal, "LiteralExpression"),
+                literal[0] == '-' ? Precedence.Unary : Precedence.Primary).At(demand);
+        }
+
+        return BinaryOperand(operand, parentPrecedence, rightSide);
+    }
+
+    /// <summary>
+    /// Omits the <c>long</c> marker from a compiler-shaped <c>Int32</c> constant
+    /// only when the other arithmetic operand independently fixes C# binary
+    /// numeric promotion at signed 64-bit width. The <see cref="Convert"/> stays
+    /// in IR as the compile-back provenance for the regenerated <c>conv.i8</c>.
+    /// </summary>
+    bool TryElideBinaryLongLiteralMarker(
+        Binary binary,
+        IrExpression operand,
+        IrExpression sibling,
+        out string literal)
+    {
+        literal = "";
+        if (!_options.PreferLongLiteralSuffix
+            || binary.IsUnsigned
+            || binary.Kind is not (BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+                or BinaryKind.Divide or BinaryKind.Remainder)
+            || !IsCoreInt64(EffectiveType(binary))
+            || Int32ConstantWideningOf(operand) is not { } widening
+            || !IsCoreInt64(widening.Target)
+            || IsBinaryLongLiteralElisionCandidate(sibling)
+            || !IndependentlyRendersAsInt64ForBinary(sibling))
+        {
+            return false;
+        }
+
+        literal = widening.Payload.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return true;
+    }
+
+    static bool IsBinaryLongLiteralElisionCandidate(IrExpression operand)
+        => Int32ConstantWideningOf(operand) is { Target: { } target }
+            && IsCoreInt64(target);
+
+    bool IndependentlyRendersAsInt64ForBinary(IrExpression operand)
+    {
+        if (IsBinaryLongLiteralElisionCandidate(operand))
+            return false;
+        if (operand is Convert conversion)
+            return IsCoreInt64(conversion.Target);
+        if (operand is Coerce coercion)
+            return IsCoreInt64(coercion.Target)
+                && VarInfersDeclaredType(coercion.Target, coercion.Operand);
+        return VarInfersDeclaredType(TypeRef.CoreLib("System", "Int64"), operand);
     }
 
     string BinaryOperand(IrExpression operand, Precedence parentPrecedence, bool rightSide)
@@ -1787,8 +1851,11 @@ public sealed partial class CSharpPrinter
         }
         return isUnsigned
             ? $"{UnsignedOperand(left)} {ComparisonOperator(kind)} {UnsignedOperand(right)}"
-            : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
+            : $"{ComparisonOperand(left)} {ComparisonOperator(kind)} {ComparisonOperand(right)}";
     }
+
+    string ComparisonOperand(IrExpression operand)
+        => TryLongLiteralText(operand) ?? Operand(operand);
 
     bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
         => IsKnownReferenceValue(left) && IsKnownReferenceValue(right);
@@ -2531,7 +2598,11 @@ public sealed partial class CSharpPrinter
                 ? conditionalType
                 : null;
         bool joinHasExactTypedArm = armTarget is { } anchorTarget && joinArms.Any(arm => JoinArmAnchorsTarget(arm, anchorTarget));
-        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)} : {ConditionalArm(conditional.WhenFalse, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm)}";
+        bool elideTrueWidening = armTarget is null
+            && CanElideConditionalInt32Widening(conditional.WhenTrue, conditional.WhenFalse, target);
+        bool elideFalseWidening = armTarget is null
+            && CanElideConditionalInt32Widening(conditional.WhenFalse, conditional.WhenTrue, target);
+        return $"{condition} ? {ConditionalArm(conditional.WhenTrue, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm, elideTrueWidening)} : {ConditionalArm(conditional.WhenFalse, armTarget, primitiveCoercionSourceType, joinHasExactTypedArm, elideFalseWidening)}";
     }
 
     /// <summary>
@@ -2605,6 +2676,49 @@ public sealed partial class CSharpPrinter
         => expression.ResultType is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary };
 
     /// <summary>
+    /// Omits a plain <c>conv.i8</c> over an <c>int</c> arm when the sibling
+    /// independently keeps the conditional's natural type at <c>long</c>.
+    /// C# then regenerates the same <c>conv.i8</c> on this arm. Two such
+    /// conversions do not anchor one another, so both remain explicit.
+    /// </summary>
+    bool CanElideConditionalInt32Widening(
+        IrExpression arm,
+        IrExpression sibling,
+        TypeRef? target)
+        => IsCoreInt64(target)
+            && IsPlainInt32ToInt64Widening(arm)
+            && IndependentlyRendersAsInt64(sibling);
+
+    static bool IsPlainInt32ToInt64Widening(IrExpression arm)
+        => arm is Convert
+        {
+            IsChecked: false,
+            IsUnsigned: false,
+            Target: { } target,
+            Operand: not Constant and { } operand,
+        }
+        && IsCoreInt64(target)
+        && EffectiveType(operand) is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Int32",
+        };
+
+    bool IndependentlyRendersAsInt64(IrExpression arm)
+    {
+        if (IsPlainInt32ToInt64Widening(arm))
+            return false;
+        if (arm is Convert conversion)
+            return IsCoreInt64(conversion.Target);
+        if (arm is Coerce coercion)
+            return IsCoreInt64(coercion.Target)
+                && VarInfersDeclaredType(coercion.Target, coercion.Operand);
+        return VarInfersDeclaredType(TypeRef.CoreLib("System", "Int64"), arm);
+    }
+
+    /// <summary>
     /// Whether <see cref="ConditionalText(Conditional, TypeRef?)"/> spells this
     /// conditional as a short-circuit <c>&amp;&amp;</c> instead of a ternary —
     /// the one place a Conditional NODE renders at ConditionalAnd precedence.
@@ -2617,7 +2731,12 @@ public sealed partial class CSharpPrinter
             && IsBooleanLike(conditional)
             && IsBooleanLike(conditional.WhenTrue);
 
-    string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
+    string ConditionalArm(
+        IrExpression arm,
+        TypeRef? target,
+        TypeRef? primitiveCoercionSourceType = null,
+        bool joinHasExactTypedArm = true,
+        bool elideInt32Widening = false)
     {
         // The long-literal spelling (#3347, #7763). Only at a join whose target is Int64 or
         // neutralized (EffectiveJoinTarget returns null when the arms already render
@@ -2629,6 +2748,11 @@ public sealed partial class CSharpPrinter
             && TryLongLiteralText(arm, target) is { } longArmLiteral)
         {
             return WithNodeKind(arm, longArmLiteral, "LiteralExpression");
+        }
+        if (elideInt32Widening && arm is Convert widening)
+        {
+            string text = Expression(widening.Operand);
+            return WithNodeKind(widening, text, RenderedNodeKind(widening.Operand));
         }
         if (target is { } charTarget
             && IsCoreChar(charTarget)
@@ -3020,26 +3144,16 @@ public sealed partial class CSharpPrinter
     string? TryLongLiteralText(IrExpression expression, TypeRef? sinkTarget = null)
     {
         if (!_options.PreferLongLiteralSuffix
-            || expression is not Convert
-            {
-                IsChecked: false,
-                IsUnsigned: false,
-                Target: { } convertTarget,
-                Operand: Constant
-                {
-                    Value: int payload,
-                    Type: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int32" },
-                },
-            } conversion)
+            || Int32ConstantWideningOf(expression) is not { } widening)
         {
             return null;
         }
 
-        if (IsCoreInt64(convertTarget))
-            return $"{payload.ToString(System.Globalization.CultureInfo.InvariantCulture)}L";
+        if (IsCoreInt64(widening.Target))
+            return $"{widening.Payload.ToString(System.Globalization.CultureInfo.InvariantCulture)}L";
 
         TypeRef? zeroExtendSource = IsCoreInt64(sinkTarget)
-            && convertTarget is
+            && widening.Target is
             {
                 Kind: TypeRefKind.Definition,
                 Assembly: TypeRef.CoreLibrary,
@@ -3047,13 +3161,36 @@ public sealed partial class CSharpPrinter
                 Name: "UInt64",
             }
                 ? TypeFamilies.WideningZeroExtendSibling(
-                    EffectiveType(conversion.Operand),
-                    convertTarget)
+                    EffectiveType(widening.Conversion.Operand),
+                    widening.Target)
                 : null;
         return zeroExtendSource is not null
-            ? $"{((uint)payload).ToString(System.Globalization.CultureInfo.InvariantCulture)}L"
+            ? $"{((uint)widening.Payload).ToString(System.Globalization.CultureInfo.InvariantCulture)}L"
             : null;
     }
+
+    readonly record struct Int32ConstantWidening(Convert Conversion, TypeRef Target, int Payload);
+
+    static Int32ConstantWidening? Int32ConstantWideningOf(IrExpression expression)
+        => expression is Convert
+            {
+                IsChecked: false,
+                IsUnsigned: false,
+                Target: { } convertTarget,
+                Operand: Constant
+                {
+                    Value: int value,
+                    Type:
+                    {
+                        Kind: TypeRefKind.Definition,
+                        Assembly: TypeRef.CoreLibrary,
+                        Namespace: "System",
+                        Name: "Int32",
+                    },
+                },
+            } match
+            ? new(match, convertTarget, value)
+            : null;
 
     static bool TryCharConstantText(IrExpression expression, out string text)
     {

@@ -71,8 +71,9 @@ public sealed class ApiCoordinateCorrespondenceResult
     public ApiCoordinateCorrespondenceFailure? Failure { get; }
 
     /// <summary>
-    /// Projects the completed result before its Workspace closes. The returned
-    /// evidence retains no Workspace-local subject or Package observation.
+    /// Projects the completed result before either endpoint Workspace closes.
+    /// The returned evidence retains no Workspace-local subject or Package
+    /// observation.
     /// </summary>
     public ApiCoordinateCorrespondenceEvidence Detach() =>
         ApiCoordinateCorrespondenceEvidenceProjector.Project(this);
@@ -90,10 +91,26 @@ public static class ApiCoordinateCorrespondenceQuery
         CoordinatePackageObservation before,
         CoordinatePackageObservation after,
         CancellationToken cancellationToken = default)
+        => ExecuteAsync(
+            workspace,
+            workspace,
+            source,
+            before,
+            after,
+            cancellationToken);
+
+    public static ValueTask<ApiCoordinateCorrespondenceResult> ExecuteAsync(
+        InspectionWorkspace sourceWorkspace,
+        InspectionWorkspace destinationWorkspace,
+        StructuralSubjectIdentity.TypeSubject source,
+        CoordinatePackageObservation before,
+        CoordinatePackageObservation after,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         return ExecuteAsync(
-            workspace, source, source.Library, source.Identity.Type,
+            sourceWorkspace, destinationWorkspace,
+            source, source.Library, source.Identity.Type,
             member: null, before, after, admittedSource: null,
             cancellationToken);
     }
@@ -105,10 +122,28 @@ public static class ApiCoordinateCorrespondenceQuery
         CoordinatePackageObservation before,
         CoordinatePackageObservation after,
         CancellationToken cancellationToken = default)
+        => ExecuteAsync(
+            workspace,
+            workspace,
+            source,
+            sourceKind,
+            before,
+            after,
+            cancellationToken);
+
+    public static ValueTask<ApiCoordinateCorrespondenceResult> ExecuteAsync(
+        InspectionWorkspace sourceWorkspace,
+        InspectionWorkspace destinationWorkspace,
+        StructuralSubjectIdentity.MemberSubject source,
+        ApiDeclarationKind sourceKind,
+        CoordinatePackageObservation before,
+        CoordinatePackageObservation after,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         return ExecuteAsync(
-            workspace, source, source.DeclaringType.Library,
+            sourceWorkspace, destinationWorkspace,
+            source, source.DeclaringType.Library,
             source.Identity.DeclaringType,
             new ApiDeclarationMemberSelection(sourceKind, source.Identity.Member),
             before, after, admittedSource: null, cancellationToken);
@@ -116,7 +151,8 @@ public static class ApiCoordinateCorrespondenceQuery
 
     internal static ValueTask<ApiCoordinateCorrespondenceResult>
         ExecuteAdmittedSourceAsync(
-            InspectionWorkspace workspace,
+            InspectionWorkspace sourceWorkspace,
+            InspectionWorkspace destinationWorkspace,
             StructuralSubjectIdentity.TypeSubject source,
             CoordinatePackageObservation before,
             PackageAssemblyContextRealization sourceRealization,
@@ -126,7 +162,8 @@ public static class ApiCoordinateCorrespondenceQuery
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(sourceRealization);
         return ExecuteAsync(
-            workspace,
+            sourceWorkspace,
+            destinationWorkspace,
             source,
             source.Library,
             source.Identity.Type,
@@ -139,7 +176,8 @@ public static class ApiCoordinateCorrespondenceQuery
 
     internal static ValueTask<ApiCoordinateCorrespondenceResult>
         ExecuteAdmittedSourceAsync(
-            InspectionWorkspace workspace,
+            InspectionWorkspace sourceWorkspace,
+            InspectionWorkspace destinationWorkspace,
             StructuralSubjectIdentity.MemberSubject source,
             ApiDeclarationKind sourceKind,
             CoordinatePackageObservation before,
@@ -150,7 +188,8 @@ public static class ApiCoordinateCorrespondenceQuery
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(sourceRealization);
         return ExecuteAsync(
-            workspace,
+            sourceWorkspace,
+            destinationWorkspace,
             source,
             source.DeclaringType.Library,
             source.Identity.DeclaringType,
@@ -164,7 +203,8 @@ public static class ApiCoordinateCorrespondenceQuery
     }
 
     static async ValueTask<ApiCoordinateCorrespondenceResult> ExecuteAsync(
-        InspectionWorkspace workspace,
+        InspectionWorkspace sourceWorkspace,
+        InspectionWorkspace destinationWorkspace,
         StructuralSubjectIdentity source,
         StructuralSubjectIdentity.LibrarySubject sourceLibrary,
         MetadataTypeDefinitionName declaringType,
@@ -174,7 +214,8 @@ public static class ApiCoordinateCorrespondenceQuery
         PackageAssemblyContextRealization? admittedSource,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(sourceWorkspace);
+        ArgumentNullException.ThrowIfNull(destinationWorkspace);
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         cancellationToken.ThrowIfCancellationRequested();
@@ -182,13 +223,25 @@ public static class ApiCoordinateCorrespondenceQuery
 
         CoordinateLibraryPairingResult pairing =
             CoordinateLibraryPairingQuery.Execute(sourceLibrary, before, after);
-        if (!ReferenceEquals(workspace.Identity, source.Workspace.Identity))
+        if (!ReferenceEquals(
+                sourceWorkspace.Identity,
+                source.Workspace.Identity))
         {
             return Stop(
                 ApiCoordinateCorrespondenceStatus.Refused,
                 pairing,
                 ApiCoordinateCorrespondenceFailureKind.ForeignWorkspace,
                 "The source declaration belongs to a different Workspace.");
+        }
+        if (!ReferenceEquals(
+                destinationWorkspace.Identity,
+                after.Occurrence.Identity.WorkspaceIdentity))
+        {
+            return Stop(
+                ApiCoordinateCorrespondenceStatus.Refused,
+                pairing,
+                ApiCoordinateCorrespondenceFailureKind.ForeignWorkspace,
+                "The destination observation belongs to a different Workspace.");
         }
         if (pairing.Status is CoordinateLibraryPairingStatus.Refused
             or CoordinateLibraryPairingStatus.Failed)
@@ -208,7 +261,7 @@ public static class ApiCoordinateCorrespondenceQuery
         }
 
         ArtifactRootResult<ApiCoordinateCorrespondenceResult> sourceAccess =
-            await workspace.ExecutePackageRootQueryAsync(
+            await sourceWorkspace.ExecutePackageRootQueryAsync(
                 before.Correspondence,
                 before.Generation,
                 ExecuteWithSourceAsync,
@@ -308,7 +361,7 @@ public static class ApiCoordinateCorrespondenceQuery
 
             ArtifactRootResult<ApiCoordinateCorrespondenceResult>
                 destinationAccess =
-                await workspace.ExecutePackageRootQueryAsync(
+                await destinationWorkspace.ExecutePackageRootQueryAsync(
                     after.Correspondence,
                     after.Generation,
                     (destinationRealization, innerToken) =>

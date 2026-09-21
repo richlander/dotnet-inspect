@@ -93,29 +93,44 @@ two sentences and propose the next work within it; if none remains, say so and
 ask whether to find a new theme or take on ad-hoc work. Follow
 [Agent session state](docs/agent-session-state.md) for the full lifecycle.
 
+At the start, after every resume, and after completing each meaningful block of
+work, emit this visible operator reminder before continuing:
+
+```text
+Theme: <stable session theme>. <completed block and current status>.
+<Next action or tool-evaluable waiting condition>.
+```
+
+Do not replace it with tool output or omit it because the theme is unchanged.
+The merge handoff remains the more specific final form.
+
 ## Making your work findable
 
-This section is tmux-specific and applies only inside a tmux pane — check
-`[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
-attach state to, so skip it entirely. Each window name must identify its work
-item, domain, and purpose; its pane title reports current activity, while
-window options carry structured state. Full naming, pane-title, and state-
-publishing mechanics (exact commands, `@agent_state` fields, `blocked` vs.
-`waiting`) live in [Agent session state](docs/agent-session-state.md).
+Inside tmux only (`[ -n "$TMUX" ]`), use this operator template at work start,
+after every resume, and at each meaningful phase or state change. Replace the
+placeholders and issue each `tmux` command separately:
 
-- **Name the window and title the pane**, always targeting `"${TMUX_PANE:?}"`,
-  at the start of work, after every resume, and at meaningful phase changes.
-- **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
-  plus branch or expected head — at the start of work, after every resume, and
-  at every round start. Round completions use the
-  [round report](docs/round-orchestration.md#the-round-report).
-- **Separate status from approval prompts.** Emit supporting status or analysis
-  as normal visible output first; only after it appears in the session log may
-  you open an approval prompt containing just the concise decision question and
-  answer labels — never the report, checkpoint, or evidence itself.
-- **Publish `@agent`/`@agent_state`** after every state change; clear both
-  only when the window no longer owns the work. **Signal `HELP`** when
-  blocked on a human decision; clear only `HELP` once the decision arrives.
+```sh
+tmux rename-window -t "${TMUX_PANE:?}" \
+  "PR <number> | <domain> | <purpose>"
+tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"
+tmux set -w -t "${TMUX_PANE:?}" @agent \
+  "theme <theme>; round <n>, candidate <n> on PR <number>"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state \
+  "theme=<theme> pr=<number> head=<sha> round=<n> candidates=<n> usable=<n> findings=<n> reviews=<clean>/<required> rec=<action>"
+```
+
+Before a PR exists, replace `PR <number>` with `Issue <number>` in the window
+and `@agent` values, and use `issue=<number>` instead of `pr` in
+`@agent_state`; add `blocked`, `waiting`, and status-wait fields when
+applicable. Put `HELP` in `@agent` while awaiting a human decision and clear it
+immediately when answered; clear both options only when the window no longer
+owns work. At start, resume, and each round start, announce the current Issue
+or PR number plus branch or expected head. Emit supporting status before
+opening a concise approval prompt. This command block, its cadence, and its
+required fields must remain directly in `AGENTS.md`; [Agent session
+state](docs/agent-session-state.md) owns full naming, field, and lifecycle
+mechanics.
 
 ### Keep the review-clean label current
 
@@ -136,12 +151,11 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 
 ## User-directed workflow adjustments
 
-The user may adjust a sequencing gate for a specific task or PR. Follow that
-direction, record its scope and evidentiary consequence, and preserve every
-other requirement. An adjustment does not make failed validation successful,
-make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
-The standing adjustments and their exact evidence requirements live in
-[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments).
+A user may adjust sequencing for one task or PR, but cannot turn failed
+validation green, make an unmergeable PR ready, or transfer fixed-head evidence.
+Record its scope and consequence; follow
+[User-directed workflow adjustments](docs/round-orchestration.md#user-directed-workflow-adjustments)
+for the standing mechanics.
 
 ## Before changing files
 
@@ -170,9 +184,9 @@ The standing adjustments and their exact evidence requirements live in
 
 ## Task-specific guidance
 
-Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` current code composition.
-Update one only when its owned claim changes; adding or editing a focused document does not require parallel entrypoint updates.
-Read the relevant entry below; [`docs/README.md`](docs/README.md) owns the detailed boundary and curated routes.
+Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` the curated current-code map.
+Ordinary feature and fix agents do not edit the **release-managed central files** — root `README.md`, `docs/overview.md`, `docs/architecture.md`, or any `SKILL.md`; when implementation suggests one is stale, add a concise suggestion with the implementing PR or stack link to the current release tracker for release-time reconciliation.
+Update other documentation only when its owned claim changes; read the relevant entry below, while [`docs/README.md`](docs/README.md) owns detailed boundaries and curated routes.
 
 | Area | Read first |
 | --- | --- |
@@ -462,47 +476,21 @@ merge, confirm live GitHub readiness — see [Merge preflight](docs/round-orches
 
 ### Clean reviews are not spent by main moving
 
-When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
-head, or a head with a pending/approved trivial-interaction waiver, and
-an agent observes that `origin/main` moved while the PR remains open, assess the
-landed range before an agent-driven merge or mutation — do not integrate
-blindly and do not start another round by default. An upper stack slice follows
-its parent instead: parent movement is a restack requiring review at the new
-head.
-
-After a non-mutating fetch, classify the landed range into exactly one
-outcome, act on it, and report the classification and action as normal session
-output before changing labels or dispatching reviewers; re-classify only when
-the landed range itself changes, not on every poll. Merging still needs a live
-readiness check and explicit user authorization.
-The analysis is a point-in-time decision aid, not an exact-base lock: later base
-movement does not trigger branch integration or CI chasing; exact-base
-revalidation needs a merge queue, not repeated branch updates.
-Full detection, classification, and action procedure:
+For a `main`-targeting PR with clean reviews or a pending/approved
+trivial-interaction waiver, base movement alone does not spend that evidence or
+justify integration. Before an agent-driven merge or mutation, classify the
+landed range as no interaction, trivial interaction, significant interaction,
+or conflict; report and apply that outcome before changing labels or
+dispatching reviewers. Upper stack slices follow their parent and must restack.
+The full procedure lives in
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-The four outcomes: **no interaction** (keep the reviewed or waived head
-unchanged, preserve its state and merge authorization, and start no new CI run
-or other gate — the common case), **trivial interaction** (if still open,
-expire authorization, disable any armed auto-merge first, remove
-`review-clean`, integrate, run affected gates, and offer the exact-head
-re-review waiver), **significant interaction, no conflict** (if still open,
-expire authorization, disable any armed auto-merge first, remove
-`review-clean`, integrate, re-run validation and CI, and re-dispatch reviewers
-as a normal round), and **merge conflict requiring semantic resolution**
-(expire authorization, disable any armed auto-merge first, and recover under
-[Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
 
-| Tier | Requirement |
-| --- | --- |
-| Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol** by default, one seat. |
-
-Use GPT-6 Astra for complex changes. GPT-5.6 Terra or Luna may review relatively
-simple changes that still require review. Full selection and substitution rules
-live in [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch
-IDs live in [Agent model mapping](docs/agent-models.md).
+Trivial changes need no review; state why. Everything else gets one GPT seat:
+GPT-5.6 Sol by default, GPT-6 Astra for complex work, or Terra/Luna for
+relatively simple work. Selection, substitution, and dispatch rules live in
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster).
 
 ### Running the round
 
@@ -514,11 +502,40 @@ optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
 
+After every completed round and before any next round or approval prompt, emit
+this complete visible report as the assistant response. Fill every field,
+choose one feedback classification and recommendation, omit only empty
+`Blocked`/`Waiting` lines, and never replace it with a shorter summary:
+
+```text
+Round <n> is complete for PR <number>.
+- Theme: <one-sentence session theme>.
+- Review model <model> was used for adversarial review.
+- Design basis: normative owner <path#section> — <owned claim>; supporting
+  <path and role for each model, adjacent contract, constraint, or consumer>.
+- Review feedback is: [converging, diverging, neutral, clean].
+- Round start: <datetime>.
+- Round end: <datetime>.
+- Round duration: <hours:minutes>
+
+Progress: <pushed candidates> candidates, <usable reviews> usable reviews,
+<accepted findings> accepted findings.
+Reviews: <clean>/<required> clean — <status by reviewer>
+Blocked: <PR or issue numbers not yours to fix>
+Waiting: <comma-separated tool-evaluable predicates>
+Recommendation: [continue, wait, merge, split into focused successors,
+approve next rounds, stop (reason)]
+
+Resolution: <completed changes or accepted next-round resolution plan>.
+```
+
+The detailed classification and recommendation rules remain in
+[The round report](docs/round-orchestration.md#the-round-report).
+
 ### Keep review proportional to the contract
 
-The prompt's finding-admission and trust-boundary rules are binding. A
-reviewer concern outside them is a scope proposal, not a landing requirement,
-unless the operator explicitly approves it.
+The canonical prompt's finding-admission and trust-boundary rules are binding;
+anything outside them is a scope proposal unless the operator approves it.
 
 ### Stop after six rounds
 
@@ -527,15 +544,10 @@ replacement within an authorized block dispatches without asking, setting
 `HELP`, or waiting for user input. Approval is required only before rounds 7,
 13, 19, and so on; each approval authorizes at most six more rounds.
 
-At a block boundary, conflict recovery may push immediately unless an immutable
-split decision hold is active; reviewer dispatch waits for approval. Before
-asking, acquire fresh green current-head `ci-required` and definite positive
-mergeability under the 60-minute status budget; if it expires, publish its
-report and stop without asking.
-
-Round 12 and every later six-round boundary presume splitting into focused
-successors unless a strong, user-approved reason keeps the PR intact. Full
-checkpoint and split mechanics:
+At each block boundary, reviewer dispatch waits for approval after fresh green
+current-head CI and positive mergeability; round 12 and later presume splitting
+unless the checkpoint establishes a strong reason and the user explicitly
+approves keeping the PR intact. Full checkpoint mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## Lead with the demo
@@ -579,22 +591,9 @@ Every PR body puts `## Demo` above validation and follows the full
 
 When an issue is too large for one coherent PR, prefer a **stack** — a sequence
 of PRs targeting their predecessors — over one unreviewable PR or parallel PRs
-that race in the same files. `docs/stacked-prs.md` owns the mechanics.
-
-- Each slice must land independently with one claim and its own evidence, and
-  name its slice position, parent PR, and remaining work. Fold in any slice
-  that depends on later work for correctness.
-- Give each slice its own branch and worktree, branched from and targeted at
-  its parent; only the bottom open slice uses `main`. During a GitHub outage,
-  branch from the recorded last-known base or parent, then update and
-  validate bottom-up on recovery before pushing.
-- Merge bottom-up. After each merge, complete the theme handoff; if another
-  slice remains, propose confirming its retargeted diff as the next task.
-- Restacking your own slices is the exception to the no-force-push rule. Use
-  `--force-with-lease` and post a `range-diff` proving only the base changed.
-- Apply review depth and the canonical eligibility table per slice and
-  stack-wide. Every upper-slice restack and every other moved head needs a
-  review-clean round — the sole exception is a bottom open slice with a
-  user-approved exact-head trivial-interaction waiver; restacking never
-  retires findings.
-- Stop when another slice would exist only to continue the stack.
+that race in the same files. Each slice lands independently, branches and
+targets from its parent, and is merged bottom-up; only the bottom open slice
+targets `main`. Restack only your own slices with `--force-with-lease`, publish
+a `range-diff`, and re-review moved heads without retiring findings. Stop when
+another slice would exist only to continue the stack.
+[Stacked PRs](docs/stacked-prs.md) owns all mechanics.

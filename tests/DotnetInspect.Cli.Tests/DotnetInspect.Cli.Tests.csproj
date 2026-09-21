@@ -24,6 +24,11 @@
                      Version="[8.0.4]" />
     <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
     <PackageDownload Include="DotWasm.Models" Version="[0.1.0]" />
+    <PackageDownload Include="System.ValueTuple" Version="[4.5.0]" />
+    <PackageDownload Include="Microsoft.AspNetCore.App" Version="[2.2.8]" />
+    <PackageDownload Include="dotnet-outdated-tool" Version="[4.8.1]" />
+    <PackageDownload Include="CrestApps.AgentSkills.Mcp.OrchardCore"
+                     Version="[1.2.0]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,6 +40,18 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)dotwasm.models/0.1.0/dotwasm.models.0.1.0.nupkg"
           Link="RealAssets/SectionGrowth/dotwasm.models.0.1.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.valuetuple/4.5.0/system.valuetuple.4.5.0.nupkg"
+          Link="RealAssets/SectionGrowth/system.valuetuple.4.5.0.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.aspnetcore.app/2.2.8/microsoft.aspnetcore.app.2.2.8.nupkg"
+          Link="RealAssets/SectionGrowth/microsoft.aspnetcore.app.2.2.8.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)dotnet-outdated-tool/4.8.1/dotnet-outdated-tool.4.8.1.nupkg"
+          Link="RealAssets/SectionGrowth/dotnet-outdated-tool.4.8.1.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)crestapps.agentskills.mcp.orchardcore/1.2.0/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
+          Link="RealAssets/SectionGrowth/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)npgsql.entityframeworkcore.postgresql/8.0.4/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
           Link="RealAssets/TypeDependencies/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
@@ -50,6 +67,7 @@
 
   <ItemGroup>
     <Using Include="DotnetInspector.Networking" />
+    <Using Include="QuerySpace.Rows" />
     <Using Include="Xunit" />
     <Using Include="ILInspector.Instructions" />
     <Using Include="ILInspector.SourceLink" />
@@ -59,13 +77,15 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspect.Cli\DotnetInspect.Cli.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
-    <ProjectReference Include="..\..\src\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
+    <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
     <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ClassicAsync\ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.HostileNameFixtures\DotnetInspector.HostileNameFixtures.csproj" ReferenceOutputAssembly="false" />

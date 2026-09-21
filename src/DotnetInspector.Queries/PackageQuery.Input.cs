@@ -1,9 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
-using DotnetInspector.Sections;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
@@ -143,36 +142,12 @@ public static partial class PackageQuery
         PortableQueryIntent intent = PortableQueryIntent.Create(
             intentTerms,
             bounds,
-            ToPortableStages(rowSelection),
+            PortableQueryRowSelection.ToStages(rowSelection),
             []);
         return ecosystemMemberships is null
             ? ResolveIntent(intent)
             : ResolveIntent(intent, ecosystemMemberships);
     }
-
-    private static IReadOnlyList<PortableQueryStage> ToPortableStages(
-        RowSelectionIntent<string>? rowSelection) =>
-        rowSelection is null
-            ? []
-            :
-            [
-                .. rowSelection.Operations.Select(operation =>
-                    operation.Kind switch
-                    {
-                        RowSelectionStageKind.Head =>
-                            PortableQueryStage.Head(operation.Count),
-                        RowSelectionStageKind.Tail =>
-                            PortableQueryStage.Tail(operation.Count),
-                        RowSelectionStageKind.Window =>
-                            PortableQueryStage.Window(
-                                operation.Start,
-                                operation.End),
-                        RowSelectionStageKind.Top =>
-                            PortableQueryStage.Top(operation.Count),
-                        _ => throw new InvalidOperationException(
-                            "Unknown row-selection stage."),
-                    }),
-            ];
 
     static void AddScopeEvidence(
         PackageQueryPlan plan,

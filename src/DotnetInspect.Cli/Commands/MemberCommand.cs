@@ -747,7 +747,7 @@ public static class MemberCommand
 
             if (effectiveOptions.OverloadIndex is null
                 && effectiveOptions.IncludeSections?
-                    .Contains(SectionNames.ImplementationProfiles) == true
+                    .Contains(SectionNames.MemberMetrics) == true
                 && (apiType.SourceAssemblyPath
                     ?? runtimeAssemblyPath
                     ?? apiDllPath) is { } profileDllPath)
@@ -1822,12 +1822,13 @@ public static class MemberCommand
         string tokenOriginAssembly =
             apiType.SourceAssemblyPath
             ?? apiDllPath;
-        ResolvedAssemblyReference decompilationAssembly =
-            sourceAssembly
-            ?? ResolvedAssemblyReference.CreateFromPath(
+        DecompilationInspectionPreparation.Prepared preparation =
+            await DecompilationInspectionPreparation.CreateAsync(
                 tokenOriginAssembly,
-                AssemblyResolutionProvenance.Local(
-                    "member decompilation"));
+                sourceAssembly,
+                options,
+                httpClient,
+                "member decompilation");
         AssemblyMemberSourceRequest request =
             ResolveMemberDecompilationRequest(
                 apiType,
@@ -1835,74 +1836,21 @@ public static class MemberCommand
                 sourceAccessor,
                 options,
                 tokenOriginAssembly,
-                decompilationAssembly);
-        var bindingPolicy =
-            new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(
-                    decompilationAssembly.Path
-                    ?? tokenOriginAssembly)
-                {
-                    ProjectAssetsPath =
-                        options.ProjectAssetsPath,
-                    TargetFramework = options.Tfm,
-                    IncludeDepsJsonAssets = false,
-                    IncludeAspNetCoreSharedFramework = false,
-                    PreferImplementationAssemblies = true,
-                    AllowPlatformAssemblyVersionRollForward = true,
-                });
-        var participant =
-            new AssemblyContextParticipant(
-                decompilationAssembly,
-                bindingPolicy);
-        var queryContext =
-            new AssemblyContextSourceQueryContext(
-                httpClient,
-                // Decompiled-only settlement does not consult the PDB store.
-                new InMemoryPdbStore(),
-                new SourcePolicyPackageSourceAuthorization(
-                    options.SourceOptions),
-                new SourceFetch(
-                    DotnetInspector.Networking.HttpClientFactory
-                        .SharedUntrustedFetch))
-            {
-                NuGetSourceOptions = options.SourceOptions,
-            };
-
-        string? pdbPath = options.PdbPath;
-        if (pdbPath is null
-            && decompilationAssembly.Path is { } selectedPath)
-        {
-            string adjacentPath =
-                Path.ChangeExtension(selectedPath, ".pdb");
-            if (File.Exists(adjacentPath))
-                pdbPath = adjacentPath;
-        }
-        AssemblyContextLibraryPortablePdb? portablePdb =
-            pdbPath is null
-                ? null
-                : new(
-                    ImmutableArray.CreateRange(
-                        await File.ReadAllBytesAsync(pdbPath)),
-                    new AssemblySourcePdbProvenance(
-                        decompilationAssembly.Registration,
-                        Identity: null,
-                        Location: pdbPath,
-                        Path: pdbPath,
-                        SymbolServer: null));
+                preparation.Assembly);
 
         await using var workspace =
             new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
-                [participant]);
+                [preparation.Participant]);
         InspectionEnvelope<AssemblyMemberDecompilationEntry>
             inspection =
                 await MemberSourceInspection.DecompileAsync(
                     group,
-                    participant,
+                    preparation.Participant,
                     request,
-                    queryContext,
-                    portablePdb);
+                    preparation.QueryContext,
+                    preparation.PortablePdb);
         return options with
         {
             MemberDecompilationInspection = inspection,

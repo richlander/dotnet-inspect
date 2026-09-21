@@ -30,6 +30,7 @@ type PackageOperations =
   | "matchPackageDependencyCoordinate"
   | "packageCacheStats"
   | "prefetchPlatformPacks"
+  | "queryLibraries"
   | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
