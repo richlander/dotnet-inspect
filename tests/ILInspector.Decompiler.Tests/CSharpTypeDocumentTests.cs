@@ -75,8 +75,8 @@ public class CSharpTypeDocumentTests
         input.Declarations[3] = property with
         {
             Parts = property.Parts.SetItem(
-                1,
-                property.Parts[1] with { OwnedBodies = [] }),
+                3,
+                property.Parts[3] with { OwnedBodies = [] }),
         };
 
         ArgumentException error = Assert.Throws<ArgumentException>(
@@ -100,7 +100,9 @@ public class CSharpTypeDocumentTests
             input.Frame,
             artifacts,
             input.Bodies,
-            input.Declarations));
+            input.Declarations,
+            input.Documentation,
+            CSharpTypeContractRelationshipCapability.Unavailable));
     }
 
     [Fact]
@@ -202,6 +204,67 @@ public class CSharpTypeDocumentTests
             Diagnostics = [new("D2000", "Different body evidence.")],
         };
         Assert.NotEqual(first.Revision, Create(changedDiagnostics).Revision);
+    }
+
+    [Fact]
+    public void Capabilities_DistinguishDocumentationStatesAndRejectRelationships()
+    {
+        DocumentInput input = Input();
+        CSharpTypeDocument absent = Create(input);
+        CSharpTypeDocument unavailable = Create(input with
+        {
+            Documentation = CSharpTypeDocumentationCapability.Unavailable,
+        });
+        CSharpTypeDocument availableEmpty = Create(input with
+        {
+            Documentation = CSharpTypeDocumentationCapability.Available,
+        });
+
+        Assert.NotEqual(absent.Revision, unavailable.Revision);
+        Assert.NotEqual(absent.Revision, availableEmpty.Revision);
+        Assert.NotEqual(unavailable.Revision, availableEmpty.Revision);
+
+        Assert.Throws<ArgumentException>(() => CSharpTypeDocument.Create(
+            input.TypeName,
+            input.TypeAddress,
+            input.Source,
+            input.Frame,
+            input.Artifacts,
+            input.Bodies,
+            input.Declarations,
+            input.Documentation,
+            CSharpTypeContractRelationshipCapability.Available));
+    }
+
+    [Fact]
+    public void AbsentDocumentation_CannotCarryDocumentationRegions()
+    {
+        DocumentInput input = Input();
+        input = input with
+        {
+            Frame = input.Frame with
+            {
+                PrefixParts =
+                [
+                    new(
+                        0,
+                        CSharpTypeRenderPartKind.Documentation,
+                        CSharpTypeRegionRole.Documentation,
+                        "/// docs\n",
+                        "/// docs\n"),
+                    Fixed(1, input.Frame.PrefixParts[0].FullText),
+                ],
+            },
+        };
+
+        Assert.Throws<ArgumentException>(() => Create(input));
+        CSharpTypeDocument available = Create(input with
+        {
+            Documentation = CSharpTypeDocumentationCapability.Available,
+        });
+        Assert.Equal(
+            CSharpTypeDocumentationCapability.Available,
+            available.Documentation);
     }
 
     [Fact]
@@ -319,6 +382,33 @@ public class CSharpTypeDocumentTests
         Assert.Single(skeleton.Diagnostics);
         Assert.Equal(0, bodies.Diagnostics[0].BodyId);
         Assert.Equal(0, skeleton.Diagnostics[0].BodyId);
+    }
+
+    [Fact]
+    public void FailedSetter_PreservesAvailableGetterBody()
+    {
+        var input = Input();
+        input.Bodies[2] = input.Bodies[2] with
+        {
+            Outcome = CSharpTypeBodyOutcome.Failed,
+            Fidelity = DecompilationFidelity.Failed,
+            Diagnostics = [new("D2000", "Setter production failed.")],
+        };
+        CSharpTypeDocument document = Create(input);
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+
+        Assert.Contains(
+            "public int X { get { return _a; } set; }",
+            projection.Text);
+        Assert.Equal(
+            "{ return _a; }",
+            Slice(
+                projection.Text,
+                Assert.Single(projection.Declarations[3].Bodies).Range));
+        Assert.Equal(2, Assert.Single(projection.Diagnostics).BodyId);
     }
 
     [Fact]
@@ -463,6 +553,53 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void HiddenContributions_ReportEachBodyAndRole()
+    {
+        var input = Input();
+        CSharpTypeDeclaration field = input.Declarations[0];
+        CSharpTypeRenderPart initializer = field.Parts[1];
+        input.Declarations[0] = field with
+        {
+            Parts = field.Parts.SetItem(
+                1,
+                initializer with
+                {
+                    Contributions =
+                    [
+                        new(
+                            1,
+                            CSharpTypeBodyContributionRole.LoweredImplementation,
+                            new(1, 3)),
+                        new(
+                            2,
+                            CSharpTypeBodyContributionRole.PropertyInitializer,
+                            new(1, 3)),
+                    ],
+                }),
+        };
+        CSharpTypeDocument document = Create(input);
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                document.Declarations[3].Anchor,
+                accessibilities: [CSharpTypeAccessibility.Public]));
+
+        CSharpTypeProjectionDiagnostic[] hidden =
+            [.. projection.Diagnostics.Where(diagnostic =>
+                diagnostic.Kind
+                    == CSharpTypeProjectionDiagnosticKind.HiddenSelectedBodyContribution)];
+        Assert.Equal([1, 2], hidden.Select(static diagnostic => diagnostic.BodyId));
+        Assert.Equal(
+            [
+                CSharpTypeBodyContributionRole.LoweredImplementation,
+                CSharpTypeBodyContributionRole.PropertyInitializer,
+            ],
+            hidden.Select(static diagnostic => diagnostic.ContributionRole));
+    }
+
+    [Fact]
     public void SelectedBody_RejectsHiddenAndForeignMembers()
     {
         CSharpTypeDocument document = Create(Input());
@@ -544,7 +681,8 @@ public class CSharpTypeDocumentTests
             input.Frame,
             input.Artifacts,
             input.Bodies,
-            input.Declarations);
+            input.Declarations,
+            input.Documentation);
 
     static DocumentInput Input()
     {
@@ -561,10 +699,10 @@ public class CSharpTypeDocumentTests
         MemberAnchor property = Anchor("X", "int Sample.X");
 
         const string constructorBody = " { _a = 1; _b = 2; }";
-        const string propertyBody =
-            " { get { return _a; } set { _a = value; } }";
-        int getterStart = propertyBody.IndexOf("{ return", StringComparison.Ordinal);
-        int setterStart = propertyBody.IndexOf("{ _a = value", StringComparison.Ordinal);
+        const string getterBody = " get { return _a; }";
+        const string setterBody = " set { _a = value; }";
+        int getterStart = getterBody.IndexOf("{ return", StringComparison.Ordinal);
+        int setterStart = setterBody.IndexOf("{ _a = value", StringComparison.Ordinal);
 
         return new(
             TypeName("Samples", "Sample"),
@@ -693,10 +831,11 @@ public class CSharpTypeDocumentTests
                     CSharpTypeOrigin.NonGenerated,
                     [
                         Fixed(0, "public int X"),
+                        Fixed(1, " {"),
                         Implementation(
-                            1,
-                            propertyBody,
-                            " { get; set; }",
+                            2,
+                            getterBody,
+                            " get;",
                             CSharpTypeImplementationKind.Body,
                             ownedBodies:
                             [
@@ -705,14 +844,24 @@ public class CSharpTypeDocumentTests
                                     new(
                                         getterStart,
                                         "{ return _a; }".Length)),
+                            ]),
+                        Implementation(
+                            3,
+                            setterBody,
+                            " set;",
+                            CSharpTypeImplementationKind.Body,
+                            ownedBodies:
+                            [
                                 new(
                                     2,
                                     new(
                                         setterStart,
                                         "{ _a = value; }".Length)),
                             ]),
+                        Fixed(4, " }"),
                     ]),
-            ]);
+            ],
+            CSharpTypeDocumentationCapability.Absent);
     }
 
     static CSharpTypePhysicalArtifact Artifact(
@@ -804,5 +953,6 @@ public class CSharpTypeDocumentTests
         CSharpTypeFrame Frame,
         List<CSharpTypePhysicalArtifact> Artifacts,
         List<CSharpTypePhysicalBody> Bodies,
-        List<CSharpTypeDeclaration> Declarations);
+        List<CSharpTypeDeclaration> Declarations,
+        CSharpTypeDocumentationCapability Documentation);
 }

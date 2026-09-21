@@ -77,6 +77,7 @@ public static class CSharpTypeDocumentJson
                 data.Artifacts,
                 data.Bodies,
                 data.Declarations,
+                data.Documentation,
                 data.ContractRelationships);
             var suppliedRevision = new CSharpDocumentRevision(wire.Revision);
             if (document.Revision != suppliedRevision)
@@ -191,6 +192,7 @@ public static class CSharpTypeDocumentJson
                     declaration.Placement,
                     declaration.Origin,
                     [.. declaration.Parts.Select(ToWire)]))],
+            document.Documentation,
             document.ContractRelationships);
 
     static CSharpTypeRenderPartWire ToWire(CSharpTypeRenderPart part)
@@ -303,6 +305,7 @@ public static class CSharpTypeDocumentJson
                         declaration.Parts,
                         "declarations[].parts"))]);
             })],
+            wire.Documentation,
             wire.ContractRelationships);
     }
 
@@ -410,6 +413,7 @@ internal sealed record CSharpTypeDocumentWire(
     ImmutableArray<CSharpTypeArtifactWire> Artifacts,
     ImmutableArray<CSharpTypeBodyWire> Bodies,
     ImmutableArray<CSharpTypeDeclarationWire> Declarations,
+    CSharpTypeDocumentationCapability Documentation,
     CSharpTypeContractRelationshipCapability ContractRelationships);
 
 internal sealed record CSharpTypeNameWire(

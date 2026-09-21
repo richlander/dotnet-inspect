@@ -38,7 +38,8 @@ public sealed record CSharpTypeProjectionDiagnostic(
     CSharpTypeProjectionDiagnosticKind Kind,
     string Message,
     int? DeclarationId = null,
-    int? BodyId = null);
+    int? BodyId = null,
+    CSharpTypeBodyContributionRole? ContributionRole = null);
 
 public sealed class CSharpTypeProjectionRequest
 {
@@ -213,14 +214,21 @@ public static class CSharpTypeDocumentProjector
         {
             if (!IsVisible(declaration, request))
             {
-                if (selected is not null
-                    && declaration.Parts.Any(part =>
-                        UsesSelectedBodyContribution(part, selectedOwnedBodies)))
+                if (selected is not null)
                 {
-                    diagnostics.Add(new(
-                        CSharpTypeProjectionDiagnosticKind.HiddenSelectedBodyContribution,
-                        $"Declaration {declaration.Id} contains selected-body contributions hidden by structural filters.",
-                        declaration.Id));
+                    foreach (CSharpTypeBodyContribution contribution
+                        in declaration.Parts
+                            .SelectMany(static part => part.Contributions)
+                            .Where(contribution =>
+                                selectedOwnedBodies.Contains(contribution.BodyId)))
+                    {
+                        diagnostics.Add(new(
+                            CSharpTypeProjectionDiagnosticKind.HiddenSelectedBodyContribution,
+                            $"Declaration {declaration.Id} contains a {contribution.Role} contribution from selected body {contribution.BodyId} hidden by structural filters.",
+                            declaration.Id,
+                            contribution.BodyId,
+                            contribution.Role));
+                    }
                 }
                 continue;
             }

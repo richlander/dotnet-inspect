@@ -127,6 +127,7 @@ static class CSharpTypeDocumentRevision
         }
         writer.WriteEndArray();
 
+        writer.WriteNumber("documentation", (int)data.Documentation);
         writer.WriteNumber(
             "contract_relationships",
             (int)data.ContractRelationships);

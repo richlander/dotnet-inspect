@@ -123,6 +123,13 @@ public enum CSharpTypeSourceKind
     Decompiled,
 }
 
+public enum CSharpTypeDocumentationCapability
+{
+    Unavailable,
+    Absent,
+    Available,
+}
+
 public enum CSharpTypeContractRelationshipCapability
 {
     Unavailable,
@@ -204,6 +211,7 @@ internal sealed record CSharpTypeDocumentData(
     ImmutableArray<CSharpTypePhysicalArtifact> Artifacts,
     ImmutableArray<CSharpTypePhysicalBody> Bodies,
     ImmutableArray<CSharpTypeDeclaration> Declarations,
+    CSharpTypeDocumentationCapability Documentation,
     CSharpTypeContractRelationshipCapability ContractRelationships);
 
 public sealed class CSharpTypeDocument
@@ -222,6 +230,7 @@ public sealed class CSharpTypeDocument
         Artifacts = data.Artifacts;
         Bodies = data.Bodies;
         Declarations = data.Declarations;
+        Documentation = data.Documentation;
         ContractRelationships = data.ContractRelationships;
         Revision = revision;
     }
@@ -240,6 +249,8 @@ public sealed class CSharpTypeDocument
 
     public ImmutableArray<CSharpTypeDeclaration> Declarations { get; }
 
+    public CSharpTypeDocumentationCapability Documentation { get; }
+
     public CSharpTypeContractRelationshipCapability ContractRelationships { get; }
 
     public CSharpDocumentRevision Revision { get; }
@@ -252,6 +263,7 @@ public sealed class CSharpTypeDocument
         IEnumerable<CSharpTypePhysicalArtifact> artifacts,
         IEnumerable<CSharpTypePhysicalBody> bodies,
         IEnumerable<CSharpTypeDeclaration> declarations,
+        CSharpTypeDocumentationCapability documentation,
         CSharpTypeContractRelationshipCapability contractRelationships =
             CSharpTypeContractRelationshipCapability.Unavailable)
     {
@@ -261,6 +273,8 @@ public sealed class CSharpTypeDocument
         ArgumentNullException.ThrowIfNull(artifacts);
         ArgumentNullException.ThrowIfNull(bodies);
         ArgumentNullException.ThrowIfNull(declarations);
+        if (!Enum.IsDefined(documentation))
+            throw new ArgumentOutOfRangeException(nameof(documentation));
         if (!Enum.IsDefined(contractRelationships))
         {
             throw new ArgumentOutOfRangeException(
@@ -276,6 +290,7 @@ public sealed class CSharpTypeDocument
             SnapshotArtifacts(artifacts, budget),
             SnapshotBodies(bodies, budget),
             SnapshotDeclarations(declarations, budget),
+            documentation,
             contractRelationships);
         CSharpTypeDocumentValidator.Validate(data);
         var document = new CSharpTypeDocument(
@@ -294,6 +309,7 @@ public sealed class CSharpTypeDocument
             Artifacts,
             Bodies,
             Declarations,
+            Documentation,
             ContractRelationships);
 
     static CSharpTypeDocumentSource SnapshotSource(CSharpTypeDocumentSource source)
@@ -435,6 +451,7 @@ static class CSharpTypeDocumentValidator
         ValidateFrameBodyReferences(data.Frame, data.Bodies);
         ValidateDeclarations(data.Declarations, data.Artifacts, data.Bodies);
         ValidateArtifactCompleteness(data.Artifacts, data.Bodies, data.Declarations);
+        ValidateCapabilities(data);
         ValidateTextBudget(data);
         ValidateProjectionTextBudget(data);
     }
@@ -673,6 +690,29 @@ static class CSharpTypeDocumentValidator
         }
     }
 
+    static void ValidateCapabilities(CSharpTypeDocumentData data)
+    {
+        bool hasDocumentation = data.Frame.PrefixParts.Any(static part =>
+                part.Kind == CSharpTypeRenderPartKind.Documentation)
+            || data.Declarations.Any(static declaration =>
+                declaration.Parts.Any(static part =>
+                    part.Kind == CSharpTypeRenderPartKind.Documentation));
+        if ((data.Documentation
+                is CSharpTypeDocumentationCapability.Unavailable
+                    or CSharpTypeDocumentationCapability.Absent)
+            && hasDocumentation)
+        {
+            throw new ArgumentException(
+                "Unavailable or absent documentation cannot carry documentation regions.");
+        }
+        if (data.ContractRelationships
+            != CSharpTypeContractRelationshipCapability.Unavailable)
+        {
+            throw new ArgumentException(
+                "Contract relationships are unavailable in document schema version 1.");
+        }
+    }
+
     static void ValidateArtifactBodyAssociations(
         ImmutableArray<CSharpTypePhysicalArtifact> artifacts,
         ImmutableArray<CSharpTypePhysicalBody> bodies)
@@ -768,6 +808,11 @@ static class CSharpTypeDocumentValidator
                 {
                     throw new ArgumentException(
                         $"{owner} implementation part {part.Id} requires the implementation region.");
+                }
+                if (part.OwnedBodies.Length > 1)
+                {
+                    throw new ArgumentException(
+                        $"{owner} implementation part {part.Id} must be independently selectable for one owned body.");
                 }
             }
             else
