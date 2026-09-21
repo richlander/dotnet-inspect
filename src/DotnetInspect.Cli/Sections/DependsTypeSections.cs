@@ -23,13 +23,13 @@ internal static class DependsTypeSections
             .GetSchemaInfo<DependsGraphTableView>()!
             .ToDocumentSchema();
 
-    private sealed class GraphSection :
+    public sealed class GraphSection :
         ISectionDescriptor<DependsAssetProjection>
     {
         public static string Name => DependencyGraph;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.Graph.Nodes.IsEmpty;
