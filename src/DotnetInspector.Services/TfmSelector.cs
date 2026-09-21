@@ -556,7 +556,9 @@ public static class TfmSelector
         catch (Exception exception) when (
             exception is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             return null;
         }
@@ -611,7 +613,9 @@ public static class TfmSelector
         catch (Exception exception) when (
             exception is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             return exception is BadImageFormatException
                 && IsPlainText(path)
