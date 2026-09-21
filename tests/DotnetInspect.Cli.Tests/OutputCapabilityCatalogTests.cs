@@ -82,6 +82,6 @@ public class OutputCapabilityCatalogTests
         Assert.DoesNotContain(
             DiscoveryOutputMode.Json,
             LibraryOutputCapabilities.Catalog.FormatsForSection(
-                SectionNames.ImplementationProfiles));
+                SectionNames.MemberMetrics));
     }
 }

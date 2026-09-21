@@ -776,7 +776,7 @@ The member command's current authored ownership is:
 selector and indivisible-document contracts are not coherent promises for a
 broader category. `Clone Candidates` also remains exact-name-only because its
 cross-member comparison does not compose with partial category selection.
-`Implementation Profiles` remains exact-name-only because its unbounded
+`Type Metrics` and `Member Metrics` remain exact-name-only because their unbounded
 whole-assembly acquisition must not be implied by category selection. On an
 overload inventory, `Signature` and `Custom Attributes` remain exact-name
 sections because both require one selected overload.

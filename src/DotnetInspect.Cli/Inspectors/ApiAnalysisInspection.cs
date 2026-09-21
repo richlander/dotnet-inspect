@@ -79,8 +79,7 @@ internal static class ApiAnalysisInspection
                 _ => throw new InvalidOperationException("Unknown assembly snapshot result."),
             };
             var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
-            if (requestedSections?.Contains(
-                    SectionNames.ImplementationProfiles) == true)
+            if (SectionNames.IncludesBodyMetrics(requestedSections))
             {
                 features |= Analysis.LibraryBodyAnalysisFeatures
                     .ImplementationProfiles;
@@ -106,8 +105,7 @@ internal static class ApiAnalysisInspection
             bodyScope: null,
             bodyTypeScope: bodyTypeScope,
             includeImplementationProfiles:
-                requestedSections?.Contains(
-                    SectionNames.ImplementationProfiles) == true).BodyIndex;
+                SectionNames.IncludesBodyMetrics(requestedSections)).BodyIndex;
     }
 
     internal static bool SameType(Analysis.TypeRef typeRef, ApiType type)
