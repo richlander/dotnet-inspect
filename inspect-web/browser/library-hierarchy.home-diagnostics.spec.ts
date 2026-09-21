@@ -587,6 +587,34 @@ test("Diagnostics cache refresh returns product-menu focus to the replacement br
   await expect(page.locator("#diagnostics-product")).toBeFocused();
 });
 
+test("Diagnostics parks recognized focus before refresh replacement", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.locator("#diagnostics-back").focus();
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const active = document.activeElement;
+      document.documentElement.dataset.diagnosticsReplacementFocus =
+        `${active?.tagName ?? ""}#${active?.id ?? ""}`;
+      observer.disconnect();
+    });
+    observer.observe(app, { childList: true });
+  });
+
+  await releaseFacade(page, "finish-package-cache-stats");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-diagnostics-replacement-focus", "DIV#app");
+  await expect(page.locator("#diagnostics-back")).toBeFocused();
+});
+
 test("Diagnostics treats a refreshed history entry as direct", async ({
   page,
 }) => {

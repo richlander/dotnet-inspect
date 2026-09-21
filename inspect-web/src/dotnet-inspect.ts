@@ -12572,6 +12572,12 @@ function renderDiagnosticsPage() {
   const activeId = activeElement?.id;
   const productNavigationFocused = Boolean(
     activeElement?.closest("[data-product-navigation-menu]"));
+  const diagnosticsFocusWillBeReplaced =
+    productNavigationFocused
+    || activeId === "diagnostics-heading"
+    || activeId === "diagnostics-product"
+    || activeId === "diagnostics-commit"
+    || activeId === "diagnostics-back";
   const focusTargetId = diagnosticsHeadingFocusPending
     || activeId === "diagnostics-heading"
     ? "diagnostics-heading"
@@ -12582,7 +12588,7 @@ function renderDiagnosticsPage() {
       || activeId === "diagnostics-back"
       ? activeId
       : null;
-  if (productNavigationFocused) {
+  if (diagnosticsFocusWillBeReplaced) {
     app.tabIndex = -1;
     app.focus({ preventScroll: true });
   }
@@ -12601,7 +12607,9 @@ function renderDiagnosticsPage() {
     const focusGeneration = documentFocusGeneration;
     requestAnimationFrame(() => {
       const releaseFocusParking = () => {
-        if (productNavigationFocused) app.removeAttribute("tabindex");
+        if (diagnosticsFocusWillBeReplaced) {
+          app.removeAttribute("tabindex");
+        }
       };
       if (!isDiagnosticsPath(location.pathname)) {
         diagnosticsHeadingFocusPending = false;
