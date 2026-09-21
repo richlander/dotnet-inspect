@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
@@ -213,7 +214,13 @@ public static class TypeApiDeclarationInspection
             ProjectInspectionFailures(
                 surface.InspectionFailures.Where(failure =>
                     failure.SubjectToken == 0
-                    || selectedTokens.Contains(failure.SubjectToken)));
+                    || selectedTokens.Contains(failure.SubjectToken)
+                    || FailureAffectsSelectedDeclaration(
+                        failure,
+                        type,
+                        scope,
+                        selection.IncludedIdentities,
+                        selection.RequiredTypeTokens)));
         if (inspectionFailures.Length > 0)
             return Unavailable(identity, scope, inspectionFailures);
 
@@ -350,6 +357,11 @@ public static class TypeApiDeclarationInspection
                         node.Type,
                         scope,
                         failures);
+            IReadOnlyList<CSharpMemberPolicy> memberPolicies =
+                CreateConstantPolicies(
+                    node.Type,
+                    members,
+                    failures);
             CSharpTypePrintRequest[] nested =
             [
                 .. requests
@@ -367,14 +379,26 @@ public static class TypeApiDeclarationInspection
                     node.Type,
                     CSharpBodyPolicy.Skeleton,
                     members,
+                    memberPolicyOverrides: memberPolicies,
                     nestedTypes: nested));
         }
 
         MetadataTypeDefinitionName top =
             included.OrderBy(identity => identity.Segments.Length).First();
+        ImmutableHashSet<int> requiredTypeTokens =
+        [
+            .. nodes.Values
+                .Where(node =>
+                    included.Contains(node.Identity)
+                    && !node.IsContextShell)
+                .Select(node => node.Type.MetadataToken)
+                .OfType<int>(),
+        ];
         return new(
             requests[top],
-            failures.DrainToImmutable());
+            failures.DrainToImmutable(),
+            included.ToImmutableHashSet(),
+            requiredTypeTokens);
     }
 
     static IReadOnlyList<ApiMember> SelectMembers(
@@ -382,13 +406,16 @@ public static class TypeApiDeclarationInspection
         TypeApiDeclarationScope scope,
         ImmutableArray<TypeApiDeclarationFailure>.Builder failures)
     {
+        IEnumerable<ApiMember> candidates =
+            type.Members.Where(member =>
+                member.Kind != "extension-method");
         if (scope == TypeApiDeclarationScope.All)
-            return type.Members;
+            return [.. candidates];
 
         var selected = new List<ApiMember>();
-        foreach (ApiMember member in type.Members)
+        foreach (ApiMember member in candidates)
         {
-            if (!IsApiVisible(member.Accessibility))
+            if (!IsApiVisible(member))
                 continue;
 
             if (member.Kind == "property"
@@ -433,6 +460,38 @@ public static class TypeApiDeclarationInspection
         }
 
         return selected;
+    }
+
+    static IReadOnlyList<CSharpMemberPolicy> CreateConstantPolicies(
+        ApiType type,
+        IReadOnlyList<ApiMember> members,
+        ImmutableArray<TypeApiDeclarationFailure>.Builder failures)
+    {
+        var policies = new List<CSharpMemberPolicy>();
+        foreach (ApiMember member in members.Where(member => member.IsConst))
+        {
+            string? literal = type.Kind == "enum"
+                ? member.EnumValueLiteral
+                : member.ConstantValueLiteral;
+            if (literal is null)
+            {
+                failures.Add(
+                    new TypeApiDeclarationFailure(
+                        TypeApiDeclarationFailureKind.InspectionIncomplete,
+                        $"Constant '{type.FullName}.{member.Name}' has no "
+                            + "retained metadata initializer.",
+                        SubjectToken: member.DeclarationMetadataToken));
+                continue;
+            }
+
+            policies.Add(
+                new CSharpMemberPolicy(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpFieldInitializer(literal)));
+        }
+
+        return policies;
     }
 
     static void RetainIntroducedTypeParameters(ApiType type)
@@ -493,6 +552,80 @@ public static class TypeApiDeclarationInspection
             or "public"
             or "protected"
             or "protected internal";
+
+    static bool IsApiVisible(ApiMember member)
+    {
+        if (member.MethodImplementation is { } implementation)
+        {
+            MethodAttributes accessibility =
+                implementation.Attributes
+                    & MethodAttributes.MemberAccessMask;
+            return accessibility is
+                MethodAttributes.Public
+                or MethodAttributes.Family
+                or MethodAttributes.FamORAssem;
+        }
+
+        return IsApiVisible(member.Accessibility);
+    }
+
+    static bool IsApiVisible(TypeAttributes attributes)
+    {
+        TypeAttributes visibility =
+            attributes & TypeAttributes.VisibilityMask;
+        return visibility is
+            TypeAttributes.Public
+            or TypeAttributes.NestedPublic
+            or TypeAttributes.NestedFamily
+            or TypeAttributes.NestedFamORAssem;
+    }
+
+    static bool FailureAffectsSelectedDeclaration(
+        ApiSurfaceInspectionFailure failure,
+        MetadataTypeDefinitionName requested,
+        TypeApiDeclarationScope scope,
+        ImmutableHashSet<MetadataTypeDefinitionName> includedIdentities,
+        ImmutableHashSet<int> requiredTypeTokens)
+    {
+        if (failure.AffectedTypeDefinitions.Any(
+            includedIdentities.Contains))
+        {
+            return true;
+        }
+        if (failure.OwningTypeDefinition is not { } owner)
+        {
+            if (failure.OwningTypeParentToken is not { } parentToken
+                || !requiredTypeTokens.Contains(parentToken))
+            {
+                return false;
+            }
+            if (scope == TypeApiDeclarationScope.All)
+                return true;
+            return failure.OwningTypeAttributes is { } parentOwnedAttributes
+                && IsApiVisible(parentOwnedAttributes);
+        }
+        if (!string.Equals(
+                owner.Namespace,
+                requested.Namespace,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (IsPrefix(owner.Segments, requested.Segments))
+            return true;
+        if (!IsPrefix(requested.Segments, owner.Segments))
+            return false;
+
+        MetadataTypeDefinitionName parent = Parent(owner);
+        if (!includedIdentities.Contains(parent))
+            return false;
+        if (scope == TypeApiDeclarationScope.All)
+            return true;
+
+        return failure.OwningTypeAttributes is { } attributes
+            && IsApiVisible(attributes);
+    }
 
     static bool FailureCouldHideRequestedType(
         ApiSurfaceInspectionFailure failure,
@@ -611,5 +744,7 @@ public static class TypeApiDeclarationInspection
 
     sealed record DeclarationSelection(
         CSharpTypePrintRequest Request,
-        ImmutableArray<TypeApiDeclarationFailure> Failures);
+        ImmutableArray<TypeApiDeclarationFailure> Failures,
+        ImmutableHashSet<MetadataTypeDefinitionName> IncludedIdentities,
+        ImmutableHashSet<int> RequiredTypeTokens);
 }

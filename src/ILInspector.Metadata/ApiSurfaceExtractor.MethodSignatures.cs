@@ -624,6 +624,66 @@ public static partial class ApiSurfaceExtractor
         };
     }
 
+    private static string? FormatFieldConstantLiteral(
+        MetadataReader reader,
+        Constant constant)
+    {
+        object? value = ReadConstantValue(reader, constant);
+        return constant.TypeCode switch
+        {
+            ConstantTypeCode.Boolean when value is bool boolean =>
+                boolean ? "true" : "false",
+            ConstantTypeCode.Char when value is char character =>
+                $"'{EscapeCharLiteral(character)}'",
+            ConstantTypeCode.SByte when value is sbyte number =>
+                number.ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Byte when value is byte number =>
+                number.ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Int16 when value is short number =>
+                number.ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.UInt16 when value is ushort number =>
+                number.ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.Int32 when value is int number =>
+                number.ToString(CultureInfo.InvariantCulture),
+            ConstantTypeCode.UInt32 when value is uint number =>
+                number.ToString(CultureInfo.InvariantCulture) + "U",
+            ConstantTypeCode.Int64 when value is long number =>
+                FormatInt64Literal(number),
+            ConstantTypeCode.UInt64 when value is ulong number =>
+                number.ToString(CultureInfo.InvariantCulture) + "UL",
+            ConstantTypeCode.Single when value is float number =>
+                FormatSingleConstantLiteral(number),
+            ConstantTypeCode.Double when value is double number =>
+                FormatDoubleConstantLiteral(number),
+            ConstantTypeCode.String when value is string text =>
+                StringLiteral(text),
+            ConstantTypeCode.NullReference => "null",
+            _ => null,
+        };
+    }
+
+    private static string FormatSingleConstantLiteral(float value)
+    {
+        if (float.IsNaN(value))
+            return "float.NaN";
+        if (float.IsPositiveInfinity(value))
+            return "float.PositiveInfinity";
+        if (float.IsNegativeInfinity(value))
+            return "float.NegativeInfinity";
+        return value.ToString("R", CultureInfo.InvariantCulture) + "F";
+    }
+
+    private static string FormatDoubleConstantLiteral(double value)
+    {
+        if (double.IsNaN(value))
+            return "double.NaN";
+        if (double.IsPositiveInfinity(value))
+            return "double.PositiveInfinity";
+        if (double.IsNegativeInfinity(value))
+            return "double.NegativeInfinity";
+        return value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
     // `null` is a legal default only for a reference type or a Nullable<T> (a
     // value type that nonetheless accepts the `null` literal). A non-nullable
     // value type must spell its null constant `default`.
@@ -992,7 +1052,9 @@ public static partial class ApiSurfaceExtractor
         MetadataTypeNameFailure failure,
         AssemblyReferenceIdentity? subjectAssembly = null,
         TypeDefinitionHandle owningType = default,
-        MetadataTypeDefinitionName? owningTypeDefinition = null)
+        TypeDefinitionHandle owningTypeParent = default,
+        MetadataTypeDefinitionName? owningTypeDefinition = null,
+        TypeAttributes? owningTypeAttributes = null)
     {
         var retained = new ApiSurfaceInspectionFailure(
             operation,
@@ -1005,7 +1067,11 @@ public static partial class ApiSurfaceExtractor
             OwningTypeToken = owningType.IsNil
                 ? null
                 : MetadataTokens.GetToken(owningType),
+            OwningTypeParentToken = owningTypeParent.IsNil
+                ? null
+                : MetadataTokens.GetToken(owningTypeParent),
             OwningTypeDefinition = owningTypeDefinition,
+            OwningTypeAttributes = owningTypeAttributes,
         };
         budget?.RetainInspectionFailure(retained);
         surface.InspectionFailures.Add(retained);

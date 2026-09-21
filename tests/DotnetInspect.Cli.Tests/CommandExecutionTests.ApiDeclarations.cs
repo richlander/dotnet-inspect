@@ -1,9 +1,84 @@
 using System.Text.Json;
+using DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
 
+// PR-fast: bounded declaration selection and rendering for individual types.
 public partial class CommandExecutionTests
 {
+    [Theory]
+    [InlineData("System.Reflection.BindingFlags", "Instance = 4", "Static = 8")]
+    [InlineData("System.Math", "public const double PI = 3.141592653589793", "public const double E = 2.718281828459045")]
+    public async Task Type_ApiDeclarations_PreserveConstantValues(
+        string type,
+        string firstConstant,
+        string secondConstant)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", type,
+            "--platform", "System.Private.CoreLib",
+            "-S", "API Declarations",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(firstConstant, output);
+        Assert.Contains(secondConstant, output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_ApiDeclarations_ExtensionsBelongToDeclaringType(
+        bool includeAll)
+    {
+        string[] scope = includeAll ? ["--all"] : [];
+        string assembly = typeof(BodyShapeFixture).Assembly.Location;
+        var (receiverExit, receiverOutput, receiverError) = await RunAppAsync([
+            "type", "DotnetInspector.Fixtures.BodyShapeFixture",
+            "--library", assembly,
+            "-S", "API Declarations",
+            "--tips", "q",
+            .. scope]);
+        var (declaringExit, declaringOutput, declaringError) = await RunAppAsync([
+            "type", "DotnetInspector.Fixtures.BodyShapeFixtureExtensions",
+            "--library", assembly,
+            "-S", "API Declarations",
+            "--tips", "q",
+            .. scope]);
+
+        Assert.Equal(0, receiverExit);
+        Assert.Empty(receiverError);
+        Assert.DoesNotContain("ProjectedCreation", receiverOutput);
+        Assert.Equal(0, declaringExit);
+        Assert.Empty(declaringError);
+        Assert.Contains(
+            "ProjectedCreation(this BodyShapeFixture value);",
+            declaringOutput);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_ApiDeclarations_PrivateExplicitImplementationsRequireAll(
+        bool includeAll)
+    {
+        string[] scope = includeAll ? ["--all"] : [];
+        var (exit, output, error) = await RunAppAsync([
+            "type", "System.Collections.Generic.List<T>",
+            "--platform", "System.Private.CoreLib",
+            "-S", "API Declarations",
+            "--tips", "q",
+            .. scope]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        if (includeAll)
+            Assert.Contains("System.Collections.IList.get_IsFixedSize();", output);
+        else
+            Assert.DoesNotContain("System.Collections.IList.get_IsFixedSize();", output);
+    }
+
     [Fact]
     public async Task Type_ApiDeclarations_DefaultsToNativeApiVisibleSource()
     {

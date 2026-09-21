@@ -31,6 +31,7 @@
     <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures/ILInspector.Metadata.PublicMethodRootFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/shared/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
   </ItemGroup>
 
 </Project>

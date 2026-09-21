@@ -119,6 +119,236 @@ public sealed class TypeApiDeclarationInspectionTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task EnumConstants_RetainMetadataValues()
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(BindingFlags).Assembly.Location,
+                Name("System.Reflection", "BindingFlags"),
+                TypeApiDeclarationScope.ApiVisible);
+
+        string text = Assert.IsType<string>(envelope.Content.Text);
+        Assert.Contains("Instance = 4", text);
+        Assert.Contains("Static = 8", text);
+    }
+
+    [Fact]
+    public async Task OrdinaryConstants_RetainMetadataInitializers()
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(Math).Assembly.Location,
+                Name("System", "Math"),
+                TypeApiDeclarationScope.ApiVisible);
+
+        string text = Assert.IsType<string>(envelope.Content.Text);
+        Assert.Contains(
+            "public const double PI = 3.141592653589793;",
+            text);
+    }
+
+    [Theory]
+    [InlineData(TypeApiDeclarationScope.ApiVisible)]
+    [InlineData(TypeApiDeclarationScope.All)]
+    public async Task ExtensionReceiver_DoesNotPublishDiscoveryProjection(
+        TypeApiDeclarationScope scope)
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(BodyShapeFixture).Assembly.Location,
+                Name(
+                    "DotnetInspector.Fixtures",
+                    nameof(BodyShapeFixture)),
+                scope);
+
+        string text = Assert.IsType<string>(envelope.Content.Text);
+        Assert.DoesNotContain(
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation),
+            text);
+    }
+
+    [Fact]
+    public async Task ExtensionDeclaringType_RetainsActualDeclaration()
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(BodyShapeFixtureExtensions).Assembly.Location,
+                Name(
+                    "DotnetInspector.Fixtures",
+                    nameof(BodyShapeFixtureExtensions)),
+                TypeApiDeclarationScope.ApiVisible);
+
+        Assert.Contains(
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation),
+            Assert.IsType<string>(envelope.Content.Text));
+    }
+
+    [Theory]
+    [InlineData(TypeApiDeclarationScope.ApiVisible, false)]
+    [InlineData(TypeApiDeclarationScope.All, true)]
+    public async Task PrivateExplicitImplementation_IsAdmittedOnlyByAll(
+        TypeApiDeclarationScope scope,
+        bool expected)
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(List<>).Assembly.Location,
+                Name("System.Collections.Generic", "List`1"),
+                scope);
+
+        string text = Assert.IsType<string>(envelope.Content.Text);
+        Assert.Equal(
+            expected,
+            text.Contains(
+                "System.Collections.IList.get_IsFixedSize",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InterfaceDeclaration_RetainsImplicitPublicProperty()
+    {
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                typeof(System.Collections.IList).Assembly.Location,
+                Name("System.Collections", "IList"),
+                TypeApiDeclarationScope.ApiVisible);
+
+        Assert.Contains(
+            "bool IsFixedSize { get; }",
+            Assert.IsType<string>(envelope.Content.Text));
+    }
+
+    [Theory]
+    [InlineData(
+        TypeAttributes.NestedPublic,
+        TypeApiDeclarationScope.ApiVisible,
+        TypeApiDeclarationOutcome.Unavailable)]
+    [InlineData(
+        TypeAttributes.NestedPublic,
+        TypeApiDeclarationScope.All,
+        TypeApiDeclarationOutcome.Unavailable)]
+    [InlineData(
+        TypeAttributes.NestedPrivate,
+        TypeApiDeclarationScope.ApiVisible,
+        TypeApiDeclarationOutcome.Available)]
+    [InlineData(
+        TypeAttributes.NestedPrivate,
+        TypeApiDeclarationScope.All,
+        TypeApiDeclarationOutcome.Unavailable)]
+    [InlineData(
+        TypeAttributes.NestedFamORAssem,
+        TypeApiDeclarationScope.ApiVisible,
+        TypeApiDeclarationOutcome.Unavailable)]
+    [InlineData(
+        TypeAttributes.NestedFamANDAssem,
+        TypeApiDeclarationScope.ApiVisible,
+        TypeApiDeclarationOutcome.Available)]
+    public async Task RejectedNestedDeclaration_AffectsOnlySelectedScope(
+        TypeAttributes accessibility,
+        TypeApiDeclarationScope scope,
+        TypeApiDeclarationOutcome expected)
+    {
+        byte[] image = BuildRejectedNestedTypeImage(
+            accessibility,
+            includeSelectedSibling: false);
+
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                ResolvedImage(image, "NestedFailure"),
+                Name("", "Outer"),
+                scope);
+
+        Assert.Equal(expected, envelope.Content.Outcome);
+        if (expected == TypeApiDeclarationOutcome.Unavailable)
+        {
+            Assert.Contains(
+                envelope.Content.Failures,
+                failure => failure.Operation == "type row");
+        }
+        else
+        {
+            Assert.DoesNotContain(
+                "BrokenChild",
+                Assert.IsType<string>(envelope.Content.Text));
+        }
+    }
+
+    [Theory]
+    [InlineData(TypeApiDeclarationScope.ApiVisible)]
+    [InlineData(TypeApiDeclarationScope.All)]
+    public async Task RejectedNestedSibling_DoesNotPoisonSelectedRoot(
+        TypeApiDeclarationScope scope)
+    {
+        byte[] image = BuildRejectedNestedTypeImage(
+            TypeAttributes.NestedPublic,
+            includeSelectedSibling: true,
+            invalidBrokenName: true);
+
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                ResolvedImage(image, "NestedFailure"),
+                Name("", "Outer", "Selected"),
+                scope);
+
+        Assert.Equal(
+            TypeApiDeclarationOutcome.Available,
+            envelope.Content.Outcome);
+        Assert.Contains(
+            "public sealed class Selected",
+            Assert.IsType<string>(envelope.Content.Text));
+    }
+
+    [Theory]
+    [InlineData(
+        TypeAttributes.NestedPublic,
+        TypeApiDeclarationScope.ApiVisible,
+        TypeApiDeclarationOutcome.Unavailable)]
+    [InlineData(
+        TypeAttributes.NestedPublic,
+        TypeApiDeclarationScope.All,
+        TypeApiDeclarationOutcome.Unavailable)]
+    [InlineData(
+        TypeAttributes.NestedPrivate,
+        TypeApiDeclarationScope.ApiVisible,
+        TypeApiDeclarationOutcome.Available)]
+    [InlineData(
+        TypeAttributes.NestedPrivate,
+        TypeApiDeclarationScope.All,
+        TypeApiDeclarationOutcome.Unavailable)]
+    public async Task RejectedNestedIdentityWithoutOwner_AffectsSelectedRoot(
+        TypeAttributes accessibility,
+        TypeApiDeclarationScope scope,
+        TypeApiDeclarationOutcome expected)
+    {
+        byte[] image = BuildRejectedNestedTypeImage(
+            accessibility,
+            includeSelectedSibling: false,
+            invalidBrokenName: true);
+
+        InspectionEnvelope<TypeApiDeclarationResult> envelope =
+            await ExecuteAsync(
+                ResolvedImage(image, "NestedFailure"),
+                Name("", "Outer"),
+                scope);
+
+        Assert.Equal(
+            expected,
+            envelope.Content.Outcome);
+        if (expected == TypeApiDeclarationOutcome.Unavailable)
+        {
+            Assert.Contains(
+                envelope.Content.Failures,
+                failure => failure.Operation == "type identity");
+        }
+        else
+        {
+            Assert.DoesNotContain(
+                envelope.Content.Failures,
+                failure => failure.Operation == "type identity");
+        }
+    }
+
     [Theory]
     [InlineData(TypeApiDeclarationScope.ApiVisible)]
     [InlineData(TypeApiDeclarationScope.All)]
@@ -430,6 +660,95 @@ public sealed class TypeApiDeclarationInspectionTests
         builder.Serialize(image);
         return image.ToArray();
     }
+
+    static byte[] BuildRejectedNestedTypeImage(
+        TypeAttributes brokenAccessibility,
+        bool includeSelectedSibling,
+        bool invalidBrokenName = false)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "NestedFailure.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("NestedFailure"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("Outer"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        if (includeSelectedSibling)
+        {
+            TypeDefinitionHandle selected =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic
+                        | TypeAttributes.Sealed,
+                    default,
+                    metadata.GetOrAddString("Selected"),
+                    baseType: default,
+                    fieldList:
+                        MetadataTokens.FieldDefinitionHandle(1),
+                    methodList:
+                        MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(selected, outer);
+        }
+        TypeDefinitionHandle broken =
+            metadata.AddTypeDefinition(
+                brokenAccessibility | TypeAttributes.Sealed,
+                default,
+                invalidBrokenName
+                    ? default
+                    : metadata.GetOrAddString("BrokenChild"),
+                baseType: MetadataTokens.TypeReferenceHandle(99),
+                fieldList:
+                    MetadataTokens.FieldDefinitionHandle(1),
+                methodList:
+                    MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(broken, outer);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static ResolvedAssemblyReference ResolvedImage(
+        byte[] image,
+        string assemblyName) =>
+        ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                assemblyName,
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "declaration malformed input test"));
 
     static MetadataTypeDefinitionName Name(
         string typeNamespace,

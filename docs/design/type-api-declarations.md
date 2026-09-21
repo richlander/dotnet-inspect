@@ -39,8 +39,12 @@ An explicitly selected non-public root is still the requested root. Scope
 controls its member and nested-type declarations, not a second lookup that
 silently substitutes another type. Metadata-owned accessibility facts select
 members and individual property accessors; rendered signatures are not parsed
-for visibility. All scope does not introduce compiler-generated implementation
-artifacts that the declaration extractor excludes.
+for visibility. Omitted C# accessibility spelling does not make a private
+explicit interface implementation API-visible. All scope does not introduce
+compiler-generated implementation artifacts that the declaration extractor
+excludes. Receiver-attached extension-method discovery entries are not
+declarations of the receiver; extension methods remain declarations of their
+actual declaring type.
 
 The selected type includes its nested declaration subtree under the same
 visibility rule. Selecting a nested type retains its containing declarations
@@ -64,7 +68,9 @@ Extraction uses the existing acquired participant and explicit caller-supplied
 bounds. Browser supplies its existing bounded surface policy. Truncation,
 rejected input, or incomplete metadata needed for the selected declaration
 cannot become an apparently complete smaller declaration. A conclusive missing
-type is distinguishable from unavailable inspection.
+type is distinguishable from unavailable inspection. Failure ownership applies
+to the required containing shells and selected subtree, including declarations
+rejected before they could enter the successfully extracted type set.
 
 The CSharp printer's unavailable outcome or diagnostic evidence is retained.
 Unsupported declarations are not silently deleted, base types are not stripped
@@ -126,8 +132,11 @@ cases, and the declaration participant case in `SourceForwarderResolutionTests`.
 They cover native/Markdown/structured and mixed output, mixed-accessibility
 property accessors, protected internal versus private protected, nested generic
 context and subtree scope, enums and delegates, exact non-public roots, cyclic
-type identity, and bounded extraction. An incomplete identity projection is
-unavailable, not a conclusive missing type.
+type identity, and bounded extraction. Constant fields and nonsequential enum
+values retain their metadata values. Receiver projections and private explicit
+implementations exercise the declaration-membership boundary. Rejected nested
+declarations and incomplete identity projections remain unavailable, not
+apparently complete output or a conclusive missing type.
 
 `BrowserTypeSourceOperationTests` compares the exported declaration envelope
 with the shared operation and exercises reference-only package selection and

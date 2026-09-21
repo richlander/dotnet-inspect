@@ -323,6 +323,29 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         await AssertReleased(id, packageId);
     }
 
+    // PR-fast: real enum constants survive the shared declaration envelope and Browser transport.
+    [Theory]
+    [InlineData("api-declarations")]
+    [InlineData("all-declarations")]
+    public async Task ApiDeclarations_PreserveEnumValuesFromReferenceOnlyPackage(string view)
+    {
+        string packageId = $"Type.Declarations.Constants.{view}";
+        await RegisterDeclarationPackageAsync(packageId);
+        string id = Guid.NewGuid().ToString();
+        BrowserTypeSourceResult result = Read(await SourceExports.QueryTypeSource(
+            id, packageId, "1.0.0", "net11.0", "System.Text.Json.dll",
+            "System.Text.Json.JsonValueKind", "[]", view));
+
+        Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
+        var declarations = Assert.IsType<BrowserTypeCodeView.ApiDeclarations>(result.Value);
+        Assert.Equal(TypeApiDeclarationOutcome.Available, declarations.Inspection.Content.Outcome);
+        Assert.Contains("True = 5", declarations.Inspection.Content.Text);
+        Assert.Contains("Null = 7", declarations.Inspection.Content.Text);
+        Assert.Empty(declarations.Inspection.Content.Failures);
+        Assert.Empty(declarations.Inspection.Diagnostics);
+        await AssertReleased(id, packageId);
+    }
+
     static async Task RegisterDeclarationPackageAsync(string packageId)
     {
         using var bytes = new MemoryStream();
