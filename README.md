@@ -1393,6 +1393,12 @@ Target, or Kind field order; Traversal is a sequence order. Asset-mode
 `Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
 `--depth` capability from the Dependency operation.
 
+For recursive package traversal, `--tfm` selects the root package dependency
+group and configures the stable traversal target. When `--tfm` is omitted, the
+root keeps its package-local selection while newly reached packages use the
+product traversal default, currently `net12.0`; a compatible destination
+selection does not replace that target on later edges.
+
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select
 those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
