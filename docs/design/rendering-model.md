@@ -183,6 +183,23 @@ Printing a source payload also honors explicit Markdown. Multiple candidate
 documents still require the existing explicit row selection; this policy does
 not introduce concatenation or a multi-document framing contract.
 
+API Declarations, Decompiled Source, Annotated Source, PDB Source, Source Diff,
+IL, Cost Overlay, and Semantics Overlay support unary `--print` through the same
+payload projection. Printing preserves the selected content; explicit JSON
+formats wrap it in the existing printable-document shape rather than changing
+the direct inspection's JSON contract. Finding Census retains its separate
+[indivisible-envelope contract](member-source-presentation.md#format-behavior)
+and rejects payload projection.
+
+The motivating overlay case is `System.Text.Json@10.0.5`,
+`JsonElement.GetArrayLength:1`: both overlays already rendered natively, but
+`--print` rejected them. Release `SourcePayloadPrintTests` gates the production
+CLI with the installed System.Text.Json asset, including native/print content,
+explicit Markdown, structured projection, bodyless members, invalid rows, and
+rendered limits. Bounded single-member cases are PR-fast; the measured slow
+native/print comparisons and cost-annotation fixture run in daily Deep Inspect
+and the focused pre-merge gate.
+
 The `type` and `member` commands no longer expose `--bare`; the useful
 single-payload behavior is their default, not a compatibility alias or a new
 `--raw` mode. Other content commands retain their own current presentation
