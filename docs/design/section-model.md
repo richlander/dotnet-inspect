@@ -437,7 +437,7 @@ The broad and shared descriptors have these measured and structural bounds:
 | Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
 | Unsafe Members | 192 `System.String` rows; one row per unsafe finding or visible decode diagnostic | `Verbose` |
 | Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
-| Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 182 `System.String` rows respectively; one row per projected semantic fact | `Verbose` |
+| Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
 | Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
 | Performance Triage | 31 `System.String` rows; one row per optimization opportunity | `Verbose` |
 | Implementation Profiles | 301 `System.String` rows; one row per scoped method profile | `Verbose` |
