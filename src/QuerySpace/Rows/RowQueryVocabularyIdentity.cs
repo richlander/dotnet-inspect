@@ -1,4 +1,4 @@
-namespace DotnetInspector.Sections;
+namespace QuerySpace.Rows;
 
 public sealed class RowQueryVocabularyIdentity
 {
