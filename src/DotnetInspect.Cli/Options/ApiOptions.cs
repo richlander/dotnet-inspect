@@ -120,6 +120,7 @@ public partial record ApiOptions : IProjectionOptions
 
     // Shared output
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
+    public bool VerbosityExplicitlySet { get; init; }
 
     /// <summary>
     /// The user's requested verbosity before internal section-selection promotion.
@@ -287,7 +288,8 @@ public partial record ApiOptions : IProjectionOptions
     public bool UsesMarkdownPayloadFormat =>
         MarkdownExplicitlySet
         || (FormatExplicitlySet
-            && Format == OutputFormat.Markdown);
+            && Format == OutputFormat.Markdown
+            && (!FormatFlagExplicitlySet || VerbosityExplicitlySet));
 
     public bool UsesNativePayloadDefault =>
         !FormatExplicitlySet

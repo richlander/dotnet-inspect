@@ -81,6 +81,47 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    // Full-type source measures over two seconds; daily and focused gates own this.
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData(true, null, false)]
+    [InlineData(true, "--markdown", false)]
+    [InlineData(true, "-v:q", false)]
+    [InlineData(true, "--plaintext", false)]
+    [InlineData(false, null, false)]
+    [InlineData(false, "-v:q", false)]
+    [InlineData(true, null, true)]
+    [InlineData(false, "-v:q", true)]
+    public async Task TypeSourcePrint_TreeDoesNotRequestMarkdown(
+        bool tree,
+        string? format,
+        bool commandless)
+    {
+        var result = await RunCliAsync(
+        [
+            .. commandless ? Array.Empty<string>() : ["type"],
+            typeof(JsonNamingPolicy).FullName!,
+            "--library", typeof(JsonNamingPolicy).Assembly.Location,
+            "-S", "Decompiled Source", "--print", "--tips", "q",
+            .. tree ? new[] { "--tree" } : [],
+            .. format is not null ? new[] { format } : [],
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains("class JsonNamingPolicy", result.Output);
+        if (format is "--markdown" or "-v:q")
+        {
+            Assert.StartsWith("# Decompiled Source", result.Output);
+            Assert.Contains("```csharp", result.Output);
+        }
+        else
+        {
+            Assert.DoesNotContain("# Decompiled Source", result.Output);
+            Assert.DoesNotContain("```", result.Output);
+        }
+    }
+
     [Fact]
     public async Task TypeSourceFilesPrint_EnvironmentMarkdownFramesDocument()
     {

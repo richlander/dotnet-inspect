@@ -172,7 +172,8 @@ another source.
 An explicit format, including an environment format default, overrides this
 native default. `--markdown` and the existing `-v:*` Markdown selection request
 Markdown presentation. Explicit plaintext or JSON still takes precedence over
-verbosity according to the shared format resolver. JSON, row-oriented
+verbosity according to the shared format resolver. A `--tree` request is not
+a Markdown request for a selected source payload. JSON, row-oriented
 formats, Count, field/column projection, and discovery retain their existing
 contracts rather than falling through to text output. Normalized section
 selection decides whether the result is a single payload; matching a category
@@ -193,6 +194,9 @@ the [authored-parts projection](authored-member-parts-presentation.md);
 JSON shapes remain separate from generic printable-document JSON.
 `LocalRepoSourceProjectionTests.MemberParts_*` gates this behavior in Release
 against this repository's compiled, XML-documented `MemberTextSlicer` source.
+Its `TypeSourcePrint_TreeDoesNotRequestMarkdown` cases gate tree/format
+provenance with the real `JsonNamingPolicy` type. These measured slow cases
+run in daily Deep Inspect and the focused pre-merge gate.
 
 API Declarations, Decompiled Source, Annotated Source, PDB Source, Source Diff,
 IL, Cost Overlay, and Semantics Overlay support unary `--print` through the same
