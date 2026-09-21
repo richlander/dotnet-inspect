@@ -690,6 +690,7 @@ this same test file are recorded in
   `new intent repairs unresolved traversal before admission`,
   `failed traversal realigns only its current selected entry`,
   `delayed operation retains its originating location intent`, and
+  `publication revalidates intent after classification`, and
   `post-cutover history failure keeps the installed successor unresolved`
   cover the typed declaration and pure push, replace, adopt, realign, or
   no-write classifier. They preserve exact installed association separately

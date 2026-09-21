@@ -222,6 +222,7 @@ NavigationLocationIntentArbiter {
     effect: LocationEffect,
     history: BrowserHistoryWriter,
   ): void {
+    if (effect.intentId !== currentIntentId) return;
     try {
       applyLocationEffect(effect, history);
     } catch (error) {

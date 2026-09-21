@@ -209,6 +209,34 @@ test("delayed operation retains its originating location intent", () => {
   ).kind, "push");
 });
 
+test("publication revalidates intent after classification", () => {
+  const arbiter = createNavigationLocationIntentArbiter();
+  const delayed = arbiter.admitNonBrowser("push", null, null);
+  const effect = arbiter.classify(
+    delayed,
+    result(association("delayed")));
+  const traversal = arbiter.selectBrowserEntry({
+    url: "/?w=current",
+    historyState: { workspace: "current" },
+    retainedDefinitionId: "current",
+    incumbent: association("incumbent"),
+  });
+  const writes: string[] = [];
+
+  arbiter.publish(effect, {
+    pushState() {
+      writes.push("push");
+    },
+    replaceState() {
+      writes.push("replace");
+    },
+  });
+
+  assert.deepEqual(writes, []);
+  assert.equal(arbiter.currentIntentId, traversal.id);
+  assert.equal(arbiter.unresolved?.intentId, traversal.id);
+});
+
 test("post-cutover history failure keeps the installed successor unresolved", () => {
   const arbiter = createNavigationLocationIntentArbiter();
   const accepted = arbiter.admitNonBrowser("push", null, null);

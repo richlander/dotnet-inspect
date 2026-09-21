@@ -30,6 +30,11 @@ test("browser traversal owns location across irreversible Workspace completion",
       workspaceB.canonicalLocation);
     const acceptedCutover =
       arbiter.admitNonBrowser("replace", workspaceA, null);
+    const acceptedEffect = arbiter.classify(acceptedCutover, {
+      outcome: "applied",
+      synchronization: "current",
+      association: workspaceB,
+    });
 
     const selected = new Promise<void>(resolve =>
       window.addEventListener("popstate", () => resolve(), { once: true }));
@@ -42,12 +47,7 @@ test("browser traversal owns location across irreversible Workspace completion",
       incumbent: workspaceB,
     });
 
-    const staleEffect = arbiter.classify(acceptedCutover, {
-      outcome: "applied",
-      synchronization: "current",
-      association: workspaceB,
-    });
-    arbiter.publish(staleEffect, history);
+    arbiter.publish(acceptedEffect, history);
     const traversalEffect = arbiter.classify(traversal, {
       outcome: "applied",
       synchronization: "current",
@@ -63,7 +63,7 @@ test("browser traversal owns location across irreversible Workspace completion",
     await forwarded;
 
     return {
-      staleEffect: staleEffect.kind,
+      classifiedCutoverEffect: acceptedEffect.kind,
       traversalEffect: traversalEffect.kind,
       selectedLocation,
       forwardLocation: location.href,
@@ -72,7 +72,7 @@ test("browser traversal owns location across irreversible Workspace completion",
   });
 
   expect(result).toEqual({
-    staleEffect: "none",
+    classifiedCutoverEffect: "replace",
     traversalEffect: "adopt",
     selectedLocation:
       "http://127.0.0.1:4175/?package=System.Text.Json&version=8.0.5",
