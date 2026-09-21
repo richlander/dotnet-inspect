@@ -551,6 +551,9 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(queryTfmOption);
         queryCommand.Options.Add(opts.RowWhere);
         opts.AddJsonOptionTo(queryCommand);
+        opts.AddFormatOptionTo(
+            queryCommand,
+            CliPresentationFormat.Markdown);
         queryCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(queryCommand);
         queryCommand.Options.Add(opts.Limit);

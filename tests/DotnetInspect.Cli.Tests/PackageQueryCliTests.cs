@@ -1217,6 +1217,38 @@ public class PackageQueryCliTests
         Assert.Contains("Evaluation Failures", summary.Output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExplicitMarkdownOverridesEnvironmentJsonAtEitherQueryPosition(
+        bool parentBound)
+    {
+        string? previous =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            string[] arguments = parentBound
+                ? ["package", "--format=markdown", "query", "-D"]
+                : ["package", "query", "-D", "--format=markdown"];
+
+            var result = await Run(arguments);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            Assert.StartsWith("| Name | Kind |", result.Output);
+            Assert.DoesNotContain("\"content\"", result.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                previous);
+        }
+    }
+
     [Fact]
     public void EnvelopeAdmissionRejectsPostServiceShaping()
     {
