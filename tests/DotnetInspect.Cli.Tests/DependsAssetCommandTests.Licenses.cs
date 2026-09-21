@@ -168,6 +168,139 @@ public partial class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task DirectNuspecLicenses_DepthBoundedDiscoveryIsComplete()
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Licensed",
+            "1.0.0",
+            Dependency("Contoso.Transitive", "[2.0.0]"),
+            """<license type="expression">MIT</license>""");
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Transitive",
+            "2.0.0",
+            "",
+            """<license type="expression">Apache-2.0</license>""");
+        string root = WriteTemporaryFile(
+            "root.nuspec",
+            Manifest(
+                "Contoso.Root",
+                "1.0.0",
+                Dependency("Contoso.Licensed", "[1.0.0]")));
+
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--nuspec",
+            root,
+            "--source",
+            source,
+            "--depth",
+            "1",
+            "-S",
+            "Dependency Hierarchy,Licenses",
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary");
+        Assert.Equal(
+            "DepthBounded",
+            summary.GetProperty("traversal_completion").GetString());
+        Assert.Equal(
+            "Complete",
+            summary.GetProperty("licenses")
+                .GetProperty("completion")
+                .GetString());
+        JsonElement license = Assert.Single(
+            document.RootElement.GetProperty("licenses").EnumerateArray());
+        Assert.Equal(
+            "contoso.licensed",
+            license.GetProperty("package").GetString());
+        Assert.Equal("MIT", license.GetProperty("license").GetString());
+    }
+
+    [Fact]
+    public async Task DirectNuspecLicenses_FailedSiblingMakesCountInexact()
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Licensed",
+            "1.0.0",
+            "",
+            """<license type="expression">MIT</license>""");
+        string root = WriteTemporaryFile(
+            "root.nuspec",
+            Manifest(
+                "Contoso.Root",
+                "1.0.0",
+                Dependency("Contoso.Licensed", "[1.0.0]")));
+        string missing = Path.Combine(
+            CreateTemporaryDirectory(),
+            "missing.nuspec");
+
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "--nuspec",
+            root,
+            "--nuspec",
+            missing,
+            "--source",
+            source,
+            "-S",
+            "Licenses",
+            "--json",
+            "--compact",
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            "license inventory completed as Partial",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary");
+        Assert.Equal(
+            "Partial",
+            summary.GetProperty("root_set_completion").GetString());
+        Assert.Equal(
+            "Partial",
+            summary.GetProperty("licenses")
+                .GetProperty("completion")
+                .GetString());
+        Assert.Single(
+            document.RootElement.GetProperty("licenses").EnumerateArray());
+
+        (int countExit, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--nuspec",
+                root,
+                "--nuspec",
+                missing,
+                "--source",
+                source,
+                "-S",
+                "Licenses",
+                "--count",
+            ]);
+        Assert.Equal(1, countExit);
+        Assert.Empty(countOutput);
+        Assert.Contains(
+            "--count cannot report an exact 'Licenses' count",
+            countError,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RestoredProjectLicenses_UsesExactRestoredPackages()
     {
         string source = CreateTemporaryDirectory();
@@ -241,7 +374,7 @@ public partial class DependsAssetCommandTests
             "--source",
             source,
             "-S",
-            "Licenses",
+            "Licenses,Failures",
             "--json",
             "--compact",
         ]);
@@ -265,6 +398,19 @@ public partial class DependsAssetCommandTests
             "unavailable",
             unavailable.GetProperty("license").GetString());
         Assert.True(unavailable.TryGetProperty("failure_reason", out _));
+        JsonElement failure = Assert.Single(
+            document.RootElement.GetProperty("failures").EnumerateArray());
+        Assert.Equal("License", failure.GetProperty("phase").GetString());
+        Assert.Equal(
+            "ManifestAcquisitionFailed",
+            failure.GetProperty("reason").GetString());
+        JsonElement evidence = failure.GetProperty("evidence");
+        Assert.Equal(
+            "contoso.transitive",
+            evidence.GetProperty("package_id").GetString());
+        Assert.Equal(
+            "2.0.0",
+            evidence.GetProperty("package_version").GetString());
 
         (int countExit, string countOutput, string countError) =
             await RunCapturedAsync(

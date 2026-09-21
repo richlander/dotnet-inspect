@@ -1134,6 +1134,11 @@ public partial class DependsCommand
                 operationContext,
                 context,
                 cancellationToken).ConfigureAwait(false);
+        additionalFailures =
+        [
+            .. additionalFailures,
+            .. licenses.Failures,
+        ];
         var operationRequest = new DependencyInspectionOperationRequest(
             new DependencyInspectionPlan(
                 plan.Declarations,
@@ -1234,6 +1239,7 @@ public partial class DependsCommand
             DependencyEvidenceFailurePhase.Graph =>
                 plan.RestoredRelationships,
             DependencyEvidenceFailurePhase.Traversal => plan.Traversal,
+            DependencyEvidenceFailurePhase.License => plan.Licenses,
             DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
             _ => false,
         };
@@ -1264,7 +1270,8 @@ public partial class DependsCommand
         {
             return new DependsLicenseProjectionResult(
                 [],
-                DependencyInspectionLicenseSummary.NotRequested);
+                DependencyInspectionLicenseSummary.NotRequested,
+                []);
         }
 
         var coordinates = new HashSet<PackageSourceCoordinate>();
@@ -1305,10 +1312,12 @@ public partial class DependsCommand
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
         bool sourceComplete =
-            IsComplete(evidenceOutcome.Phases.Declarations)
+            evidenceOutcome.RootSet.Completion
+                == PackageDependencyEvidenceRootSetCompletion.Complete
+            && IsComplete(evidenceOutcome.Phases.Declarations)
             && IsComplete(evidenceOutcome.Phases.Relationships)
             && (packageTraversal is null
-                || packageTraversal.Summary.IsComplete);
+                || packageTraversal.IsSuccessful);
         int unavailable = inventory.Items.Count(
             static item => item.Failure is not null);
         DependencyInspectionLicenseCompletion completion =
@@ -1324,7 +1333,34 @@ public partial class DependsCommand
                 completion,
                 inventory.Items.Length,
                 inventory.Items.Length - unavailable,
-                unavailable));
+                unavailable),
+            [
+                .. inventory.Items
+                    .Where(static item => item.Failure is not null)
+                    .Select(static item =>
+                    {
+                        PackageLicenseInventoryFailure failure =
+                            item.Failure!;
+                        return new DependencyInspectionFailure.Evidence(
+                            new DependencyEvidenceFailureRow(
+                                DependencyEvidenceFailurePhase.License,
+                                failure.Reason.ToString(),
+                                SourceKind: null,
+                                RootIndex: null,
+                                RootIdentity: null,
+                                Group: null,
+                                GroupIndex: null,
+                                Source: null,
+                                Subject: null,
+                                item.Coordinate.PackageId,
+                                item.Coordinate.Version,
+                                SourceLabel: null,
+                                new InertString(
+                                    TextPolicy.Prose,
+                                    failure.Message),
+                                Occurrences: 1));
+                    }),
+            ]);
     }
 
     private static bool IsComplete(
@@ -3064,5 +3100,6 @@ public partial class DependsCommand
 
     private sealed record DependsLicenseProjectionResult(
         ImmutableArray<DependencyInspectionLicense> Rows,
-        DependencyInspectionLicenseSummary Summary);
+        DependencyInspectionLicenseSummary Summary,
+        ImmutableArray<DependencyInspectionFailure> Failures);
 }

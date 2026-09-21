@@ -1670,6 +1670,8 @@ targeted Debug-build probe.
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
 | `--depth 1` performs no deeper package-manifest acquisition. | Instrumented package-source test that fails if a child manifest is requested. |
 | Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Hierarchy`. |
+| License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
+| License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
 | Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |

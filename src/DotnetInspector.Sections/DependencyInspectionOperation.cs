@@ -641,6 +641,7 @@ public static class DependencyInspectionOperation
                 plan.RestoredRelationships,
             DependencyEvidenceFailurePhase.Traversal =>
                 plan.Traversal || plan.Licenses,
+            DependencyEvidenceFailurePhase.License => plan.Licenses,
             DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
             _ => false,
         };
