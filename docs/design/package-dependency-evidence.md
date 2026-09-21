@@ -291,9 +291,10 @@ When no target framework is requested,
 `PackageDependencyGroupsQuery` selects one group by its package-group priority,
 using source order to break equal-priority ties. That is a per-manifest
 default, not a claim that several manifests share one target framework.
-This exact no-request query path is currently unverified. The package traversal
-implementation must add
-`Traversal_ManifestDefaultUsesOwnerNoRequestSelection` before adopting it.
+Package-local consumers may use that owner-issued selection. Package Dependency
+Traversal does not use it for candidate-acquired manifests: traversal carries
+one `TraversalTargetFrameworkPolicy` and requests compatible selection against
+that target on every newly reached package.
 
 ### Restored project graph
 

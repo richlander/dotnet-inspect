@@ -323,20 +323,61 @@ public sealed partial class CSharpPrinter
         IrNode declaration,
         Block declarationBlock)
     {
-        if (declaration.ChildIndex != 0)
-            return null;
-
-        Block entryBlock = declarationBlock;
-        while (entryBlock.Parent is Block parent)
-            entryBlock = parent;
-        if (entryBlock.Parent is not BlockContainer
-            || entryBlock.StartOffset < 0
-            || !ReferenceOwnership.CollectBranchTargets(function).Contains(
-                entryBlock.StartOffset))
+        HashSet<int>? labels = null;
+        if (PdbLocalPrecedingScopeAnchors(declaration, declarationBlock) is { } anchors)
         {
-            return null;
+            labels = anchors
+                .Select(anchor => anchor.SourceOffset)
+                .ToHashSet();
         }
-        return new HashSet<int> { entryBlock.StartOffset };
+
+        if (declaration.ChildIndex == 0)
+        {
+            Block entryBlock = declarationBlock;
+            while (entryBlock.Parent is Block parent)
+            {
+                entryBlock = parent;
+            }
+            if (entryBlock.Parent is BlockContainer
+                && entryBlock.StartOffset >= 0
+                && ReferenceOwnership.CollectBranchTargets(function).Contains(
+                    entryBlock.StartOffset))
+            {
+                (labels ??= []).Add(entryBlock.StartOffset);
+            }
+        }
+        return labels;
+    }
+
+    static IReadOnlyList<LabelAnchor>? PdbLocalPrecedingScopeAnchors(
+        IrNode declaration,
+        Block declarationBlock)
+    {
+        List<LabelAnchor>? anchors = null;
+        AddPrecedingRetainedAnchor(declaration, declarationBlock);
+        if (declaration.ChildIndex == 0)
+        {
+            Block entryBlock = declarationBlock;
+            while (entryBlock.Parent is Block parent)
+            {
+                AddPrecedingRetainedAnchor(entryBlock, parent);
+                entryBlock = parent;
+            }
+        }
+        return anchors;
+
+        void AddPrecedingRetainedAnchor(IrNode child, Block parent)
+        {
+            if (child.ChildIndex > 0
+                && parent.Children[child.ChildIndex - 1] is LabelAnchor
+                {
+                    RetainsPdbLocalScope: true,
+                    SourceOffset: >= 0,
+                } anchor)
+            {
+                (anchors ??= []).Add(anchor);
+            }
+        }
     }
 
     static IEnumerable<(int Local, IrNode Owner, LoadLocalAddress Address)>
@@ -2003,14 +2044,20 @@ public sealed partial class CSharpPrinter
             return false;
 
         var allowed = block.Children.Skip(declaration.ChildIndex).ToList();
+        IReadOnlySet<int>? labelsPrintedOutside =
+            PdbLocalEntryLabelsPrintedOutside(function, declaration, block);
+        bool hasRetainedAnchor = allowed.Any(statement =>
+                statement.DescendantsOutsideNestedFunctions
+                    .Prepend(statement)
+                    .Any(node => node is LabelAnchor { RetainsPdbLocalScope: true }))
+            || PdbLocalPrecedingScopeAnchors(declaration, block) is not null;
         if (HasBranchTargetAfterStatement(declaration)
-            && (!allowed.Any(statement =>
-                    statement is LabelAnchor { RetainsPdbLocalScope: true })
+            && (!hasRetainedAnchor
                 || ReferenceOwnership.RewriteWouldInvalidateLabels(
                     function,
                     allowed,
                     [],
-                    PdbLocalEntryLabelsPrintedOutside(function, declaration, block))))
+                    labelsPrintedOutside)))
         {
             return false;
         }

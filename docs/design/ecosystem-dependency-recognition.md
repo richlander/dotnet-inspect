@@ -293,16 +293,18 @@ Package subject
   - exact realized Package coordinate
 
 Library subject
-  - exact realized source coordinate
+  - exact Library source coordinate
   - portable Library identity
 ```
 
 The Package subject's `RealizedMemberCoordinate.Package` identifies the exact
 acquisition even when no root manifest exists or manifest validation fails.
-The Library subject consumes the source owner's exact
-`RealizedMemberCoordinate` and the selected assembly's
-`PortableLibraryIdentity`. It does not infer Package provenance from the
-assembly name.
+The Library subject consumes Source Selection's
+`ExactLibrarySourceCoordinate` and the selected assembly's
+`PortableLibraryIdentity`. The source coordinate preserves the Package,
+Platform, Project, or Local domain and exact Metadata assembly identity without
+reusing a Workspace realization coordinate or inferring Package provenance from
+the assembly name.
 
 Each batch separately carries a typed input context. Required input components
 retain owner-issued values only when those values exist:

@@ -1286,15 +1286,16 @@ public static class PackageDependencyEvidenceQuery
         new("Package dependency evidence", InspectionCost.NetworkFree);
 
     /// <summary>
-    /// Builds the package-side input by reusing the existing exact-framework group-selection
-    /// query over already-projected manifest facts.
+    /// Builds the package-side input by reusing the existing dependency-group
+    /// selection query over already-projected manifest facts.
     /// </summary>
     public static PackageDependencyEvidenceInput.Package CreatePackageInput(
         PackageManifestFacts manifest,
         PackageDependencyEvidenceAcquisitionForm acquisitionForm,
         string? requestedTargetFramework = null,
         InertString? sourceLabel = null,
-        PackageSourceResultIdentity? source = null)
+        PackageSourceResultIdentity? source = null,
+        bool allowCompatibleFallbackForRequestedTfm = false)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         RequirePackageAcquisitionForm(acquisitionForm, source);
@@ -1305,7 +1306,8 @@ public static class PackageDependencyEvidenceQuery
             manifest,
             PackageDependencyGroupsQuery.ProjectDependencyGroups(
                 manifest,
-                requested),
+                requested,
+                allowCompatibleFallbackForRequestedTfm),
             acquisitionForm,
             sourceLabel,
             source);
@@ -2823,6 +2825,27 @@ public static class PackageDependencyEvidenceQuery
         }
 
         canonical = range.ToNormalizedString();
+        return true;
+    }
+
+    internal static bool TryGetExactVersionConstraint(
+        string canonicalConstraint,
+        out string version)
+    {
+        if (!VersionRange.TryParse(
+                canonicalConstraint,
+                out VersionRange? range)
+            || range.MinVersion is null
+            || range.MaxVersion is null
+            || !range.IsMinInclusive
+            || !range.IsMaxInclusive
+            || range.MinVersion != range.MaxVersion)
+        {
+            version = "";
+            return false;
+        }
+
+        version = range.MinVersion.ToNormalizedString().ToLowerInvariant();
         return true;
     }
 

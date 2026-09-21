@@ -5,6 +5,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -12,6 +13,17 @@ namespace DotnetInspector.Ecosystems.Tests;
 
 public sealed class EcosystemDependencyRecognitionOutcomeTests
 {
+    [Fact]
+    public void LibrarySubjectRejectsMismatchedSourceIdentity()
+    {
+        PortableLibraryIdentity library = Library("Expected.Library");
+
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemDependencySubject.Library(
+                ExactPackageLibrarySource(Library("Other.Library")),
+                library));
+    }
+
     [Fact]
     public void CompleteEmptyLibraryDocumentsRemainSubjectAttributable()
     {
@@ -47,7 +59,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
                 "Some direct assembly references could not be projected."),
             new EcosystemDependencyInputIssueSource.Library(library));
         var batch = new EcosystemDependencyObservationBatch.Incomplete(
-            new EcosystemDependencySubject.Library(PackageSource(), library),
+            new EcosystemDependencySubject.Library(
+                ExactPackageLibrarySource(library),
+                library),
             new EcosystemDependencyInputContext.Library(
                 new EcosystemDependencyReferenceInput.Unavailable(issue.Identity)),
             [
@@ -91,7 +105,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
                 InspectionDiagnosticSeverity.Error,
                 "Direct assembly references are unavailable."));
         var batch = new EcosystemDependencyObservationBatch.Unavailable(
-            new EcosystemDependencySubject.Library(PackageSource(), library),
+            new EcosystemDependencySubject.Library(
+                ExactPackageLibrarySource(library),
+                library),
             new EcosystemDependencyInputContext.Library(
                 new EcosystemDependencyReferenceInput.Unavailable(issue.Identity)),
             [issue]);
@@ -591,7 +607,7 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
         Assert.Throws<ArgumentException>(() =>
             new EcosystemDependencyObservationBatch.Unavailable(
                 new EcosystemDependencySubject.Library(
-                    PackageSource(),
+                    ExactPackageLibrarySource(library),
                     library),
                 new EcosystemDependencyInputContext.Library(
                     new EcosystemDependencyReferenceInput.Unavailable(new(2))),
@@ -662,7 +678,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     {
         PortableLibraryIdentity library = Library("Envelope.Library");
         var subject =
-            new EcosystemDependencySubject.Library(PackageSource(), library);
+            new EcosystemDependencySubject.Library(
+                ExactPackageLibrarySource(library),
+                library);
         var batch = new EcosystemDependencyObservationBatch.Available(
             subject,
             new EcosystemDependencyInputContext.Library(
@@ -693,13 +711,15 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     {
         PortableLibraryIdentity library = Library("Envelope.Library");
         var subject =
-            new EcosystemDependencySubject.Library(PackageSource(), library);
+            new EcosystemDependencySubject.Library(
+                ExactPackageLibrarySource(library),
+                library);
         var batch = new EcosystemDependencyObservationBatch.Available(
             subject,
             new EcosystemDependencyInputContext.Library(
                 new EcosystemDependencyReferenceInput.Available()));
         var otherSubject = new EcosystemDependencySubject.Library(
-            PackageSource(),
+            ExactPackageLibrarySource(Library("Other.Library")),
             Library("Other.Library"));
         var share = new EcosystemDependencyRecognitionShare(
             otherSubject,
@@ -719,7 +739,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     {
         PortableLibraryIdentity library = Library(name);
         var batch = new EcosystemDependencyObservationBatch.Available(
-            new EcosystemDependencySubject.Library(PackageSource(), library),
+            new EcosystemDependencySubject.Library(
+                ExactPackageLibrarySource(library),
+                library),
             new EcosystemDependencyInputContext.Library(
                 new EcosystemDependencyReferenceInput.Available()));
         return EcosystemDependencyRecognizer.Recognize(
@@ -901,6 +923,17 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             PackageProducerIdentity.NuGetOrg.PortableKey,
             targetFramework,
             runtimeIdentifier: null);
+
+    private static ExactLibrarySourceCoordinate.Package
+        ExactPackageLibrarySource(PortableLibraryIdentity library) =>
+        new(
+            PackageSourceCoordinate.Create("sample.package", "1.0.0"),
+            new ManagedMetadataIdentity.Assembly(
+                new AssemblyReferenceIdentity(
+                    library.Name,
+                    Version.Parse(library.Version),
+                    library.Culture,
+                    library.PublicKeyToken)));
 
     private static PortableLibraryIdentity Library(string name) =>
         new(name, "1.0.0.0", culture: null, publicKeyToken: null);

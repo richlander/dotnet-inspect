@@ -10,7 +10,7 @@ public static class CSharpSourceText
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLineCount);
 
-        int lineCount = CountLines(sourceText);
+        int lineCount = CountLines(sourceText, maxLineCount);
         if (lineCount > maxLineCount)
             throw new CSharpTextComplexityException(maxLineCount, "lines");
 
@@ -67,8 +67,13 @@ public static class CSharpSourceText
         return [.. starts];
     }
 
-    private static int CountLines(string sourceText)
+    internal static int CountLines(string sourceText) =>
+        CountLines(sourceText, int.MaxValue);
+
+    internal static int CountLines(string sourceText, int maxLineCount)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLineCount);
+
         int count = 1;
         for (int i = 0; i < sourceText.Length; i++)
         {
@@ -77,6 +82,8 @@ public static class CSharpSourceText
                 continue;
 
             count++;
+            if (count > maxLineCount)
+                return count;
             i += terminatorLength - 1;
         }
 

@@ -2138,7 +2138,7 @@ public partial class CommandExecutionTests
     // A flattened table retains the selected section's identity even when its view heading is
     // the generic table title.
     [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--format=tsv", "--rows", "1" }, "System.")]
-    [InlineData(new[] { "--columns", "Type,Members", "--format=table", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "-S", "Classes", "--columns", "Type,Members", "--format=table", "--rows", "1" }, "System.")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
     // renders exactly as it did before and must keep exiting 0.
     [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
@@ -3550,14 +3550,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Semantics Overlay", output);
     }
 
-    [Fact]
-    public async Task Type_DecompiledSource_RendersWholeTypeListing()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_DecompiledSource_RendersWholeTypeListing(
+        bool includeAll)
     {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections.Generic.Stack", "--platform", "System.Collections",
-            "-S", "Decompiled Source");
+        List<string> arguments =
+        [
+            "type",
+            "System.Collections.Generic.Stack",
+            "--platform",
+            "System.Collections",
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q",
+        ];
+        if (includeAll)
+            arguments.Add("--all");
 
-        Assert.Equal(0, exit);
+        var (exit, output, error) = await RunAppAsync(
+            [.. arguments]);
+
+        Assert.True(exit == 0, error);
+        Assert.Empty(error);
         Assert.Contains("namespace System.Collections.Generic;", output);
         Assert.Contains("public class Stack<T>", output);
         Assert.Contains("private T[] _array;", output);
@@ -3569,10 +3586,302 @@ public partial class CommandExecutionTests
         Assert.Contains(": IEnumerable<T>, IEnumerable, ICollection, IReadOnlyCollection<T>", output);
         Assert.Contains("RuntimeHelpers.IsReferenceOrContainsReferences", output);
         Assert.DoesNotContain("System.Collections.Generic.IEnumerable<T>", output);
-        // Explicit interface property implementations render as properties,
-        // not their accessor methods.
-        Assert.Contains("bool ICollection.IsSynchronized => false;", output);
+        // Explicit interface property implementations render exactly once
+        // as properties with their selected accessor bodies.
+        Assert.Equal(
+            1,
+            output.Split(
+                "bool ICollection.IsSynchronized => false;",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            output.Split(
+                "object ICollection.SyncRoot => this;",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("private virtual bool ICollection.IsSynchronized", output);
+        Assert.DoesNotContain("private virtual object ICollection.SyncRoot", output);
         Assert.DoesNotContain("get_IsSynchronized", output);
+        Assert.DoesNotContain("get_SyncRoot", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        Type_DecompiledSource_PreservesExplicitPropertyDeclarationAttributes(
+            bool includeAll)
+    {
+        List<string> arguments =
+        [
+            "type",
+            typeof(AttributedExplicitValuesFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--bare",
+            "--tips",
+            "q",
+        ];
+        if (includeAll)
+            arguments.Add("--all");
+
+        var (exit, output, error) = await RunAppAsync([.. arguments]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string normalized = output.ReplaceLineEndings("\n");
+        const string values =
+            "    [DataMember(Name = \"values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values => _values;";
+        const string otherValues =
+            "    [DataMember(Name = \"other-values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues => _otherValues;";
+        Assert.Equal(
+            1,
+            normalized.Split(values, StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            normalized.Split(otherValues, StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            normalized.Split(
+                "[DataMember(Name = \"values\")]",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            normalized.Split(
+                "[DataMember(Name = \"other-values\")]",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "[DataMember(Name = \"values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.OtherValues",
+            normalized,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "[DataMember(Name = \"other-values\")]\n"
+            + "    List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.Values",
+            normalized,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "private virtual List<int> CommandExecutionTests.IAttributedExplicitValuesFixture.",
+            normalized,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_RequiresCompletedSharedInspection()
+    {
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(
+                TestAssemblyPath)!;
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.FullName
+                    == typeof(MemberCallsFixture).FullName);
+        var options =
+            new TypeOptions
+            {
+                DllPath = TestAssemblyPath,
+                IncludeSections =
+                    [SectionNames.DecompiledSource],
+                Select =
+                    [SectionNames.DecompiledSource],
+                DocsExplicitlySet = true,
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Minimal,
+            };
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("DEC0001", error);
+        Assert.Contains(
+            "completed type decompilation inspection is unavailable",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(typeof(IAbstractExplicitValueFixture), false)]
+    [InlineData(typeof(IAbstractExplicitValueFixture), true)]
+    [InlineData(typeof(ExternExplicitValueFixture), false)]
+    [InlineData(typeof(ExternExplicitValueFixture), true)]
+    public async Task Type_DecompiledSource_BodylessExplicitPropertyRetainsDeclarationAttributes(
+        Type fixtureType,
+        bool includeAll)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "type", fixtureType.FullName!,
+                "--library", TestAssemblyPath,
+                "-S", "Decompiled Source", "--bare", "--tips", "q",
+                .. includeAll ? new[] { "--all" } : [],
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] lines = output.ReplaceLineEndings("\n").Split('\n');
+        const string attribute = "[Obsolete(\"Use Value2 instead\", true)]";
+        Assert.Single(lines, line => line.Trim() == attribute);
+        int attributeLine = Array.FindIndex(lines, line => line.Trim() == attribute);
+        Assert.InRange(attributeLine, 0, lines.Length - 2);
+        Assert.Contains(
+            $"{nameof(IBodylessExplicitValueFixture)}.Value",
+            lines[attributeLine + 1],
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("get_Value", lines[attributeLine + 1]);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_EmptyType_RemainsAbsent()
+    {
+        var (exit, output, error) =
+            await RunAppAsync(
+                "type",
+                typeof(IEmptyStyleFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            typeof(IEmptyStyleFixture).FullName!,
+            output);
+        Assert.DoesNotContain(
+            "public interface IEmptyStyleFixture",
+            output);
+        Assert.Contains(
+            "section 'Decompiled Source' has no data",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Error:",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DecompiledSource_DefaultAndAllRenderSameCompleteType()
+    {
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--bare",
+                "--tips",
+                "q");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Decompiled Source",
+                "--bare",
+                "--all",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Empty(defaultError);
+        Assert.Contains(
+            "public abstract string ConvertName(string name);",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static int Visible { get; }",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "protected FullTypeDecompilationFixture()",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "static FullTypeDecompilationFixture()",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "private static int ConcealedCore()",
+            defaultOutput,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.Equal(defaultOutput, allOutput);
+    }
+
+    [Fact]
+    public async Task
+        Type_MemberListing_DefaultAndAllRetainAccessibilityBoundary()
+    {
+        var (defaultExit, defaultOutput, defaultError) =
+            await RunAppAsync(
+                "type",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Methods",
+                "--format=table",
+                "--tips",
+                "q");
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                typeof(FullTypeDecompilationFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                "-S",
+                "Methods",
+                "--format=table",
+                "--all",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, defaultExit);
+        Assert.Empty(defaultError);
+        Assert.Contains(
+            "InvokePrivateCore",
+            defaultOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ConcealedCore",
+            defaultOutput,
+            StringComparison.Ordinal);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.Contains(
+            "InvokePrivateCore",
+            allOutput,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ConcealedCore",
+            allOutput,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3718,6 +4027,71 @@ public partial class CommandExecutionTests
                 "DOTNET_INSPECT_FORMAT",
                 originalFormat);
         }
+    }
+
+    public abstract class FullTypeDecompilationFixture
+    {
+        static FullTypeDecompilationFixture()
+        {
+            Visible = 42;
+        }
+
+        protected FullTypeDecompilationFixture()
+        {
+        }
+
+        public abstract string ConvertName(string name);
+
+        public static int Visible { get; }
+
+        public int InvokePrivateCore() =>
+            ConcealedCore();
+
+        private static int ConcealedCore() => 42;
+    }
+
+    public interface IAttributedExplicitValuesFixture
+    {
+        List<int> Values { get; }
+
+        List<int> OtherValues { get; }
+    }
+
+    public interface IBodylessExplicitValueFixture
+    {
+        int Value { get; }
+    }
+
+    public interface IAbstractExplicitValueFixture : IBodylessExplicitValueFixture
+    {
+        [Obsolete("Use Value2 instead", true)]
+        abstract int IBodylessExplicitValueFixture.Value { get; }
+    }
+
+    public sealed class ExternExplicitValueFixture : IBodylessExplicitValueFixture
+    {
+        [Obsolete("Use Value2 instead", true)]
+        extern int IBodylessExplicitValueFixture.Value
+        {
+            [System.Runtime.CompilerServices.MethodImpl(
+                System.Runtime.CompilerServices.MethodImplOptions.InternalCall)]
+            get;
+        }
+    }
+
+    [System.Runtime.Serialization.DataContract]
+    public sealed class AttributedExplicitValuesFixture :
+        IAttributedExplicitValuesFixture
+    {
+        readonly List<int> _values = [];
+        readonly List<int> _otherValues = [];
+
+        [System.Runtime.Serialization.DataMember(Name = "values")]
+        List<int> IAttributedExplicitValuesFixture.Values => _values;
+
+        [System.Runtime.Serialization.DataMember(Name = "other-values")]
+        List<int> IAttributedExplicitValuesFixture.OtherValues =>
+            _otherValues;
     }
 
     [Fact]
@@ -4020,7 +4394,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("m")]
-    [InlineData("n")]
     [InlineData("d")]
     public async Task TypeListing_RendersInspectionFailuresAtRaisedVerbosity(
         string verbosity)
@@ -4051,6 +4424,41 @@ public partial class CommandExecutionTests
                 "inventory assembly adjacency",
                 result.Output,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task TypeListing_NormalOmitsInspectionFailuresButKeepsWarning()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-list-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-v:n",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.DoesNotContain(
+                "## Inspection Failures",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "rejected 1 metadata row",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

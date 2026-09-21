@@ -17,6 +17,7 @@ namespace DotnetInspect.Cli;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(InspectionResult))]
 [JsonSerializable(typeof(InspectionResult[]))]
+[JsonSerializable(typeof(WorkspacePackageInspectionContent))]
 [JsonSerializable(typeof(LibraryInspection))]
 [JsonSerializable(typeof(LibraryInspection[]))]
 [JsonSerializable(typeof(PerformanceProjection))]

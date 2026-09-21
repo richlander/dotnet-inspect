@@ -691,7 +691,10 @@ public class CommandLineTests
     [Theory]
     [InlineData("cache", "--format=json", "--format")]
     [InlineData("cache", "--format=json", "--format=")]
+    [InlineData("cache", "--format", "--format=json")]
+    [InlineData("cache", "--format=", "--format=json")]
     [InlineData("demo", "--format", "list")]
+    [InlineData("demo", "--format", "--format=json", "list")]
     public async Task Format_EveryOccurrenceRequiresAnOwnedAcceptedValue(
         params string[] arguments)
     {
@@ -706,6 +709,25 @@ public class CommandLineTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--format", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    public async Task ExplicitTabularFormatTakesPrecedenceOverVerbosity(
+        string format)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] arguments =
+            ["depends", "System.Int128", "--format", format, "-v:q"];
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(arguments),
+                arguments));
+
+        Assert.True(exit == 0, error);
+        Assert.Empty(error);
     }
 
     [Theory]

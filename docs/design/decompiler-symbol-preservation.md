@@ -91,7 +91,17 @@ Two bindings in one scope, an enclosing reservation, or a flattened
 local-function declaration still collide and lower fidelity when the exact
 local cannot be emitted. Structured statement ranges may retain an explicit
 block when needed to preserve disjoint names; retaining that block must not
-strand another binder's uses or change control flow.
+strand another binder's uses or change control flow. Crossing candidates issued
+by the same Portable PDB `LocalScope` row are retained from the later
+declaration inward so an already completed inner scope remains one statement
+for its enclosing candidate. Candidates co-declared by one statement share its
+declaration position and compose longer-lived first, so the outer lifetime
+contains shorter sibling `out` declarations instead of stranding the
+longer-lived local. A
+`RetainsPdbLocalScope` label anchor remains valid entry evidence when generated
+lexical wrappers leave it immediately before the declaration path or nest it
+inside the allowed statement range; the shared control-flow proof must still
+reject every unaccounted external entry.
 
 A PDB local's identity includes its source method, local-variable row, physical
 IL slot, and half-open scope range. Import must not replace two such identities
@@ -101,6 +111,13 @@ reference crosses the proposed split. Unknown, overlapping, or uncovered
 associations retain storage semantics and report the naming limitation rather
 than applying one scope's name to another. These are Decompiler obligations over
 already acquired PDB records; they do not change symbol acquisition.
+Compiler-lowered pattern tests may initialize a carrier before the PDB scope
+begins. When final IR proves only non-addressed pre-scope writes, a carrier
+value established by reaching assignment or CLR local initialization, an exact
+scope entry, and read-only in-scope references, the carrier may remain unnamed
+while a logical local receives the exact identity at that entry. Ambiguous
+entry, write/address use, unsupported storage, or a remaining emitted-scope
+collision declines this projection.
 `PdbLocalNameScopeTests` and `PdbLocalDeclarationScopeTests` own the Release
 fixtures for [#5617](https://github.com/richlander/dotnet-inspect/issues/5617).
 Printer-only receiver recomposition does not elide a slot carrying an exact PDB

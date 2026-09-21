@@ -147,6 +147,8 @@ both inspection families and the shorter name is established by the subject:
 - `InertText` owns construction-time containment of untrusted text.
 - `NetworkAccess` owns network-destination admission shared by
   otherwise independent transport owners.
+- `QuerySpace` owns the portable, host-neutral query language and
+  execution substrate without owning any inspected product subject.
 - `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
 
 An independent root is not an escape from ownership. It must name a focused
@@ -276,16 +278,16 @@ implementation belongs to separately tracked owner-scoped work.
 | Classification | Representative projects |
 | --- | --- |
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
-| Ecosystem and reusable product composition | `DotnetInspector.Cache`, `DotnetInspector.DependencyManifests`, `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.QueryEngine`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
+| Ecosystem and reusable product composition | `DotnetInspector.Cache`, `DotnetInspector.DependencyManifests`, `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`; target `SourceFetch` |
+| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`, `QuerySpace`; target `SourceFetch` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:
 
 | Current name | Disposition | Basis |
 | --- | --- | --- |
-| `DotnetInspector.QueryEngine` | Keep. | It is the dependency-free physical carrier for separately owned portable-query, generic row-vocabulary, and semantic row-selection contracts. Consolidating those generic contracts removes dependency inversion without making the carrier a new architectural owner. |
+| `DotnetInspector.QueryEngine` | Partially migrated; retire the remaining Query Operation contracts and section-owned Count outcome under [#7976](https://github.com/richlander/dotnet-inspect/issues/7976). | Portable query, generic row-vocabulary, and semantic row-selection contracts now live in `QuerySpace`. Query Operation and Query Space composition remain before the transitional assembly can be removed. [QuerySpace Library Boundary](query-space-library.md) owns their physical/API composition while their focused designs retain semantic authority. |
 | `DotnetInspector.MetadataRendering` | Keep. | It is a focused Markout-based product presentation adapter over Metadata projections, shared by `mdi` and the CLI. No production `ILInspector.*` library references it. Keeping it above Metadata preserves the Markout-free IL inspection layer. |
 | `CSharpText.MemberSlicing` | Keep as adopted under [#6332](https://github.com/richlander/dotnet-inspect/issues/6332). | It consumes only the public `CSharpText` contract and operates on C# source structure. Its separate assembly preserves the enforced boundary that prevents access to lexer internals. “Member” is more accurate than “Body” because the result includes the complete declaration. |
 | `Inspector.Artifacts*` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | The family is source-neutral and the base artifact contract floor depends only on the lower `Inspector.Resources` declaration floor. `ILInspector.Metadata` consumes its scoped content and identities to construct artifact-to-assembly correspondence without creating an engine-to-tool dependency exception. |

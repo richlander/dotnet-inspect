@@ -9,6 +9,42 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class InspectionWorkspaceTests
 {
     [Fact]
+    public async Task DirectOneShotOperation_PostsDetachedResultAndObservesCloseReport()
+    {
+        WorkspacePlan plan = WorkspacePlan.Empty;
+        await using var workspace = new InspectionWorkspace(plan);
+        TestAssembly source = TestAssembly.Create();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+
+        WorkspaceRegistrationReadResult registration =
+            workspace.GetRegistrationSnapshot();
+        AssemblyContextResult<MetadataImageOverview> detached =
+            AssemblyContextMetadataImageQuery.Execute(group);
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+
+        var available = Assert.IsType<
+            AssemblyContextEntry<MetadataImageOverview>.Available>(
+                Assert.Single(detached.Assemblies));
+        Assert.Same(
+            plan,
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                registration).Revision.Plan);
+        Assert.True(report.Succeeded);
+        Assert.Same(report, workspace.CloseReport);
+        Assert.StartsWith(
+            "v",
+            available.Value.MetadataVersion.ToString());
+        Assert.Equal(
+            source.Assembly.Registration,
+            available.Subject.Registration);
+        Assert.Throws<ObjectDisposedException>(
+            () => group.GetAssemblyImageSpan(source.Assembly));
+    }
+
+    [Fact]
     public async Task GroupAccess_IsLazyAndReusesOneImmutableSnapshot()
     {
         TestAssembly source = TestAssembly.Create();

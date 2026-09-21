@@ -361,8 +361,9 @@ automatic-getter proofs; it does not recognize backing fields or rewrite source
 to implement this binding. Its owning property shell remains a CSharp product
 artifact. This adoption fixes the compiler-marked `get => field + 1` case that
 previously lost its addition, and the published docopt getter that previously
-called its own property instead of reading storage. It does not expand proof
-eligibility, reconstruct initializers, or change non-target closure-body policy.
+called its own property instead of reading storage. It does not expand getter
+proof eligibility. The bounded construction companion below extends native
+Selected artifacts without requesting the Full policy's unrelated bodies.
 The containing shell consumes the existing readonly type and field metadata
 facts: a readonly struct cannot become an ordinary struct without changing the
 compiler-generated field flags. A bound accessor load does not request a
@@ -372,8 +373,10 @@ storage as part of the property.
 Stores, addresses, other field targets or receivers, foreign generic storage,
 nested functions, exception regions, unsupported field signatures/attributes,
 and conflicting `field` local bindings decline to the prior method form.
-This slice does not reconstruct lazy initialization, constructors, mutable/init
-properties, or sibling accessors. Issue #7748 retains those follow-ups.
+Selected accessor projection does not reconstruct lazy initialization,
+constructors, mutable/init properties, or sibling accessors. Native
+construction has the bounded extension below; issue #7748 retains the broader
+follow-ups.
 
 The one adoption slice covers the CLI's four C# views and the shared member
 producer consumed by Source Diff and Browser/Wasm. Existing CSharp declaration,
@@ -427,6 +430,111 @@ explicit-layout integer neighbor in the C# legacy-rules compiler fixture.
 `ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility`
 keeps the corresponding selected-source declines while retaining the complete
 automatic-body decision.
+
+#### Native constructor/getter pairing
+
+Issue #7898 extends bounded native Selected artifacts with one construction claim:
+a proven constructor assignment and the selected getter must refer to the same
+backing storage, preserving the supplied argument rather than replacing
+initialized state with its default. The motivating docopt constructor stores
+its `list` argument into the field read by `List`. Its existing product body is
+`this.List = list;`; C# permits this assignment to a getter-only field-backed
+property from the owning constructor. Recovering `= list` is not required.
+
+The supported boundary is a value type with one instance field, already proven
+as the selected getter's compiler backing field, and one instance constructor
+with one parameter. Its complete body directly stores that argument through
+`this` into the exact field at the owning generic instantiation, then returns.
+No other operation, branch, local, exception region, conversion or constructor
+chain is consumed. Additional storage or constructors decline this association.
+Explicit-interface properties also decline constructor pairing: their accessor
+storage cannot be assigned through the constructor-side property syntax used
+by this bounded composition. Their existing getter-only reconstruction remains
+available; recovering their initializer is a separate source-form concern.
+The source, constructor and field identities come from the same metadata reader;
+display names and printed bodies do not establish the join.
+
+Native composition includes the proven constructor as a bounded construction
+companion through the existing typed declaration and body producers. An
+automatic getter's explicit property context also binds its storage, so
+closure planning does not invent a second field requiring extra constructor
+initialization. Unsupported constructor shapes retain the prior getter-only
+artifact; the consumer must not invent a partial assignment or claim a
+constructor-pair result for them. Independent body-only production and CLI and
+Browser/Wasm selected-member output remain unchanged.
+
+This single native adoption follows the approved construction/getter slice
+after #7856. Full remains the existing broader body policy, not the path to
+this bounded pair: it may include other fields and members and retains its
+independent completeness limitations. This extension does not claim full-type
+recovery or change the requested target getter's comparison scope.
+
+`PropertyInitializationConstructorUsesExactStorage` is the PR-fast product
+association gate. `NativeGetterRetainsInitialization` and
+`PublishedDocoptNativeGetterRetainsInitialization` compare the actual
+product-generated constructor and getter instructions, resolved operands and
+field flags with repair floors disabled. These inherit the native suite's
+Slow classification and run as focused pre-merge evidence. Constructor-pair
+evidence is separate from the target getter's `Exact` verdict: unrelated
+members, original accessibility, custom attributes, layout and whole-object
+semantics remain outside this claim.
+`NativeGetterDeclinesUnprovenInitialization` gates unchanged getter-only
+artifacts for constructor computation, branches, overloads, additional storage
+and unused-parameter neighbors.
+`PropertyInitializationConstructorDeclinesExplicitInterface` and
+`NativeExplicitGetterDeclinesInitialization` gate automatic and computed
+explicit-interface properties without adding an unassignable constructor.
+
+### Proven initializer source form
+
+Issue #7970 consumes the same constructor/getter association to recover a
+primary-constructor parameter and property initializer in native Selected
+artifacts. The parameter remains bound to its metadata declaration, and the
+initializer names that parameter; printed constructor assignments never
+establish this relationship. Existing CSharp primary-constructor headers and
+the typed property body's initializer slot own rendering. The getter retains
+its existing body and replacement-target identity.
+
+For docopt's `ReadOnlyList<T>`, the native scaffold becomes
+`readonly struct ReadOnlyList<T>(IList<T> list)` with the property
+`List { get { return field ?? Array.Empty<T>(); } } = list;`.
+This is an equivalent source-form choice, not evidence of uniquely authored
+syntax. In particular, the null fallback remains in the getter: a default
+struct bypasses the initializer.
+
+Primary-parameter scope is wider than ordinary constructor-parameter scope.
+This slice therefore retains the explicit constructor when its parameter
+spelling occurs anywhere in the existing rendered getter body or its
+metadata-projected method/return attributes, or matches a declaring type
+parameter. Text supplies only this conservative veto, never
+storage or parameter identity. Substring overlap intentionally over-declines;
+it avoids introducing name capture without expanding the parameter-name
+coordination work in #5778. Non-public constructors, rendered method attributes
+and non-default implementation flags also retain the existing companion.
+All earlier constructor-pair declines remain unchanged.
+
+Getter return-attribute expressions are also in the widened parameter scope:
+a parameter named `System` must not capture that namespace in
+`[return: System.Runtime.InteropServices.MarshalAs(...)]`. The attribute
+projection includes metadata pseudo-attributes, not just custom-attribute
+rows. A non-colliding parameter and the neighboring property-level attribute
+retain the primary form.
+
+`PropertyInitializerUsesProvenParameterWithoutWideningItsScope` and
+`PropertyInitializerPreservesPrimaryParameterAndTargetBody` are PR-fast gates
+for parameter binding, default values, keyword spelling, declaration-scope
+declines and preservation of the sole replaceable getter block.
+The existing native constructor/getter gates now also assert the initializer
+source form, and `NativeGetterRetainsExplicitConstructorWhenInitializerFormDeclines`
+checks actual donor PE storage and the unchanged explicit-companion choice.
+These native rows remain Slow; no inspected or donor code is executed.
+
+This is step one of the approved two-step source-form plan. Issue #7971 owns
+shared selected-member containing-context adoption through both CLI source
+views and Browser/Wasm Source. Those consumers remain unchanged here; an
+isolated property must not acquire `= list` without a declaration binding
+`list`. Full reconstruction, exact original type declarations and whole-object
+equivalence remain outside this claim.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32

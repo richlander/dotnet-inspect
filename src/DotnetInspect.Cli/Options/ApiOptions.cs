@@ -319,6 +319,12 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
+    public InspectionEnvelope<AssemblyTypeDecompilationEntry>?
+        TypeDecompilationInspection
+    {
+        get;
+        init;
+    }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
@@ -372,6 +378,12 @@ public record MemberOptions : ApiOptions
     public MethodSourceContext? MethodSource { get; init; }
     public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
     public InspectionEnvelope<AssemblyMemberSourceComparisonEntry>? MemberSourceComparisonInspection
+    {
+        get;
+        init;
+    }
+    public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+        MemberDecompilationInspection
     {
         get;
         init;

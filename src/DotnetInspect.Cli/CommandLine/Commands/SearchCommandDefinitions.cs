@@ -4,7 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -874,10 +874,9 @@ public static class SearchCommandDefinitions
                         return 1;
                     }
 
-                    if (string.Equals(
+                    if (EvidenceEnvelopeOutput.PathsMayIdentifySameFile(
                             evidenceEnvelopePath,
-                            outputPath,
-                            StringComparison.OrdinalIgnoreCase))
+                            outputPath))
                     {
                         CommandError.Write(
                             "--output and --evidence-envelope must name distinct files.");

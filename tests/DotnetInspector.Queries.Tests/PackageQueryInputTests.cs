@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.SourceSelection;
 using NuGetFetch;
 

@@ -1597,6 +1597,136 @@ public class CoerceChokePointTests
         Assert.DoesNotContain("(uint)(c", body);
     }
 
+    [Fact]
+    public void Int32WideningConditional_WithIndependentLongAnchor_ElidesConversion()
+    {
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Pipeline.Convert(
+                longType,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "value", intType)),
+            new Pipeline.Convert(
+                longType,
+                isChecked: false,
+                isUnsigned: false,
+                new Constant(-1, intType)))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            longType,
+            [new Parameter("c", boolType), new Parameter("value", intType)],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? value : (long)-1", body);
+        Assert.DoesNotContain("(long)value", body);
+        AssertCompiles("public static long M(bool c, int value)", body);
+    }
+
+    [Fact]
+    public void Int32WideningConditional_WithNaturalLongAnchor_ElidesConversion()
+    {
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Pipeline.Convert(
+                longType,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "value", intType)),
+            new LoadArgument(2, "fallback", longType))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            longType,
+            [
+                new Parameter("c", boolType),
+                new Parameter("value", intType),
+                new Parameter("fallback", longType),
+            ],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? value : fallback", body);
+        Assert.DoesNotContain("(long)value", body);
+        AssertCompiles("public static long M(bool c, int value, long fallback)", body);
+    }
+
+    [Fact]
+    public void Int32WideningConditional_WithoutIndependentLongAnchor_RetainsConversions()
+    {
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Pipeline.Convert(
+                longType,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "left", intType)),
+            new Pipeline.Convert(
+                longType,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(2, "right", intType)))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            longType,
+            [
+                new Parameter("c", boolType),
+                new Parameter("left", intType),
+                new Parameter("right", intType),
+            ],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? (long)left : (long)right", body);
+        AssertCompiles("public static long M(bool c, int left, int right)", body);
+    }
+
+    [Fact]
+    public void Int32WideningConditional_WithTransparentCoerceSibling_RetainsConversion()
+    {
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var conditional = new Conditional(
+            new LoadArgument(0, "c", boolType),
+            new Pipeline.Convert(
+                longType,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "left", intType)),
+            new Coerce(longType, new LoadArgument(2, "right", intType)))
+        {
+            MergedType = longType,
+        };
+        string body = RenderReturn(
+            conditional,
+            longType,
+            [
+                new Parameter("c", boolType),
+                new Parameter("left", intType),
+                new Parameter("right", intType),
+            ],
+            TypeRef.Definition("synthetic", "", "UnusedEnum"));
+
+        Assert.Contains("c ? (long)left : right", body);
+        AssertCompiles("public static long M(bool c, int left, int right)", body);
+    }
+
     static string RenderReturn(
         IrExpression value,
         TypeRef returnType,

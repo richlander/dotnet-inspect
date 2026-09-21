@@ -408,6 +408,7 @@ public sealed record BrowserRetainedNavigationSubjectDescriptor(
     string State,
     bool IsActive,
     bool IsRetained,
+    BrowserRetainedNavigationDiagnostic[] Evidence,
     BrowserRetainedNavigationAction? Action);
 
 public sealed record BrowserRetainedNavigationPackageDescriptor(
@@ -666,6 +667,19 @@ public sealed record BrowserRetainedWorkspacePosting(
     BrowserRetainedWorkspacePredecessor? Predecessor,
     BrowserRetainedWorkspaceCleanup? Cleanup);
 
+/// <summary>
+/// Detached candidate evidence offered to the Browser before managed cutover.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparedPosting(
+    string RetainedDefinitionId,
+    string Label,
+    string CanonicalLocation,
+    string CanonicalPacket,
+    BrowserRetainedWorkspaceDefinitionState Definition,
+    BrowserRetainedNavigationResult Navigation,
+    BrowserRetainedWorkspacePackageInventory[] Packages,
+    BrowserRetainedWorkspacePlatformInventory[] Platforms);
+
 /// <summary>Typed complete-restoration failure at the Browser boundary.</summary>
 public sealed record BrowserRetainedWorkspaceActivationFailure(
     string Kind,
@@ -681,11 +695,33 @@ public sealed record BrowserRetainedWorkspaceActivationResult(
     BrowserRetainedWorkspaceActivationFailure? Failure);
 
 /// <summary>
+/// Candidate preparation result. Status is <c>prepared</c>,
+/// <c>noEffect</c>, <c>superseded</c>, or <c>failed</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspacePreparationResult(
+    string Status,
+    string? Receipt,
+    BrowserRetainedWorkspacePreparedPosting? Preparation,
+    BrowserRetainedWorkspacePosting? Posting,
+    BrowserRetainedWorkspaceActivationFailure? Failure);
+
+/// <summary>
+/// Matching Browser completion for an irreversible activation or deactivation.
+/// Status is <c>completed</c> or <c>unavailable</c>.
+/// </summary>
+public sealed record BrowserRetainedWorkspaceConsumerCompletionResult(
+    string Status,
+    bool? Succeeded,
+    string? Failure,
+    string? Message);
+
+/// <summary>
 /// Active-retained-definition deletion result. Status is <c>deactivated</c>,
 /// <c>cleanupFailed</c>, <c>noEffect</c>, or <c>rejected</c>.
 /// </summary>
 public sealed record BrowserRetainedWorkspaceDeactivationResult(
     string Status,
+    string? CompletionReceipt,
     BrowserRetainedWorkspaceSettlement? Settlement,
     string? Message);
 
@@ -710,7 +746,9 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]

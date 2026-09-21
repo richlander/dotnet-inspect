@@ -25,11 +25,35 @@ unrelated domain categories.
 | --- | --- | --- |
 | Quiet | `-v:q` | Compact identity/context only |
 | Minimal | `-v:m` | One high-value base section |
-| Normal | `-v:n` | Multiple network-free base sections |
-| Detailed | `-v:d` | All applicable base sections |
+| Normal | `-v:n` | Fixed, terse, and informative network-free base sections |
+| Detailed | `-v:d` | All applicable bounded-cost base sections |
 
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
+
+For library inspection, References, Switches, Type Forwarders, P/Invoke
+Methods, and Union Types are measured or structurally `Verbose` inventories.
+They therefore enter automatic output at `-v:d`, not `-v:n`. Exact `-S`
+selection and the explicit `@Library` or `@Surface` category remain available;
+explicit selection promotes the effective verbosity needed to render the
+requested inventory. Inspection Failures remains `Terse` and visible at
+`-v:n`; hiding failed producers from the normal view would allow partial
+inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
+Symbols, and Signals.
+
+For package inspection, Target Frameworks, Package nuspec file, Dependencies,
+Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
+Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+`-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
+or `@Audit` doors remain available. The explicit-only whole-package and
+license-file listings remain outside every automatic verbosity preset.
+
+For assembly-wide `type` listing, Classes, Structs, Interfaces, Enums,
+Delegates, Type Forwarders, and Inspection Failures are `Verbose`. They remain
+the command's authored primary result and diagnostic context at `-v:m`, are
+omitted from the generic bounded `-v:n` preset, and return at `-v:d`. Exact
+section selection and explicit `@Surface` selection retain the complete
+inventories.
 
 ## Categories
 
@@ -189,10 +213,14 @@ catalogs follow this model. Commands not yet migrated may retain their existing
 discovery behavior; new work should follow the reference model rather than
 copy a legacy command.
 
-`--details` is an opt-in discovery projection, not inspection verbosity. It may
-add stable columns without making them part of the concise default. The first
-Library adoption adds only `Formats` and remains structural and target-free;
-other details and command adoptions require their owning slices.
+`--details` is a temporary Library-only discovery projection, not inspection
+verbosity. Its first adoption adds only `Formats` and remains structural and
+target-free. It will not accumulate more implicit columns. The resource-oriented
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will expose
+Formats and later owner-issued properties from the host-neutral Discovery
+Document, then remove `--details`. Formats do not receive a global `-F`
+discovery flag.
 
 ## Query discovery
 

@@ -112,8 +112,8 @@ permission to reinterpret raw metadata semantics.
 - Keep static schema target-free and keep schema/discovery resolution incapable
   of authorizing symbol, source, or analysis acquisition.
 - Keep effective discovery within an explicit probe budget.
-- Validate each shared metadata declaration fact once per image generation and
-  semantic context within an operation, then reuse it across output
+- Validate each shared metadata declaration fact once per operation-bound
+  declaration session and semantic context, then reuse it across output
   projections.
 - Preserve cheap filtering before expensive signature and `MethodImpl`
   projection without allowing malformed addressed declarations to appear
@@ -745,20 +745,23 @@ probe plan before the adapter is considered compliant.
 ### Owner and scope
 
 `ILInspector.Metadata` owns declaration validity and metadata-derived facts.
-The operation is bounded and its image state is scoped to acquisition-owned
-immutable byte generations and operation-local entries. It does not create a
-repository-wide normalized metadata graph.
+The operation is bounded and its image state is scoped to live owner-backed
+assembly sessions and operation-bound declaration sessions. It does not create
+a repository-wide normalized metadata graph.
 
 The declaration path supports ordinary ECMA-335 assembly metadata only.
-The `AssemblyImage`-owned metadata-session factory calls the
-MetadataPrimitives-owned `MetadataImageFormatClassifier` before obtaining or
-exposing a `MetadataReader`, before row admission, and before declaration work.
-Direct public/reusable `PEReader` entry points perform the same classification
-before their own reader construction. Once classification returns supported,
-the factory constructs the reader and session as one owner-bound operation; a
-caller cannot pair an independently supplied classification result and reader.
-The session rechecks its owner or lender liveness and supported admission before
-using that reader.
+The `AssemblyImage` acquisition path calls the MetadataPrimitives-owned
+`MetadataImageFormatClassifier` before obtaining or exposing a
+`MetadataReader`, before row admission, and before declaration work. Direct
+public/reusable `PEReader` entry points perform the same classification before
+their own reader construction. Once classification returns supported,
+`AssemblyImage` binds that result to its owned reader and
+`AssemblyInspectionSession` owns or borrows the resulting image lifetime. A
+separate operation-bound factory attaches `MetadataDeclarationSession` only to
+that live assembly session plus its `MetadataOperationContext`; a caller cannot
+pair independently supplied classification, reader, or operation state. The
+declaration session rechecks its operation context and owner or lender before
+using the reader.
 
 The classifier uses the registered bounded metadata-root admission guard: from
 the acquisition-owned `PEReader` it reads only the fixed ECMA-335 metadata-root
@@ -801,138 +804,92 @@ malformed-input result.
 
 A Metadata declaration session is created from:
 
-- one owned or borrowed `AssemblyImage` lease, including its liveness check,
-  acquisition-owned image generation, current `PEReader`, and that reader's
-  `MetadataReader`;
-- the operation's shared work, item, text, and decode context;
-- access to entry-owned immutable declaration-fact caches keyed by handle, fact
-  kind, and complete generic, resolution, and participating-generation context;
+- one live owned or borrowed `AssemblyInspectionSession`, including its
+  `AssemblyImage`, current `PEReader`, and owner or lender liveness check;
+- the operation's shared finite work, item, text, and decode policy;
+- session-owned immutable declaration indexes, facts, and typed failures keyed
+  by their complete semantic inputs;
 - the operation's stable validation policy;
 - typed failure construction.
 
 The session exposes declaration operations. It does not expose its PE reader,
 metadata reader, borrowed memory, or mutable budget object to higher layers.
+
+The resource pipeline is:
+
+| Stage | Metadata representation | Invariant |
+| --- | --- | --- |
+| Acquire | Immutable `AssemblyImageSnapshot` or owned/borrowed `AssemblyImage` | Retained bytes remain associated with the source evidence and resource obligation available on that acquisition route. |
+| Construct | `AssemblyInspectionSession` and its declaration session | One live image owner is bound to one opened reader; construction does not reopen a path or pair independently supplied resource state. |
+| Access | Session-scoped declaration calls and bounded internal views | The owning session or lender is live for the complete access. |
+| Operate | Explicit finite operation policy and counters | Work is charged where it occurs; one operation may aggregate budgets across several independent sessions. |
+| Post | Detached immutable declaration facts or typed failures | No reader, byte block, borrow, lease, mutable budget, or operational identity escapes. |
+| Retire | Declaration-session disposal followed by the existing assembly-session owner lifecycle | Declaration state drops before the operation context ends; posted results remain usable; owned image resources release once. |
+
+The existing `AssemblyImage` and `AssemblyInspectionSession` establish the
+process-local lifetime boundary. Metadata does not mint a parallel image
+generation. An independently opened session is an independent observation even
+when it was opened from the same immutable snapshot or has the same bytes or
+MVID. A top-level operation that needs repeated work over one image reuses one
+assembly session and one operation-bound declaration session rather than
+recreating readers and then reunifying them through another identity.
+
 `MetadataOperationContext.AdmitImage` is the sole metadata-row charging
-authority. Session construction calls it, and the operation context keys
-admission by reference identity of an opaque, acquisition-minted
-`MetadataImageGeneration` so the current
-`ApiSurfaceExtractor.ExtractionBudget` charge can be relocated rather than
-duplicated inside that operation. The generation establishes only that readers
-expose one retained immutable byte generation; it grants no provenance,
-validity, or content trust.
+authority. Declaration-session construction calls it once for its bound
+assembly session, and repeated requests through that declaration session do not
+repeat the image-row charge. One assembly session may attach one declaration
+session to one operation context. A duplicate attachment for that pair rejects
+before admission rather than double-charging or reunifying sessions through a
+new identity layer. The operation context records only that direct
+assembly-session attachment and its counters; it does not own the declaration
+session, retain the reader, mint image identity, or equate independently
+created assembly sessions. The current `ApiSurfaceExtractor.ExtractionBudget`
+charge moves into this context rather than being duplicated.
 
-The generation is not artifact identity, `AssemblyAcquisitionRegistration`,
-assembly identity, workspace participant identity, provenance, or
-correspondence, and it is never serialized or used for semantic matching. A
-registration identifies one canonical acquisition descriptor and can outlive a
-content open; the generation is minted only for the exact retained snapshot or
-live opened owner whose bytes may be reused.
+The declaration session owns only operation-bound immutable indexes, facts, and
+typed failures. It never retains a `MetadataReader`, `PEReader`, borrowed block,
+pointer, lease, or mutable budget beyond the owner-backed access that produced
+them. Every retained fact key names the fact kind, subject handle, and complete
+generic and resolution context required by that fact. A request whose meaning
+depends on consumer inclusion policy remains projection-local. A fact whose
+meaning depends on another image receives a focused owner contract for that
+correspondence; this substrate does not define a universal participating-image
+cache key.
 
-Acquisition mints a fresh generation for each independent open and binds it to
-the owner rather than accepting an independently supplied token/reader pair.
-An `AssemblyImageSnapshot` retains the generation with its immutable bytes, so
-each `AssemblyImage.Open(snapshot)` may create a new `PEReader` without turning
-one workspace participant into many charged images. A borrowed
-`AssemblyImage` copies the lender's generation. A `MetadataReader`, `PEReader`,
-owned or borrowed wrapper, path, MVID, or content digest is not the generation;
-two independent acquisitions receive different generations even when they
-expose the same bytes.
+The session checks its operation context and owner or lender immediately before
+cold work or a session-local cache lookup. The cold path charges the operation
+before posting one completed immutable value or typed failure. Posted values
+carry no live authority and remain usable after the declaration or assembly
+session retires when their focused contract permits it. Disposing the
+declaration session drops its indexes and facts; it does not release an
+assembly session owned by another component.
 
-The acquisition layer is the sole content-digest authority for its immutable
-artifact-content snapshot. When a consumer requests a digest, the owner
-computes and may memoize it from those retained bytes, charging the requesting
-inspection operation that causes the one cold linear pass. Later reuse of that
-memoized content fact performs fresh authorization but no second hash.
-Projecting the content into an `AssemblyImageSnapshot` preserves the same bytes
-and digest while minting the image generation; the digest is durable content
-evidence, not the generation identity. Any persistent derived-result cache
-using it must obtain the digest, format result, producer output, and publication
-payload from that one retained content snapshot; APIs reject independently
-supplied digest/snapshot or digest/result pairs. Hashing a mutable path before
-and after a separately opened inspection is not equivalent because a
-W-to-S-to-W replacement defeats the bracket. Pinning SHA-256 for the library
-effective-catalog key is unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478); this
-declaration does not require every artifact consumer to compute a digest
-eagerly.
+The operation safety policy is immutable. Compatibility callers may use an
+explicit `Unbounded` policy while still recording work, but every product entry
+point supplies a finite central policy before the slice-6 cutover. Cross-session
+cache reuse and general concurrent cold coordination are non-claims. A
+demonstrated consumer requires a separate approved contract before either is
+added; the declaration substrate does not prebuild a general single-flight
+cache.
 
-The operation context shares the admission result, immutable semantics index,
-and immutable declaration facts or typed failures through a context-owned
-`MetadataImageEntry` mapped by generation reference identity, not through the
-session object or a cache object retained by the snapshot. Each owned or
-borrowed `AssemblyImage` wrapper has its own `MetadataDeclarationSession`,
-current reader, and liveness check. Sessions over the same generation consult
-one entry in that operation only after validating their own owner or lender.
-Every fact key names the fact kind, subject handle, complete generic and
-resolution context, and reference identity of every participating image
-generation. A request whose meaning depends on a consumer inclusion decision
-is not a shared fact and remains projection-local.
-
-The entry retains only owned immutable values or typed failures, never a
-`MetadataReader`, `PEReader`, borrowed block, pointer, lease, or mutable budget.
-For a fact whose typed generic or resolution context names other generations,
-the projection coordinator constructs an ephemeral
-`MetadataFactAccessContext` from one specific current
-`MetadataDeclarationSession` per participating generation and passes it to the
-subject session's fact operation. The subject session validates that every
-supplied session belongs to the same `MetadataOperationContext` and carries the
-expected generation. Missing participation returns typed
-`ResolutionContextUnavailable` before cache lookup; an operation or generation
-mismatch is rejected as an invalid request, and a dead owner or lender
-preserves the liveness failure. Multiple live wrappers for one generation are
-unambiguous because the coordinator chooses the current wrapper for that
-request.
-
-The typed generic or resolution context enumerates the complete participating
-generation set before lookup or decode. The ephemeral access context must match
-that set exactly; a missing generation is unavailable, and an extra or
-mismatched generation is invalid rather than silently changing the fact key.
-
-The subject generation's `MetadataImageEntry` retains and charges the completed
-fact or failure; other participating generations contribute key and liveness
-context but do not retain duplicate values. Each supplied session checks its
-owner or lender immediately before both a cache observation and a cold decode,
-and its live lease covers materialization. The cold path charges the operation
-before publishing the completed value or failure. Consequently separate full,
-summary, and focused sessions over one generation can reuse one charged fact
-without a cached result reviving a disposed owner or lender. Neither the
-operation context nor an entry retains the ephemeral access context or its
-sessions. Entry disposal releases all retained facts and indexes at operation
-end.
-
-Entry creation, image admission, association-index publication, and
-declaration-fact publication are atomic within one `MetadataOperationContext`.
-For each fact key, one caller owns cold decode and charges before publishing one
-immutable value or typed failure; concurrent callers join that same completion
-and perform their own liveness check before observing it. A same-chain recursive
-request for the in-progress key returns typed `FactDependencyCycle` rather than
-blocking itself or starting a second decode. The coordination mechanism exposes
-no threading requirement to consumers: multithreaded hosts exercise contention,
-while single-threaded Browser/Wasm takes the same uncontended contract.
-
-Each distinct generation in a multi-image operation receives one cumulative
-`MaxMetadataRows` charge. Admission is unconditional: a compatibility caller
-without a configured ceiling uses an explicit `Unbounded` policy while still
-recording the row sum, but every product entry point must supply a finite
-central policy before the slice-6 cutover. The safety policy is
-operation-scoped and immutable: sessions cannot supply a different policy
-while sharing image state, and a transitional attempt to mix finite and
-`Unbounded` policies in one operation is rejected before cache lookup.
+The acquisition layer remains the sole content-digest authority for immutable
+artifact content. Persistent derived-result cache identity, digest selection,
+retained snapshots, and PDB retention remain tracked by
+[#3478](https://github.com/richlander/dotnet-inspect/issues/3478); declaration
+sessions neither compute nor use a digest as lifetime or semantic identity.
 
 One top-level CLI inspection, query, or invocation of a workspace query
 coordinator creates one `MetadataOperationContext` and threads it through every
 declaration session and snapshot-backed `UseAssemblySession` callback it
 starts. Compatibility single-call APIs create an ephemeral context for that
-call. The coordinator disposes the context when the top-level operation ends,
-releasing all context-owned image entries, declaration facts, and retained
-indexes. A later operation over the same persistent snapshot sees the same
-byte-generation token but maps it into a fresh entry, repeats admission and
-charging under its own policy, and cannot observe the earlier operation's
-result or rejection.
-The number and retained bytes of entries remain bounded by whole-image
-admission and the declared fact/index retention budgets; a disposed session
-leaves no `PEReader` in an entry, while a later session in the same operation
-over the same immutable snapshot may reuse immutable facts and the neutral
-semantics result through its generation.
+call. The coordinator owns the declaration sessions it constructs, disposes
+them before ending the operation context, and then releases any assembly
+sessions it owns under their existing lifecycle. A later operation over the
+same persistent snapshot creates a new declaration session, repeats admission
+and charging under its own policy, and cannot observe the earlier operation's
+session-local result or rejection. Posted detached results remain usable. The
+context retains no assembly session, image, reader, lease, or declaration
+result after the operation ends.
 
 ### Validation stages
 
@@ -1003,26 +960,25 @@ scanners, CSharp, Decompiler, and CLI code consume its neutral immutable rows
 rather than calling the primitive. Direct leaf calls remain only in
 MetadataPrimitives boundary tests.
 
-The association session is created from the same owned or borrowed
-`AssemblyImage` lease and `MetadataOperationContext` as the consuming operation.
-It owns no declaration inclusion or validity policy. Each association session
-checks its own image and lender liveness before consulting or returning the
-operation cache, so a completed index cannot turn a disposed owner or borrow
-into success. The operation retains only the completed immutable neutral-row
-index, which owns no borrowed memory. No cached value is observable without a
-current association session's successful liveness check. Whole-image admission
-charges declared metadata rows once; the pass records work without debiting
-that same row budget again, and separately charges retained associations before
-adding them to the index. That distinct budget protects retained bytes and may
-reject every dependent property/event projection even when the image passed
-its broader row ceiling; no unindexed streaming fallback is allowed. A
-same-operation, same-generation entry reuses that already charged immutable
-result or typed rejection and never crosses either boundary. The generation is
-not a lease: retained handles can be interpreted only through a current live
-reader carrying that generation, so cached success cannot bypass the session
-liveness check. No aggregate result is released until the primitive reaches
-the physical end of the table or returns rejection; an early association range
-cannot prove completeness because a later out-of-order duplicate may exist.
+The association session is created inside the consuming operation-bound
+declaration session and uses its `AssemblyInspectionSession` and
+`MetadataOperationContext`. It owns no declaration inclusion or validity
+policy. It checks the assembly owner or lender before consulting or returning
+its session-local cache, so a completed index cannot turn a disposed owner or
+borrow into success. The declaration session retains only the completed
+immutable neutral-row index, which owns no borrowed memory. Whole-image
+admission charges declared metadata rows once; the pass records work without
+debiting that same row budget again, and separately charges retained
+associations before adding them to the index. That distinct budget protects
+retained bytes and may reject every dependent property/event projection even
+when the image passed its broader row ceiling; no unindexed streaming fallback
+is allowed. Repeated requests through the same declaration session reuse that
+already charged immutable result or typed rejection. Retained handles can be
+interpreted only through its current live assembly session, so cached success
+cannot bypass the session liveness check. No aggregate result is posted until
+the primitive reaches the physical end of the table or returns rejection; an
+early association range cannot prove completeness because a later out-of-order
+duplicate may exist.
 
 Stage 3 then validates only dependencies required to decide admission of the
 root declaration:
@@ -1240,25 +1196,22 @@ The owner charges before materialization. A cache may avoid repeated decode
 work only when:
 
 - its key includes every semantic decode context;
-- the retained value or typed failure is owned by the current operation's
-  generation-scoped `MetadataImageEntry` and was already charged there;
-- every participating image owner or lender is live before lookup and cold
-  decode;
+- the retained value or typed failure is owned by the current operation-bound
+  declaration session and was already charged there;
+- the owning assembly session or lender is live before lookup and cold decode;
 - cache reuse cannot turn a previously rejected operation into success;
 - failure results are cached with the same context as successful results.
 
 Full, summary, and focused projections may request different retained fields.
 They do not receive different hostile-input ceilings for equivalent work.
-Equivalent work means the same metadata root and acquisition-minted
-`MetadataImageGeneration` reference identity in one operation, generic decode
-context, inclusion
-policy, admission dependency closure, and requested shared fact. Its
+Equivalent work means the same declaration session, generic decode context,
+inclusion policy, admission dependency closure, and requested shared fact. Its
 per-dimension threshold, consumed work through that fact, and rejection rule
 are equal across projections. Additional retained fields may charge separately
 declared dimensions and are not required to produce equal total operation
-counters.
-These cache and equivalent-ceiling properties are unverified until `MDP009`
-lands; cache-key tests alone do not prove ceiling parity.
+counters. `MDP009` owns the session-lifetime and operation-policy substrate;
+`MDP001`, `MDP006`, and each focused fact owner supply projection parity and
+fact-specific cache and ceiling evidence.
 
 ### Failure mapping
 
@@ -1327,7 +1280,7 @@ Metadata-layer `MetadataOperationContext` for the same invocation lifetime.
 They are sibling layer-owned state, not aliases: the former bounds
 authorization-dependent section outcomes, while the latter bounds metadata
 admission, facts, and retained indexes. Neither context, its identity, nor an
-image generation grants authority in the other layer.
+assembly-session reference grants authority in the other layer.
 
 The plan may request a summary projection, full API projection, or one focused
 declaration. Those are result shapes, not separate validity implementations.
@@ -1519,20 +1472,23 @@ be consumed by the type/member plan before slice 4 lands.
 - Introduce `MetadataOperationContext.AdmitImage` as the single metadata-row
   charging authority, move
   `ApiSurfaceExtractor.ExtractionBudget.AdmitMetadataRows` into it, and have
-  every declaration session reuse the resulting per-generation operation
-  entry.
-- Centralize the remaining operation budgets, acquisition-minted image state,
-  and immutable declaration-fact/failure caches in the operation's
-  generation-scoped `MetadataImageEntry`; keep only leases and liveness checks
-  session-local.
-- Carry the owned or borrowed `AssemblyImage` lease into
-  `MetadataDeclarationSession`; use its acquisition-minted image generation,
-  current reader, and liveness check, and do not pair independently supplied
-  generations, readers, and byte blocks or reopen the artifact.
+  one operation-bound declaration session reuse that admission for repeated
+  work over its assembly session.
+- Centralize operation policy and counters in `MetadataOperationContext`.
+  Keep declaration indexes, immutable facts, and typed failures in the
+  operation-bound declaration session rather than a second image-entry owner.
+- Construct `MetadataDeclarationSession` from one live owned or borrowed
+  `AssemblyInspectionSession`; use its current reader and owner or lender
+  liveness check, and do not pair independently supplied readers, byte blocks,
+  or format results or reopen the artifact.
 - Thread one `MetadataOperationContext` through each top-level CLI/query
-  operation and all of its workspace `UseAssemblySession` callbacks; preserve
-  one image generation across `AssemblyImageSnapshot` reader recreation, map it
-  to a fresh entry in each operation, and clear operation state at completion.
+  operation and all of its workspace `UseAssemblySession` callbacks. Reuse one
+  assembly session and declaration session for repeated work over one image;
+  independently opened sessions remain independent even when backed by the
+  same snapshot.
+- Reject a second declaration-session attachment for the same operation
+  context and assembly session before image admission. Keep that direct
+  attachment record separate from declaration caches and resource ownership.
 - Introduce the neutral Metadata-owned `MethodSemanticsAssociationSession` as
   the sole product `MethodSemanticsRowReader` invocation owner; it calls
   `AssemblyImage.EnsureAlive()` immediately before every cold pass and exposes
@@ -1541,10 +1497,12 @@ be consumed by the type/member plan before slice 4 lands.
   registered bounded metadata-root admission guard. Read only the fixed root
   prefix and at most the ECMA-335 256-byte padded version field from the
   acquisition-owned metadata block, and apply SRM's ordinal
-  `WindowsRuntime` marker rule. Make the `AssemblyImage`-owned session factory
-  classify and bind a supported result before it constructs any
-  `MetadataReader`; no caller may supply the result and reader independently.
-  In this slice, route the new declaration-session path,
+  `WindowsRuntime` marker rule. Make the `AssemblyImage` acquisition path
+  classify and bind a supported result to its owned reader before constructing
+  any `MetadataReader`. Attach `MetadataDeclarationSession` only through a
+  live `AssemblyInspectionSession` plus `MetadataOperationContext`; no caller
+  may supply classification, reader, or operation state independently. In this
+  slice, route the new declaration-session path,
   `MetadataImageInspector`, every public `MetadataTableProjector`
   row/reference/heap entry point, and the defensive
   `MethodSemanticsRowReader` leaf check through it before `MetadataReader`
@@ -1568,13 +1526,15 @@ be consumed by the type/member plan before slice 4 lands.
   implementation supplies product results.
 - Do not activate the new admission semantics for only one projection path.
 
-Exit gate: cache, context, and hostile-input limit declarations drive `MDP009`;
+Exit gate: owner-backed construction, session-local reuse, finite operation
+policy, liveness, detached posting, and disposal drive `MDP009`. Fact-specific
+cache and accounting evidence belongs to `MDP006`, #4849, #7887, and #7897;
 shadow results expose full/summary/focused limit, rejection, and projection
-disagreements before cutover; `MDP016` proves the narrow lossless-row exception
+disagreements before cutover. `MDP016` proves the narrow lossless-row exception
 before any consumer uses it to supply product results; `MDP017` proves the
-classifier and currently adopted raw table/image/leaf paths. It does not require
-later consumer migrations: slice-specific bypass closure belongs to `MDP011`,
-while repository-wide admission remains unverified under #5559.
+classifier and currently adopted raw table/image/leaf paths. It does not
+require later consumer migrations: slice-specific bypass closure belongs to
+`MDP011`, while repository-wide admission remains unverified under #5559.
 
 ### Slice 6: activate shared declaration admission atomically
 
@@ -1698,14 +1658,14 @@ test method name, but the PR must map each test to its gate ID.
 | `MDP006` | Decode accounting is transitive | Amplification fixtures for names, modifiers, signatures, getter/setter/add/remove/raise/`Other` semantic dependencies, and MethodImpl targets; an oversized semantics table must pass whole-image row admission only when within `MaxMetadataRows`, then stop on the lower retained-association budget with bounded allocation and no double charge; dependent property/event projections receive typed rejection with no streaming fallback, while independent declaration kinds retain their normal failure policy |
 | `MDP007` | Metadata and CLI failure text contains no artifact data | Hostile control-character names across Metadata declaration and CLI failure paths |
 | `MDP008` | Real artifacts remain stable | Pinned platform and package canaries with recorded rows and retained-text totals; the complete MethodSemantics census accepts every pinned input and does not broaden a table-level malformed-ordering rejection into an unexplained omission |
-| `MDP009` | Declaration caches and hostile-input ceilings preserve context, budget, lifetime, and failure semantics | Matrix derived from the central safety-policy dimensions and every charging fact request, including the operation's generation-scoped declaration facts, typed failures, and `MethodSemantics` association index; cache-key set equality covers fact kind, handle, generic context, resolution context, and every participating image generation; cached-work rejection, same-context negative caching, changed-context close negatives, missing participating-session `ResolutionContextUnavailable`, extra/cross-operation/generation-session mismatch rejection, and no undeclared local ceiling; multi-generation facts are retained and charged only in the subject generation's entry while every participating session supplies key and liveness context; after the image-format classifier accepts a supported image, `MetadataOperationContext.AdmitImage` runs unconditionally as the sole row-charge call site, records the row sum under explicit compatibility `Unbounded`, rejects construction of any product context lacking a finite policy after slice 6, and makes a full extraction's cumulative row charge equal the image's declared row sum exactly once; reference identity of the acquisition-minted `MetadataImageGeneration` maps to a context-owned entry and is not itself an operation-local cache object, artifact or assembly identity, `AssemblyAcquisitionRegistration`, a `MetadataReader`, `PEReader`, `AssemblyImage`, path, MVID, or digest; within one operation, repeated `GetMetadataReader()` results, owned/borrowed sessions, and snapshot-backed sessions whose callbacks recreate `PEReader` instances share admission, immutable fact/failure, and association-index state for one generation but retain separate session liveness checks, producing one row charge, one retained-association charge, and one charge per shared fact; full, summary, and focused projections run through separate sessions in every order under a budget permitting one decode of each shared fact, and every permutation returns the same value or typed failure and counters rather than becoming callback-order dependent; multithreaded concurrent cold requests for one image, association index, positive fact, and negative fact prove atomic entry creation, single publication, and exactly-once charging, while a same-chain reentrant fact request returns `FactDependencyCycle` without deadlock or a second decode; single-threaded Browser/Wasm exercises the same uncontended result contract; an independent open receives a different generation, while a later operation over the same persistent snapshot maps its retained generation to a fresh entry, repeats charges, and cannot observe the earlier result or rejection; the operation owns one immutable safety policy, and a mixed finite/`Unbounded` session attempt fails before cache lookup; a same-operation, same-generation cache hit reuses the entry-owned immutable value or typed rejection without recharging only after every participating session rechecks its owner/lender liveness; owned and borrowed fixtures dispose the owner or lender before uncached work and before positive and failure cache hits, asserting `ObjectDisposedException` with zero primitive invocations, row reads, or cached-value observation; entries retain no reader, block, pointer, fact-access context, session, lease, or mutable budget; solution-wide product-call closure requires `MethodSemanticsAssociationSession` to be the only product `MethodSemanticsRowReader` invocation owner, while direct calls are confined to leaf boundary tests; Metadata scanner fixtures prove their neutral-row paths use the association session with finite operation policy and no bare-reader bypass; constructor/API closure rejects independently supplied generation/reader pairs and independently supplied format-result/reader pairs; a workspace loop over one participant remains one charged image per operation, context disposal releases every fact and entry, and entry count/bytes remain within declared image/fact/index retention budgets; equivalent near/over-limit full/summary/focused fixtures assert equal per-fact thresholds, counters, and rejection rules while separately charging additional retained fields |
+| `MDP009` | Owner-backed declaration sessions preserve image lifetime, operation accounting, and detached posting | `MetadataDeclarationSessionSubstrateTests` proves that declaration access is constructed only from a live owned or borrowed `AssemblyInspectionSession`; repeated work through one declaration session observes one opened reader and one image-row admission; a second declaration-session attachment for the same operation context and assembly session rejects before admission; session-local immutable state is reused without repeating its declared charge; one immutable finite operation policy aggregates work across two independent assembly sessions without equating them; independently opened sessions remain independent even when backed by the same snapshot; owned and borrowed sessions reject new declaration work and session-local cache lookup after their owner or lender ends; posted successes and typed failures remain usable after retirement and retain no reader, byte block, session, lease, mutable budget, or reopening capability; the coordinator disposes declaration sessions before ending the operation context; owned assembly-session disposal releases the image once while borrowed disposal leaves the lender open; and the declaration-session factory accepts owner-backed session state rather than caller-paired resource pieces. Cross-session cache reuse and general concurrent cold coordination are non-claims. MethodSemantics association behavior, fact-specific cache keys and ceilings, full/summary/focused parity, persistent cache identity, and product-call closure belong to their focused owners, `MDP001`, `MDP006`, #3478, and `MDP011`, not this gate |
 | `MDP010` | Degraded signatures remain nonauthoritative at the CSharp boundary | Existing degraded-signature fixtures mapped to typed `Degraded` outcomes with no authoritative C# or metadata fallback |
 | `MDP011` | The Metadata slice-6 cutover has no parallel declaration owner, reader-only extraction seam, or convenience-accessor bypass | Declaration-driven architecture closure over full, summary, and focused entry points; fail on a duplicate validity implementation or admission bypass; require no bare-`PEReader` `ApiSurfaceExtractor` full, summary, or bounded entry point and prove every production caller carries a genuine owned or borrowed image lease plus finite operation context; require no SRM `PropertyDefinition.GetAccessors()` or `EventDefinition.GetAccessors()` call anywhere in `ILInspector.Metadata`, including `ExtensionMethodScanner` and `OpenTelemetryScanner`, after the cutover |
 | `MDP012` | CSharp representability consumes only Metadata-owned semantic facts at the slice-7 cutover | Closure derived from the semantic fact types and every CSharp representability entry point; fail on direct `MetadataReader`/handle reconstruction or relationship decisions from raw accessibility, virtuality, new-slot, `MethodImpl`, or equivalent Boolean combinations |
 | `MDP013` | No transitional declaration-validity or CSharp reconstruction state remains | Declaration-driven closure over compatibility adapters, validators, raw semantic fields, and consumers after slice 8; no shipped product or reusable product-library SRM `PropertyDefinition.GetAccessors()` or `EventDefinition.GetAccessors()` call remains; Decompiler fixtures prove `MemberBodyProducer` and `MethodDefinitionFacts` consume the association session under the slice-6 owner-backed image lease and a finite Decompiler operation policy, call the current owner/lender liveness check before both cold and cached results, and retain their own classification policy without a bare-reader bypass; a gate-owned exact file/enclosing-member/occurrence-count allow list records every remaining solution call exactly once with category and justification as either a comparison-only independent SRM oracle or an address-only test-input selector whose assertion depends solely on product output; the mechanical gate fails stale, unlisted, or occurrence-count drift, while category correctness is an explicit reviewer obligation whenever the list changes; no allowed category may supply expected accessor structure or construct, normalize, repair, or substitute for an artifact later compiled or measured as product evidence; reflection `PropertyInfo.GetAccessors` is outside this closure |
 | `MDP014` | CSharp failure text contains no artifact data | Hostile control-character names through every CSharp representability failure path |
 | `MDP015` | `FallbackRequired` preserves contained type/member semantics and renders artifact text through `InertString` | Set equality between the normal representable renderer's Metadata fact requests and each contained fallback payload after named erasures; type and member parity fixtures cover accessibility, modifiers, attributes, constraints, constants/defaults, explicit implementation, complete accessor aggregates including raise and every `Other` association, base/interfaces, and kind-specific facts; valid raise/`Other` aggregates force contained fallback and preserve each association instead of becoming unrelated standalone methods; unsupported type-header and paired member/indexer cases prove no fact becomes `null`, omission, or identity collapse; declaration-derived sink closure requires every fallback sink to call `EnsurePermitted` with its exact `TextPolicy` immediately before unwrapping and format escaping; cross-policy fixtures deliver Prose-produced CR/LF/TAB plus hostile type names, member names, and signature fragments to Field, Markdown, JSON, TSV, and diagnostic sinks; round-trip and pairwise injectivity prove canonical visual encoding preserves exact artifact text while no live disallowed scalar reaches a sink |
-| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `tests/DotnetInspect.Cli.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission, generation/entry mapping, dependent-projection failure, and both cold/cache liveness wiring belong to `MDP006`/`MDP009`; consumer migration belongs to `MDP011`/`MDP013` |
+| `MDP016` | The lossless `MethodSemantics` row boundary is the only registered raw-table exception and remains mechanical, bounded, and SRM-backed | A pre-reader `LayeringTests.MetadataPrimitives_RemainsLeaf` gate in `tests/DotnetInspect.Cli.Tests` and post-reader symbol/API closure prove MetadataPrimitives remains an SRM-only leaf; the exact raw-layout allow list distinguishes the fixed metadata-root admission guard owned and gated by `MDP017` from table decoding, and only `MethodSemanticsRowReader` calls `GetTableMetadataOffset`, `GetTableRowSize`, or decodes raw ECMA table columns; the classifier and row reader may each call `PEReader.GetMetadata` and `PEMemoryBlock.GetReader` only for their separately bounded contracts, no arbitrary `TableIndex`, schema, or coded-index API escapes, and unrelated blob/heap `BlobReader` use is outside the detector; required-CI ordered-multiset equality with `ildasm` over association/role/method plus construction-known `ilasm` fixtures, with both external-tool groups required there but allowed to skip together locally; tool-independent `MetadataBuilder` and byte-patched raw-row fixtures remain the non-skipping construction-known floor, alongside conventional aggregate parity with SRM accessors; all four narrow/wide MethodDef and HasSemantics index combinations are generated once per test run and assert decoded values, while SRM row-size equality separately checks the total width; fixtures prove exact preservation of duplicate roles, zero/unknown/combined bits, physical row order, and nonmonotonic-order observation, while nil/out-of-range MethodDef or association rows produce typed mechanical rejection and the same out-of-order rows with the sorted bit clear fail at SRM reader construction; a supplied retained-association budget proves complete-scan bounded allocation before the leaf returns neutral rows, and the reader retains no block, reader, or pointer beyond the call; Browser/Wasm and NativeAOT gates exercise the same supported ECMA-335 result. Role legality, duplicates, declaring-type consistency, and ordering-policy rejection belong to `MDP004`; format classification belongs to `MDP017`; operation admission and session liveness belong to `MDP009`, while dependent-projection failure and fact-specific cache accounting belong to `MDP006` and the MethodSemantics owner; consumer migration belongs to `MDP011`/`MDP013` |
 | `MDP017` | Adopted Metadata entry points reject Windows Metadata and preserve malformed-root distinction | `MetadataImageFormatClassifier` is the sole MetadataPrimitives root-admission classifier. It reads only the fixed ECMA-335 root prefix and the declared, at-most-256-byte padded version field, recognizes the exact ordinal `WindowsRuntime` marker before the first null, returns distinct `SupportedEcma335`, `UnsupportedWindowsMetadata`, `NoMetadata`, and typed malformed-root results, and constructs no `MetadataReader`; lazy block-materialization I/O remains an acquisition failure. `MetadataImageFormatClassifierTests` (`Mdp017_*`) gate ordinary, marker-bearing, native, close-negative, malformed, lazy-I/O, bounded-work, and no-reader-before-reject cases, while `MetadataFormatAdmissionTests` gate the shared Metadata entry point. `ILInspector.Metadata` adopts that entry point across acquisition, scanners, projection, and PDB-backed assembly access; `MetadataAdmissionCleanupTests` and the typed consumer tests named in [Shared metadata primitives](../metadata-primitives.md) gate visible unsupported/malformed outcomes and prevent cleanup from replacing them. Portable-PDB `MetadataReader` construction after assembly admission is outside this assembly-metadata boundary. This is staged adoption, not repository-wide closure: Analysis, Decompiler, Research, ILDiff, and remaining Queries/CLI paths stay outside the claim and are tracked by #5559. The unimplemented effective-catalog cutover, retained-PDB budget, and local-symbol evidence formerly included here belong to #3478, not this gate |
 
 The effective-catalog cache cutover no longer belongs to `MDP017`, which now
@@ -1734,7 +1694,7 @@ matrix.
 | Excluded hostile rows cannot amplify expensive projection | Metadata | `MDP003`, `MDP006` |
 | Valid metadata and complete, contained C# fallback remain distinct from degraded or invalid input | Metadata/CSharp boundary | `MDP004`, `MDP005`, `MDP010`, `MDP012`, `MDP014`, `MDP015` |
 | Lossless `MethodSemantics` access remains the sole narrow raw-table exception below Metadata semantics | MetadataPrimitives/Metadata | `MDP002`, `MDP004`, `MDP006`, `MDP009`, `MDP016` |
-| Cache reuse cannot bypass context or operation budgets | Metadata operation context and generation-scoped image entry | `MDP009` |
+| Session-local cache reuse cannot bypass operation policy or image lifetime | Metadata declaration session | `MDP006`, `MDP009` |
 | No duplicate validity owner or CSharp raw-metadata/raw-flag reconstruction survives migration | Metadata/CSharp architecture | `MDP011`, `MDP012`, `MDP013` |
 | Effective-discovery outcomes cannot cross top-level operations or authorization dispositions | Section/query plan integration | `MIP004` |
 | Adopted Metadata entry points reject unsupported Windows Metadata | MetadataPrimitives/acquisition/Metadata | `MDP017` |

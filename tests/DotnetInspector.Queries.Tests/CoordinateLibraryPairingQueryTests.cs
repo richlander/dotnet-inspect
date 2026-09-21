@@ -98,7 +98,50 @@ public sealed class CoordinateLibraryPairingQueryTests
     }
 
     [Fact]
-    public async Task EqualPortableCoordinates_DoNotSubstituteAnotherWorkspace()
+    public async Task DistinctWorkspaces_PreserveFreshDestinationOccurrence()
+    {
+        await using var firstWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding("1.0.0",
+            ("ref/net11.0/Original.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding("2.0.0",
+            ("lib/net11.0/Renamed.dll",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        WorkspaceScopeSnapshot firstScope = await Replace(firstWorkspace, before);
+        WorkspaceScopeSnapshot secondScope = await Replace(secondWorkspace, after);
+        CoordinatePackageObservation first =
+            await Observe(firstWorkspace, before, firstScope);
+        CoordinatePackageObservation second =
+            await Observe(secondWorkspace, after, secondScope);
+
+        CoordinateLibraryPairingResult result =
+            CoordinateLibraryPairingQuery.Execute(first.Libraries[0].Subject, first, second);
+
+        Assert.Equal(CoordinateLibraryPairingStatus.Exact, result.Status);
+        CoordinateApiLibraryObservation destination =
+            Assert.IsType<CoordinateApiLibraryObservation>(result.Destination);
+        Assert.NotSame(
+            first.Occurrence.Identity.WorkspaceIdentity,
+            destination.Subject.Workspace.Identity);
+        Assert.Same(
+            second.Occurrence.Identity,
+            destination.Subject.Package.Occurrence.Identity);
+        Assert.NotSame(
+            first.Libraries[0].Subject.Identity.Registration,
+            destination.Subject.Identity.Registration);
+
+        CoordinateLibraryPairingEvidence evidence = result.Detach();
+        await firstWorkspace.CloseAsync();
+        await secondWorkspace.CloseAsync();
+
+        Assert.Equal(CoordinateLibraryPairingStatus.Exact, evidence.Status);
+        Assert.Equal("1.0.0", evidence.Before.PackageVersion);
+        Assert.Equal("2.0.0", evidence.After.PackageVersion);
+    }
+
+    [Fact]
+    public async Task SourceLibraryFromDestinationWorkspace_IsRefused()
     {
         await using var firstWorkspace = new InspectionWorkspace();
         await using var secondWorkspace = new InspectionWorkspace();
@@ -110,10 +153,12 @@ public sealed class CoordinateLibraryPairingQueryTests
         CoordinatePackageObservation second = await Observe(secondWorkspace, binding, secondScope);
 
         CoordinateLibraryPairingResult result =
-            CoordinateLibraryPairingQuery.Execute(first.Libraries[0].Subject, first, second);
+            CoordinateLibraryPairingQuery.Execute(second.Libraries[0].Subject, first, second);
 
         Assert.Equal(CoordinateLibraryPairingStatus.Refused, result.Status);
-        Assert.Equal(CoordinateLibraryPairingFailureKind.ForeignWorkspace, result.Failure!.Kind);
+        Assert.Equal(
+            CoordinateLibraryPairingFailureKind.ForeignWorkspace,
+            result.Failure!.Kind);
     }
 
     [Fact]

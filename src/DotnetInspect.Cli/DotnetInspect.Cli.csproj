@@ -15,6 +15,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="QuerySpace.Rows" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
   </ItemGroup>
 
@@ -128,6 +132,7 @@
     <ProjectReference Include="..\Inspector.Artifacts.Local\Inspector.Artifacts.Local.csproj" />
     <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\QuerySpace\QuerySpace.csproj" />
   </ItemGroup>
 
   <ItemGroup>

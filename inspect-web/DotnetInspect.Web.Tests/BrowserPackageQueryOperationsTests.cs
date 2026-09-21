@@ -1,8 +1,8 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -453,6 +453,25 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryExecutionClass.Nuspec,
             preset.ExecutionClass);
+    }
+
+    [Fact]
+    public void Catalog_ProjectsDependsStartsWithAsNuspecFreeOperator()
+    {
+        BrowserPackageQueryTermDescriptor term =
+            Assert.Single(
+                BrowserPackageQueryOperations.Catalog().Terms,
+                candidate =>
+                    candidate.Key == PackageQuery.DependsTermKey);
+
+        Assert.Equal(["eq", "starts-with"], term.Operators);
+        Assert.Equal("NuGet package ID or prefix", term.ValueKind);
+        Assert.Equal(
+            BrowserPackageQueryAcquisitionTier.Nuspec,
+            term.Tier);
+        Assert.Equal(
+            BrowserPackageQueryExecutionClass.Nuspec,
+            term.ExecutionClass);
     }
 
     [Fact]

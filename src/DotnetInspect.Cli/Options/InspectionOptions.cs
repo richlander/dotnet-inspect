@@ -22,6 +22,23 @@ public record InspectionOptions : IProjectionOptions
     public string? ExplicitVersion { get; init; }
 
     /// <summary>
+    /// Canonical Workspace packet supplying the selected Package context.
+    /// </summary>
+    public string? WorkspacePacket { get; init; }
+
+    /// <summary>
+    /// Optional derived Workspace Share output.
+    /// </summary>
+    public WorkspaceShareFormat? ShareFormat { get; init; }
+
+#if DEBUG
+    /// <summary>
+    /// Debug-only destination for the complete enriched Package envelope.
+    /// </summary>
+    public string? EvidenceEnvelopePath { get; init; }
+#endif
+
+    /// <summary>
     /// Legacy dependency-tree input. The Package route rejects it with focused
     /// replacement guidance; Library routes retain their existing handling.
     /// </summary>

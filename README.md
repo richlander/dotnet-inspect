@@ -174,6 +174,7 @@ stderr rather than mixed into structured output.
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
+| `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
@@ -226,6 +227,26 @@ dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem runtime -S Pruning
 ```
+
+Package Info and Library Info summarize ecosystems recognized from direct
+dependencies. Select `Ecosystem Dependencies` to see the dependency/ecosystem
+pairs, including one row per ecosystem when a dependency intentionally
+overlaps multiple packs:
+
+```bash
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Package Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Library Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Ecosystem Dependencies" \
+  --columns "Ecosystem,Kind,Dependency,Declared By"
+```
+
+Library recognition classifies the selected Library's declared assembly
+references. It does not resolve or traverse those references. Unrecognized
+references do not become ecosystem rows, while JSON still reports the
+recognition status as complete.
 
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
@@ -489,8 +510,23 @@ dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+dotnet-inspect package System.Text.Json --workspace "$packet"
+dotnet-inspect package System.Text.Json \
+  --workspace "$packet" --share packet
 dotnet-inspect package query 'Azure.AI*' --take 100 --format tsv
 ```
+
+`package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
+in the packet's selected context, independently of its focused tab, and reuses
+the exact Package Root and target admitted during Workspace restoration.
+Appending `--share` preserves ordinary stdout and writes a derived Package
+packet or URL as the final stderr line. An exact selector can inspect a
+currently resolved floating Package member, but Share refuses rather than
+silently pinning that preserved definition.
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
@@ -542,6 +578,10 @@ considers all package manifest groups by default; add
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
 dependency under the same scope. Use
+`depends starts-with <literal-package-id-prefix>` to require a direct
+dependency whose package ID begins with that prefix. The match is literal and
+case-insensitive; include a trailing `.` to express a dot-delimited family.
+Use
 `depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
 against the ecosystem's registered exact packages and package prefixes:
 
@@ -554,6 +594,9 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "depends starts-with Microsoft.Extensions." \
+  --where "dependency-target=net10.0"
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
@@ -599,6 +642,23 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 This package-content term matches simple names case-insensitively and reports
 the matching framework and archive path. It does not resolve or traverse the
 reference.
+
+Use the same key at Library grain to query top-level `*.dll` files in one
+directory, or one installed or explicitly acquired platform reference pack:
+
+```bash
+dotnet-inspect library query ./artifacts/bin \
+  --where "references=System.Text.Json"
+dotnet-inspect library query --platform runtime \
+  --where "references=System.Text.Json" --take 256 -n 10
+```
+
+Library Query tests each candidate Library's direct `AssemblyRef` table;
+repeated `references` terms are ANDed. `--take` bounds candidates scanned,
+while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
+afterward. Use `library query -Q Libraries` to discover the current vocabulary.
+Missing or malformed Metadata remains visible and makes unbounded Count
+inexact rather than silently becoming a nonmatch.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
@@ -1345,6 +1405,12 @@ Traversal ordering through `-Q "Dependency Graph"`. `--top` requires a Source,
 Target, or Kind field order; Traversal is a sequence order. Asset-mode
 `Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
 `--depth` capability from the Dependency operation.
+
+For recursive package traversal, `--tfm` selects the root package dependency
+group and configures the stable traversal target. When `--tfm` is omitted, the
+root keeps its package-local selection while newly reached packages use the
+product traversal default, currently `net12.0`; a compatible destination
+selection does not replace that target on later edges.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

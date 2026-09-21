@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -74,6 +75,7 @@ public static class LibrarySections
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
                 [
+                    AssemblyReferencesQuery.Definition,
                     ClassifiedMethodsQuery.Definition,
                     CustomAttributesQuery.Definition,
                     ExtensionMethodsQuery.Definition,
@@ -115,6 +117,8 @@ public static class LibrarySections
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
+            .Add<EcosystemDependencies>(
+                AssemblyReferencesQuery.Definition)
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
@@ -176,6 +180,7 @@ public static class LibrarySections
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddBaseCategory(SectionCategoryNames.Surface,
@@ -209,6 +214,7 @@ public static class LibrarySections
             .AddCategory(
                 SectionCategoryNames.Dependencies,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.ReferenceHierarchy)
             .AddCategory(SectionCategoryNames.Context,
                 SectionNames.ILOffset,
@@ -661,6 +667,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
             => model.InspectionFailures is { Count: > 0 };
     }
@@ -781,7 +788,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Switches;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.SwitchInspection.CanRenderWithPresence(model.HasSwitches);
     }
@@ -862,15 +869,34 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
 
-    // ===== Normal sections (offline, cheap) =====
+    // ===== Offline inventory sections =====
 
     public sealed class References : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasReferenceData(model);
+    }
+
+    public sealed class EcosystemDependencies :
+        ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.EcosystemDependencies;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Informative;
+        public static bool CanRender(LibraryInspection model) =>
+            model.EcosystemDependencyRecognitionInspection?.Content
+                is EcosystemDependencyRecognitionOutcome.Complete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    }
+                or EcosystemDependencyRecognitionOutcome.Incomplete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    };
     }
 
     public sealed class ReferenceHierarchy :
@@ -1054,6 +1080,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PInvokeMethods;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
                && (model.PInvokeMethodCount > 0 || model.HasPInvokeImports);
@@ -1090,6 +1117,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.UnionTypes;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.UnionTypeInspection.CanRenderWithPresence(model.HasUnionTypes);
     }
@@ -1098,6 +1126,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarderInspection.CanRenderWithPresence(model.HasExportedTypeForwarders);
     }

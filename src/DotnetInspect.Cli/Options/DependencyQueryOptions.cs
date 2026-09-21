@@ -6,9 +6,9 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.QueryOperations;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 
@@ -59,7 +59,8 @@ internal static class DependencyQueryOptions
                     term.Binding.Key,
                     [.. operators],
                     [
-                        .. term.Operators.Select(Comparison),
+                        .. term.Operators.Select(
+                            RowPredicateSyntaxParser.Comparison),
                     ],
                     term.Binding.Description.ValueKind,
                     [.. term.Binding.Description.Values],
@@ -137,13 +138,15 @@ internal static class DependencyQueryOptions
             }
 
             PortableQueryOperator @operator =
-                PortableOperator(syntax.Operator);
+                RowPredicateSyntaxParser.PortableOperator(
+                    syntax.Operator);
             if (!capability.Operators.Contains(@operator))
             {
                 plan = null!;
                 error =
                     $"Field '{capability.Binding.Key}' does not support "
-                    + $"'{Comparison(@operator)}' predicates.";
+                    + $"'{RowPredicateSyntaxParser.Comparison(@operator)}' "
+                    + "predicates.";
                 return false;
             }
 
@@ -408,32 +411,6 @@ internal static class DependencyQueryOptions
                 PortableQueryStage.Top(operation.Count),
             _ => throw new InvalidOperationException(
                 "Dependency Query received an unsupported row stage."),
-        };
-
-    private static PortableQueryOperator PortableOperator(
-        RowPredicateOperator @operator) =>
-        @operator switch
-        {
-            RowPredicateOperator.Equals => PortableQueryOperator.Equal,
-            RowPredicateOperator.NotEquals =>
-                PortableQueryOperator.NotEqual,
-            RowPredicateOperator.GreaterOrEqual =>
-                PortableQueryOperator.AtLeast,
-            RowPredicateOperator.LessOrEqual =>
-                PortableQueryOperator.AtMost,
-            _ => throw new ArgumentOutOfRangeException(nameof(@operator)),
-        };
-
-    private static string Comparison(
-        PortableQueryOperator @operator) =>
-        @operator switch
-        {
-            PortableQueryOperator.Equal => "=",
-            PortableQueryOperator.NotEqual => "!=",
-            PortableQueryOperator.AtLeast => ">=",
-            PortableQueryOperator.AtMost => "<=",
-            _ => throw new InvalidOperationException(
-                "Dependency Query registered an unsupported comparison."),
         };
 
     private static string Example(string key) =>

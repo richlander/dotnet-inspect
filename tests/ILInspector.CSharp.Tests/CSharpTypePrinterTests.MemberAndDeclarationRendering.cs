@@ -6,6 +6,51 @@ namespace ILInspector.CSharp.Tests;
 
 public sealed partial class CSharpTypePrinterTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PropertyInitializerPreservesPrimaryParameterAndTargetBody(bool automatic)
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Counter");
+        type.Kind = "struct";
+        type.Members.Add(property);
+        var body = new CSharpPropertyBody(
+            automatic
+                ? CSharpAccessorBody.Auto
+                : CSharpAccessorBody.Block("return field + 1;") with { IsReplacementTarget = true },
+            null)
+        {
+            Initializer = "@event",
+        };
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [new CSharpMemberPolicy(property, CSharpBodyPolicy.Full, body)],
+            primaryConstructorParameters: [new ApiParameter { Type = "int", Name = "event" }]));
+
+        Assert.Contains("struct Counter(int @event)", result.Source);
+        Assert.Contains("} = @event;", result.Source);
+        if (automatic)
+            Assert.Contains("Value { get; } = @event;", result.Source);
+        else
+        {
+            string replacement = result.SourceArtifact.ReplaceBody("return field + 2;");
+            Assert.Contains("return field + 2;", replacement);
+            Assert.DoesNotContain("return field + 1;", replacement);
+            Assert.Contains("struct Counter(int @event)", replacement);
+            Assert.Contains("} = @event;", replacement);
+        }
+    }
 
     [Theory]
     [InlineData(CSharpBodyPolicy.Full)]

@@ -62,6 +62,64 @@ public partial class SectionPipelineTests
         Assert.Equal([SectionCategoryNames.Surface], pipeline.GetBaseCategoryDoors());
     }
 
+    [Theory]
+    [InlineData("Classes")]
+    [InlineData("Structs")]
+    [InlineData("Interfaces")]
+    [InlineData("Enums")]
+    [InlineData("Delegates")]
+    [InlineData(SectionNames.TypeForwarders)]
+    [InlineData(SectionNames.InspectionFailures)]
+    public void ApiTypePipeline_SurfaceInventoriesDeclareMeasuredGrowth(
+        string section)
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var include =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                section,
+            };
+
+        Assert.Contains(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Minimal));
+        Assert.DoesNotContain(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Normal));
+        Assert.Contains(
+            section,
+            pipeline.GetCandidateSections(Verbosity.Detailed));
+        Assert.Equal(
+            Verbosity.Detailed,
+            pipeline.GetRequiredVerbosity(include));
+    }
+
+    [Fact]
+    public void ApiTypePipeline_SurfaceInventoryDescriptorsAreVerbose()
+    {
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Classes.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Structs.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Interfaces.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Enums.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.Delegates.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.TypeForwarders.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            ApiTypeSectionDescriptors.InspectionFailures.SizeClass);
+    }
+
     [Fact]
     public void ApiTypePipeline_ShowsClassesWhenPresent()
     {
@@ -126,9 +184,66 @@ public partial class SectionPipelineTests
             ]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
         Assert.Equal(5, effective.Count);
+    }
+
+    [Fact]
+    public void ApiTypePipeline_NormalOmitsVerboseSurfaceInventories()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Name = "C", Kind = "class" },
+                new ApiType { Name = "S", Kind = "struct" },
+                new ApiType { Name = "I", Kind = "interface" },
+                new ApiType { Name = "E", Kind = "enum" },
+                new ApiType { Name = "D", Kind = "delegate" },
+            ],
+        };
+
+        Assert.Empty(
+            pipeline.GetEffectiveSections(model, Verbosity.Normal));
+    }
+
+    [Fact]
+    public void ApiTypePipeline_ForwarderAndFailureRowsCanExceedInformativeRange()
+    {
+        var model = new ApiSurface
+        {
+            TypeForwarders =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    new TypeForwarder
+                    {
+                        TypeName = $"Forwarded{index}",
+                        TargetAssembly = $"Target{index}",
+                    }),
+            ],
+            InspectionFailures =
+            [
+                .. Enumerable.Range(0, 31).Select(index =>
+                    new ApiSurfaceInspectionFailure(
+                        "decode type",
+                        0x02000001 + index,
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        "MalformedMetadata",
+                        $"Failure {index}")),
+            ],
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            model,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Detailed,
+            });
+
+        Assert.Equal(31, view.TypeForwarders!.Count);
+        Assert.Equal(31, view.InspectionFailures!.Count);
     }
 
     // ===== API member pipeline tests =====
@@ -147,6 +262,22 @@ public partial class SectionPipelineTests
         var pipeline = LibrarySections.CreatePipeline();
 
         Assert.Equal(["Library Info"], pipeline.InfoSectionNames);
+    }
+
+    [Fact]
+    public void LibraryPipeline_RegistersEcosystemDependencies()
+    {
+        var catalog = LibrarySections.CreateCatalog().Sections;
+
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectableSectionNames);
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectionCategoryMap[SectionCategoryNames.Library]);
+        Assert.Contains(
+            SectionNames.EcosystemDependencies,
+            catalog.SelectionCategoryMap[SectionCategoryNames.Dependencies]);
     }
 
     [Fact]

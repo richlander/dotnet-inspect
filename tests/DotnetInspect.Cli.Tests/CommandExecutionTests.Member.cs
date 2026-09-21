@@ -203,6 +203,96 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        MemberCommand_DecompiledSourceRetainsInvalidAdjacentPdbFailure()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-member-decompilation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string dllPath =
+                Path.Combine(tempDir, "MemberDecompilation.dll");
+            File.Copy(TestAssemblyPath, dllPath);
+            await File.WriteAllTextAsync(
+                Path.ChangeExtension(dllPath, ".pdb"),
+                "not-a-portable-pdb",
+                TestContext.Current.CancellationToken);
+
+            var (exit, output, error) =
+                await RunAppAsync(
+                    "member",
+                    "DotnetInspect.Cli.Tests.CommandExecutionTests+ConstructorChainTarget",
+                    ".ctor:1",
+                    "--library",
+                    dllPath,
+                    "--all",
+                    "-S",
+                    "Decompiled Source",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "terminal Library admission: Portable PDB companion rejected",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "ConstructorChainTarget(int value) : base(value)",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        MemberCommand_SharedAccessorProjectionPreservesPhysicalModifiers()
+    {
+        var readOnly =
+            await RunAppAsync(
+                "member",
+                "ILInspector.Decompiler.Fixtures.ReadonlyPropertySamples",
+                "--library",
+                FixtureCatalog.DecompilerUnsafeLegacy
+                    .AssemblyPath(),
+                "Count:1",
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+        var unsafeAccessor =
+            await RunAppAsync(
+                "member",
+                "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitAccessorFixture",
+                "--library",
+                FixtureCatalog.DecompilerUnsafeNew
+                    .AssemblyPath(),
+                "explicit:ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.get_Value:1",
+                "--all",
+                "-S",
+                "Decompiled Source",
+                "--tips",
+                "q");
+
+        Assert.Equal(0, readOnly.Exit);
+        Assert.Empty(readOnly.Error);
+        Assert.Contains(
+            "public readonly int Count => _count;",
+            readOnly.Output);
+        Assert.Equal(0, unsafeAccessor.Exit);
+        Assert.Empty(unsafeAccessor.Error);
+        Assert.Contains(
+            "unsafe int ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract.Value => 42;",
+            unsafeAccessor.Output);
+    }
+
+    [Fact]
     public async Task InitializerOnlyConstructor_ProjectsThroughMemberAndTypeCommands()
     {
         string typeName = typeof(CommandInitializerOnlyFixture).FullName!;

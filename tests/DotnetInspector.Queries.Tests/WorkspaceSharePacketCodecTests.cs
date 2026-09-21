@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Platforms;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 

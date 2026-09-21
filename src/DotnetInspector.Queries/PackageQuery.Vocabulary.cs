@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
-using DotnetInspector.RowSelection;
+using QuerySpace;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -59,6 +59,7 @@ internal enum PackageQueryPredicateKind
     CrossPrefixDependencies,
     DependencyTarget,
     Depends,
+    DependsPrefix,
     DependsTransitive,
     DependencyDepth,
     DependsEcosystem,
@@ -76,7 +77,8 @@ internal sealed record PackageQueryPredicate(
     string? Text = null,
     long Number = 0,
     bool Flag = false,
-    PackageQueryEcosystemMembershipDeclaration? EcosystemMembership = null)
+    PackageQueryEcosystemMembershipDeclaration? EcosystemMembership = null,
+    PackagePrefixDeclaration? PackagePrefix = null)
 {
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat

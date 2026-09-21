@@ -766,40 +766,69 @@ public partial class ApiCommand
         // Sits OUTSIDE the member-sections region so enum types (which
         // populate EnumValues and skip that region) also compose.
         if (fullSerializer
-            && options is not MemberOptions
-            && options.DllPath is { } typeDllPath
+            && options is TypeOptions decompilationOptions
+            && options.DllPath is not null
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            // A whole-type decompiled-source render consumes the resolved config.
-            var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
-            using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
-            var projection = sourceAssembly is null
-                ? Decompiler.MemberBodyProducer.Project(
-                    type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions)
-                : Decompiler.MemberBodyProducer.Project(
-                    type, sourceAssembly, options.PdbPath, resolver, metadata, options.RenderOptions);
-            if (TryWriteMemorySafetyModeUnavailable(projection))
-                return 1;
-            if (sourceAssembly is not null
-                && projection.Diagnostics.Any(
-                    static diagnostic => diagnostic.Id == Decompiler.DiagnosticIds.InternalError))
+            if (decompilationOptions.TypeDecompilationInspection is not { } inspection)
             {
-                CommandError.Write(string.Join(
-                    Environment.NewLine,
-                    projection.Diagnostics.Select(static diagnostic => diagnostic.ToString())));
+                WriteTypeDecompilationFailure(
+                    "The completed type decompilation inspection is unavailable.");
                 return 1;
             }
 
-            var listing = projection.Output;
-            if (listing is not null)
+            if (inspection.Content
+                is AssemblyTypeDecompilationEntry.Settled settled)
             {
-                // Surface pending config warnings only once the styled listing is
-                // actually produced, so a type whose Project yields no body (e.g.
-                // an enum) never emits a spurious warning.
-                options.RenderConfigWarnings?.EmitOnce();
-                view.MemberCode ??= new MemberCodeView();
-                view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
+                Decompiler.CSharpDecompilationAttempt attempt =
+                    settled.Attempt;
+                if (attempt.Status
+                    is Decompiler.CSharpDecompilationStatus.Failed
+                        or Decompiler.CSharpDecompilationStatus.Incomplete)
+                {
+                    if (attempt.DiagnosticSummary
+                        is { Length: > 0 } detail)
+                    {
+                        CommandError.Write(detail);
+                    }
+                    else
+                    {
+                        WriteTypeDecompilationFailure(
+                            $"Type decompilation ended with status {attempt.Status}.");
+                    }
+                    return 1;
+                }
+                if (attempt.Status
+                    == Decompiler.CSharpDecompilationStatus.Available)
+                {
+                    if (attempt.Text is not { } listing)
+                    {
+                        WriteTypeDecompilationFailure(
+                            "Type decompilation reported available source without text.");
+                        return 1;
+                    }
+
+                    options.RenderConfigWarnings?.EmitOnce();
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.DecompiledSourceCode =
+                        new Markout.CodeSection(
+                            "csharp",
+                            listing);
+                }
+            }
+            else
+            {
+                string detail = inspection.Content switch
+                {
+                    AssemblyTypeDecompilationEntry.Unavailable unavailable =>
+                        unavailable.Failure.Detail,
+                    AssemblyTypeDecompilationEntry.Rejected rejected =>
+                        $"{rejected.Failure.Kind}: {rejected.Failure.Detail}",
+                    _ => "Type decompilation did not settle.",
+                };
+                WriteTypeDecompilationFailure(detail);
+                return 1;
             }
         }
 
@@ -1370,6 +1399,18 @@ public partial class ApiCommand
             && value.EndsWith(close, StringComparison.OrdinalIgnoreCase)
                 ? WebUtility.HtmlDecode(value[open.Length..^close.Length])
                 : WebUtility.HtmlDecode(value);
+    }
+
+    private static void WriteTypeDecompilationFailure(string detail)
+    {
+        Decompiler.DecompilerResult failure =
+            Decompiler.DecompilerResult.Failure(
+                Decompiler.DiagnosticIds.InternalError,
+                detail);
+        CommandError.Write(string.Join(
+            Environment.NewLine,
+            failure.Diagnostics.Select(
+                static diagnostic => diagnostic.ToString())));
     }
 
     private static List<PrintableDocument> CodeSectionDocument(string section, string label, string? url, string? content)

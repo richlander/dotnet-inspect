@@ -2,8 +2,9 @@
 
 ## Status
 
-**Implemented.** `DotnetInspector.QueryEngine` carries the codec under the
-existing `DotnetInspector.PortableQueries` namespace, and
+**Implemented.** `QuerySpace` carries the codec under its root namespace.
+[QuerySpace Library Boundary](query-space-library.md) owns that physical and
+namespace composition without changing this byte contract, and
 `DotnetInspector.PortableQueries.Tests` runs every vector in
 [`models/portable-query-payload/`](models/portable-query-payload/vectors.json)
 against it in CI. The vectors come in four kinds — an intent and the bytes it
@@ -155,15 +156,16 @@ head and a repeating key-and-direction pair. The strings that name an operator,
 a direction, a stage kind, an order kind, or the baseline role are the model's
 identity texts, carried here verbatim — an implementation derives none of them
 from a .NET enum name, a CLI spelling, or a display label, and the model's
-operator set is exactly the four identities the row predicate syntax already
-admits, so there is no strict `lt` or `gt`. An omitted window bound is a
-gap in place rather than a shorter tuple, so no window can be mistaken for
-another stage, and a closed window's bounds are ordered — that is the stage
-owner's construction precondition, and the parent slice makes it this codec's to
-enforce at decode, so no payload can reach a resolver carrying a stage it could
-not construct. Counts have one portable domain, fixed by the codec so that
-a host's native integer width never decides what another host must admit. An
-order operation carries its own role, kind, and boundary, so a
+operator set is exactly the eight identities the Portable Query Intent owner
+declares: `eq`, `ne`, `starts-with`, `not-starts-with`, `contains`,
+`not-contains`, `gte`, and `lte`; there is no strict `lt` or `gt`. An omitted
+window bound is a gap in place rather than a shorter tuple, so no window can be
+mistaken for another stage, and a closed window's bounds are ordered — that is
+the stage owner's construction precondition, and the parent slice makes it this
+codec's to enforce at decode, so no payload can reach a resolver carrying a
+stage it could not construct. Counts have one portable domain, fixed by the
+codec so that a host's native integer width never decides what another host must
+admit. An order operation carries its own role, kind, and boundary, so a
 baseline of `[a asc]` beside a ranking of `[b desc, c asc]` can never serialize
 identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]` —
 the vectors `operation-boundary-a` and `operation-boundary-b` are that pair.

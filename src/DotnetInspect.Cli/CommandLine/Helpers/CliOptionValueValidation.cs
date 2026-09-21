@@ -228,6 +228,8 @@ internal static class CliOptionValueValidation
                         optionValueOwners,
                         argumentPositions?[index] ?? index)
                     ?? (index + 1 < mapped.Count
+                        && !mapped[index + 1].Tokens.Any(
+                            static token => token.Type == TokenType.Option)
                         ? FindOwnedValue(
                             mapped[index + 1],
                             option,

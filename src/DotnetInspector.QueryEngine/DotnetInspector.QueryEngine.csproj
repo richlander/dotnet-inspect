@@ -9,8 +9,12 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Host-neutral carrier for query operation registration, portable intent, row vocabularies, and row selection</Description>
+    <Description>Transitional carrier for query operation registration and section count outcomes</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
+  </ItemGroup>
 
 </Project>

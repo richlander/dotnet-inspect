@@ -205,7 +205,11 @@ public sealed class SelectedPropertyAccessorSource
             bool automaticGetter = automaticGetterBody
                 && !selectedProperty.IsUnsafe
                 && HasSupportedBackingField(reader, backingField, fieldScope, automaticFieldFlags);
-            SelectedGetterStorage? getterStorage = null;
+            SelectedGetterStorage? getterStorage = automaticGetter
+                ? new SelectedGetterStorage(token,
+                    reader.GetString(reader.GetFieldDefinition(backingField).Name),
+                    GuardedDecode.FieldType(reader, reader.GetFieldDefinition(backingField), fieldScope))
+                : null;
             if (hasBackingStorage && !automaticGetter)
             {
                 getterStorage = SelectedGetterStorage.TryCreate(
@@ -261,16 +265,7 @@ public sealed class SelectedPropertyAccessorSource
         var field = IrImporter.ResolveField(
             reader, MetadataTokens.EntityHandle((int)fieldInstruction.OperandValue),
             scope);
-        if (field.DeclaringType.Kind == TypeRefKind.GenericInstance)
-        {
-            var arguments = field.DeclaringType.TypeArguments;
-            if (arguments.Length != genericNames.Length
-                || arguments.Where((argument, index) =>
-                    argument.Kind != TypeRefKind.GenericParameter
-                    || argument.GenericParameterIndex != index).Any())
-                return false;
-        }
-        else if (genericNames.Length != 0)
+        if (!HasOwnTypeArguments(field.DeclaringType, genericNames.Length))
             return false;
 
         return (reader.GetFieldDefinition(backingFieldHandle).Attributes & FieldAttributes.InitOnly) != 0;
@@ -319,6 +314,118 @@ public sealed class SelectedPropertyAccessorSource
 
     /// <summary>Materializes proven accessor-scoped storage reads before raising this body.</summary>
     public void BindBody(IrFunction function) => _getterStorage?.BindBody(function);
+
+    internal PropertyInitializationConstructor? FindInitializationConstructor(MetadataSource source)
+    {
+        if (_accessorKind != "get" || _property.IsStatic
+            || _property.Kind == "explicit-interface-implementation"
+            || (!_automaticGetter && _getterStorage is null))
+            return null;
+
+        var reader = source.Reader;
+        var getter = MetadataTokens.MethodDefinitionHandle(_property.GetterToken!.Value & 0x00ffffff);
+        var typeHandle = reader.GetMethodDefinition(getter).GetDeclaringType();
+        var type = reader.GetTypeDefinition(typeHandle);
+        var scope = IrImporter.CallerScope(reader, type, reader.GetMethodDefinition(getter));
+        if (type.BaseType.IsNil
+            || !IrImporter.ResolveTypeToken(reader, type.BaseType, scope)
+                .Equals(TypeRef.CoreLib("System", "ValueType"))
+            || !MemberBodyProducer.TryGetCompilerGeneratedBackingField(
+                reader, typeHandle, _property, getter, null, out var backingField))
+            return null;
+
+        var instanceFields = type.GetFields()
+            .Where(handle => (reader.GetFieldDefinition(handle).Attributes & FieldAttributes.Static) == 0)
+            .ToArray();
+        var constructors = type.GetMethods()
+            .Where(handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == ".ctor")
+            .ToArray();
+        if (instanceFields is not [var soleField] || soleField != backingField
+            || constructors is not [var constructor])
+            return null;
+
+        var method = reader.GetMethodDefinition(constructor);
+        if (method.RelativeVirtualAddress == 0 || method.GetGenericParameters().Count != 0
+            || (method.Attributes & MethodAttributes.Static) != 0)
+            return null;
+        var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
+        if (!body.ExceptionRegions.IsEmpty || !body.LocalSignature.IsNil)
+            return null;
+        var decoded = MethodInstructions.Decode(body);
+        if (!decoded.IsComplete)
+            return null;
+        var instructions = decoded.Instructions.Where(instruction => instruction.OpCode != ILOpCode.Nop).ToArray();
+        if (instructions is not [{ OpCode: ILOpCode.Ldarg_0 }, { OpCode: ILOpCode.Ldarg_1 },
+                { OpCode: ILOpCode.Stfld } storeInstruction, { OpCode: ILOpCode.Ret }]
+            || !MemberBodyProducer.FieldOperandMatchesBackingField(
+                reader, typeHandle, MetadataTokens.EntityHandle((int)storeInstruction.OperandValue), backingField))
+            return null;
+
+        var address = MetadataMethodAddress.Create(reader, constructor);
+        var produced = MemberBodyProducer.ProduceBody(source, address);
+        if (produced.Status != MemberBodyProductionStatus.Complete
+            || produced.Body is null || produced.RaisedFunction is not { } function)
+            throw new InvalidOperationException(
+                $"Could not produce the selected property's initialization constructor: {string.Join("; ", produced.Projection.Diagnostics)}");
+        if (function.Signature.Parameters.Length != 1
+            || function.Body.Blocks is not [{ Children: [
+                StoreField { IsVolatile: false, Instance: LoadArgument { Index: 0 },
+                    Value: LoadArgument { Index: 1 } } store,
+                Return { Value: null }] }]
+            || !store.Field.Type.Equals(function.Signature.Parameters[0].Type)
+            || !HasOwnTypeArguments(store.Field.DeclaringType, type.GetGenericParameters().Count))
+            return null;
+
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+        var parameter = declaration.Signature.Parameters.Single();
+        bool canUsePrimaryConstructor = declaration.Accessibility == "public"
+            && declaration.Attributes.Count == 0
+            && method.ImplAttributes == MethodImplAttributes.IL
+            && !type.GetGenericParameters().Any(handle =>
+                reader.GetString(reader.GetGenericParameter(handle).Name) == parameter.Name);
+        var getterDeclaration = MetadataDeclarationQuery.GetMethod(
+            reader, type, reader.GetMethodDefinition(getter));
+        return new PropertyInitializationConstructor(address, produced.Body)
+        {
+            InitializerParameter = canUsePrimaryConstructor ? parameter : null,
+            GetterScopeAttributes = [
+                .. getterDeclaration.Attributes,
+                .. getterDeclaration.Signature.ReturnAttributes,
+            ],
+        };
+    }
+
+    public sealed record PropertyInitializationConstructor(
+        MetadataMethodAddress Address, CSharpBlockBody Body)
+    {
+        internal ApiParameter? InitializerParameter { get; init; }
+        internal IReadOnlyList<string> GetterScopeAttributes { get; init; } = [];
+
+        public PropertyInitializerSource? GetInitializerSource(string getterBody)
+        {
+            if (InitializerParameter is not { } parameter)
+                return null;
+
+            string expression = CSharpFormatter.EscapeIdentifier(parameter.Name);
+            string name = expression.TrimStart('@');
+            // A primary parameter enters the getter's scope. Over-decline on any
+            // spelling overlap in its body or accessor attributes.
+            if (getterBody.Contains(name, StringComparison.Ordinal)
+                || GetterScopeAttributes.Any(attribute => attribute.Contains(name, StringComparison.Ordinal)))
+                return null;
+            return new PropertyInitializerSource(parameter, expression);
+        }
+    }
+
+    public sealed record PropertyInitializerSource(ApiParameter Parameter, string Expression);
+
+    internal static bool HasOwnTypeArguments(TypeRef declaringType, int count)
+        => declaringType.Kind == TypeRefKind.GenericInstance
+            ? declaringType.TypeArguments.Length == count
+                && !declaringType.TypeArguments.Where((argument, index) =>
+                    argument.Kind != TypeRefKind.GenericParameter
+                    || argument.GenericParameterIndex != index).Any()
+            : count == 0;
 
     /// <summary>
     /// Renders only the selected accessor. Attributes are method-targeted

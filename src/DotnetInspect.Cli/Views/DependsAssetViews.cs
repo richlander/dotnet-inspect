@@ -156,6 +156,50 @@ public sealed class DependsAssetView
 }
 
 [MarkoutSerializable]
+public sealed class DependsAssetMarkdownView
+{
+    internal static DependsAssetMarkdownView From(DependsAssetView view) =>
+        new()
+        {
+            DependencyHierarchy = view.DependencyHierarchy,
+            Roots = view.Roots,
+            Dependencies = view.Dependencies,
+            Pruning = view.PruningRows,
+            RestoredEdges = view.RestoredEdges,
+            Failures = view.Failures,
+            DependencyGroups = view.DependencyGroups,
+            RestoredPackages = view.RestoredPackages,
+        };
+
+    [MarkoutSection(
+        Name = DependsAssetSections.DependencyHierarchy,
+        EmptyText = "No dependency relationships.")]
+    public Markout.Graph? DependencyHierarchy { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Roots)]
+    public List<DependsRootView>? Roots { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Dependencies)]
+    public List<DependsDependencyView>? Dependencies { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Pruning)]
+    public List<DependsPruningView>? Pruning { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
+    public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Failures)]
+    public List<DependsFailureView>? Failures { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.DependencyGroups)]
+    public List<DependsDependencyGroupView>? DependencyGroups { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.RestoredPackages)]
+    public List<DependsRestoredPackageView>? RestoredPackages
+    { get; init; }
+}
+
+[MarkoutSerializable]
 public sealed class DependsAssetTableView
 {
     [MarkoutSection(Name = DependsAssetSections.DependencyHierarchy)]
@@ -1121,6 +1165,7 @@ public sealed class DependsFailureView
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(DependsAssetView))]
+[MarkoutContext(typeof(DependsAssetMarkdownView))]
 [MarkoutContext(typeof(DependsAssetTableView))]
 [MarkoutContext(typeof(LibraryReferenceHierarchyTableView))]
 [MarkoutContext(typeof(DependsGraphTableView))]

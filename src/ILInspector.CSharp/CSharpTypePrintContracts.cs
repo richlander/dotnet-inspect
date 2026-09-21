@@ -110,7 +110,10 @@ public sealed record CSharpAccessorBody(CSharpAccessorBodyKind Kind, string? Sou
 
 public sealed record CSharpPropertyBody(
     CSharpAccessorBody? Getter,
-    CSharpAccessorBody? Setter) : CSharpMemberBody;
+    CSharpAccessorBody? Setter) : CSharpMemberBody
+{
+    public string? Initializer { get; init; }
+}
 
 public sealed record CSharpEventBody(
     CSharpAccessorBody Adder,

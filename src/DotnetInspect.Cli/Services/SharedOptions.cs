@@ -798,9 +798,6 @@ public class SharedOptions
         bool jsonlFlag = selectedFormat == CliPresentationFormat.Jsonl;
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
-        ValidateRendererFlags(
-            tableFlag || tsvFlag || jsonlFlag,
-            hasVerbosity);
         if (ShouldSuppressEnvironmentTabularFormat(
             parseResult,
             tableFlag || tsvFlag || jsonlFlag,
@@ -831,7 +828,6 @@ public class SharedOptions
     /// <summary>
     /// Resolves whether tabular output should be used, considering --format table,
     /// --format tsv, and --format jsonl.
-    /// Throws if a tabular flag is combined with -v (contradictory: -v implies markdown).
     /// </summary>
     public bool ResolveTabular(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
@@ -1028,21 +1024,6 @@ public class SharedOptions
     {
         return parseResult.GetResult(option) is { Implicit: false } &&
                string.IsNullOrWhiteSpace(parseResult.GetValue(option));
-    }
-
-    private static void ValidateRendererFlags(
-        bool tabularFlag,
-        bool hasVerbosity)
-    {
-        if (!tabularFlag)
-            return;
-
-        if (hasVerbosity)
-        {
-            CommandError.WriteLine(
-                "Tabular --format values cannot be combined with -v.");
-            throw new OperationCanceledException();
-        }
     }
 
     private static bool IsExplicit(ParseResult parseResult, Option<bool> option) =>

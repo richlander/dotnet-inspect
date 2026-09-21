@@ -917,6 +917,11 @@ One navigation snapshot contains:
 | Lens outcome | Effective identity or non-effective outcome, evaluation basis, and exact Registry evidence |
 | Diagnostics | Partial evidence and scoped failures |
 
+A consumer hierarchy descriptor classified as failed from inventory evidence
+carries that exact typed evidence. Consumers render the descriptor-owned
+evidence directly; they do not infer a slot association from the snapshot's
+separate diagnostic inventory.
+
 The semantic snapshot is the state lineage's only committed subject and lens
 state. It includes complete descriptors, retained context, diagnostics, and
 exact evaluation evidence, but excludes opaque action-publication identity.

@@ -11,7 +11,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
@@ -548,7 +548,7 @@ public partial class DependsCommand
                 || hasNuspec
                 || hasPrefix)
             && options.Tfm is { } framework
-            && !PackageDependencyTraversalFrameworkMode.TryCreateExact(
+            && !TryCreateTraversalTargetPolicy(
                 framework,
                 out _))
         {
@@ -709,6 +709,60 @@ public partial class DependsCommand
     }
 
     internal static Task<DependsAssetProjection>
+        AcquireAdmittedPackageSubjectProjectionAsync(
+            string packageId,
+            string packageVersion,
+            byte[]? manifestBytes,
+            string? targetFramework,
+            bool includePrerelease,
+            NuGetSourceOptions? sourceOptions,
+            DependencyQueryPlan queryPlan,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+        ArgumentNullException.ThrowIfNull(queryPlan);
+        ArgumentNullException.ThrowIfNull(context);
+
+        string packageReference = $"{packageId}@{packageVersion}";
+        var root = new DependsAssetRoot(
+            1,
+            DependencyInspectionRootKind.Package,
+            packageReference);
+        var options = new DependsOptions
+        {
+            AssetRoots = [root],
+            Tfm = targetFramework,
+            IncludePrerelease = includePrerelease,
+            SourceOptions = sourceOptions,
+            Depth = queryPlan.MaximumDepth,
+            QueryPlan = queryPlan,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        DependencyEvidenceAcquisitionBatch acquisition =
+            DependencyEvidenceAcquisition.AdmitPackageManifestRoot(
+                root,
+                PackageSourceCoordinate.Create(packageId, packageVersion),
+                manifestBytes,
+                targetFramework);
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth: queryPlan.MaximumDepth,
+            sharePreparation: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken,
+            acquisition);
+    }
+
+    internal static Task<DependsAssetProjection>
         AcquireLibrarySubjectProjectionAsync(
             string assemblyPath,
             string? targetFramework,
@@ -756,7 +810,8 @@ public partial class DependsCommand
             int? traversalDepth,
             DependsShareProjection.AssetSharePreparation? sharePreparation,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            DependencyEvidenceAcquisitionBatch? suppliedAcquisition = null)
     {
         DependencyEvidenceAcquisitionOptions evidenceOptions =
             EvidenceOptions(options);
@@ -784,20 +839,22 @@ public partial class DependsCommand
         }
         else
         {
-            acquisition =
-                await DependencyEvidenceAcquisition.AcquireDependsRootsAsync(
-                    options.AssetRoots,
-                    evidenceOptions,
-                    context.HttpClient,
-                    context.Logger.Log,
-                    composition,
-                    operationContext,
-                    plan.Traversal,
-                    traversalDepth,
-                    cancellationToken,
-                    settledPackageCoordinate: sharePreparation?.Coordinate,
-                    settledPackageAuthorization:
-                        sharePreparation?.Authorization).ConfigureAwait(false);
+            acquisition = suppliedAcquisition
+                ?? await DependencyEvidenceAcquisition.AcquireDependsRootsAsync(
+                        options.AssetRoots,
+                        evidenceOptions,
+                        context.HttpClient,
+                        context.Logger.Log,
+                        composition,
+                        operationContext,
+                        plan.Traversal,
+                        traversalDepth,
+                        cancellationToken,
+                        settledPackageCoordinate:
+                            sharePreparation?.Coordinate,
+                        settledPackageAuthorization:
+                            sharePreparation?.Authorization)
+                    .ConfigureAwait(false);
             evidenceRequest = acquisition.Request;
         }
 
@@ -876,11 +933,10 @@ public partial class DependsCommand
 
         if (plan.Traversal && packageInputIndexes.Count > 0)
         {
-            PackageDependencyTraversalFrameworkMode frameworkMode =
+            TraversalTargetFrameworkPolicy traversalTargetPolicy =
                 options.Tfm is { } framework
-                    ? CreateFrameworkMode(framework)
-                    : new PackageDependencyTraversalFrameworkMode
-                        .ManifestDefault();
+                    ? CreateTraversalTargetPolicy(framework)
+                    : TraversalTargetFrameworkPolicy.ProductDefault;
             var candidateSource =
                 new DesktopPackageDependencyCandidateSource(
                     composition,
@@ -901,9 +957,14 @@ public partial class DependsCommand
                                         ? PackageDependencyTraversalExpansionAuthority
                                             .DirectDeclarationsOnly
                                         : PackageDependencyTraversalExpansionAuthority
-                                            .RecursiveSources)),
+                                            .RecursiveSources,
+                                    suppliedAcquisition is null
+                                        ? PackageDependencyTraversalRootRecurrenceAuthority
+                                            .None
+                                        : PackageDependencyTraversalRootRecurrenceAuthority
+                                            .ExactCoordinate)),
                         ],
-                        frameworkMode,
+                        traversalTargetPolicy,
                         new PackageDependencyTraversalCandidateAdapter(
                             candidateSource),
                         new DesktopPackageDependencyTraversalManifestSource(
@@ -1143,18 +1204,34 @@ public partial class DependsCommand
             SourceOptions = options.SourceOptions,
         };
 
-    private static PackageDependencyTraversalFrameworkMode.Exact
-        CreateFrameworkMode(string framework)
+    private static TraversalTargetFrameworkPolicy
+        CreateTraversalTargetPolicy(string framework)
     {
-        if (PackageDependencyTraversalFrameworkMode.TryCreateExact(
+        if (TryCreateTraversalTargetPolicy(
                 framework,
-                out PackageDependencyTraversalFrameworkMode.Exact mode))
+                out TraversalTargetFrameworkPolicy policy))
         {
-            return mode;
+            return policy;
         }
 
         throw new InvalidOperationException(
             $"Target framework '{framework}' was not validated.");
+    }
+
+    private static bool TryCreateTraversalTargetPolicy(
+        string framework,
+        out TraversalTargetFrameworkPolicy policy)
+    {
+        try
+        {
+            policy = new TraversalTargetFrameworkPolicy(framework);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            policy = null!;
+            return false;
+        }
     }
 
     private static async Task<List<LibraryAssetResult>>
@@ -2170,39 +2247,26 @@ public partial class DependsCommand
         IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows,
         TextWriter output)
     {
-        var sections = new HashSet<string>(
-            includeSections,
-            StringComparer.OrdinalIgnoreCase);
-        bool includeHierarchy = sections.Remove(
-            DependsAssetSections.DependencyHierarchy);
-        string hierarchy = includeHierarchy
-            ? RenderHierarchySection(
-                projection,
-                hierarchyRows,
-                options.EmbeddedMermaid)
-            : "";
-        string evidence = "";
-        if (sections.Count > 0)
+        var writerOptions = new MarkoutWriterOptions
         {
-            var writerOptions = new MarkoutWriterOptions
-            {
-                IncludeSections = sections,
-            };
-            var writer = new MarkoutWriter(
-                new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
-                writerOptions);
-            DependsAssetViewContext.Default.Serialize(
-                BuildAssetTableView(
-                    projection,
-                    sections,
-                    options.Rows,
-                    hierarchyRows),
-                writer);
-            evidence = writer.ToString();
-        }
-
-        output.WriteLine(
-            JoinMarkdown(hierarchy, evidence));
+            IncludeSections = includeSections,
+            SectionOrder = DependsAssetSections.SectionOrder,
+        };
+        DependsAssetView view = BuildAssetView(
+            projection,
+            includeSections,
+            options.Rows,
+            hierarchyRows,
+            options.EmbeddedMermaid);
+        MarkoutSerializer.Serialize(
+            DependsAssetMarkdownView.From(view),
+            output,
+            new MarkdownFormatter(
+                options.EmbeddedMermaid
+                    ? MarkdownGraphMode.Mermaid
+                    : MarkdownGraphMode.FencedTree),
+            DependsAssetViewContext.Default,
+            writerOptions);
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -2216,11 +2280,13 @@ public partial class DependsCommand
             options.Columns,
             options.Fields);
         writerOptions.IncludeSections = includeSections;
-        var writer = new MarkoutWriter(
+        writerOptions.SectionOrder = DependsAssetSections.SectionOrder;
+        MarkoutSerializer.Serialize(
+            tableView,
+            output,
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
+            DependsAssetViewContext.Default,
             writerOptions);
-        DependsAssetViewContext.Default.Serialize(tableView, writer);
-        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(

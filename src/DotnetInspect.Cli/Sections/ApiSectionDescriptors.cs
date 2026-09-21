@@ -63,6 +63,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.TypeForwarders.Count > 0;
     }
@@ -72,6 +73,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => "Classes";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "class");
     }
@@ -81,6 +83,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => "Structs";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "struct");
     }
@@ -90,6 +93,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "interface");
     }
@@ -99,6 +103,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => "Enums";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "enum");
     }
@@ -108,6 +113,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => "Delegates";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "delegate");
     }
@@ -117,6 +123,7 @@ public static class ApiTypeSectionDescriptors
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiSurface model)
             => model.InspectionFailures.Count > 0;
     }

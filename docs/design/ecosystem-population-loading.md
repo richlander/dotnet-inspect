@@ -36,11 +36,15 @@ ownership tokens, and one-shot Library owner transfer or retirement.
 `DotnetInspector.EcosystemLoading.Tests` owns the focused Release gates, while
 `DotnetInspector.Ecosystems.Consumer.Tests` exercises the public surface
 without friend access. Catalog registration, PlatformHouse adapters, Workspace
-admission, host envelopes, and host adoption remain later stages.
+admission correspondence, and the initial production loaders are implemented;
+Navigation, host envelopes, and host adoption remain later stages.
 The shared substrate binds completion evidence to the exact request and
 structurally permits owners only from completed child tokens. The stage-5
 PlatformHouse adapters remain responsible for issuing completion evidence only
 after their owner-specific expected-child and settled-child sets agree.
+The admission composer consumes owner-bearing results beside the exact
+Workspace and preserves accepted occurrences without moving Workspace
+mutation authority into a loader.
 
 ## Authority and exact claim
 
@@ -409,9 +413,7 @@ independently completed child operations, transfers each adjacent-owner
 Library owner beside its exact resource-free Library reference to the calling
 orchestrator. A completed PlatformHouse child also transfers its exact adjacent
 `ArtifactSetSession` as separate one-shot authority associated with that child
-settlement. The orchestrator may transfer Library owners individually for
-partial admission while transferring the Artifact session independently to the
-lifetime owner that retains any accepted Libraries.
+settlement.
 
 The owner batch retires untransferred Library owners before retiring an
 untransferred Artifact session. Artifact-session retirement may begin while a
@@ -421,15 +423,59 @@ awaits Artifact retirement before disposing its own untransferred Library
 owners, and it never silently abandons the pending authority. Artifact cleanup
 failures remain visible as owner-batch retirement failure.
 
-The orchestrator submits the retained population to the ordinary Workspace
-admission operation. Workspace decides occurrence identity, replacement,
-revision publication, lifetime, and typed rejection.
+`EcosystemPopulationAdmissionOperation` is the host-neutral composer between
+those owner-bearing outcomes and ordinary Workspace admission. It accepts the
+exact loader outcome beside the target Workspace and consumes `Completed` and
+`Incomplete` owner batches once. Non-owning outcomes produce a resource-free
+result that retains the exact loader receipt and makes no admission attempt.
+The operation has no cancellation parameter: once it begins consuming
+authorities, every child is admitted or retired before the call completes.
+
+Admission is atomic per session-backed completed child, not across the whole
+Ecosystem load. The composer transfers one child's exact Artifact session and
+its ordered Library-owner batch together to
+`InspectionWorkspace.AdmitLibraryBatchAsync`. Workspace retains ownership as
+soon as that call returns any typed outcome: `Accepted`, `Rejected`, or
+`Failed`. A returned rejection or failure therefore remains the actual
+Workspace disposition and is not followed by a second retirement attempt.
+Earlier accepted children remain accepted if a later child rejects or fails;
+the composer performs no cross-child rollback.
+
+The initial composer supports only a completed child that carries both a
+non-empty Library-owner batch and one adjacent Artifact session. A
+Library-bearing child without an Artifact session, or an Artifact-session
+child without Libraries, is a valid loader shape but not an admissible shape
+for this session-backed Workspace API. The composer atomically takes and
+retires those child authorities, then reports a typed `Unsupported`
+disposition with any retirement failures. It does not relabel the loader
+outcome or the Workspace outcome.
+
+Each attempted child disposition retains the exact child settlement, ordered
+loaded-Library references, and Workspace admission outcome. Each accepted
+Library additionally receives an
+`EcosystemPopulationLibraryAdmissionCorrespondence` joining:
+
+- the exact loader receipt and registration revision;
+- the exact role-bearing loaded-Library reference and child settlement;
+- the exact Workspace admission receipt; and
+- the exact admitted Workspace Library occurrence.
+
+Only an accepted Library whose owner-issued roles include `Focus` receives an
+`EcosystemPopulationLibraryContributionWitness`. A binding-support-only
+Library is admitted for binding but receives no Ecosystem contribution
+witness. The witness is historical acceptance evidence for that exact load,
+registration, and occurrence. It does not prove that a current Navigation route
+exists after registration replacement or removal; Navigation owns current
+route issuance and reconciliation.
 
 The loader receipt does not claim that admission succeeded. The later admission
-result retains correspondence to the loader receipt. If admission accepts only
-a subset, fails, or is cancelled, the orchestrator retires every owner not
-transferred to Workspace, transfers or retires every adjacent Artifact session
-exactly once, and reports the actual admission outcome.
+result retains correspondence to the loader receipt. If Workspace admission
+throws before consuming one child's authorities, the composer retires that
+locally owned child before propagating failure. An unexpected orchestration
+failure retires every remaining owner and Artifact session and throws
+`EcosystemPopulationAdmissionException`, which retains all earlier completed
+child dispositions and accepted correspondence. This exception does not turn
+the failure into a success-shaped partial result.
 
 This separation keeps an Ecosystem extension from bypassing:
 
@@ -488,6 +534,26 @@ Workspace revision
   -> exact ASP.NET Core focus Library population
   -> ordinary Workspace admission
 ```
+
+The public nominal input types retain the same Platform population declaration
+object used by the static pack registration. A live Platform capability exposes
+the exact capability-plan identity retained by the loader request and receives
+that declaration plus the operation cancellation token. It owns construction
+and execution of the authorized PlatformHouse request; the product loader does
+not accept a service locator, source callback bag, target text, or family text.
+Package-backed and installed population materializers return the same
+source-neutral `PlatformPopulationArtifactMaterializationOutcome` consumed by
+the capability, so hosts do not reconstruct or reflect over source-specific
+results. A validated public completed-outcome factory composes an already
+owner-issued Platform population with its adjacent Artifact session for
+host-authorized materializers that do not use those two adapters.
+
+The loader validates that the returned PlatformHouse request retains the
+declaration's exact family before transferring any authority. A mismatch
+retires every completed Library owner and the adjacent Artifact session, then
+returns owner-issued `InvalidTargetCorrespondence` rejection evidence. A
+retirement failure remains a typed Platform failure instead of being reported
+as rejection or completion.
 
 The `.NET Runtime` loader must retain the
 `PlatformLibraryPopulationDeclaration(DotNetRuntime)` association through the
@@ -583,6 +649,9 @@ Failure remains attributable to the exact boundary that produced it:
 | Platform family mismatch | Child `Rejected`, projected as loader `Rejected` |
 | Source or Library construction failure | `Failed` |
 | Workspace admission rejects returned content | Separate admission non-success retaining the loader receipt |
+| Library owners have no adjacent Artifact session | Admission child `Unsupported`, with the owners retired |
+| Artifact session has no Library owners | Admission child `Unsupported`, with the session retired |
+| Unexpected admission orchestration failure | Exception retaining completed child dispositions and retiring all unconsumed authorities |
 | Cancellation | Cancellation with all untransferred Library and Artifact authorities retired |
 
 No branch converts a loader failure into an empty Workspace, a Package-origin
@@ -645,14 +714,24 @@ The contract must preserve these cases:
    registration state, and explicit realization returns visible selection
    `Rejected` without matching identity text or inventing a binding or receipt.
 9. Workspace admission fails after successful PlatformHouse realization; every
-   untransferred Library owner and Artifact session is retired, and no loader
-   receipt is relabeled as admission success.
+   unconsumed Library owner and Artifact session is retired, and no loader
+   receipt is relabeled as admission success. Authorities consumed by a typed
+   Workspace outcome are never retired a second time.
 10. One Platform Library owner transfers while its Artifact session remains in
     the owner batch; batch retirement starts Artifact retirement, remains
     pending without deadlock, and completes after that Library owner retires.
 11. An adjacent owner returns several active candidates without authorized
     precedence; the exact child request and receipt remain visible and the
     loader returns `Ambiguous`, not `Rejected` or empty completion.
+12. One session-backed completed child is accepted before a later child cannot
+    be admitted; the earlier Workspace occurrence remains accepted and the
+    later child reports its own disposition without whole-load rollback.
+13. An ASP.NET Core completed child contains both Focus and runtime
+    binding-support Libraries; all are admitted together, but only exact Focus
+    members receive ASP.NET Core contribution witnesses.
+14. A completed owner-bearing child has no adjacent Artifact session; its
+    owners are retired and the admission result reports the unsupported shape
+    without changing the loader receipt.
 
 The motivating real assets are
 `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Text.Json.dll` and
@@ -665,7 +744,7 @@ where present, must not erase Platform and Package source distinction.
 
 ## Production adoption
 
-This shared capability has eight focused stages:
+This shared capability has nine focused stages:
 
 1. Lock this Ecosystem Population Loading contract.
 2. **Implemented:** host-neutral binding, request, outcome, receipt, and
@@ -678,18 +757,27 @@ This shared capability has eight focused stages:
    application loader selection without moving executable callbacks into
    Workspace state. Durable correspondence reissue after portable restoration
    remains staged.
-5. **Platform handoff prerequisites implemented:** Platform populations retain
-   exact focus and binding-support membership; Ecosystem loading retains exact
-   PlatformHouse request and receipt evidence, projects the terminal outcomes
-   issued by current population producers, and transfers Library owners and
-   the adjacent Artifact session once.
-   Implement the `.NET Runtime` and ASP.NET Core loaders over that handoff.
-6. Have Workspace admission and Navigation retain loader and admission
-   correspondence and issue exact `.NET Runtime` and ASP.NET Core contribution
-   relations.
-7. Adopt equivalent explicit loading in the CLI and Browser/Wasm; Browser uses
+5. **Implemented:** the `.NET Runtime` and ASP.NET Core loaders expose nominal
+   public inputs, retain their exact static Platform population declarations,
+   invoke one host-authorized typed PlatformHouse population capability, and
+   project completed or terminal results through the common handoff. Platform
+   focus and binding-support roles, exact request and receipt evidence, Library
+   owners, and the adjacent Artifact session remain owner-issued. Missing host
+   capability and unsupported exact-Library demand return typed `Unavailable`
+   without source work or Package fallback. Package-backed and installed
+   materializers return the common capability outcome directly, and the loader
+   rejects a returned request for a different Platform family only after
+   retiring any completed authorities.
+6. **Implemented:** compose completed and incomplete owner-bearing results with
+   ordinary Workspace admission. Retain exact loader, child, role, admission,
+   and occurrence correspondence; issue historical contribution witnesses
+   only for accepted Focus Libraries; report unsupported owner shapes and
+   preserve per-child dispositions without whole-load rollback.
+7. Have Navigation consume accepted contribution witnesses to issue and
+   reconcile current `.NET Runtime` and ASP.NET Core routes.
+8. Adopt equivalent explicit loading in the CLI and Browser/Wasm; Browser uses
    only supported non-installed source capabilities.
-8. Retire direct host-local platform population activation and include the
+9. Retire direct host-local platform population activation and include the
    behavior in a separately authorized release and production deployment.
 
 This sequence composes with the overall Workspace-rooted Navigation plan in
@@ -711,8 +799,14 @@ stages add these focused Release gates:
 | Ambiguity | A child owner that issues ambiguity remains child and loader `Ambiguous`, never rejection or empty completion; no Platform population ambiguity is claimed without a typed producer |
 | Complete result | `Completed` requires every request-relevant child contribution to complete; omission and bounded exhaustion remain incomplete |
 | Partial ownership | A loader-level incomplete result transfers owners only from independently completed children; incomplete PlatformHouse work transfers none |
-| Admission separation | A loader has no Workspace mutation authority; admission retains the loader receipt and owns occurrence publication |
-| Owner disposition | Every returned Library owner and adjacent Artifact session transfers once or is retired on non-success, cancellation, or partial admission; Artifact retirement follows untransferred Library retirement and cleanup failure remains visible |
+| Admission separation | A loader has no Workspace mutation authority; the host-neutral composer retains the loader receipt while Workspace owns admission and occurrence publication |
+| Admission correspondence | Every accepted Library joins the exact loader receipt, child settlement, owner-issued roles, Workspace admission receipt, and occurrence |
+| Per-child atomicity | One session-backed child enters Workspace atomically; earlier accepted children are not rolled back when another child rejects, fails, or is unsupported |
+| Focus contribution | Every accepted Focus Library receives one historical Ecosystem contribution witness; binding-support-only Libraries receive none |
+| Unsupported admission shape | A Library-bearing child without an Artifact session, or a session without Libraries, is retired and reported as unsupported without changing the loader outcome |
+| Owner disposition | Every returned Library owner and adjacent Artifact session transfers once or is retired on non-success, cancellation, unsupported shape, or partial admission; Artifact retirement follows untransferred Library retirement and cleanup failure remains visible |
+| Product family correspondence | A Runtime or ASP.NET Core loader rejects a Platform outcome whose request names another family; a completed mismatch retires every Library owner and Artifact authority before returning |
+| Adapter composition | A public package-backed capability wraps the package PlatformHouse adapter and completes the Runtime loader without private conversion, reflection, or friend access |
 | Platform-family source distinction | Runtime and Package `System.Text.Json`, and ASP.NET Core and Package `Microsoft.AspNetCore.Http.Abstractions`, remain distinct through loading, admission, and Navigation |
 | ASP.NET Core focus role | Runtime binding-support Libraries do not receive an ASP.NET Core Ecosystem relation without an independent exact witness |
 | Host parity | CLI and Browser/Wasm issue equivalent logical requests and interpret the same outcomes with different authorized source plans |

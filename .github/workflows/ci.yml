@@ -1913,7 +1913,7 @@ jobs:
           dotnet-inspect package System.Text.Json@10.0.0 -v:n > smoke-package-normal.md
           cat smoke-package-normal.md
           grep -q "## Package Info" smoke-package-normal.md
-          grep -q "## Dependencies" smoke-package-normal.md
+          grep -q "## Signature" smoke-package-normal.md
           grep -q "Library" smoke-package-normal.md
 
       - name: Smoke test - type command (table output)

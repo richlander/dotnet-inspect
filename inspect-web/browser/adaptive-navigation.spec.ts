@@ -75,6 +75,31 @@ test("adaptive navigation preserves complete inventories and manual activation",
   await expect(metadata).toBeFocused();
 });
 
+test("local Navigation tab activation preserves destination focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const type = page.getByRole("tab", { name: "Type", exact: true });
+  const member = page.locator(".type-row");
+  await type.evaluate(element => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("The Type Navigation tab is not an HTML element.");
+    }
+    delete element.dataset.scope;
+    element.dataset.localNavigationAction = "choose-member";
+    element.addEventListener("click", () => {
+      document.querySelector<HTMLElement>(".type-row")?.focus();
+    });
+  });
+
+  await type.focus();
+  await type.press("Enter");
+
+  await expect(member).toBeFocused();
+});
+
 test("adaptive navigation selects deterministic mixed and dual Chooser forms", async ({
   page,
 }) => {
@@ -486,4 +511,29 @@ test("Workspace with no committed subject uses an honest focus origin", async ({
   await expect(page.locator("#subject-panel")).toHaveAttribute(
     "aria-labelledby",
     "application-scope-workspace");
+});
+
+test("Chooser keeps a disabled owner-ordered item open on activation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 220, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const trigger = page.locator("[data-navigation-trigger='subject']");
+  const menu = page.getByRole("menu", { name: "Subjects" });
+  const packageItem = page.locator(
+    "[data-navigation-menu='subject'] [data-scope='package']");
+  await packageItem.evaluate(element =>
+    element.setAttribute("aria-disabled", "true"));
+  await trigger.click();
+
+  await expect(packageItem).toBeFocused();
+  await packageItem.press("Enter");
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(packageItem).toBeFocused();
+
+  await packageItem.click({ force: true });
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
 });

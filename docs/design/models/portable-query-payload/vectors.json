@@ -1,5 +1,5 @@
 {
-  "$comment": "Normative vectors for docs/design/portable-query-payload.md, checked by tests/DotnetInspector.PortableQueries.Tests against src/DotnetInspector.QueryEngine. encode: intent -> canonical bytes, which must also decode and re-emit unchanged. encode-reject: intent refused before canonicalizing, with reason. reject: bytes refused at decode, with reason. pair: two (queryId, canonical) states and whether they are the same query. Keys, dimensions, and named orders are illustrative.",
+  "$comment": "Normative vectors for docs/design/portable-query-payload.md, checked by tests/DotnetInspector.PortableQueries.Tests against src/QuerySpace. encode: intent -> canonical bytes, which must also decode and re-emit unchanged. encode-reject: intent refused before canonicalizing, with reason. reject: bytes refused at decode, with reason. pair: two (queryId, canonical) states and whether they are the same query. Keys, dimensions, and named orders are illustrative.",
   "encode": [
     {
       "name": "package-query",
@@ -2879,11 +2879,26 @@
       "canonical": "{\"t\":[[\"k\",\"eq\",\"z\"],[\"k\",\"ne\",\"a\"]]}"
     },
     {
-      "name": "all-four-operators-ordered",
-      "description": "All four operators on one key and value sort eq, gte, lte, ne — scalar order of the operator texts, with every adjacent comparison forced.",
+      "name": "all-eight-operators-ordered",
+      "description": "All eight operators on one key and value sort contains, eq, gte, lte, ne, not-contains, not-starts-with, starts-with — scalar order of the operator texts, with every adjacent comparison forced.",
       "queryId": "row.query",
       "intent": {
         "t": [
+          [
+            "k",
+            "starts-with",
+            "v"
+          ],
+          [
+            "k",
+            "not-starts-with",
+            "v"
+          ],
+          [
+            "k",
+            "not-contains",
+            "v"
+          ],
           [
             "k",
             "ne",
@@ -2903,10 +2918,15 @@
             "k",
             "eq",
             "v"
+          ],
+          [
+            "k",
+            "contains",
+            "v"
           ]
         ]
       },
-      "canonical": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"]]}"
+      "canonical": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}"
     },
     {
       "name": "stages-head-then-head",
@@ -14867,20 +14887,44 @@
     },
     {
       "name": "operators-adjacent-swap-1-on-the-wire",
-      "description": "The four operators with one adjacent pair swapped (gte, eq, lte, ne) are not canonical.",
-      "bytes": "{\"t\":[[\"k\",\"gte\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"]]}",
+      "description": "The eight operators with the first adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"contains\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}",
       "reject": "non-canonical"
     },
     {
       "name": "operators-adjacent-swap-2-on-the-wire",
-      "description": "The four operators with one adjacent pair swapped (eq, lte, gte, ne) are not canonical.",
-      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"ne\",\"v\"]]}",
+      "description": "The eight operators with the second adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}",
       "reject": "non-canonical"
     },
     {
       "name": "operators-adjacent-swap-3-on-the-wire",
-      "description": "The four operators with one adjacent pair swapped (eq, gte, ne, lte) are not canonical.",
-      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"lte\",\"v\"]]}",
+      "description": "The eight operators with the third adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-4-on-the-wire",
+      "description": "The eight operators with the fourth adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-5-on-the-wire",
+      "description": "The eight operators with the fifth adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-6-on-the-wire",
+      "description": "The eight operators with the sixth adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-starts-with\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"starts-with\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "operators-adjacent-swap-7-on-the-wire",
+      "description": "The eight operators with the seventh adjacent pair swapped are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"contains\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"gte\",\"v\"],[\"k\",\"lte\",\"v\"],[\"k\",\"ne\",\"v\"],[\"k\",\"not-contains\",\"v\"],[\"k\",\"starts-with\",\"v\"],[\"k\",\"not-starts-with\",\"v\"]]}",
       "reject": "non-canonical"
     },
     {

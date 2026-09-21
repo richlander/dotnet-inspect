@@ -176,6 +176,79 @@ test("Library navigation qualifies duplicate names with product-owned assets", (
   assert.match(html, />Example\.Unique<\/span>/);
 });
 
+test("Library navigation filters exact IDs and retains the current subject", () => {
+  const libraries = [
+    {
+      id: "asset:left",
+      name: "Example.Shared",
+      asset: "lib/net10.0/left/Example.Shared.dll",
+      types: 1,
+      members: 2,
+    },
+    {
+      id: "asset:right",
+      name: "Example.Shared",
+      asset: "lib/net10.0/right/Example.Shared.dll",
+      types: 3,
+      members: 4,
+    },
+    {
+      id: "asset:other",
+      name: "Example.Other",
+      asset: "lib/net10.0/Example.Other.dll",
+      types: 5,
+      members: 6,
+    },
+  ];
+
+  const html = renderLibrarySubjectNav({
+    libraries,
+    selectedLibraryId: "asset:right",
+    matchingLibraryIds: new Set(["asset:left"]),
+    queryControlsHtml: '<form data-library-query-form></form>',
+    queryStatusHtml: '<p class="library-query-status">1 match</p>',
+    escapeHtml,
+  });
+
+  assert.match(html, /All libraries/);
+  assert.match(
+    html,
+    /data-library-subject="asset:left"[\s\S]*Example\.Shared · lib\/net10\.0\/left\/Example\.Shared\.dll/);
+  assert.match(
+    html,
+    /class="type-row library-subject-row selected active retained-current"[\s\S]*data-library-subject="asset:right"[\s\S]*current selection/);
+  assert.doesNotMatch(html, /data-library-subject="asset:other"/);
+  assert.ok(
+    html.indexOf("data-library-query-form")
+      < html.indexOf('role="listbox"'));
+});
+
+test("Library navigation distinguishes no settled query from zero matches", () => {
+  const libraries = [{
+    id: "asset:only",
+    name: "Example.Only",
+    asset: "lib/net10.0/Example.Only.dll",
+    types: 1,
+    members: 1,
+  }];
+
+  const unfiltered = renderLibrarySubjectNav({
+    libraries,
+    selectedLibraryId: null,
+    escapeHtml,
+  });
+  const noMatches = renderLibrarySubjectNav({
+    libraries,
+    selectedLibraryId: null,
+    matchingLibraryIds: new Set(),
+    escapeHtml,
+  });
+
+  assert.match(unfiltered, /data-library-subject="asset:only"/);
+  assert.doesNotMatch(noMatches, /data-library-subject="asset:only"/);
+  assert.match(noMatches, /data-library-subject="all"/);
+});
+
 test("Library navigation moves locally and commits only on Enter", () => {
   const rows = [
     new FakeRow("library-subject-option-0", "all", true),

@@ -3412,6 +3412,26 @@ public sealed partial class ApiSurfaceExtractorBoundsTests
         return metadata;
     }
 
+    static byte[] BuildInvalidModuleMvidImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("InvalidMvid.dll"),
+            MetadataTokens.GuidHandle(100),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("InvalidMvid"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AddModuleAndPublicType(metadata, "Subject");
+        return Serialize(metadata);
+    }
+
     static TypeDefinitionHandle AddModuleAndPublicType(
         MetadataBuilder metadata,
         string name,

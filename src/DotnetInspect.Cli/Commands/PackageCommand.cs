@@ -9,10 +9,10 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -45,7 +45,43 @@ public partial class PackageCommand
 
     internal static async Task<int> ExecuteAsync(
         InspectionOptions options,
-        CommandContext context)
+        CommandContext context) =>
+        await ExecuteCoreAsync(
+            options,
+            context,
+            preResolved: null,
+            admittedPackageManifest: null,
+            admittedPackageInfoMeasurements: null,
+            admittedPackageEcosystemDependencies: null,
+            inspectionObserver: null,
+            workspaceLoadOptions: null).ConfigureAwait(false);
+
+    internal static async Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CommandContext context,
+        WorkspaceContextLoadOptions workspaceLoadOptions) =>
+        await ExecuteCoreAsync(
+            options,
+            context,
+            preResolved: null,
+            admittedPackageManifest: null,
+            admittedPackageInfoMeasurements: null,
+            admittedPackageEcosystemDependencies: null,
+            inspectionObserver: null,
+            workspaceLoadOptions).ConfigureAwait(false);
+
+    private static async Task<int> ExecuteCoreAsync(
+        InspectionOptions options,
+        CommandContext context,
+        PackageExtractionResult? preResolved,
+        byte[]? admittedPackageManifest,
+        Func<InspectionEnvelope<PackageInfoMeasurements>>?
+            admittedPackageInfoMeasurements,
+        Func<Task<
+            InspectionEnvelope<EcosystemDependencyRecognitionOutcome>>>?
+            admittedPackageEcosystemDependencies,
+        Action<InspectionResult>? inspectionObserver,
+        WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(context);
@@ -57,6 +93,22 @@ public partial class PackageCommand
         var queryCatalog = catalog.QueryCatalog;
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
+        if (options.WorkspacePacket is null
+            && options.ShareFormat is not null)
+        {
+            CommandError.Write(
+                "--share on package requires --workspace.");
+            return 1;
+        }
+#if DEBUG
+        if (options.WorkspacePacket is null
+            && options.EvidenceEnvelopePath is not null)
+        {
+            CommandError.Write(
+                "--evidence-envelope on package requires --workspace.");
+            return 1;
+        }
+#endif
         if (!packageLibraryMode && options.ShowDependencies)
         {
             CommandError.Write(
@@ -68,6 +120,13 @@ public partial class PackageCommand
         {
             CommandError.Write(
                 "--roots cannot be combined with -D/--discover.");
+            return 1;
+        }
+
+        if (options.WorkspacePacket is not null
+            && options.Discover is not null
+            && !TryCreateWorkspacePackageRequest(options, out _))
+        {
             return 1;
         }
 
@@ -426,6 +485,14 @@ public partial class PackageCommand
         {
             CommandError.Write(libraryModeError);
             return 1;
+        }
+
+        if (options.WorkspacePacket is not null)
+        {
+            return await ExecuteWorkspaceExactPackageAsync(
+                options,
+                context,
+                workspaceLoadOptions).ConfigureAwait(false);
         }
 
         InspectionOptions producerOptions = CreateProducerOptions(
@@ -1029,6 +1096,7 @@ public partial class PackageCommand
 
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
+        InspectionResult? observedInspection = null;
 
         if (!TryCreatePackageInfoTargetContext(
                 options,
@@ -1041,40 +1109,47 @@ public partial class PackageCommand
 
         try
         {
-            PackageExtractionOutcome outcome;
-            if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+            if (preResolved is null)
             {
-                outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
-                    ? await PackageExtractor.ExtractPinnedPackageAsync(
-                        client, packageName, pinnedVersion, logger.Log,
+                PackageExtractionOutcome outcome;
+                if (!target.IsLocalFile && !DotnetInspector.Networking.HttpClientFactory.IsOffline)
+                {
+                    outcome = PackageExtractor.TryNormalizePackageVersion(version, out string pinnedVersion)
+                        ? await PackageExtractor.ExtractPinnedPackageAsync(
+                            client, packageName, pinnedVersion, logger.Log,
+                            sourceOptions: options.SourceOptions,
+                            createComposition: context.CreatePackageSourceComposition,
+                            compileTargetContext: packageInfoTargetContext)
+                        : await PackageExtractor.ExtractSelectedPackageAsync(
+                            client, packageName, version.Length > 0 ? version : null, logger.Log,
+                            sourceOptions: options.SourceOptions,
+                            includePrerelease: options.IncludePrerelease,
+                            createComposition: context.CreatePackageSourceComposition,
+                            compileTargetContext: packageInfoTargetContext);
+                }
+                else
+                {
+                    outcome = await PackageExtractor.ExtractPackageAsync(
+                        client,
+                        target.IsLocalFile ? target.OriginalArgument : packageName,
+                        logger.Log,
                         sourceOptions: options.SourceOptions,
-                        createComposition: context.CreatePackageSourceComposition,
-                        compileTargetContext: packageInfoTargetContext)
-                    : await PackageExtractor.ExtractSelectedPackageAsync(
-                        client, packageName, version.Length > 0 ? version : null, logger.Log,
-                        sourceOptions: options.SourceOptions,
-                        includePrerelease: options.IncludePrerelease,
-                        createComposition: context.CreatePackageSourceComposition,
-                        compileTargetContext: packageInfoTargetContext);
+                        version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                        forceLatest: options.ForceLatest,
+                        includePrerelease: options.IncludePrerelease);
+                }
+
+                if (!outcome.IsSuccess)
+                {
+                    CommandError.Write($"{outcome.ErrorMessage}");
+                    return 1;
+                }
+                resolution = outcome.Result!;
             }
             else
             {
-                outcome = await PackageExtractor.ExtractPackageAsync(
-                    client,
-                    target.IsLocalFile ? target.OriginalArgument : packageName,
-                    logger.Log,
-                    sourceOptions: options.SourceOptions,
-                    version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
-                    forceLatest: options.ForceLatest,
-                    includePrerelease: options.IncludePrerelease);
+                resolution = preResolved;
             }
-
-            if (!outcome.IsSuccess)
-            {
-                CommandError.Write($"{outcome.ErrorMessage}");
-                return 1;
-            }
-            resolution = outcome.Result!;
 
             extractPath = resolution.ExtractPath;
             packageName = resolution.PackageName ?? packageName;
@@ -1211,21 +1286,50 @@ public partial class PackageCommand
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
+            observedInspection = result;
 
-            await ApplyPackageInfoMeasurementsAsync(
-                result,
-                resolution,
-                packageSize,
-                options.Tfm,
-                logger.Log);
-            if (wantsEcosystemDependencies)
+            if (admittedPackageInfoMeasurements is not null
+                && RequestsPackageInfoMeasurements(
+                    producerOptions,
+                    pipeline))
             {
-                await ApplyPackageEcosystemDependenciesAsync(
+                ApplyPackageInfoMeasurementInspection(
+                    result,
+                    admittedPackageInfoMeasurements(),
+                    logger.Log);
+            }
+            else
+            {
+                await ApplyPackageInfoMeasurementsAsync(
                     result,
                     resolution,
-                    RequiresPackageEcosystemDiagnosticDisclosure(
-                        producerOptions),
+                    packageSize,
+                    options.Tfm,
                     logger.Log);
+            }
+
+            if (wantsEcosystemDependencies)
+            {
+                bool discloseDiagnostics =
+                    RequiresPackageEcosystemDiagnosticDisclosure(
+                        producerOptions);
+                if (admittedPackageEcosystemDependencies is not null)
+                {
+                    ApplyPackageEcosystemDependencies(
+                        result,
+                        await admittedPackageEcosystemDependencies()
+                            .ConfigureAwait(false),
+                        discloseDiagnostics,
+                        logger.Log);
+                }
+                else
+                {
+                    await ApplyPackageEcosystemDependenciesAsync(
+                        result,
+                        resolution,
+                        discloseDiagnostics,
+                        logger.Log);
+                }
             }
 
             await PopulatePackageSignatureAsync(
@@ -1270,13 +1374,25 @@ public partial class PackageCommand
                     ? resolution.NupkgPath ?? target.OriginalArgument
                     : $"{packageName}@{version}";
                 result.DependencyHierarchyProjection =
-                    await DependsCommand.AcquirePackageSubjectProjectionAsync(
-                        dependencyRoot,
-                        options.Tfm,
-                        options.IncludePrerelease,
-                        options.SourceOptions,
-                        PackageDependencyQueryPlan(options),
-                        context);
+                    preResolved is null
+                        ? await DependsCommand
+                            .AcquirePackageSubjectProjectionAsync(
+                                dependencyRoot,
+                                options.Tfm,
+                                options.IncludePrerelease,
+                                options.SourceOptions,
+                                PackageDependencyQueryPlan(options),
+                                context)
+                        : await DependsCommand
+                            .AcquireAdmittedPackageSubjectProjectionAsync(
+                                packageName,
+                                version,
+                                admittedPackageManifest,
+                                options.Tfm,
+                                options.IncludePrerelease,
+                                options.SourceOptions,
+                                PackageDependencyQueryPlan(options),
+                                context);
             }
 
             if (result.DependencyHierarchyProjection is { } hierarchyProjection
@@ -1694,6 +1810,8 @@ public partial class PackageCommand
         }
         finally
         {
+            if (observedInspection is not null)
+                inspectionObserver?.Invoke(observedInspection);
             PackageExtractor.Cleanup(resolution?.TempDir);
         }
     }

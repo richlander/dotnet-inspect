@@ -13,7 +13,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -78,6 +78,54 @@ public partial class OutputFormatterTests
         Assert.Equal(0, exit);
         Assert.Contains("\"name\":\"Pattern\"", output);
         Assert.Contains("\"kind\":\"column\"", output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_DocumentSelectionControlsAutomaticTreePromotion()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "column", "Name")
+            .Add("Second", "column", "Name");
+        var category =
+            new DiscoveryResourceIdentity(
+                DiscoveryResourceKind.Category,
+                "@Group");
+        var first =
+            new DiscoveryResourceIdentity(
+                DiscoveryResourceKind.Section,
+                "First");
+        var second =
+            new DiscoveryResourceIdentity(
+                DiscoveryResourceKind.Section,
+                "Second");
+        var document =
+            new DiscoveryDocument(
+                "library",
+                [
+                    new DiscoveryResource(
+                        category,
+                        members: [first, second]),
+                    new DiscoveryResource(first),
+                    new DiscoveryResource(second),
+                ],
+                [category],
+                new DiscoverySelection(
+                    isCatalog: false,
+                    [category],
+                    [first, second]));
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["First", "Second"],
+                schema,
+                DiscoveryOutputRequest.Create(OutputFormat.Markdown),
+                document: document)));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| First | section |", output);
+        Assert.Contains("| Second | section |", output);
+        Assert.DoesNotContain("@Group", output);
     }
 
     [Fact]

@@ -10,6 +10,12 @@ public static class ExtensionMethodSamples
     public static int Combine(int left, int right) => left + right;
 }
 
+public static class OutputInferenceMethodGroupSamples
+{
+    public static IEnumerable<int> Call(IEnumerable<string> values)
+        => values.Select<string, int>(int.Parse);
+}
+
 public interface IGenericReceiver<T>;
 
 public sealed class AmbiguousGenericReceiver :
@@ -109,6 +115,14 @@ public static class GenericReceiverExtensions
     public static Type TupleArgument<T>(
         this IEnumerable<T> receiver,
         (T, T) values) => typeof(T);
+
+    public static TResult OutputCandidate<TSource, TResult>(
+        this IEnumerable<TSource> receiver,
+        Func<TSource, TResult> selector) => selector(receiver.First());
+
+    public static TResult OutputCandidate<TSource, TResult>(
+        this IEnumerable<TSource> receiver,
+        Func<object, TResult> selector) => selector(receiver.First()!);
 }
 
 public class ExtensionMethodReceiverBase

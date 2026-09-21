@@ -241,11 +241,34 @@ public class ExtensionMethodCallTests
     }
 
     [Fact]
-    public void LambdaResultInference_KeepsGenericArguments()
+    public void LambdaResultInference_OmitsGenericArguments()
     {
-        string output = PrintRaised(nameof(CfgSampleClass.ResultInferredExtensionArgumentsRemainExplicit));
+        var function = Import(nameof(CfgSampleClass.ResultInferredExtensionArgumentsAreOmitted));
+        var select = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Select");
+        var output = Assert.Single(select.Callee.TypeArgumentElisionLambdaOutputs);
+        Assert.Equal(1, output.TypeArgumentIndex);
+        Assert.Equal(1, output.ArgumentIndex);
+        Assert.True(select.Callee.CanOmitTypeArguments);
 
-        Assert.Contains("values.Select<string, int>", output);
+        string text = PrintRaised(nameof(CfgSampleClass.ResultInferredExtensionArgumentsAreOmitted));
+
+        Assert.Contains("values.Select(value => value.Length)", text);
+        Assert.DoesNotContain("Select<string, int>", text);
+    }
+
+    [Fact]
+    public void FluentLambdaResultInference_OmitsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.FluentResultInferredExtensionArgumentsAreOmitted));
+
+        Assert.Contains(
+            "values.OrderBy(value => value.Length).ThenBy(value => value)",
+            output);
+        Assert.DoesNotContain("OrderBy<string, int>", output);
+        Assert.DoesNotContain("ThenBy<string, string>", output);
     }
 
     [Fact]
@@ -310,6 +333,55 @@ public class ExtensionMethodCallTests
         string output = PrintRaised(nameof(CfgSampleClass.LambdaOutputInferenceRemainsExplicit));
 
         Assert.Contains("values.TakeFactory<byte>(() => 1)", output);
+    }
+
+    [Fact]
+    public void LambdaOutputNaturalTypeMismatch_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.OutputInferenceNaturalTypeMismatchRemainsExplicit));
+
+        Assert.Contains("values.Select<string, byte>(_ => 1)", output);
+    }
+
+    [Fact]
+    public void LambdaOutputWithoutNaturalType_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.OutputInferenceTypelessResultRemainsExplicit));
+
+        Assert.Contains("values.Select<string, string>(_ => null)", output);
+    }
+
+    [Fact]
+    public void ExpressionTreeOutputInference_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.ExpressionTreeOutputInferenceRemainsExplicit));
+
+        Assert.Contains("values.Select<string, int>", output);
+    }
+
+    [Fact]
+    public void OutputInferredMethodGroup_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            typeof(OutputInferenceMethodGroupSamples),
+            nameof(OutputInferenceMethodGroupSamples.Call));
+
+        Assert.Contains("values.Select<string, int>", output);
+        Assert.Contains("int.Parse", output);
+    }
+
+    [Fact]
+    public void CompetingOutputInferenceSibling_KeepsGenericArguments()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CompetingOutputInferenceSiblingRemainsExplicit));
+
+        Assert.Contains(
+            "values.OutputCandidate<string, int>(value => value.Length)",
+            output);
     }
 
     [Fact]

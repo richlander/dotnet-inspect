@@ -1419,6 +1419,60 @@ public static class MemberBodyProducer
                 .OrderBy(member => member.MetadataToken ?? int.MaxValue)
                 .ToList()
             : type.Members;
+        var projectedExplicitPropertyAccessorTokens = new HashSet<int>();
+        var explicitPropertyDefinitionByDeclarationAccessor =
+            new Dictionary<int, PropertyDefinitionHandle>();
+        var suppressedExplicitPropertyTokens = new HashSet<int>();
+        if (only is null)
+        {
+            foreach (ApiMember candidate in members)
+            {
+                // Canonical property emission requires a body; keep bodyless PropertyDef declarations.
+                if (candidate.Kind != "explicit-interface-implementation"
+                    || candidate.IsAbstract
+                    || candidate.MetadataToken is not { } token
+                    || ResolveMemberHandle(
+                        reader,
+                        typeHandle,
+                        candidate) is not { } handle
+                    || reader.GetMethodDefinition(handle).RelativeVirtualAddress == 0
+                    || SelectedPropertyAccessorSource.Create(
+                        pipelineSource,
+                        handle,
+                        candidate) is null)
+                {
+                    continue;
+                }
+
+                projectedExplicitPropertyAccessorTokens.Add(token);
+            }
+
+            foreach (ApiMember candidate in members)
+            {
+                if (!IsRepresentedByExplicitInterfacePropertyAccessors(
+                        candidate,
+                        projectedExplicitPropertyAccessorTokens)
+                    || ResolvePropertyHandle(
+                        reader,
+                        typeHandle,
+                        candidate) is not { } propertyHandle)
+                {
+                    continue;
+                }
+
+                if ((candidate.GetterToken ?? candidate.SetterToken)
+                        is not { } declarationAccessor
+                    || !explicitPropertyDefinitionByDeclarationAccessor.TryAdd(
+                        declarationAccessor,
+                        propertyHandle))
+                {
+                    continue;
+                }
+
+                suppressedExplicitPropertyTokens.Add(
+                    MetadataTokens.GetToken(propertyHandle));
+            }
+        }
 
         foreach (var member in members)
         {
@@ -1440,6 +1494,20 @@ public static class MemberBodyProducer
             {
                 if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "finalizer")
                     overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
+                continue;
+            }
+
+            // Include-all metadata retains both a private property row and its
+            // explicit MethodImpl accessor identities. Whole-type C# uses the
+            // accessor projections because they recover the interface declaration
+            // and body; emitting the private row too would duplicate the
+            // declaration with invalid accessibility/virtual modifiers.
+            // Exact-member composition keeps the row available for selector
+            // resolution and therefore does not apply this whole-type exclusion.
+            if (only is null
+                && member.DeclarationMetadataToken is { } declarationToken
+                && suppressedExplicitPropertyTokens.Contains(declarationToken))
+            {
                 continue;
             }
 
@@ -1521,6 +1589,20 @@ public static class MemberBodyProducer
                         };
                     if (bodyShape is not null && propertySource is not null)
                     {
+                        if (attributeMode == MemberRenderAttributeMode.All
+                            && member.MetadataToken is { } accessorToken
+                            && explicitPropertyDefinitionByDeclarationAccessor.TryGetValue(
+                                accessorToken,
+                                out PropertyDefinitionHandle propertyHandle))
+                        {
+                            foreach (string attribute in AttributeReader.RenderAttributes(
+                                         reader,
+                                         propertyHandle,
+                                         bodyNamespaces))
+                            {
+                                sb.AppendLf($"    [{attribute}]");
+                            }
+                        }
                         sb.AppendLf(propertySource.Format(
                             type,
                             bodyShape,
@@ -1596,6 +1678,60 @@ public static class MemberBodyProducer
             if (only is not null)
                 return;
         }
+    }
+
+    static bool IsRepresentedByExplicitInterfacePropertyAccessors(
+        ApiMember member,
+        HashSet<int> projectedAccessorTokens)
+    {
+        if (member.Kind != "property")
+            return false;
+
+        int?[] accessors = [member.GetterToken, member.SetterToken];
+        bool found = false;
+        foreach (int? accessor in accessors)
+        {
+            if (accessor is not { } token)
+                continue;
+
+            found = true;
+            if (!projectedAccessorTokens.Contains(token))
+                return false;
+        }
+
+        return found;
+    }
+
+    static PropertyDefinitionHandle? ResolvePropertyHandle(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        ApiMember member)
+    {
+        if (member.DeclarationMetadataToken is not { } token)
+            return null;
+
+        EntityHandle entity;
+        try
+        {
+            entity = MetadataTokens.EntityHandle(token);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+
+        if (entity.Kind != HandleKind.PropertyDefinition)
+            return null;
+
+        var propertyHandle = (PropertyDefinitionHandle)entity;
+        foreach (PropertyDefinitionHandle candidate in
+                 reader.GetTypeDefinition(typeHandle).GetProperties())
+        {
+            if (candidate == propertyHandle)
+                return propertyHandle;
+        }
+
+        return null;
     }
 
     static bool IsHiddenUnionMember(ApiMember member, UnionDeclarationInfo union)
@@ -2909,7 +3045,8 @@ public static class MemberBodyProducer
                     projection,
                     DecompilerResult.Failure(
                         DiagnosticIds.ContextUnavailable,
-                        "method has no importable IL body"));
+                        "method has no importable IL body"),
+                    propertySource);
                 projection.MarkNonContributing();
             }
             return null;
@@ -2921,7 +3058,10 @@ public static class MemberBodyProducer
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
         if (projection is not null)
         {
-            tracker!.Complete(projection, result);
+            tracker!.Complete(
+                projection,
+                result,
+                propertySource);
             tracker.ObserveSymbols(pipelineSource.Symbols);
         }
         if (!result.Succeeded

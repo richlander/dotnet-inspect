@@ -25,7 +25,10 @@ public sealed record CSharpBodyProjection(
     MetadataMethodAddress Address,
     DecompilerResult Projection,
     CSharpBodyProjectionKind Kind,
-    bool ContributesToOutput);
+    bool ContributesToOutput)
+{
+    public SelectedPropertyAccessorSource? PropertySource { get; init; }
+}
 
 public sealed record CSharpDecompilationAttempt(
     CSharpDecompilationStatus Status,
@@ -369,7 +372,8 @@ internal sealed class CSharpCompositionTracker(
 
     internal void Complete(
         ProjectionTicket ticket,
-        DecompilerResult projection)
+        DecompilerResult projection,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         int index = _projections.Count;
@@ -378,7 +382,8 @@ internal sealed class CSharpCompositionTracker(
                 ticket.Address,
                 projection,
                 ticket.Kind,
-                ContributesToOutput: true));
+                ContributesToOutput: true,
+                propertySource));
         ticket.Complete(index);
         cancellationToken.ThrowIfCancellationRequested();
     }
@@ -403,14 +408,19 @@ internal sealed class CSharpCompositionTracker(
                         projection.Address,
                         projection.Projection,
                         projection.Kind,
-                        projection.ContributesToOutput)),
+                        projection.ContributesToOutput)
+                    {
+                        PropertySource =
+                            projection.PropertySource,
+                    }),
         ];
 
     sealed record ProjectionEntry(
         MetadataMethodAddress Address,
         DecompilerResult Projection,
         CSharpBodyProjectionKind Kind,
-        bool ContributesToOutput);
+        bool ContributesToOutput,
+        SelectedPropertyAccessorSource? PropertySource);
 
     internal sealed class ProjectionTicket(
         CSharpCompositionTracker owner,
