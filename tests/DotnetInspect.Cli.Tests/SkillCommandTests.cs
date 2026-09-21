@@ -127,6 +127,39 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task SkillList_ExplicitMarkdownOverridesEnvironmentJson()
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            string[] args =
+                ["skill", "list", "--format=markdown"];
+            var parseResult =
+                CommandLineBuilder.CreateRootCommand().Parse(args);
+            var (exitCode, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                        parseResult,
+                        args));
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(error);
+            Assert.Contains("# Skills", output);
+            Assert.DoesNotContain("\"skill\":", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
+        }
+    }
+
+    [Fact]
     public async Task ExecuteList_NoHeaders_OmitsHeaderRow()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(

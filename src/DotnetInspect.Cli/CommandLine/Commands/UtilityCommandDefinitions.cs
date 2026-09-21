@@ -176,7 +176,10 @@ public static class UtilityCommandDefinitions
 
         // Subcommand: list (supports the standard output formats)
         var listCommand = new Command("list", "List available focused skills");
-        opts.AddJsonOptionTo(listCommand);
+        opts.AddFormatOptionTo(
+            listCommand,
+            CliPresentationFormat.Json,
+            CliPresentationFormat.Markdown);
         opts.AddTableOptionsTo(listCommand);
         opts.AddLineSelectionOptionsTo(
             listCommand,
