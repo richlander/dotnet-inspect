@@ -255,6 +255,30 @@ public sealed class MemberBodyProducerTypedBodyTests
     }
 
     [Theory]
+    [InlineData("ConstructorGetterComputed", "field + 1")]
+    [InlineData("ConstructorGetterExpressionAttribute", "field + 1")]
+    [InlineData("ConstructorGetterLogged", null)]
+    public void ProduceBody_CarriesSingleLineGetterExpressionWithoutChangingBlock(
+        string typeName, string? expression)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var getter = FindMethod(source.Reader, typeName, "get_Value");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, getter));
+        var result = MemberBodyProducer.ProduceBody(
+            source, MetadataMethodAddress.Create(source.Reader, getter), property);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Equal(expression, result.SingleLineExpression);
+        Assert.Contains("return ", result.Body!.Source);
+        if (expression is null)
+            Assert.Contains("Console.WriteLine(field);", result.Body.Source);
+        else
+            Assert.Equal($"return {expression};", result.Body.Source);
+    }
+
+    [Theory]
     [InlineData("ConstructorGetterExplicitAutomatic")]
     [InlineData("ConstructorGetterExplicitComputed")]
     public void PropertyInitializationConstructorDeclinesExplicitInterface(string typeName)

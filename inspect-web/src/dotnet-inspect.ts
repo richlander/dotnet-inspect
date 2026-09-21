@@ -150,8 +150,10 @@ import {
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
+  alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
+  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
 import {
@@ -3402,9 +3404,9 @@ function libraryKey(item: InspectedTypeSurface | null | undefined) {
   return item?.assemblyId ?? "";
 }
 
-// Libraries admitted by the selected package coordinate, sorted by public
-// surface size then name. Assembly descriptors keep libraries with no public
-// types visible instead of deriving the package inventory from type rows.
+// Libraries admitted by the selected package coordinate, sorted alphabetically
+// by name. Assembly descriptors keep libraries with no public types visible
+// instead of deriving the package inventory from type rows.
 function packageLibraryInventory() {
   if (!state.package) return [];
   const libraries = state.package.assemblies.map(assembly => ({
@@ -3418,10 +3420,7 @@ function packageLibraryInventory() {
     members: assembly.publicMembers,
     platformPack: assembly.platformPack,
   }));
-  return libraries.sort((left, right) =>
-    right.types - left.types
-    || right.members - left.members
-    || left.name.localeCompare(right.name));
+  return alphabetizeLibrarySubjects(libraries);
 }
 
 function libraryQuerySignature(pkg: AppPackage, reference: string) {
@@ -4461,10 +4460,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     }
   } else if (workspaceScope === "library") {
     const selected = libraryLensesFor(state.package)[index];
-    if (selected) {
-      state.libraryLens = selected[0];
-      render();
-    }
+    if (selected) selectLibraryLens(selected[0]);
   } else if (workspaceScope === "type") {
     const selected = typeLensesFor(state.package)[index];
     if (selected) {
@@ -4492,6 +4488,35 @@ function libraryLensesFor(pkg: AppPackage | null) {
       return pkg?.source.kind === "nuget.org" && !pkg.isRuntimePack;
     return !pkg?.isRuntimePack || id !== "references";
   });
+}
+
+function libraryLensRequiresExactLibrary(lens: LibraryLens) {
+  switch (lens) {
+    case "overview": return false;
+    case "compare":
+    case "references":
+    case "integrations":
+    case "analysis":
+    case "metadata": return true;
+    default: return assertNever(lens, "library lens");
+  }
+}
+
+function selectLibraryLens(lens: LibraryLens) {
+  if (state.libraryLens === lens) return;
+  if (libraryLensRequiresExactLibrary(lens)
+    && aggregateLibrarySubjectIsActive()) {
+    const preferredLibraryId = preferredLibrarySubjectId(
+      packageLibraries(),
+      state.package?.id ?? "");
+    if (preferredLibraryId) {
+      selectLibrarySubject(
+        preferredLibraryId,
+        { preserveLens: true });
+    }
+  }
+  state.libraryLens = lens;
+  render();
 }
 
 function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
@@ -4832,8 +4857,7 @@ function stepHorizontal(delta: number) {
     const index = strip.findIndex(([id]) => id === state.libraryLens);
     const next = strip[(index + delta + strip.length) % strip.length];
     if (!next) return;
-    state.libraryLens = next[0];
-    render();
+    selectLibraryLens(next[0]);
     return;
   }
   const type = selectedType();
@@ -6099,7 +6123,7 @@ function packageLensBody() {
 
 function libraryLensBody() {
   if (aggregateLibrarySubjectIsActive()
-    && state.libraryLens !== "overview") {
+    && libraryLensRequiresExactLibrary(state.libraryLens)) {
     const label = libraryLenses.find(([id]) => id === state.libraryLens)?.[1]
       ?? "This inspector";
     return `<section class="document-section empty-document">
@@ -8641,8 +8665,7 @@ function bindScopeBarEvents() {
     },
     onLibraryLensSelect: lens => {
       contentFramePane = "detail";
-      state.libraryLens = lens;
-      render();
+      selectLibraryLens(lens);
     },
     onPackageLensSelect: lens => {
       contentFramePane = "detail";

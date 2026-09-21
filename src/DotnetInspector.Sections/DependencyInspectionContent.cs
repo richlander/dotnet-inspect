@@ -42,6 +42,124 @@ public enum DependencyInspectionPruningCompletion
     Failed,
 }
 
+public enum DependencyInspectionLicenseCompletion
+{
+    NotRequested,
+    Complete,
+    Partial,
+}
+
+public enum DependencyInspectionLicenseState
+{
+    Available,
+    Unavailable,
+}
+
+public enum DependencyInspectionLicenseIdentityKind
+{
+    None,
+    Expression,
+    RecognizedFile,
+    Unknown,
+}
+
+public enum DependencyInspectionLicenseDeclarationKind
+{
+    Expression,
+    File,
+    Url,
+}
+
+public sealed record DependencyInspectionLicense(
+    string PackageId,
+    string PackageVersion,
+    DependencyInspectionLicenseState State,
+    InertString License,
+    DependencyInspectionLicenseIdentityKind? IdentityKind,
+    DependencyInspectionLicenseDeclarationKind? DeclarationKind,
+    InertString? DeclarationValue,
+    PackageLicenseInventoryFailureReason? FailureReason,
+    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
+    InertString? FailureMessage)
+{
+    public static DependencyInspectionLicense Create(
+        PackageLicenseInventoryItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (item.License is { } license)
+        {
+            return new(
+                item.Coordinate.PackageId,
+                item.Coordinate.Version,
+                DependencyInspectionLicenseState.Available,
+                new InertString(TextPolicy.Field, license.Value),
+                license.Kind switch
+                {
+                    PackageLicenseIdentityKind.None =>
+                        DependencyInspectionLicenseIdentityKind.None,
+                    PackageLicenseIdentityKind.Expression =>
+                        DependencyInspectionLicenseIdentityKind.Expression,
+                    PackageLicenseIdentityKind.RecognizedFile =>
+                        DependencyInspectionLicenseIdentityKind.RecognizedFile,
+                    PackageLicenseIdentityKind.Unknown =>
+                        DependencyInspectionLicenseIdentityKind.Unknown,
+                    _ => throw new InvalidOperationException(
+                        "Unknown package license identity kind."),
+                },
+                item.Declaration?.Kind switch
+                {
+                    DotnetInspector.Services.PackageLicenseDeclarationKind
+                        .Expression =>
+                            DependencyInspectionLicenseDeclarationKind
+                                .Expression,
+                    DotnetInspector.Services.PackageLicenseDeclarationKind
+                        .File =>
+                            DependencyInspectionLicenseDeclarationKind.File,
+                    DotnetInspector.Services.PackageLicenseDeclarationKind
+                        .Url =>
+                            DependencyInspectionLicenseDeclarationKind.Url,
+                    null => null,
+                    _ => throw new InvalidOperationException(
+                        "Unknown package license declaration kind."),
+                },
+                item.Declaration is { } declaration
+                    ? new InertString(TextPolicy.Field, declaration.Value)
+                    : null,
+                FailureReason: null,
+                FailureMessage: null);
+        }
+
+        PackageLicenseInventoryFailure failure =
+            item.Failure
+            ?? throw new InvalidOperationException(
+                "An unavailable license item requires failure evidence.");
+        return new(
+            item.Coordinate.PackageId,
+            item.Coordinate.Version,
+            DependencyInspectionLicenseState.Unavailable,
+            new InertString(TextPolicy.Field, "unavailable"),
+            IdentityKind: null,
+            DeclarationKind: null,
+            DeclarationValue: null,
+            failure.Reason,
+            new InertString(TextPolicy.Prose, failure.Message));
+    }
+}
+
+public sealed record DependencyInspectionLicenseSummary(
+    DependencyInspectionLicenseCompletion Completion,
+    int Packages,
+    int Available,
+    int Unavailable)
+{
+    public static DependencyInspectionLicenseSummary NotRequested { get; } =
+        new(
+            DependencyInspectionLicenseCompletion.NotRequested,
+            Packages: 0,
+            Available: 0,
+            Unavailable: 0);
+}
+
 public enum DependencyInspectionRootState
 {
     Admitted,
@@ -305,7 +423,11 @@ public sealed record DependencyInspectionSummary(
         RestoredRelationshipCompletion,
     DependencyInspectionPruningSummary Pruning,
     bool IsPrefixRootSet,
-    PackageDependencyEvidencePackagePrefixCompletion? PackagePrefix);
+    PackageDependencyEvidencePackagePrefixCompletion? PackagePrefix)
+{
+    public DependencyInspectionLicenseSummary Licenses { get; init; } =
+        DependencyInspectionLicenseSummary.NotRequested;
+}
 
 public sealed record DependencyInspectionContent(
     DependencyInspectionSummary Summary,
@@ -327,6 +449,9 @@ public sealed record DependencyInspectionContent(
     public ImmutableArray<DependencyInspectionFailure> Failures { get; init; } =
         Failures.IsDefault ? [] : Failures;
 
+    public ImmutableArray<DependencyInspectionLicense> Licenses { get; init; } =
+        [];
+
     public bool Equals(DependencyInspectionContent? other) =>
         ReferenceEquals(this, other)
         || other is not null
@@ -337,6 +462,7 @@ public sealed record DependencyInspectionContent(
             Dependencies,
             other.Dependencies)
         && DependencyValueEquality.SequenceEqual(Pruning, other.Pruning)
+        && DependencyValueEquality.SequenceEqual(Licenses, other.Licenses)
         && DependencyValueEquality.SequenceEqual(Failures, other.Failures);
 
     public override int GetHashCode()

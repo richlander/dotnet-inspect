@@ -497,7 +497,7 @@ its existing body and replacement-target identity.
 
 For docopt's `ReadOnlyList<T>`, the native scaffold becomes
 `readonly struct ReadOnlyList<T>(IList<T> list)` with the property
-`List { get { return field ?? Array.Empty<T>(); } } = list;`.
+`List { get => field ?? Array.Empty<T>(); } = list;`.
 This is an equivalent source-form choice, not evidence of uniquely authored
 syntax. In particular, the null fallback remains in the getter: a default
 struct bypasses the initializer.
@@ -523,7 +523,7 @@ retain the primary form.
 `PropertyInitializerUsesProvenParameterWithoutWideningItsScope` and
 `PropertyInitializerPreservesPrimaryParameterAndTargetBody` are PR-fast gates
 for parameter binding, default values, keyword spelling, declaration-scope
-declines and preservation of the sole replaceable getter block.
+declines and preservation of the sole replaceable getter body.
 The existing native constructor/getter gates now also assert the initializer
 source form, and `NativeGetterRetainsExplicitConstructorWhenInitializerFormDeclines`
 checks actual donor PE storage and the unchanged explicit-companion choice.
@@ -535,6 +535,33 @@ views and Browser/Wasm Source. Those consumers remain unchanged here; an
 isolated property must not acquire `= list` without a declaration binding
 `list`. Full reconstruction, exact original type declarations and whole-object
 equivalence remain outside this claim.
+
+Issue #8022 refines this native artifact with an expression-bodied accessor,
+retaining the existing multi-line property layout rather than compacting the
+entire declaration onto one line.
+Typed body production supplies an optional single-line expression through the
+existing `CSharpExpressionBody` grammar over its own rendered statements; the
+original block-body projection remains unchanged. CSharp consumes an explicit
+expression-accessor shape, without recovering it from declarations or
+initializer text. Native Selected forwards that shape only after the existing
+initializer admission succeeds. Automatic getters stay automatic; multi-statement
+getters retain their blocks; attributed accessors retain their attributes.
+
+The product-rendered replacement range covers the complete accessor body
+clause: braces for a block, or arrow through semicolon for an expression.
+`ReplaceBody` always materializes a block within that range and preserves every
+non-target byte, including the initializer and primary-constructor header.
+`PropertyInitializerPreservesPrimaryParameterAndTargetBody` gates the compact
+spelling and exact range boundary.
+`ProduceBody_CarriesSingleLineGetterExpressionWithoutChangingBlock` gates the
+single-expression, attributed and multi-statement producer cases. The existing
+native constructor/getter gates compile the compact published docopt witness and
+these neighboring forms, then inspect their actual donor PE; this is not a
+whole-type fidelity claim.
+`PublishedDocoptCompactGetterReplacementPreservesInitialization` compiles a
+replacement through the frozen product artifact, checks that its getter changed
+and that the constructor still stores into the getter's field. Shared
+CLI/Browser initializer-context adoption remains #7971.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32

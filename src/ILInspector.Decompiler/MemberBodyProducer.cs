@@ -33,6 +33,12 @@ public sealed record MemberBodyProductionResult(
     public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
 
     /// <summary>
+    /// The expression spelling of a single-line product-rendered body, without
+    /// an arrow or terminator. Null retains the block form.
+    /// </summary>
+    public string? SingleLineExpression { get; init; }
+
+    /// <summary>
     /// The raised product IR that produced <see cref="Body"/>. Kept internal so
     /// trusted product/harness consumers can derive typed closure evidence from
     /// the exact projection without re-importing or reverse-engineering source.
@@ -233,6 +239,7 @@ public static class MemberBodyProducer
                 projection)
             {
                 RaisedFunction = function,
+                SingleLineExpression = CSharpExpressionBody.FromSingleStatement(body.Source),
             };
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
