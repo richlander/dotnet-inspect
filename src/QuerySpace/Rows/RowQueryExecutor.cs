@@ -10,13 +10,11 @@ public static class RowQueryExecutor
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(plan);
 
-        IComparer<TRow>? baselineComparer =
-            ResolveBaselineComparer(plan);
         List<TRow> selected =
-            Prepare(
-                rows,
-                plan,
-                baselineComparer);
+            Filter(rows, plan);
+        ApplyBaselineOrder(
+            selected,
+            ResolveBaselineComparer(plan));
 
         return RowSelectionExecutor.Apply(
             selected,
@@ -33,9 +31,9 @@ public static class RowQueryExecutor
 
         var prepared =
             new NamedRowSequence<TRow>[sequences.Count];
+        var preparedRows =
+            new List<TRow>[sequences.Count];
         var keys = new HashSet<RowSequenceKey>();
-        IComparer<TRow>? baselineComparer =
-            ResolveBaselineComparer(plan);
         for (int index = 0; index < sequences.Count; index++)
         {
             NamedRowSequence<TRow> sequence =
@@ -49,13 +47,20 @@ public static class RowQueryExecutor
                     $"Sequence key {sequence.Key.Value} is duplicated.",
                     nameof(sequences));
             }
-            List<TRow> rows = Prepare(
+            preparedRows[index] = Filter(
                 sequence.Values,
-                plan,
-                baselineComparer);
+                plan);
+        }
+
+        IComparer<TRow>? baselineComparer =
+            ResolveBaselineComparer(plan);
+        for (int index = 0; index < sequences.Count; index++)
+        {
+            List<TRow> rows = preparedRows[index];
+            ApplyBaselineOrder(rows, baselineComparer);
             prepared[index] =
                 NamedRowSequence<TRow>.Create(
-                    sequence.Key,
+                    sequences[index].Key,
                     rows);
         }
 
@@ -65,10 +70,9 @@ public static class RowQueryExecutor
             plan.ResolveOrder);
     }
 
-    private static List<TRow> Prepare<TRow>(
+    private static List<TRow> Filter<TRow>(
         IReadOnlyList<TRow> rows,
-        ResolvedRowQueryPlan<TRow> plan,
-        IComparer<TRow>? baselineComparer)
+        ResolvedRowQueryPlan<TRow> plan)
     {
         var selected = new List<TRow>(rows.Count);
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
@@ -90,13 +94,15 @@ public static class RowQueryExecutor
                 selected.Add(row);
         }
 
-        if (baselineComparer is not null)
-        {
-            if (selected.Count > 1)
-                StableSort(selected, baselineComparer);
-        }
-
         return selected;
+    }
+
+    private static void ApplyBaselineOrder<TRow>(
+        List<TRow> rows,
+        IComparer<TRow>? baselineComparer)
+    {
+        if (baselineComparer is not null && rows.Count > 1)
+            StableSort(rows, baselineComparer);
     }
 
     private static IComparer<TRow>? ResolveBaselineComparer<TRow>(

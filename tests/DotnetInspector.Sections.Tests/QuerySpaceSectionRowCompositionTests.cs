@@ -169,6 +169,102 @@ public sealed class QuerySpaceSectionRowCompositionTests
     }
 
     [Fact]
+    public void PredicatesRunBeforeBaselineComparerResolution()
+    {
+        var predicateException =
+            new InvalidOperationException("predicate");
+        var baselineException =
+            new InvalidOperationException("baseline");
+        int baselineResolverCalls = 0;
+        RowQueryKey<ScoreRow> score =
+            RowQueryKey<ScoreRow>.Create(
+                RowQueryKeyIdentity.Create(),
+                "score",
+                [RowQueryOperator.GreaterOrEqual],
+                static row =>
+                    RowQueryValue<int>.Present(row.Score),
+                (_, _) =>
+                    _ => throw predicateException,
+                _ =>
+                {
+                    baselineResolverCalls++;
+                    throw baselineException;
+                });
+        RowQueryVocabulary<ScoreRow> vocabulary =
+            RowQueryVocabulary<ScoreRow>.Create(
+                RowQueryVocabularyIdentity.Create(),
+                [score],
+                []);
+        QuerySpaceRowScopeBinding<ScoreRow> queryScope =
+            CreateQueryScope(vocabulary);
+        QuerySpaceBinding querySpace =
+            CreateQuerySpace(queryScope);
+        PortableQueryIntent rowIntent =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        "score",
+                        PortableQueryOperator.AtLeast,
+                        "2"),
+                ],
+                [],
+                [],
+                [
+                    PortableQueryOrderOperation.Fields(
+                        PortableQueryOrderRole.Baseline,
+                        [
+                            new(
+                                "score",
+                                PortableQueryDirection.Descending),
+                        ]),
+                ]);
+        QuerySpaceRequest request =
+            QuerySpaceRequest.Create(
+                querySpace.Descriptor,
+                PortableQueryIntent.Empty,
+                ["left"],
+                [
+                    new(
+                        queryScope.Descriptor.Identity,
+                        rowIntent,
+                        ["left"]),
+                ],
+                QuerySpaceTerminalRequirement.Rows);
+        SectionRowSchemaIdentity<ScoreRow> schema =
+            SectionRowSchemaIdentity<ScoreRow>.Create();
+        QuerySpaceSectionRowResolutionResult<Projection> resolution =
+            QuerySpaceSectionRowResolver.Resolve(
+                querySpace,
+                request,
+                [
+                    Declaration(
+                        "left",
+                        schema,
+                        [new(1)],
+                        static (projection, rows) =>
+                            projection with
+                            {
+                                Left =
+                                    rows.Select(
+                                        static row => row.Score)
+                                        .ToArray(),
+                            }),
+                ],
+                new SectionQuerySpaceRowScopeBinding<ScoreRow>(
+                    queryScope,
+                    schema));
+
+        Assert.True(resolution.IsSuccess);
+        Assert.Equal(0, baselineResolverCalls);
+        Assert.Same(
+            predicateException,
+            Assert.Throws<InvalidOperationException>(
+                () => QuerySpaceSectionRowExecutor.ApplyRows(
+                    resolution.Request!)));
+        Assert.Equal(0, baselineResolverCalls);
+    }
+
+    [Fact]
     public void RowResolutionFailureRemainsVisibleBeforeExecution()
     {
         QuerySpaceRowScopeBinding<ScoreRow> queryScope =
