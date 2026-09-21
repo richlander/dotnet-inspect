@@ -191,6 +191,7 @@ public partial class CommandExecutionTests
         Assert.Contains("--history", output);
         Assert.Contains("--at", output);
         Assert.Contains("--max-probes", output);
+        Assert.Contains("--sample-percent", output);
         Assert.Contains("--count", output);
         Assert.DoesNotContain("--authored-source", output);
     }
