@@ -2,6 +2,7 @@ export interface PackageControlPackage {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   isRuntimePack: boolean;
 }
 

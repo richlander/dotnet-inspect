@@ -19,6 +19,8 @@ comparison site. Never advance only the packages or only one site.
 
 Read the current release tracker from `AGENTS.md`. It is a candidate ledger, not
 a release manifest; the exact shipped SHA decides which changes shipped.
+The release agent owns reconciliation of every release-managed central file
+defined in `AGENTS.md`; tracker suggestions are its release-preparation input.
 
 Before selecting the outgoing release commit:
 
@@ -28,16 +30,22 @@ Before selecting the outgoing release commit:
 2. Update `AGENTS.md` to name and link the successor's actual issue number.
    Ordinary change PRs now report there instead of editing
    `src/DotnetInspect.Cli/release-notes.md`.
-3. Write the outgoing release notes from the candidate comments and linked
+3. Reconcile every release-managed central file defined in `AGENTS.md` from
+   tracker suggestions whose implementing changes are ancestors of the proposed
+   release commit. Comment when current content already covers a suggestion or
+   it no longer applies.
+4. Write the outgoing release notes from the candidate comments and linked
    implementations on both the outgoing and successor trackers. Include only
    implementations after the previous release commit that are ancestors of the
    proposed release commit. Issue placement never determines membership; the
    pre-merge comment requirement makes that intake complete.
-4. Land the release-preparation change and select that commit as the exact
-   release SHA. Later merges are outside its history. Immediately before
-   dispatch, recheck both trackers against that SHA. If a late comment exposes
-   an earlier qualifying implementation or the history and notes otherwise
-   disagree, correct the notes and select the replacement commit.
+5. Land the release-preparation change, including all central-file
+   reconciliation, and select that commit as the exact release SHA. Later
+   merges are outside its history. Immediately before dispatch, recheck both
+   trackers against that SHA. If a late comment exposes a qualifying
+   release-note candidate or central-file suggestion, or the history and
+   prepared artifacts otherwise disagree, correct the notes or central file as
+   applicable and select the replacement commit.
 
 After packages, the GitHub release, production, and CoreCLR all succeed, comment
 on the successor tracker with the released version, release URL, and full

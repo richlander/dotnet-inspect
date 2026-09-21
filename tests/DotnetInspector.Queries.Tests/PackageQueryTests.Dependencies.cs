@@ -160,11 +160,13 @@ public partial class PackageQueryTests
                 terms:
                 [
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "microsoft.extensions."),
+                        PackageQuery.DependsTermKey,
+                        "microsoft.extensions.",
+                        PortableQueryOperator.StartsWith),
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "System."),
+                        PackageQuery.DependsTermKey,
+                        "System.",
+                        PortableQueryOperator.StartsWith),
                     Term(
                         PackageQuery.DependencyTargetTermKey,
                         "net10.0"),
@@ -188,7 +190,9 @@ public partial class PackageQueryTests
         PackageQueryEvidence[] prefixEvidence =
         [
             .. match.Evidence.Where(evidence =>
-                evidence.Id == PackageQuery.DependsPrefixTermKey),
+                evidence.Id == PackageQuery.DependsTermKey
+                && evidence.Term!.Operator
+                    == PortableQueryOperator.StartsWith),
         ];
         Assert.Equal(2, prefixEvidence.Length);
         PackageQueryEvidence extensions = prefixEvidence.Single(evidence =>
@@ -229,8 +233,9 @@ public partial class PackageQueryTests
                 terms:
                 [
                     Term(
-                        PackageQuery.DependsPrefixTermKey,
-                        "Microsoft.Extensions"),
+                        PackageQuery.DependsTermKey,
+                        "Microsoft.Extensions",
+                        PortableQueryOperator.StartsWith),
                 ],
                 maximumCandidates: 1,
                 maximumMatches: 1));
@@ -249,7 +254,9 @@ public partial class PackageQueryTests
             "net10.0: Microsoft.ExtensionsX 1.0.0",
             Assert.Single(
                 Assert.Single(match.Evidence.Where(evidence =>
-                    evidence.Id == PackageQuery.DependsPrefixTermKey))
+                    evidence.Id == PackageQuery.DependsTermKey
+                    && evidence.Term!.Operator
+                        == PortableQueryOperator.StartsWith))
                 .Summary!.Preview).ToString());
     }
 

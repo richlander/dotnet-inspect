@@ -25,8 +25,11 @@ public partial class PackageQueryTests
         PackageQueryPlanResult result) =>
         Assert.IsType<PackageQueryPlanResult.Rejected>(result).Failure;
 
-    private static PortableQueryTerm Term(string key, string value) =>
-        new(key, PortableQueryOperator.Equal, value);
+    private static PortableQueryTerm Term(
+        string key,
+        string value,
+        PortableQueryOperator @operator = PortableQueryOperator.Equal) =>
+        new(key, @operator, value);
 
     private static PackageQueryEcosystemMembershipCatalog EcosystemCatalog(
         params PackageQueryEcosystemMembershipDeclaration[] declarations) =>
