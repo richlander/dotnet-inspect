@@ -106,12 +106,13 @@ The merge handoff remains the more specific final form.
 
 ## Making your work findable
 
-Inside tmux only, name the window, title the pane, and publish
-`@agent`/`@agent_state` at start, resume, and meaningful state changes; signal
+Inside tmux only, set the stable window identity at work start and when identity
+or scope changes; update the pane title at start, resume, and meaningful phase
+changes; publish `@agent`/`@agent_state` after every state change; and signal
 `HELP` while awaiting a human decision. Always announce the PR number and
 branch or expected head at start, resume, and each round start. Emit supporting
-status before opening a concise approval prompt. Exact commands, naming,
-state fields, and clear rules live in
+status before opening a concise approval prompt. Exact commands, naming, state
+fields, and clear rules live in
 [Agent session state](docs/agent-session-state.md).
 
 ### Keep the review-clean label current
