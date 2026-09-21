@@ -525,24 +525,6 @@ public static partial class ApiSurfaceExtractor
             using var operationContext = new MetadataOperationContext(
                 new MetadataOperationPolicy(bounds.MaxMetadataRows));
             var budget = new ExtractionBudget(bounds);
-            MetadataImageAdmissionResult admission =
-                operationContext.AdmitImage(
-                    MetadataFormatAdmission.GetMetadataReader(peReader));
-            switch (admission)
-            {
-                case MetadataImageAdmissionResult.Admitted:
-                    break;
-                case MetadataImageAdmissionResult.Rejected
-                    {
-                        Failure.Kind:
-                            MetadataOperationFailureKind.MetadataRowsExceeded,
-                    }:
-                    throw new ExtractionBoundExceededException(
-                        ApiSurfaceExtractionBound.MetadataRows);
-                default:
-                    throw new InvalidOperationException(
-                        "The metadata image admission returned an unsupported outcome.");
-            }
             TypeParameterConstraintResolution? constraintResolution =
                 source is null ? null : new(
                     MetadataFormatAdmission.GetMetadataReader(peReader),
@@ -554,7 +536,8 @@ public static partial class ApiSurfaceExtractor
                 typesOnly,
                 includeCompilerGenerated,
                 budget,
-                constraintResolution);
+                constraintResolution,
+                operationContext);
             if (constraintResolution is not null)
             {
                 CompleteConstraintResolution(
@@ -578,7 +561,8 @@ public static partial class ApiSurfaceExtractor
         bool typesOnly,
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
-        TypeParameterConstraintResolution? constraintResolution)
+        TypeParameterConstraintResolution? constraintResolution,
+        MetadataOperationContext? operationContext = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -587,6 +571,24 @@ public static partial class ApiSurfaceExtractor
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
+        if (operationContext is not null)
+        {
+            switch (operationContext.AdmitImage(reader))
+            {
+                case MetadataImageAdmissionResult.Admitted:
+                    break;
+                case MetadataImageAdmissionResult.Rejected
+                    {
+                        Failure.Kind:
+                            MetadataOperationFailureKind.MetadataRowsExceeded,
+                    }:
+                    throw new ExtractionBoundExceededException(
+                        ApiSurfaceExtractionBound.MetadataRows);
+                default:
+                    throw new InvalidOperationException(
+                        "The metadata image admission returned an unsupported outcome.");
+            }
+        }
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
         MemorySafetyMetadataIndex? memorySafetyIndex = null;
