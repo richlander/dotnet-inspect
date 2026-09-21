@@ -245,11 +245,7 @@ public static class AssemblyTypeDeclarationInventoryReader
         }
     }
 
-    /// <summary>
-    /// Copies declarations from an already-authorized synchronous PE image.
-    /// The caller retains ownership of <paramref name="peReader"/>.
-    /// </summary>
-    public static AssemblyTypeDeclarationInventoryOutcome Read(
+    internal static AssemblyTypeDeclarationInventoryOutcome Read(
         PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);

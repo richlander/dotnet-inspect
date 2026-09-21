@@ -85,9 +85,11 @@ The declaration-inventory request names:
 
 Execution receives a matching active `LibraryOperationLease` without consuming
 it. The operation borrows only `LibraryReference.ApiAssembly`, rejects an
-over-byte image before Metadata inspection, and calls the Metadata-owned
-`AssemblyTypeDeclarationInventoryReader` while the synchronous snapshot
-remains active.
+over-byte image before Metadata inspection, transfers the snapshot stream to
+an owner-backed `AssemblyInspectionSession`, and reads module identity plus the
+complete declaration inventory through that session. Metadata closes the
+transferred stream during session construction; LibraryMetadata retires the
+session before the synchronous snapshot callback returns.
 
 A completed result contains one
 `LibraryTypeDeclarationInventoryCorrespondence`:

@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 
@@ -196,47 +194,25 @@ public static class LibraryTypeDeclarationInventoryInspection
     {
         try
         {
-            using var peReader = new PEReader(content);
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.OpenPrefetched(content);
+            if (!session.HasMetadata)
             {
                 return Failed(
                     LibraryTypeDeclarationInventoryInspectionFailureKind
                         .NotManagedAssembly);
             }
 
-            MetadataReader reader =
-                MetadataFormatAdmission.GetMetadataReader(peReader);
-            if (!reader.IsAssembly)
+            if (session.AssemblyInfo().AssemblyName is null)
             {
                 return Failed(
                     LibraryTypeDeclarationInventoryInspectionFailureKind
                         .ManagedModule);
             }
 
-            AssemblyReferenceIdentity identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            ManagedMetadataIdentity.Assembly? expectedIdentity =
-                reference.AssemblyIdentity;
-            if (expectedIdentity is null
-                || !identity.IsEquivalentTo(expectedIdentity.Identity))
-            {
-                return new LibraryTypeDeclarationInventoryInspectionOutcome.Rejected(
-                    LibraryTypeDeclarationInventoryInspectionRejectionKind
-                        .AssemblyIdentityMismatch);
-            }
-
-            Guid moduleVersionId =
-                reader.GetGuid(reader.GetModuleDefinition().Mvid);
-            if (moduleVersionId == Guid.Empty)
-            {
-                return Failed(
-                    LibraryTypeDeclarationInventoryInspectionFailureKind
-                        .EmptyModuleVersionId);
-            }
-
             cancellationToken.ThrowIfCancellationRequested();
             AssemblyTypeDeclarationInventoryOutcome inventoryOutcome =
-                AssemblyTypeDeclarationInventoryReader.Read(peReader);
+                session.TypeDeclarations();
             cancellationToken.ThrowIfCancellationRequested();
             if (inventoryOutcome
                 is AssemblyTypeDeclarationInventoryOutcome.Rejected rejected)
@@ -259,12 +235,23 @@ public static class LibraryTypeDeclarationInventoryInspection
             AssemblyTypeDeclarationInventory inventory =
                 ((AssemblyTypeDeclarationInventoryOutcome.Read)
                     inventoryOutcome).Inventory;
-            if (!inventory.Identity.IsEquivalentTo(
+            ManagedMetadataIdentity.Assembly? expectedIdentity =
+                reference.AssemblyIdentity;
+            if (expectedIdentity is null
+                || !inventory.Identity.IsEquivalentTo(
                     expectedIdentity.Identity))
             {
                 return new LibraryTypeDeclarationInventoryInspectionOutcome.Rejected(
                     LibraryTypeDeclarationInventoryInspectionRejectionKind
                         .AssemblyIdentityMismatch);
+            }
+
+            Guid moduleVersionId = session.ModuleVersionId();
+            if (moduleVersionId == Guid.Empty)
+            {
+                return Failed(
+                    LibraryTypeDeclarationInventoryInspectionFailureKind
+                        .EmptyModuleVersionId);
             }
 
             int declarationCount = inventory.Declarations.Length;
