@@ -12,15 +12,17 @@ settles compiled XML documentation and documentation extracted from authored
 source over one exact shared Library reference and transferred operation lease,
 without acquiring packages, platforms, PDBs, or source bytes itself.
 
-The source-neutral request, contribution, attempt, outcome, and receipt floor
-and the compiled-XML operation are implemented in
+The source-neutral request, contribution, channel-attempt, field-evidence,
+outcome, and receipt floor plus compiled-XML and authored-source settlement are
+implemented in
 `DotnetInspector.DocumentationHouse.Contracts` and
 `DotnetInspector.DocumentationHouse`. The subject consumes owner-issued
 Library-Metadata correspondence rather than pairing independently acquired
-Metadata with a Library by assembly identity. The operation consumes one transferred
-`LibraryOperationLease`, snapshots one exact associated XML content reference
-into bounded detached bytes, ends the borrow, invokes the bounded CSharpText
-reader, and settles the lease before publishing resource-free evidence.
+Metadata with a Library by assembly identity. The operation consumes one
+transferred `LibraryOperationLease`, snapshots one exact associated XML content
+reference into bounded detached bytes, ends the borrow, conditionally transfers
+the lease to one pre-authorized authored-source operation, and settles every
+requested channel before publishing resource-free evidence.
 Cancellation and the absolute deadline are observed at each synchronous stage
 boundary; CSharpText's document, member, child, depth, and retained-text limits
 bound the non-interruptible scan itself. Its current `XmlException` contract
@@ -35,10 +37,13 @@ contract. Inspect Web package and platform member documentation now consume
 those House-backed query paths through generated TypeScript declarations.
 PlatformHouse's superseded subject-level documentation contracts are removed.
 The CLI now composes package, direct-Library, and platform reference-pack
-compiled documentation through the same House-backed Queries paths. The
-SourceHouse authored-documentation operation is implemented as a cold,
-single-use adapter over one pre-authorized exact request. The authored channel,
-field settlement, and remaining legacy retirement remain staged.
+compiled documentation through the same House-backed Queries paths.
+`SourceHouseDocumentationHouseAdapter` creates the cold, single-use operation
+for one pre-authorized exact request. DocumentationHouse now invokes that
+source-neutral operation for explicit authored or combined demand, preserves
+both terminal attempts, settles field evidence, and records the final lease
+consumer. Queries projection, host adoption, and remaining legacy retirement
+remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -591,11 +596,13 @@ source/document limits, and deadline before transferring the lease once to
 SourceHouse. Operation-local exits settle the lease locally. After transfer,
 the adapter accepts only the exact SourceHouse request and receipt evidence,
 uses the complete decoded physical document plus the #6584 exact declaration
-span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain
-the CSharpText result, bounded work, opaque source/declaration evidence
-references when available, and the final lease consumer without retaining
-SourceHouse types or live authority. DocumentationHouse core does not invoke
-this operation until slice 18 adds authored demand and channel settlement.
+span, and invokes `CSharpAuthoredDocumentation`. Its terminal outcomes retain the CSharpText result, bounded work, opaque
+source/declaration evidence references when available, and the final lease
+consumer without retaining SourceHouse types or live authority.
+DocumentationHouse core invokes the operation only for explicit authored or
+combined demand. Terminal outcomes and receipts snapshot resource-free request
+and plan evidence, including the authored binding and limits but not the
+one-shot operation capability.
 
 DocumentationHouse consumes the returned owner-issued evidence and preserves
 it with the SourceHouse receipt. It does not upgrade filename inference,
@@ -994,7 +1001,8 @@ assembly and XML companion in the .NET 11 reference pack.
     authored-documentation operation;
 17. **Completed.** Add the SourceHouse-to-DocumentationHouse integration
     adapter;
-18. add authored-source channel and field settlement to DocumentationHouse;
+18. **Completed.** Add authored-source channel and field settlement to
+    DocumentationHouse;
 19. extend Queries with authored-source documentation evidence;
 20. adopt authored-source documentation in Inspect Web;
 21. adopt authored-source documentation in the CLI and remove the remaining
@@ -1076,6 +1084,21 @@ issue #8017 evidence choice, this slice adds no repository-wide
 source-dependency absence rule; project references establish the intended
 direction, while Release behavior and adversarial design review provide the
 slice evidence.
+
+`AuthoredSourceDocumentationSettlementTests` gates core adoption. Its real
+combined-channel scenario adds an associated compiler-XML companion to the
+build-attested `MemberTextSlicer.ExtractMemberText` Library, proves that XML
+availability does not suppress the exact SourceHouse read or physical
+declaration attestation, retains both available attempts, preserves their
+different summaries as one conflict, and names SourceHouse as the final lease
+consumer. Neighboring gates prove operation-unavailable House settlement,
+foreign-binding rejection before either channel, continuation after every
+terminal compiled-attempt kind, mapping of every authored non-success,
+selected/corroborated/conflicting/absent field evidence, rejection of a foreign
+produced binding after transfer, and preservation of the operation's typed
+`AlreadyInvoked` result across repeated House execution. The public
+outcome-closure gate includes request evidence, authored attempts, and field
+settlement and continues to reject live resource types.
 
 `PackageHouseExecutionTests` gates the PackageHouse adapter over real
 `System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 
 using ILInspector.Decompiler.Pipeline;
@@ -7,15 +6,14 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// Post-F2 (#2386) measurement: count the stack-slot webs still present at the
-/// late slots-only ExpressionInliningPass boundary, before SlotMaterializationPass
-/// turns eligible survivors into typed locals. This is C2/#2209 entry evidence,
-/// not a product gate.
+/// late slots-only ExpressionInliningPass boundary, across intervening raises,
+/// and before/after SlotMaterializationPass turns eligible survivors into typed
+/// locals. This is C2/#2209 entry evidence, not a product gate.
 /// </summary>
 static class SlotResidualCensus
 {
     public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
-        (int f2Index, int materializationIndex) = PassIndices();
         var totals = new Totals();
         var residuals = new Dictionary<DeferralClass, (long Count, string Example)>();
         var vetoes = new Dictionary<SlotMaterializationVeto, (long Count, string Example)>();
@@ -38,15 +36,13 @@ static class SlotResidualCensus
 
                 SlotSnapshot before;
                 SlotSnapshot after;
+                SlotSnapshot beforeMaterialization;
                 SlotSnapshot afterMaterialization;
                 IReadOnlyList<SlotMaterializationDecision> decisions;
                 try
                 {
-                    (before, after, afterMaterialization, decisions) = RunToMaterialization(
+                    (before, after, beforeMaterialization, afterMaterialization, decisions) = Measure(
                         function,
-                        IrPasses.Default,
-                        f2Index,
-                        materializationIndex,
                         method => IrImporter.Import(source, method));
                 }
                 catch (Exception ex)
@@ -66,6 +62,9 @@ static class SlotResidualCensus
                 totals.AfterStores += after.StoreCount;
                 totals.AfterLoads += after.LoadCount;
                 totals.AfterSlots += after.Slots.Count;
+                totals.BeforeMaterializationStores += beforeMaterialization.StoreCount;
+                totals.BeforeMaterializationLoads += beforeMaterialization.LoadCount;
+                totals.BeforeMaterializationSlots += beforeMaterialization.Slots.Count;
                 totals.AfterMaterializationStores += afterMaterialization.StoreCount;
                 totals.AfterMaterializationLoads += afterMaterialization.LoadCount;
                 totals.AfterMaterializationSlots += afterMaterialization.Slots.Count;
@@ -73,7 +72,11 @@ static class SlotResidualCensus
                     totals.MethodsWithResidual++;
                 if (after.StoreCount < before.StoreCount || after.LoadCount < before.LoadCount)
                     totals.MethodsImproved++;
-                if (afterMaterialization.Slots.Count < after.Slots.Count)
+                if (beforeMaterialization.StoreCount < after.StoreCount || beforeMaterialization.LoadCount < after.LoadCount)
+                    totals.MethodsWithInterveningRemovals++;
+                if (beforeMaterialization.Slots.Count > 0)
+                    totals.MethodsWithMaterializationEntryResidual++;
+                if (afterMaterialization.Slots.Count < beforeMaterialization.Slots.Count)
                     totals.MethodsMaterialized++;
                 if (afterMaterialization.Slots.Count > 0)
                     totals.MethodsWithMaterializationResidual++;
@@ -118,14 +121,16 @@ static class SlotResidualCensus
         Console.WriteLine();
         Console.WriteLine($"F2 SLOT RESIDUAL CENSUS over {scope} ({totals.PassBugs} pass bugs)");
         Console.WriteLine();
-        Console.WriteLine("| Metric | Before late F2 | After late F2 | After materialization | F2 delta | Materialization delta |");
-        Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: |");
-        Row("StoreStackSlot nodes", totals.BeforeStores, totals.AfterStores, totals.AfterMaterializationStores);
-        Row("LoadStackSlot nodes", totals.BeforeLoads, totals.AfterLoads, totals.AfterMaterializationLoads);
-        Row("Distinct stack slots", totals.BeforeSlots, totals.AfterSlots, totals.AfterMaterializationSlots);
+        Console.WriteLine("| Metric | Before late F2 | After late F2 | Before materialization | After materialization | F2 delta | Intervening delta | Materialization delta |");
+        Console.WriteLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+        Row("StoreStackSlot nodes", totals.BeforeStores, totals.AfterStores, totals.BeforeMaterializationStores, totals.AfterMaterializationStores);
+        Row("LoadStackSlot nodes", totals.BeforeLoads, totals.AfterLoads, totals.BeforeMaterializationLoads, totals.AfterMaterializationLoads);
+        Row("Distinct stack slots", totals.BeforeSlots, totals.AfterSlots, totals.BeforeMaterializationSlots, totals.AfterMaterializationSlots);
         Console.WriteLine();
         Console.WriteLine($"Methods with F2 removals: {totals.MethodsImproved}");
         Console.WriteLine($"Methods with post-F2 residual slots: {totals.MethodsWithResidual}");
+        Console.WriteLine($"Methods with intervening removals: {totals.MethodsWithInterveningRemovals}");
+        Console.WriteLine($"Methods with materialization-entry residual slots: {totals.MethodsWithMaterializationEntryResidual}");
         Console.WriteLine($"Methods with materialized slots: {totals.MethodsMaterialized}");
         Console.WriteLine($"Methods with post-materialization residual slots: {totals.MethodsWithMaterializationResidual}");
         Console.WriteLine();
@@ -180,10 +185,11 @@ static class SlotResidualCensus
 
         return totals.PassBugs > 0 ? 1 : 0;
 
-        void Row(string label, long before, long afterF2, long afterMaterialization)
+        void Row(string label, long before, long afterF2, long beforeMaterialization, long afterMaterialization)
             => Console.WriteLine(
-                $"| {label} | {before} | {afterF2} | {afterMaterialization} | "
-                + $"{afterF2 - before:+#;-#;0} | {afterMaterialization - afterF2:+#;-#;0} |");
+                $"| {label} | {before} | {afterF2} | {beforeMaterialization} | {afterMaterialization} | "
+                + $"{afterF2 - before:+#;-#;0} | {beforeMaterialization - afterF2:+#;-#;0} | "
+                + $"{afterMaterialization - beforeMaterialization:+#;-#;0} |");
     }
 
     static (int F2, int Materialization) PassIndices()
@@ -202,13 +208,17 @@ static class SlotResidualCensus
         throw new InvalidOperationException("Could not find late F2 ExpressionInliningPass before SlotMaterializationPass.");
     }
 
-    static (SlotSnapshot Before, SlotSnapshot AfterF2, SlotSnapshot AfterMaterialization, IReadOnlyList<SlotMaterializationDecision> Decisions) RunToMaterialization(
+    internal static (
+        SlotSnapshot BeforeF2,
+        SlotSnapshot AfterF2,
+        SlotSnapshot BeforeMaterialization,
+        SlotSnapshot AfterMaterialization,
+        IReadOnlyList<SlotMaterializationDecision> Decisions) Measure(
         IrFunction function,
-        ImmutableArray<IIrPass> passes,
-        int f2Index,
-        int materializationIndex,
         Func<MethodRef, IrFunction?> importMethodBody)
     {
+        var passes = IrPasses.Default;
+        (int f2Index, int materializationIndex) = PassIndices();
         var context = PassContext.ForImport(importMethodBody);
         SlotSnapshot? before = null;
         SlotSnapshot? afterF2 = null;
@@ -227,6 +237,7 @@ static class SlotResidualCensus
                 if (before is null || afterF2 is null)
                     throw new InvalidOperationException("Slot materialization was reached before the late F2 measurement.");
 
+                var beforeMaterialization = SlotSnapshot.Capture(function);
                 var decisions = SlotMaterializationPass.Analyze(function);
                 var decisionWebs = new HashSet<SlotWebIdentity>(SlotWebIdentityComparer.Instance);
                 foreach (var decision in decisions)
@@ -235,9 +246,9 @@ static class SlotResidualCensus
                         throw new InvalidOperationException(
                             $"Slot materialization issued duplicate decisions for scope {decision.Scope.GetType().Name} slot {decision.Slot}.");
                 }
-                if (!decisionWebs.SetEquals(afterF2.Slots.Keys))
+                if (!decisionWebs.SetEquals(beforeMaterialization.Slots.Keys))
                     throw new InvalidOperationException(
-                        $"Slot materialization decisions do not identify the exact {afterF2.Slots.Count} post-F2 slot webs.");
+                        $"Slot materialization decisions do not identify the exact {beforeMaterialization.Slots.Count} materialization-entry slot webs.");
 
                 passes[i].Run(function, context);
                 function.CheckInvariant();
@@ -249,7 +260,7 @@ static class SlotResidualCensus
                 if (!deferredWebs.SetEquals(afterMaterialization.Slots.Keys))
                     throw new InvalidOperationException(
                         $"Slot materialization decisions do not identify the exact {afterMaterialization.Slots.Count} retained slot webs.");
-                return (before, afterF2, afterMaterialization, decisions);
+                return (before, afterF2, beforeMaterialization, afterMaterialization, decisions);
             }
             passes[i].Run(function, context);
             function.CheckInvariant();
@@ -322,10 +333,15 @@ static class SlotResidualCensus
         public long AfterStores;
         public long AfterLoads;
         public long AfterSlots;
+        public long BeforeMaterializationStores;
+        public long BeforeMaterializationLoads;
+        public long BeforeMaterializationSlots;
         public long AfterMaterializationStores;
         public long AfterMaterializationLoads;
         public long AfterMaterializationSlots;
         public long MethodsImproved;
+        public long MethodsWithInterveningRemovals;
+        public long MethodsWithMaterializationEntryResidual;
         public long MethodsWithResidual;
         public long MethodsMaterialized;
         public long MethodsWithMaterializationResidual;
@@ -345,7 +361,7 @@ static class SlotResidualCensus
         IncrementTarget,
     }
 
-    sealed record SlotSnapshot(IReadOnlyDictionary<SlotWebIdentity, SlotWeb> Slots)
+    internal sealed record SlotSnapshot(IReadOnlyDictionary<SlotWebIdentity, SlotWeb> Slots)
     {
         public long StoreCount => Slots.Values.Sum(slot => slot.Stores.Count);
         public long LoadCount => Slots.Values.Sum(slot => slot.Loads.Count);
@@ -378,7 +394,7 @@ static class SlotResidualCensus
         }
     }
 
-    sealed class SlotWeb(int slot, bool isInsideNestedFunction)
+    internal sealed class SlotWeb(int slot, bool isInsideNestedFunction)
     {
         public int Slot { get; } = slot;
         public List<SlotSite> Stores { get; } = [];
@@ -386,7 +402,7 @@ static class SlotResidualCensus
         public bool IsInsideNestedFunction { get; } = isInsideNestedFunction;
     }
 
-    readonly record struct SlotWebIdentity(IrNode Scope, int Slot);
+    internal readonly record struct SlotWebIdentity(IrNode Scope, int Slot);
 
     sealed class SlotWebIdentityComparer : IEqualityComparer<SlotWebIdentity>
     {
@@ -399,7 +415,7 @@ static class SlotResidualCensus
             => HashCode.Combine(RuntimeHelpers.GetHashCode(obj.Scope), obj.Slot);
     }
 
-    sealed record SlotSite(IrNode Node, Block? Block);
+    internal sealed record SlotSite(IrNode Node, Block? Block);
 
     static Block? EnclosingBlock(IrNode node)
     {
