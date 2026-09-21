@@ -266,7 +266,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             string[] arguments =
             [
                 "package", $"{packageName}@1.0.0",
-                "--all-libraries",
+                "--library",
                 .. targetFramework is null ? Array.Empty<string>() : ["--tfm", targetFramework],
                 "-S", "Integration Opportunities",
                 "--source", source,
@@ -1146,7 +1146,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             File.WriteAllBytes(archive, Archive([.. entries]));
             string[] arguments =
             [
-                "package", archive, "--all-libraries",
+                "package", archive, "--library",
                 "--tfm", shape == "all-frameworks" ? "all" : "net11.0",
                 "-S", "Integration Opportunities", "--markdown",
                 "--offline", "--no-nuget-cache", "--verbose", "--tips", "q",

@@ -353,15 +353,14 @@ public static class StructuralViewRegistry
     public static bool TryClassifyCommandless(
         string[] tokens,
         bool structuralDiscovery,
+        bool hasBareLibraryTarget,
         out CommandlessStructuralRoute? classification)
     {
         classification = null;
         if (tokens.Length == 0)
             return false;
 
-        if (CommandLineHelpers.IsBooleanOptionEnabled(
-                tokens,
-                "--all-libraries"))
+        if (hasBareLibraryTarget)
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -392,14 +391,25 @@ public static class StructuralViewRegistry
 
             if (nupkgPath is not null)
             {
-                StructuralViewIdentity view =
+                bool aggregateLibrary =
+                    hasBareLibraryTarget;
+                bool exactLibraryTarget =
                     ContainsOption(tokens, "--library")
+                    && !hasBareLibraryTarget
+                    || ContainsOption(tokens, "--namesake-library");
+                StructuralViewIdentity view = aggregateLibrary
+                    ? StructuralViewIdentity.PackageAllLibraries
+                    : exactLibraryTarget
                         ? StructuralViewIdentity.PackageSingleLibrary
                         : StructuralViewIdentity.Package;
-                InspectionCatalogIdentity catalog =
-                    view == StructuralViewIdentity.Package
-                        ? InspectionCatalogIdentity.Package
-                        : InspectionCatalogIdentity.Library;
+                InspectionCatalogIdentity catalog = view switch
+                {
+                    StructuralViewIdentity.PackageAllLibraries =>
+                        InspectionCatalogIdentity.LibraryAggregate,
+                    StructuralViewIdentity.PackageSingleLibrary =>
+                        InspectionCatalogIdentity.Library,
+                    _ => InspectionCatalogIdentity.Package,
+                };
                 classification = new CommandlessStructuralRoute(
                     Route(view, catalog),
                     [PackageCommand.Name, .. tokens]);

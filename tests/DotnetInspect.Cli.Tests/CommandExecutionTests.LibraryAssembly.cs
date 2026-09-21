@@ -2120,13 +2120,15 @@ public partial class CommandExecutionTests
         // SourceLink document — network-free. Newtonsoft's PDB is external (snupkg), so warm the
         // symbol cache first with an explicit render; discovery then resolves it cache-only.
         var (warmExit, _, _) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-S", "SourceLink: Availability", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-S", "SourceLink: Availability", "--tips", "q");
         Assert.Equal(0, warmExit);
 
         // Full effective discovery is the explicit larger-budget gesture that may open the warmed
         // PDB. SourceLink members stay behind their domain door, never in the flat base catalog.
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "--effective",
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-D", "--effective",
             "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -2139,7 +2141,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("@Hidden", output);
 
         var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "@SourceLink", "--table", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
+            "-D", "@SourceLink", "--table", "--tips", "q");
 
         Assert.Equal(0, sourceExit);
         Assert.DoesNotContain("Tip:", sourceError);
@@ -2662,7 +2665,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SourceFilesSection_TypeFilterAndPreferRenderedUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json",
+            "library", "--package", "Newtonsoft.Json", "--namesake-library",
             "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -3116,7 +3119,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsUnifiedSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Microsoft.Extensions.AI", "-D", "@Integrations",
+            "library", "--package", "Microsoft.Extensions.AI",
+            "--namesake-library", "-D", "@Integrations",
             "--effective", "--table");
 
         Assert.Equal(0, exit);
@@ -3527,7 +3531,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionBlobs_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--all-libraries", "-S", "Integrations", "--rows", "20");
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Blobs@1.5.3", "--library", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -3540,7 +3544,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--all-libraries", "-S", "Integrations", "--rows", "20");
+            "package", "Azure.Extensions.AspNetCore.DataProtection.Keys@1.6.3", "--library", "-S", "Integrations", "--rows", "20");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);

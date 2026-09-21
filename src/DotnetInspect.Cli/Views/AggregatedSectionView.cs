@@ -3,7 +3,7 @@ using Markout;
 namespace DotnetInspect.Cli.Views;
 
 /// <summary>
-/// One <c>--all-libraries</c> section whose heading and columns are both runtime values.
+/// One aggregate Library section whose heading and columns are both runtime values.
 /// </summary>
 /// <remarks>
 /// <para>

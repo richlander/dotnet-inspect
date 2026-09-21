@@ -228,7 +228,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
         RouteInvocation invocation =
             await InvokeAsync(
                 "NoSuchRouteTarget",
-                "--all-libraries",
+                "--library",
                 "-n",
                 "2",
                 "--offline");
@@ -257,7 +257,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
         RouteInvocation invocation =
             await InvokeAsync(
                 "NoSuchRouteTarget",
-                "--all-libraries",
+                "--library",
                 "--offline");
 
         Assert.Contains(

@@ -1673,14 +1673,14 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries",
+                "package", packagePath, "--library",
                 "-S", "Library Info", "--json", "--fields", "Assembly Version",
                 "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "--all-libraries cannot be combined with --fields",
+                "Library aggregate inspection cannot be combined with --fields",
                 error);
         }
         finally
@@ -1792,22 +1792,21 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Package.That.Must.Not.Resolve", error);
     }
 
-    [Theory]
-    [InlineData("--library")]
-    [InlineData("--all-libraries")]
-    public async Task ProjectedJsonRoutingAudit_PackageLibraryRootsFailBeforeOutput(
-        string mode)
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageLibraryRootsFailBeforeOutput()
     {
         var (exit, output, error) = await RunAppAsync(
             "--offline",
             "package", "Package.That.Must.Not.Resolve",
-            mode,
+            "--library",
             "-S", "Library Info",
             "--roots", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains($"{mode} cannot be combined with --roots.", error);
+        Assert.Contains(
+            "Library aggregate inspection cannot be combined with --roots.",
+            error);
         Assert.DoesNotContain("Package.That.Must.Not.Resolve", error);
     }
 

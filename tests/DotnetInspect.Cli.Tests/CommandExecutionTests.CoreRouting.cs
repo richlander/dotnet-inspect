@@ -3361,8 +3361,10 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(packagePath, "--library", "-S", "Library Info");
 
             Assert.Equal(0, exit);
-            Assert.Contains("# Test.Primary.dll", output);
-            Assert.Contains("## Library Info", output);
+            Assert.Contains("# Test.Primary 1.0.0", output);
+            Assert.Contains(
+                "## Library Info (lib/net10.0/Test.Primary.dll)",
+                output);
             Assert.DoesNotContain("## Package Info", output);
             Assert.DoesNotContain("Tip:", error);
         }
@@ -3705,7 +3707,10 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
-        Assert.Contains("# Newtonsoft.Json.dll", routed.Output);
+        Assert.Contains("# newtonsoft.json 13.0.4", routed.Output);
+        Assert.Contains(
+            "## Library Info (lib/net6.0/Newtonsoft.Json.dll)",
+            routed.Output);
     }
 
     [Fact]
