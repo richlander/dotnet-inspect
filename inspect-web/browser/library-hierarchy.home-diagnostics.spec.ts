@@ -369,6 +369,7 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   });
 
   await page.locator("#diagnostics-product").click();
+  await page.locator('[data-product-destination="home"]').click();
   await expect(page).toHaveURL("/");
   await expect(page.locator("main h1")).toBeFocused();
 
