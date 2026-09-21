@@ -457,6 +457,18 @@ function createValueDecoder<TResult>(): BoundedPayloadDecoder<TResult> {
   };
 }
 
+export function decodeEngineWorkerJsonValue<TResult>(
+  value: unknown,
+): BoundedPayloadDecodeResult<TResult> {
+  try {
+    return createValueDecoder<TResult>().decode(
+      encodeTransportTuple([value], "Worker inspection value"));
+  } catch (error: unknown) {
+    if (!(error instanceof OrdinaryPayloadError)) throw error;
+    return rejectedPayload(error);
+  }
+}
+
 function isVoidMarker(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return false;

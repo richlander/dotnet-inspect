@@ -1344,6 +1344,7 @@ public sealed record BrowserAnnotatedSource
 [JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserMemberSource))]
 [JsonSerializable(typeof(BrowserTypeSourceResult))]
+[JsonSerializable(typeof(BrowserTypeCodeView.ApiDeclarations))]
 [JsonSerializable(typeof(BrowserTypeSourceCancellation))]
 [JsonSerializable(typeof(BrowserMethodBodyTargetsResult))]
 [JsonSerializable(typeof(BrowserMethodBodyComparisonResult))]
