@@ -31,6 +31,9 @@ with the fixed-head review rule.
 - **One branch and one worktree per slice**, as for any PR. Branch slice N+1
   from slice N's branch rather than `origin/main`:
   `git worktree add -b <slice-branch> <path> <parent-branch>`.
+- **During a GitHub outage**, branch from the recorded last-known base or
+  parent. When access returns, update and validate the stack bottom-up before
+  pushing any slice.
 - **Target the parent branch** so the PR diff shows only its own slice:
   `gh pr create --base <parent-branch>`.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
