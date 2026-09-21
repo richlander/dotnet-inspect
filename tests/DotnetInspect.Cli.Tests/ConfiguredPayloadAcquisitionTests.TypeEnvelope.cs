@@ -292,7 +292,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     public async Task Depends_Envelope_RetainsRejectedParticipantDiagnostics(bool includeValidAssembly)
     {
         string rejected = Path.Combine(_root, "unsupported.dll");
-        File.WriteAllBytes(rejected, TimelineCommandTests.BuildWindowsMetadataImage());
+        File.WriteAllBytes(rejected, MetadataTestImages.BuildWindowsMetadataImage());
         var result = await RunEnvelopeCommandAsync(
             ["depends", typeof(AssemblyReferenceIdentity).FullName!,
                 "--library", rejected,
