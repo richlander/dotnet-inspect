@@ -72,20 +72,45 @@ public sealed class PackagePlatformLibraryMaterializerTests
                 Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
                     await EcosystemPopulationLoadOperation.InvokeAsync(
                         known.CreateRequest(inputs, cancellationToken)));
+        EcosystemPopulationAdmissionResult admission =
+                await EcosystemPopulationAdmissionOperation.AdmitAsync(
+                    workspace,
+                    outcome);
 
-        Assert.Equal(2, outcome.Owners.Libraries.Count);
+        Assert.Equal(2, admission.Libraries.Count);
         Assert.All(
-                outcome.Owners.Libraries,
-                static library =>
+                admission.Libraries,
+                static correspondence =>
                 {
                     Assert.Equal(
                         EcosystemPopulationLibraryRole.Focus,
-                        library.Roles);
+                        correspondence.LoadedLibrary.Roles);
                     Assert.IsType<PackageReferenceArtifactProvenance>(
                         Assert.IsType<PlatformLibraryArtifactProvenance>(
-                                library.Reference.ApiAssembly
+                                correspondence.LoadedLibrary
+                                    .Reference.ApiAssembly
                                     .ArtifactReference.Provenance)
                             .SourceProvenance);
+                });
+        Assert.Equal(2, admission.Contributions.Count);
+        var accepted =
+                Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                    Assert.IsType<
+                            EcosystemPopulationChildAdmission.Attempted>(
+                            Assert.Single(admission.ChildAdmissions))
+                        .Outcome);
+        Assert.Same(revision, accepted.Receipt.RegistrationRevision);
+        Assert.All(
+                admission.Libraries,
+                correspondence =>
+                {
+                    Assert.Same(outcome.Receipt, correspondence.LoadReceipt);
+                    Assert.Same(
+                        accepted.Receipt,
+                        correspondence.Admission);
+                    Assert.Same(
+                        correspondence.LoadedLibrary.Reference,
+                        correspondence.Occurrence.Library);
                 });
         Assert.Equal(
                 PlatformFamily.DotNetRuntime,
@@ -95,7 +120,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
                     .Target
                     .Family);
 
-        await outcome.Owners.DisposeAsync();
+        await workspace.CloseAsync();
         await environment.AssertSettledAsync();
     }
 
