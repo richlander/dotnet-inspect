@@ -10,6 +10,66 @@ public static class RowQueryExecutor
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(plan);
 
+        IComparer<TRow>? baselineComparer =
+            ResolveBaselineComparer(plan);
+        List<TRow> selected =
+            Prepare(
+                rows,
+                plan,
+                baselineComparer);
+
+        return RowSelectionExecutor.Apply(
+            selected,
+            plan.SelectionPlan,
+            plan.ResolveOrder);
+    }
+
+    public static NamedRowSelectionResult<TRow> ApplyNamed<TRow>(
+        IReadOnlyList<NamedRowSequence<TRow>> sequences,
+        ResolvedRowQueryPlan<TRow> plan)
+    {
+        ArgumentNullException.ThrowIfNull(sequences);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        var prepared =
+            new NamedRowSequence<TRow>[sequences.Count];
+        var keys = new HashSet<RowSequenceKey>();
+        IComparer<TRow>? baselineComparer =
+            ResolveBaselineComparer(plan);
+        for (int index = 0; index < sequences.Count; index++)
+        {
+            NamedRowSequence<TRow> sequence =
+                sequences[index]
+                ?? throw new ArgumentNullException(
+                    nameof(sequences),
+                    $"Sequence {index + 1} is null.");
+            if (!keys.Add(sequence.Key))
+            {
+                throw new ArgumentException(
+                    $"Sequence key {sequence.Key.Value} is duplicated.",
+                    nameof(sequences));
+            }
+            List<TRow> rows = Prepare(
+                sequence.Values,
+                plan,
+                baselineComparer);
+            prepared[index] =
+                NamedRowSequence<TRow>.Create(
+                    sequence.Key,
+                    rows);
+        }
+
+        return RowSelectionExecutor.ApplyNamed(
+            prepared,
+            plan.SelectionPlan,
+            plan.ResolveOrder);
+    }
+
+    private static List<TRow> Prepare<TRow>(
+        IReadOnlyList<TRow> rows,
+        ResolvedRowQueryPlan<TRow> plan,
+        IComparer<TRow>? baselineComparer)
+    {
         var selected = new List<TRow>(rows.Count);
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
@@ -30,20 +90,24 @@ public static class RowQueryExecutor
                 selected.Add(row);
         }
 
-        if (plan.BaselineOrder is not null)
+        if (baselineComparer is not null)
         {
-            IComparer<TRow> comparer =
-                plan.CreateBaselineComparer()
-                ?? throw new InvalidOperationException(
-                    "A resolved baseline order produced no comparer.");
             if (selected.Count > 1)
-                StableSort(selected, comparer);
+                StableSort(selected, baselineComparer);
         }
 
-        return RowSelectionExecutor.Apply(
-            selected,
-            plan.SelectionPlan,
-            plan.ResolveOrder);
+        return selected;
+    }
+
+    private static IComparer<TRow>? ResolveBaselineComparer<TRow>(
+        ResolvedRowQueryPlan<TRow> plan)
+    {
+        if (plan.BaselineOrder is null)
+            return null;
+
+        return plan.CreateBaselineComparer()
+            ?? throw new InvalidOperationException(
+                "A resolved baseline order produced no comparer.");
     }
 
     private static void StableSort<TRow>(
