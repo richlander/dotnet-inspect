@@ -3,12 +3,11 @@
 ## Status
 
 **Implemented substrate and first vocabulary; sharing adoption pending.**
-`DotnetInspector.QueryEngine` currently carries the intent type, identity
-texts, semantic orders, canonical payload codec, vocabulary abstraction, and
-atomic resolver under the existing `DotnetInspector.PortableQueries`
-namespace. [QuerySpace Library Boundary](query-space-library.md) owns the
-target physical and namespace migration without changing this owner's
-semantics. The Release
+`QuerySpace` carries the intent type, identity texts, semantic orders,
+canonical payload codec, vocabulary abstraction, and atomic resolver under the
+root `QuerySpace` namespace. [QuerySpace Library
+Boundary](query-space-library.md) owns that physical and namespace composition
+without changing this owner's semantics. The Release
 gates in [Required gates](#required-gates) enforce that substrate. Package Query
 now supplies the first production vocabulary and both CLI and Browser lower
 through it. Definitions record binding, packet projection, and share-link

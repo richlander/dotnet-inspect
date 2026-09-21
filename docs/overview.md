@@ -141,9 +141,13 @@ substrates, and inspection producers that will extend that space.
   projected from that exact retained content and selection intent. Package
   Dependency Traversal retains that complete context as a typed root source
   without moving its package-local asset or group selection, retains one
-  traversal target for compatible candidate-manifest selection, and leaves
-  Platform-pruned route composition to the Workspace operation that selected
-  the relevant ecosystem. The
+  traversal target for compatible candidate-manifest selection, and hands
+  each root-relative resolved edge to
+  [package dependency edge
+  realization](design/package-dependency-edge-realization.md). That query
+  prepares exact candidate-bound PackageHouse compile realization under the
+  traversal target and optionally retains exact Platform pruning before the
+  later Workspace route composition. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued

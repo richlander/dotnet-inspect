@@ -99,14 +99,26 @@ returning `InspectionEnvelope<AssemblyTypeSourceEntry>` with explicit
 non-projectable Share. Browser Type Source consumes its content through the
 existing browser projection and operation/cancellation bridge. Its wire shape,
 source policy, viewer, and rendering substrate remain unchanged.
+`TypeSourceInspection.DecompileAsync` is the adjacent completed
+decompiled-only facade, returning
+`InspectionEnvelope<AssemblyTypeDecompilationEntry>` after exact Library and
+Artifact retirement. It accepts explicit supplied or adjacent Portable PDB
+content from the host but performs no authored-source acquisition and does not
+change this document's authored-first contract. Requests created from an
+`ApiType` retain its exact metadata identity and printer options, not its
+listing member collection. SourceHouse resolves and composes the complete exact
+type independently, so Browser fallback and ordinary CLI full-type source do
+not vary with default or `--all` listing accessibility.
 
 Retained-type acquisition followed PRs #7313, #7368, #7440, #7449, and #7502
 in the adapter-first path. It retired `AssemblyContextSourceQuery`'s type-side
 `PdbSourceHouse.AcquireTypeAsync` composition, not that public legacy API's
 remaining callers. #7953 retires the shared query's direct
 `CSharpDecompilerService.ProduceType` fallback in favor of exact-type
-SourceHouse settlement and adopts that result in Browser Type Source. Member
-and pair acquisition retain their current policies.
+SourceHouse settlement and adopts that result in Browser Type Source. #7963
+adopts the decompiled-only facade for ordinary CLI whole-type Decompiled Source
+and retires that host's direct `MemberBodyProducer.Project` call. Member and
+pair acquisition retain their current policies.
 
 The overall twelve-step plan in [SourceHouse](source-house.md#production-adoption)
 and #6512 includes both CLI and Browser/Wasm adoption. The CLI document slice
@@ -139,7 +151,9 @@ The following PR-fast Release gates define the delivery:
 | Gate | Claim |
 | --- | --- |
 | `AssemblyContextSourceQueryTests`, including `TypeSourceInspection_*` | Authored preference, native authored/decompilation House and Library evidence, one retained Library with fresh leases, independent finite bounds, type-document scope, and existing cancellation/currency/disposal behavior. |
+| `TypeDecompilationInspection_*` | Decompiled-only exact type identity, complete-type behavior despite a filtered request model, supplied/no-PDB input, native incomplete status, terminal Library admission, binding currency, settled operation leases, detached envelopes, and no authored or network requests. |
 | `TypeSourceInspection_Explicit*` | Exact primary/additional selection, ordinal membership, selected checksums, detached evidence, package/Platform authority and fallback coordinates, and unavailable/checksum/deadline results without decompiler substitution. |
+| CLI `Type_DecompiledSource_*`, `TypeWholeTypeDecompilerAcquisition_*`, and bodyless memory-safety cases | Ordinary whole-type SourceHouse adoption preserves complete source across default and `--all`, selected suppliers, symbol names, exact diagnostics, enum/bodyless distinctions, Markout/bare rendering, and lazy non-source paths; neighboring listing and exact-member cases retain their independent accessibility and target boundaries. |
 | `LocalRepoSourceProjectionTests.TypeSourceFilesPrint_SelectsExactRepositoryDocument` | The real CLI prints the exact first or second repository document while offline. |
 | `LocalRepoSourceProjectionTests.MemberSourceLocationsPrint_SelectsExactRepositoryDocument` | A member in either real partial-type document prints that exact whole file offline, under both URL preferences. |
 | `SourceForwarderResolutionTests.SourceDocumentAcquisition_UsesSelectedOpener` | Type/member document printing consumes the resolved descriptor through forwarding; listing performs no source-text transport, and unavailable printing fails visibly. |
