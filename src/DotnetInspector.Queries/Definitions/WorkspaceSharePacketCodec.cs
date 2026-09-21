@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
-using DotnetInspector.PortableQueries;
+using QuerySpace;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;

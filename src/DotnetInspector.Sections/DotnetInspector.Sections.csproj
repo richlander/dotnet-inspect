@@ -14,10 +14,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="QuerySpace.Rows" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../InertText/InertText.csproj" />
     <ProjectReference Include="../DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
+    <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,5 @@
-using DotnetInspector.RowSelection;
 
-namespace DotnetInspector.Sections;
+namespace QuerySpace.Rows;
 
 public enum RowQueryOperationKind
 {
@@ -370,11 +369,11 @@ public static class RowQueryResolver
         return RowQueryResolutionResult<TRow>.Success(
             new ResolvedRowQueryPlan<TRow>(
                 vocabulary.Identity,
-                QueryEngineSnapshot.Own(
+                QuerySpaceSnapshot.Own(
                     predicateKeyIdentities),
-                QueryEngineSnapshot.Own(predicates),
+                QuerySpaceSnapshot.Own(predicates),
                 baselineBinding,
-                QueryEngineSnapshot.Copy(
+                QuerySpaceSnapshot.Copy(
                     resolvedOrders),
                 baselineComparerFactory,
                 RowSelectionPlan<
@@ -579,9 +578,9 @@ public static class RowQueryResolver
                 comparerFactory,
                 null,
                 identity,
-                QueryEngineSnapshot.Empty<
+                QuerySpaceSnapshot.Empty<
                     RowQueryKeyIdentity>(),
-                QueryEngineSnapshot.Empty<
+                QuerySpaceSnapshot.Empty<
                     RowQueryOrderDirection>(),
                 direction);
 
@@ -593,8 +592,8 @@ public static class RowQueryResolver
                 comparerFactory,
                 null,
                 null,
-                QueryEngineSnapshot.Own(keyIdentities),
-                QueryEngineSnapshot.Own(keyDirections),
+                QuerySpaceSnapshot.Own(keyIdentities),
+                QuerySpaceSnapshot.Own(keyDirections),
                 null);
 
         public static OrderResolution<TRow> Failed(
@@ -603,9 +602,9 @@ public static class RowQueryResolver
                 null,
                 failure,
                 null,
-                QueryEngineSnapshot.Empty<
+                QuerySpaceSnapshot.Empty<
                     RowQueryKeyIdentity>(),
-                QueryEngineSnapshot.Empty<
+                QuerySpaceSnapshot.Empty<
                     RowQueryOrderDirection>(),
                 null);
     }
