@@ -310,11 +310,13 @@ ApiCoordinateCorrespondenceEvidence retainedMember = memberResult.Detach();
 
 Per
 [cross-Workspace composition and sharing](artifact-acquisition-and-workspaces.md#cross-workspace-composition-and-sharing),
-this is a bounded two-owner join, not shared resolution state. The observations
-are explicit resource-free association evidence. Each Workspace independently
-authorizes its own Root borrow, and destination resolution consumes only the
-destination realization. No Root, registration, binding context, resolution
-index, lease, or operation authority moves between the Workspaces.
+this operation does not make the Workspaces share resolution state. It borrows
+the exact source declaration through the source Workspace and independently
+resolves and matches the exact destination declaration through the destination
+Workspace. The query compares them while both accesses remain valid, and
+destination resolution consumes only the destination realization. No Root,
+registration, binding context, resolution index, lease, or operation authority
+moves between the Workspaces.
 
 The one-Workspace overload remains a convenience that supplies the same
 Workspace for both endpoint roles. Source binding borrows only through the

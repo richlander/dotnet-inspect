@@ -489,8 +489,8 @@ hidden cross-operation state.
 - Owner-specific Artifact, Library, Package Source, House, query, cache, or
   host algorithms.
 - A general service framework for simultaneous queries spanning several
-  Workspaces. A focused owner may define one bounded composition over exact
-  Workspace endpoints under
+  Workspaces. A focused owner may define one operation that names exact
+  Workspace endpoints and independently borrows through each under
   [cross-Workspace composition and sharing](artifact-acquisition-and-workspaces.md#cross-workspace-composition-and-sharing);
   that does not let this pattern retain or transfer their state.
 - Several materialized Workspaces retained for instant switching.

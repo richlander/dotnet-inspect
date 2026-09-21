@@ -4092,22 +4092,23 @@ resolution state or live access:
 | --- | --- | --- |
 | Roots, occurrence identities, registrations, binding contexts, query leases, reservations, and operation authority | Each realization owns distinct values. They are never transferred, relabeled, or inferred from equal coordinates or definitions. | Structurally isolated. |
 | Resource-free observations and detached evidence | An owner-defined operation may accept them as explicit inputs. They carry association or outcome evidence, never an opener or live authority. | Structurally composable after successful production; production itself may fail. |
-| Immutable package payloads, content generations, source-cache entries, and validated derivations | Realizations may hold independently releasable lower-owner references to the same backing content when that owner validates identity, authorization, freshness, and lifetime. | Optional reuse, never promised. |
+| Retained immutable package-content snapshots, source-cache entries, and validated derivations | Realizations may hold independently releasable lower-owner references to the same snapshot or backing content when that owner validates identity, authorization, freshness, and lifetime. | Optional reuse, never promised. |
 | Persistent-cache evidence | A cache-category owner may admit a validated result under its complete semantic key and current authorization contract. A hit never supplies Workspace identity or operation authority. | Optional reuse; a miss or invalid entry takes the ordinary typed path. |
 
-A focused operation may define one bounded join over exact inputs borrowed
-independently through two Workspaces. Each Workspace authorizes only its own
-Root and realization, either borrow may fail visibly, and borrowed content
-remains inside both owners' lifetimes. The operation may compare those inputs
-or detach resource-free evidence; it does not install one Workspace's Root,
-registration, binding context, resolution index, lease, or authority in the
-other. This is caller-orchestrated composition, not a general
+An owner-defined operation may name two exact Workspaces, borrow its source
+input through one, and independently borrow its destination input through the
+other. Each Workspace authorizes only its own Root and realization, either
+borrow may fail visibly, and borrowed content remains inside both owners'
+lifetimes. The operation may compare those inputs or detach resource-free
+evidence; it does not install one Workspace's Root, registration, binding
+context, resolution index, lease, or authority in the other. This is
+caller-orchestrated composition, not a general
 simultaneous-active-Workspace policy.
 
 Candidate, active, and draining realizations may therefore reuse lower-owner
 immutable backing without depending on that reuse. Closing a predecessor
 releases only its ownership. It cannot invalidate a successor's reference,
-relabel one content generation as another, or transfer a Root or live lease to
+relabel one retained snapshot as another, or transfer a Root or live lease to
 the successor. Coordinates and equal definitions never prove shared content
 identity. Deduplication, cache validity, aggregate reference counting, and
 final reclamation remain with their existing lower owners.
