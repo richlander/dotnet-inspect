@@ -322,6 +322,7 @@ producer contract with published-package measurements:
 | Package nuspec file | 31 matching paths in a boundary package | `Verbose` |
 | Dependencies | 150 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
 | Ecosystem Dependencies | 139 rows in `Microsoft.AspNetCore.App` 2.2.8 | `Verbose` |
+| Vulnerabilities | 31 matching advisories in a configured-feed boundary | `Verbose` |
 | Manifest | 36 rows in a tool boundary package with 31 RID-package declarations | `Verbose` |
 | Runtime Dependencies | 44 rows in `dotnet-outdated-tool` 4.8.1; 120 in `Microsoft.DotNet.Interactive` | `Verbose` |
 | Package skill files | 172 rows in `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 | `Verbose` |
@@ -330,16 +331,19 @@ Target Frameworks grows with distinct package-authored `lib/<tfm>` directories.
 Package nuspec file grows with every package path ending in `.nuspec`.
 Dependencies grow with package dependency declarations. Ecosystem Dependencies
 can project one or more recognized ecosystem associations for each declaration.
+Vulnerabilities adds every matching advisory from the configured feed.
 Manifest adds one row per package-authored RID-package declaration. Runtime
 Dependencies grow with package entries in tool `.deps.json` files, and Package
 skill files grows with matching `skills/**/SKILL.md` entries. None has a product
-row cap. Boundary package fixtures gate the Target Frameworks, nuspec-path, and
-RID-package cases that the published-package sample did not reach.
+row cap. Boundary fixtures gate the Target Frameworks, nuspec-path, RID-package,
+and vulnerability-feed cases that the published-package sample did not reach.
 
 The four compact witness packages are pinned as test assets and their exact
 row counts run through production package acquisition and projection in PR CI.
-The broader survey remains reproducible design evidence rather than a corpus
-gate. Domain, API, and other command families remain separate #3284 audit work.
+Generated package and configured-feed boundary cases run through the same
+product command. The broader survey remains reproducible design evidence rather
+than a corpus gate. Domain, API, and other command families remain separate
+work under issue #3284.
 
 ### Cost
 

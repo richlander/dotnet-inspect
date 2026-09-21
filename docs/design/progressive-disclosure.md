@@ -42,11 +42,11 @@ inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
 Symbols, and Signals.
 
 For package inspection, Target Frameworks, Package nuspec file, Dependencies,
-Ecosystem Dependencies, Manifest, Runtime Dependencies, and Package skill files
-are `Verbose`; they enter automatic output at `-v:d`, not `-v:n`. Exact section
-selection and the `@Package`, `@Files`, or `@Dependencies` doors remain
-available. The explicit-only whole-package and license-file listings remain
-outside every automatic verbosity preset.
+Ecosystem Dependencies, Vulnerabilities, Manifest, Runtime Dependencies, and
+Package skill files are `Verbose`; they enter automatic output at `-v:d`, not
+`-v:n`. Exact section selection and the `@Package`, `@Files`, `@Dependencies`,
+or `@Audit` doors remain available. The explicit-only whole-package and
+license-file listings remain outside every automatic verbosity preset.
 
 ## Categories
 

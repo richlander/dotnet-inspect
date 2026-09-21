@@ -341,7 +341,7 @@ public static class PackageSectionDescriptors
     {
         public static string Name => PackageSections.Vulnerabilities;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Moderated;
         public static bool CanRender(InspectionResult model)
             => model.Vulnerabilities is { Count: > 0 };

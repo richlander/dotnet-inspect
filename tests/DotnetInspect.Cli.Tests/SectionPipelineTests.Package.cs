@@ -149,6 +149,9 @@ public partial class SectionPipelineTests
         Assert.Equal(
             SectionSizeClass.Verbose,
             PackageSectionDescriptors.Manifest.SizeClass);
+        Assert.Equal(
+            SectionSizeClass.Verbose,
+            PackageSectionDescriptors.Vulnerabilities.SizeClass);
     }
 
     [Fact]
@@ -251,6 +254,7 @@ public partial class SectionPipelineTests
     [InlineData(PackageSections.FilesSkills)]
     [InlineData(PackageSections.FilesNuspec)]
     [InlineData(PackageSections.Manifest)]
+    [InlineData(PackageSections.Vulnerabilities)]
     public void PackagePipeline_MeasuredVerboseBaseInventoryRemainsExplicitlySelectable(
         string section)
     {
