@@ -68,7 +68,9 @@ public sealed class PdbLocalScopePass : IIrPass
                 continue;
             if (!function.IsLocalDeclaredInNestedScope(index))
                 continue;
-            var scopes = CSharpPrinter.LocalDeclarationScopes(function, function.Locals.Length);
+            var scopes = LocalDeclarationPlan
+                .Create(function, function.Locals.Length)
+                .DeclarationScopes;
             if (!group.Any(other => other != index
                 && ExactLocalNameAllocation.ScopesOverlap(scopes[index], scopes[other])))
             {
@@ -130,7 +132,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 index,
                 sameName,
                 range,
-                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                     function,
                     declaration,
                     block)))
@@ -232,7 +234,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 index,
                 sameName,
                 range,
-                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                     function,
                     declaration,
                     declarationBlock)))
@@ -292,7 +294,7 @@ public sealed class PdbLocalScopePass : IIrPass
         ref IrNode lastStatement)
     {
         IReadOnlySet<int>? labelsPrintedOutside =
-            CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+            LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                 function,
                 declaration,
                 declarationBlock);
@@ -439,7 +441,7 @@ public sealed class PdbLocalScopePass : IIrPass
                 index,
                 sameName,
                 range,
-                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                LocalDeclarationPlan.PdbLocalEntryLabelsPrintedOutside(
                     function,
                     declaration,
                     block)))
