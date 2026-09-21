@@ -12938,7 +12938,10 @@ function openPackageActivityRoute(
   focusPackageActivityInput();
 }
 
-function reportWorkspaceProductNavigationFailure(error: unknown): void {
+function reportWorkspaceProductNavigationFailure(
+  error: unknown,
+  navigationSeq: number,
+): void {
   console.error("Opening Workspace failed.", error);
   const message =
     `Opening Workspace failed: ${errorMessage(error) || "Unknown error."}`;
@@ -12949,6 +12952,7 @@ function reportWorkspaceProductNavigationFailure(error: unknown): void {
   }
   render();
   showToast(message);
+  afterNavigationFrame(navigationSeq, focusProductNavigationButton);
 }
 
 async function openWorkspaceProductDestination(): Promise<number | null> {
@@ -12992,7 +12996,7 @@ async function openWorkspaceProductDestination(): Promise<number | null> {
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return null;
   if (!fallbackPackage && projectionError !== null) {
-    reportWorkspaceProductNavigationFailure(projectionError);
+    reportWorkspaceProductNavigationFailure(projectionError, navigationSeq);
     return null;
   }
 

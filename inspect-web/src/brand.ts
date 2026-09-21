@@ -194,7 +194,7 @@ export function bindProductNavigation(
     if (!item || !root.contains(item) || item.disabled) return;
     const destination = item.dataset.productDestination;
     if (!isProductDestination(destination)) return;
-    closeOpenMenu(false);
+    closeOpenMenu(true);
     actions.onNavigate(destination);
   };
   const keyDownHandler = (event: KeyboardEvent) => {

@@ -63,6 +63,8 @@ test("pending platform Workspace projection keeps Query current", async ({
   await expect(page).toHaveURL(queryLocation);
   await expect(page.locator("#package-query-heading"))
     .toHaveText("Package query");
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toBeFocused();
 
   await page.locator("[data-product-navigation-button]").click();
   await expect(page.locator('[data-product-destination="query"]'))
@@ -112,6 +114,8 @@ test("Platform Workspace projection failure remains visible on Query", async ({
     .toHaveText("Package query");
   await expect(page.locator(".query-navigation-error"))
     .toContainText("Fixture workspace projection failure.");
+  await expect(page.locator("[data-product-navigation-button]"))
+    .toBeFocused();
 });
 
 test("Platform Library projection failure does not use package fallback", async ({
