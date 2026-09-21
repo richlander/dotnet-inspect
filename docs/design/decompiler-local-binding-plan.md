@@ -97,13 +97,15 @@ explicit presentation options for that render. It allocates in this order:
 1. establish exact parameters, generic binders, local-function declarations,
    and exact local identities under the complete C# declaration-space relation;
 2. preserve each usable exact local wherever its emitted declaration scope
-   permits the binding, and reserve every surviving exact, enclosing, and
-   descendant binder;
-3. when explicitly enabled, prefer an eligible approximate PDB-derived stem
+   permits the binding, including legal reuse across a raised nested-callable
+   boundary;
+3. reserve every exact, enclosing, and descendant binder that approximate or
+   generated presentation must conservatively avoid;
+4. when explicitly enabled, prefer an eligible approximate PDB-derived stem
    for an exact identity that cannot be emitted;
-4. use pass-issued synthesized names when present;
-5. use readable type/role synthesis when enabled; and
-6. use the stable slot-style fallback.
+5. use pass-issued synthesized names when present;
+6. use readable type/role synthesis when enabled; and
+7. use the stable slot-style fallback.
 
 Exact identities are never renamed merely to admit a synthesized preference.
 An approximate or synthesized spelling is presentation, not recovered source
@@ -126,9 +128,13 @@ physical live-range overlap and not string equality alone.
   other or where another binder reserves it under C# rules.
 - PDB-disjoint ranges do not authorize reuse when final emitted declarations
   overlap.
-- A nested body has its own local identity domain, but its parameters and
-  declarations still participate in the enclosing C# binder constraints that
-  make shadowing illegal.
+- A raised lambda or local function has its own local identity and declaration
+  domain. Exact nested parameters and locals may reuse a non-captured enclosing
+  parameter or local name where C# permits it.
+- Same-list duplicates, a collision with an actually referenced captured
+  binder, and flattened local-function declaration conflicts remain illegal.
+  Approximate and generated names conservatively avoid enclosing and descendant
+  binders rather than introducing optional shadowing.
 
 The planner operates on typed binding keys throughout. Rendered identifier text
 is an output checked for legality, never an input used to rediscover ownership.
