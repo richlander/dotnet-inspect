@@ -185,14 +185,18 @@ public partial class PackageCommand
                         path => temporaryPath = path))
                     .ConfigureAwait(false);
             InspectionResult? inspection = null;
+            string? requestedTargetFramework =
+                target.ContextTargetFramework
+                ?? target.Root.Root.RequestedTargetFramework
+                ?? target.Root.Root.AssetSelection.TargetFramework;
             InspectionOptions ordinaryOptions = options with
             {
                 WorkspacePacket = null,
                 ShareFormat = null,
-                Tfm =
-                    target.ContextTargetFramework
-                    ?? target.Root.Root.RequestedTargetFramework
-                    ?? target.Root.Root.AssetSelection.TargetFramework,
+                Tfm = options.WorkspaceLibrarySelection is null
+                    ? requestedTargetFramework
+                    : target.Root.Root.AssetSelection.TargetFramework
+                        ?? requestedTargetFramework,
                 WorkspaceLibraryAssetPaths =
                     options.WorkspaceLibrarySelection is null
                         ? null

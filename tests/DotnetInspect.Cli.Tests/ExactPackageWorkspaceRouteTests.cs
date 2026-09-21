@@ -257,6 +257,53 @@ public sealed class ExactPackageWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryWorkspaceCompatibleAssetSupportsNarrowing(
+        bool namesake)
+    {
+        const string packageId = "ILInspector.Metadata";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await CommitAsync(
+            store,
+            packageId,
+            Archive(
+                ($"lib/{CompatibleAssetFramework}/{packageId}.dll", assembly),
+                ($"{packageId}.nuspec", Nuspec(packageId))));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(packageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = packageId,
+            AssemblyName = namesake ? null : $"{packageId}.dll",
+            NamesakeLibrary = namesake,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"# {packageId}.dll ({CompatibleAssetFramework})",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PackageHelpAdvertisesWorkspaceAndShare()
     {
