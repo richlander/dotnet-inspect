@@ -42,9 +42,9 @@ export type ExactTypeInspectionFailureKind = number;
 
 export type ExactTypeInspectionOutcome = number;
 
-export type InspectionDiagnosticSeverity = number;
-
 export type InspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type InspectionDiagnosticSeverity = number;
 
 export type InspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
 
@@ -1038,3 +1038,4 @@ export async function queryTypeProjection(packageId: string, version: string, ta
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }
+

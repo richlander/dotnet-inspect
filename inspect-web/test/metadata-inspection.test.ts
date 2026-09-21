@@ -16,7 +16,6 @@ import type {
   ExplorerTableData,
   HeapListingData,
 } from "../src/metadata-viewer.ts";
-import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {

@@ -14,7 +14,6 @@ import {
   type LibraryApiDiffStateHost,
 } from "../src/library-api-diff.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
-import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 const appSource = readFileSync(
   new URL("../src/dotnet-inspect.ts", import.meta.url),

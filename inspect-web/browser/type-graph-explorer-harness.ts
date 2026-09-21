@@ -7,7 +7,6 @@ import {
   renderTypeMetadata, TYPE_RELATIONSHIPS_GRAPH_SUMMARY, typeMetadataSignature,
   type TypeSummary,
 } from "../src/type-panel.ts";
-import type { InertString } from "../src/facades/inspect-web-metadata.d.ts";
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -29,18 +28,6 @@ let retainedSvg: SVGSVGElement | null = null;
 let hold: Promise<void> | null = null;
 let releasePending: (() => void) | null = null;
 let pendingRender = Promise.resolve();
-
-function isMetadataInertString(value: unknown): value is InertString {
-  return typeof value === "string";
-}
-
-function metadataInertString(value: string): InertString {
-  const wireValue: unknown = value;
-  if (!isMetadataInertString(wireValue)) {
-    throw new TypeError("The inert string wire value must be a string.");
-  }
-  return wireValue;
-}
 
 declare global {
   interface Window {

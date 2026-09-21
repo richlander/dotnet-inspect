@@ -14,11 +14,11 @@ export type BrowserExactLibraryApiInspectionOutcome = number;
 
 export type BrowserExactLibraryApiProjectionLimit = number;
 
-export type BrowserInspectionPortableProjectionKind = "Available" | "NonProjectable" | number;
-
 export type BrowserInspectionContentKind = "result" | "document" | "outcome" | number;
 
 export type BrowserInspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
+
+export type BrowserInspectionPortableProjectionKind = "Available" | "NonProjectable" | number;
 
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
 
@@ -164,8 +164,8 @@ export interface BrowserExactLibraryApiFacet {
 }
 
 export interface BrowserExactLibraryApiInspection {
-  readonly content: BrowserExactLibraryApiInspectionResult;
   readonly contentKind: BrowserInspectionContentKind;
+  readonly content: BrowserExactLibraryApiInspectionResult;
   readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
@@ -263,8 +263,8 @@ export interface BrowserLibraryQueryFailure {
 }
 
 export interface BrowserLibraryQueryInspection {
-  readonly content: BrowserLibraryQueryDocument;
   readonly contentKind: BrowserInspectionContentKind;
+  readonly content: BrowserLibraryQueryDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
@@ -502,8 +502,8 @@ export interface BrowserPackageChangesFailure {
 }
 
 export interface BrowserPackageChangesInspection {
-  readonly content: BrowserPackageChangesDocument;
   readonly contentKind: BrowserInspectionContentKind;
+  readonly content: BrowserPackageChangesDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
@@ -682,8 +682,8 @@ export interface BrowserPackageIcon {
 }
 
 export interface BrowserPackageInfoMeasurementInspection {
-  readonly content: BrowserPackageInfoMeasurements;
   readonly contentKind: BrowserInspectionContentKind;
+  readonly content: BrowserPackageInfoMeasurements;
   readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
@@ -848,8 +848,8 @@ export interface BrowserPackageQueryFailure {
 }
 
 export interface BrowserPackageQueryInspection {
-  readonly content: BrowserPackageQueryDocument;
   readonly contentKind: BrowserInspectionContentKind;
+  readonly content: BrowserPackageQueryDocument;
   readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
@@ -983,8 +983,8 @@ export interface BrowserPackageVersionSettlementFailure {
 }
 
 export interface BrowserPackageVersionSettlementInspection {
-  readonly content: BrowserPackageVersionSettlementOutcome;
   readonly contentKind: BrowserInspectionContentKind;
+  readonly content: BrowserPackageVersionSettlementOutcome;
   readonly portableProjection: BrowserInspectionPortableProjection;
   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }
@@ -1913,3 +1913,4 @@ export function searchTypes(query: string, candidatesJson: ReadonlyArray<Browser
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }
+

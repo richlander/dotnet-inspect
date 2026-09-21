@@ -27,7 +27,6 @@ import type {
 } from "../src/facades/inspect-web-analysis.js";
 import type {
   BrowserLibraryApiDiffResult,
-  InertString,
   InspectionPortableProjection,
 } from "../src/facades/inspect-web-metadata.js";
 import {
@@ -50,18 +49,6 @@ import {
 import { selectFirstExactLibrary } from "./library-subject-actions.ts";
 
 type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
-
-function isMetadataInertString(value: unknown): value is InertString {
-  return typeof value === "string";
-}
-
-function metadataInertString(value: string): InertString {
-  const wireValue: unknown = value;
-  if (!isMetadataInertString(wireValue)) {
-    throw new TypeError("The inert string wire value must be a string.");
-  }
-  return wireValue;
-}
 
 const site = resolve(
   process.env.INSPECT_WEB_PACKAGE_ADOPTION_SITE

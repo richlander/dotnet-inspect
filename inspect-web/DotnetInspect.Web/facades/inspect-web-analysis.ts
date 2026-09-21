@@ -1,8 +1,8 @@
 import { dotnet } from "./runtime-loader.js";
 
-export type BrowserAnalysisInspectionDiagnosticSeverity = number;
-
 export type BrowserAnalysisInspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type BrowserAnalysisInspectionDiagnosticSeverity = number;
 
 export type BrowserAnalysisInspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
 
@@ -672,3 +672,4 @@ export async function queryPlatformOpportunities(targetFramework: string, platfo
 export async function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformPerformance.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
 }
+

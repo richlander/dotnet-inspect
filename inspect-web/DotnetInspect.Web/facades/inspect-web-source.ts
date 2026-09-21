@@ -38,9 +38,9 @@ export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
 
 export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
-export type InspectionDiagnosticSeverity = number;
-
 export type InspectionContentKind = "result" | "document" | "outcome" | number;
+
+export type InspectionDiagnosticSeverity = number;
 
 export type InspectionPortableProjectionFailureReason = "notSupported" | "invalid" | "incomplete" | "unavailable" | "failed" | number;
 
@@ -885,3 +885,4 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
+
