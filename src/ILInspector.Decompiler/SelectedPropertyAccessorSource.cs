@@ -383,9 +383,15 @@ public sealed class SelectedPropertyAccessorSource
             && method.ImplAttributes == MethodImplAttributes.IL
             && !type.GetGenericParameters().Any(handle =>
                 reader.GetString(reader.GetGenericParameter(handle).Name) == parameter.Name);
+        var getterDeclaration = MetadataDeclarationQuery.GetMethod(
+            reader, type, reader.GetMethodDefinition(getter));
         return new PropertyInitializationConstructor(address, produced.Body)
         {
             InitializerParameter = canUsePrimaryConstructor ? parameter : null,
+            GetterScopeAttributes = [
+                .. getterDeclaration.Attributes,
+                .. getterDeclaration.Signature.ReturnAttributes,
+            ],
         };
     }
 
@@ -393,6 +399,7 @@ public sealed class SelectedPropertyAccessorSource
         MetadataMethodAddress Address, CSharpBlockBody Body)
     {
         internal ApiParameter? InitializerParameter { get; init; }
+        internal IReadOnlyList<string> GetterScopeAttributes { get; init; } = [];
 
         public PropertyInitializerSource? GetInitializerSource(string getterBody)
         {
@@ -400,9 +407,11 @@ public sealed class SelectedPropertyAccessorSource
                 return null;
 
             string expression = CSharpFormatter.EscapeIdentifier(parameter.Name);
+            string name = expression.TrimStart('@');
             // A primary parameter enters the getter's scope. Over-decline on any
-            // spelling overlap rather than capture a name in its existing body.
-            if (getterBody.Contains(expression.TrimStart('@'), StringComparison.Ordinal))
+            // spelling overlap in its body or accessor attributes.
+            if (getterBody.Contains(name, StringComparison.Ordinal)
+                || GetterScopeAttributes.Any(attribute => attribute.Contains(name, StringComparison.Ordinal)))
                 return null;
             return new PropertyInitializerSource(parameter, expression);
         }

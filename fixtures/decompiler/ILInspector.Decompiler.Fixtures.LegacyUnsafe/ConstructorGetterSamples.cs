@@ -64,6 +64,33 @@ public readonly struct ConstructorGetterTypeParameter<T>
     public T Value { get; }
 }
 
+public readonly struct ConstructorGetterReturnAttributeCollision
+{
+    public ConstructorGetterReturnAttributeCollision(int System) => Value = System;
+    public int Value
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get;
+    }
+}
+
+public readonly struct ConstructorGetterReturnAttribute
+{
+    public ConstructorGetterReturnAttribute(int value) => Value = value;
+    public int Value
+    {
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+        get;
+    }
+}
+
+public readonly struct ConstructorGetterPropertyAttribute
+{
+    public ConstructorGetterPropertyAttribute(int System) => Value = System;
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public int Value { get; }
+}
+
 public readonly struct ConstructorGetterCalculated(int value)
 {
     public int Value { get; } = value + 1;

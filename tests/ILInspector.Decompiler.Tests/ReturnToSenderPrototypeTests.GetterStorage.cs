@@ -100,6 +100,8 @@ public partial class ReturnToSenderPrototypeTests
     [InlineData("ConstructorGetterParameterName", "Value")]
     [InlineData("ConstructorGetterKeywordParameter", "Value")]
     [InlineData("ConstructorGetterOptional", "Value")]
+    [InlineData("ConstructorGetterReturnAttribute", "Value")]
+    [InlineData("ConstructorGetterPropertyAttribute", "Value")]
     public async Task NativeGetterRetainsInitialization(string typeName, string propertyName)
     {
         string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
@@ -141,6 +143,7 @@ public partial class ReturnToSenderPrototypeTests
     [InlineData("ConstructorGetterImplementation", "Value")]
     [InlineData("ConstructorGetterTypeName`1", "Items")]
     [InlineData("ConstructorGetterTypeParameter`1", "Value")]
+    [InlineData("ConstructorGetterReturnAttributeCollision", "Value")]
     public async Task NativeGetterRetainsExplicitConstructorWhenInitializerFormDeclines(
         string typeName, string propertyName)
     {

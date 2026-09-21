@@ -504,13 +504,21 @@ struct bypasses the initializer.
 
 Primary-parameter scope is wider than ordinary constructor-parameter scope.
 This slice therefore retains the explicit constructor when its parameter
-spelling occurs anywhere in the existing rendered getter body or matches a
-declaring type parameter. Text supplies only this conservative veto, never
+spelling occurs anywhere in the existing rendered getter body or its
+metadata-projected method/return attributes, or matches a declaring type
+parameter. Text supplies only this conservative veto, never
 storage or parameter identity. Substring overlap intentionally over-declines;
 it avoids introducing name capture without expanding the parameter-name
 coordination work in #5778. Non-public constructors, rendered method attributes
 and non-default implementation flags also retain the existing companion.
 All earlier constructor-pair declines remain unchanged.
+
+Getter return-attribute expressions are also in the widened parameter scope:
+a parameter named `System` must not capture that namespace in
+`[return: System.Runtime.InteropServices.MarshalAs(...)]`. The attribute
+projection includes metadata pseudo-attributes, not just custom-attribute
+rows. A non-colliding parameter and the neighboring property-level attribute
+retain the primary form.
 
 `PropertyInitializerUsesProvenParameterWithoutWideningItsScope` and
 `PropertyInitializerPreservesPrimaryParameterAndTargetBody` are PR-fast gates

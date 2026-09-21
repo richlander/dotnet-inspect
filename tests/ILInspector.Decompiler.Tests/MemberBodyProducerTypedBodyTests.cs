@@ -228,6 +228,9 @@ public sealed class MemberBodyProducerTypedBodyTests
     [InlineData("ConstructorGetterImplementation", "Value", null)]
     [InlineData("ConstructorGetterTypeName`1", "Items", null)]
     [InlineData("ConstructorGetterTypeParameter`1", "Value", null)]
+    [InlineData("ConstructorGetterReturnAttributeCollision", "Value", null)]
+    [InlineData("ConstructorGetterReturnAttribute", "Value", "value")]
+    [InlineData("ConstructorGetterPropertyAttribute", "Value", "System")]
     public void PropertyInitializerUsesProvenParameterWithoutWideningItsScope(
         string typeName, string propertyName, string? expected)
     {
