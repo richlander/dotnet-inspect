@@ -4654,7 +4654,8 @@ The target is complete only when tests equivalent to these exist:
 - `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`
 - `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`
 - `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`
-- `LocalPathAdmission_PlatformClassifiersRemainPortable`
+- `eng/run-local-path-admission-platform-probe.sh` in the NativeAOT host-policy
+  and Browser/Wasm platform-probe jobs
 - `LocalDirectoryAcquisition_BoundedDeterministicSelection`
 - `LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`
 - `LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`
