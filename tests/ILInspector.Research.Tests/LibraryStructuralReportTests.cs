@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 
@@ -100,24 +101,62 @@ public sealed class LibraryStructuralReportTests
     [Fact]
     public void LibraryStructuralReport_PreservesMultipleEvidenceBodiesPerLogicalOwner()
     {
-        var logical = FakeMethod("Widget", "M", 0x06000001);
-        var lambdaA = FakeMethod("Widget+<>c", "<M>b__0_0", 0x06000010);
-        var lambdaB = FakeMethod("Widget+<>c", "<M>b__0_1", 0x06000011);
-        var profiles = ImmutableArray.Create(
-            FakeProfile(logical, lambdaA, instructionCount: 3),
-            FakeProfile(logical, lambdaB, instructionCount: 5));
+        LibraryImplementationProfileAnalysisResult analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.ImplementationProfiles))
+                .ImplementationProfiles;
+        MethodImplementationProfile[] profiles =
+        [
+            .. analysis.Profiles.Where(
+                profile =>
+                    profile.Method.DeclaringType.Name
+                        == "ImplementationProfileSample"
+                    && profile.Method.Name == "AnalyzeAsync"
+                    && profile.Method.ParameterTypes.Length == 1
+                    && profile.Method.ParameterTypes[0].Name == "Int32"),
+        ];
+        Assert.Equal(2, profiles.Length);
+        MethodImplementationProfile stateMachineBody = Assert.Single(
+            profiles,
+            profile => profile.Async);
+        MethodImplementationProfile kickoffBody = Assert.Single(
+            profiles,
+            profile => !profile.Async);
+        Assert.Equal(stateMachineBody.Method, kickoffBody.Method);
+        Assert.NotEqual(
+            stateMachineBody.EvidenceMethod,
+            kickoffBody.EvidenceMethod);
+        Assert.Equal("MoveNext", stateMachineBody.EvidenceMethod.Name);
 
         var available = Assert.IsType<LibraryStructuralReportResult.Available>(
-            LibraryStructuralReport.Execute(FakeAnalysis(profiles)));
+            LibraryStructuralReport.Execute(analysis));
 
-        Assert.Equal(2, available.Document.Population.PhysicalEvidenceBodyCount);
-        Assert.Equal(2, available.Document.Population.ProfiledPhysicalEvidenceBodyCount);
-        Assert.Equal(1, available.Document.Population.LogicalOwnerCount);
-        LibraryStructuralMetricDistribution instructions =
-            Distribution(available.Document, LibraryStructuralMetric.InstructionCount);
-        LibraryStructuralExtremeBody maximum = Assert.Single(instructions.MaximumBodies);
-        Assert.Same(lambdaB, maximum.EvidenceMethod);
-        Assert.Same(logical, maximum.LogicalOwner);
+        Assert.Equal(
+            analysis.Coverage.ManagedMethodBodyCount,
+            available.Document.Population.PhysicalEvidenceBodyCount);
+        Assert.Equal(
+            analysis.Coverage.ProfiledEvidenceBodyCount,
+            available.Document.Population.ProfiledPhysicalEvidenceBodyCount);
+        Assert.Equal(
+            analysis.Profiles
+                .Select(static profile => profile.Method.MetadataToken)
+                .Distinct()
+                .Count(),
+            available.Document.Population.LogicalOwnerCount);
+        Assert.True(
+            available.Document.Population.PhysicalEvidenceBodyCount
+                > available.Document.Population.LogicalOwnerCount);
+        Assert.Equal(
+            analysis.Profiles.Count(static profile =>
+                profile.IsComplete && profile.Async),
+            available.Document.AsyncStateMachinePresence.PresentCount);
+        Assert.Equal(
+            analysis.Profiles.Count(static profile =>
+                profile.IsComplete && !profile.Async),
+            available.Document.AsyncStateMachinePresence.AbsentCount);
+        Assert.True(available.Document.AsyncStateMachinePresence.PresentCount > 0);
     }
 
     [Fact]
