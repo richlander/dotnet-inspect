@@ -2341,6 +2341,37 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.locator("#nav-back").click();
     await page.locator("#nav-back").click();
     await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
+
+    // A Member the producer placed under two Types: the Before placement is
+    // inert here, names its current Type, and activates it; the After
+    // placement says where it came from.
+    await panel.locator(
+      '[data-compare-type-id="LibraryApiDiffFixture.ProjectionExtensions"]',
+    ).click();
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    const movedAway = panel.locator(".library-api-diff-member", { hasText: "Transform" });
+    await expect(movedAway).toHaveClass(/library-api-diff-member-inert/);
+    await expect(movedAway).toContainText(
+      "Now declared on LibraryApiDiffFixture.ProjectionReceiver",
+    );
+    await movedAway.locator(
+      '.library-api-diff-counterpart[data-compare-type-id="LibraryApiDiffFixture.ProjectionReceiver"]',
+    ).click();
+    await expect(frame).toHaveClass(/compare-surface-type/, { timeout: 60_000 });
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.ProjectionReceiver");
+    const movedHere = panel.locator(".library-api-diff-member", { hasText: "Transform" });
+    await expect(movedHere.locator(".library-api-diff-moved"))
+      .toContainText("Moved from LibraryApiDiffFixture.ProjectionExtensions");
+    await movedHere.locator("button[data-compare-member-fingerprint]").click();
+    await expect(frame).toHaveClass(/compare-surface-member/, { timeout: 60_000 });
+    await expect(panel.locator(".library-api-diff-correspondence")).toContainText(
+      "Moved from LibraryApiDiffFixture.ProjectionExtensions to LibraryApiDiffFixture.ProjectionReceiver",
+    );
+    await page.locator("#nav-back").click();
+    await page.locator("#nav-back").click();
+    await page.locator("#nav-back").click();
+    await expect(frame).toHaveClass(/compare-surface-library/, { timeout: 60_000 });
     await panel.locator(
       '[data-compare-type-id="LibraryApiDiffFixture.AddedType"]',
     ).click();
