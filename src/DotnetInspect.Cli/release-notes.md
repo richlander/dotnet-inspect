@@ -51,9 +51,6 @@
   version for ordinary latest inspection. SourceLink `--raw` and `--blob` are
   replaced by `--prefer-rendered-urls`; direct fetchable URLs remain the
   default (#7510, #7621).
-- **Breaking:** Package `--version` is now a zero-argument scalar lens. Select
-  an exact, latest, or wildcard Package version with `PACKAGE@VERSION`, then
-  add `--version` only when the resolved Version value is the requested output.
 
 ### Workspaces and coordinates
 
