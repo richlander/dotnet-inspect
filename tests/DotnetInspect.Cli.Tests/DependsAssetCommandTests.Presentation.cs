@@ -400,6 +400,23 @@ public partial class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task NormalPositionalTypeMode_SucceedsWithoutOutput()
+    {
+        PersistentCache.Initialize("dotnet-inspect-test");
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            "depends",
+            "System.Int128",
+            "--platform",
+            "-v:n",
+        ]);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task QuietPositionalTypeDepthFailsBeforeSourceAcquisition()
     {
         string missing = Path.Combine(
@@ -514,9 +531,16 @@ public partial class DependsAssetCommandTests
                 """));
 
         (_, string markdown, _) = await RunCapturedAsync(
-            ["depends", "--nuspec", path, "-v:n"]);
+            ["depends", "--nuspec", path, "-S", "Dependencies"]);
         (_, string json, _) = await RunCapturedAsync(
-            ["depends", "--nuspec", path, "-v:n", "--format=json"]);
+            [
+                "depends",
+                "--nuspec",
+                path,
+                "-S",
+                "Dependencies",
+                "--format=json",
+            ]);
         (_, string tsv, _) = await RunCapturedAsync(
         [
             "depends",
