@@ -82,6 +82,26 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             "library/sections/reference-hierarchy",
             path);
 
+        var effective = await RunAsync(
+            "library",
+            "System.Text.Json",
+            "-D",
+            "@Dependencies",
+            "--json");
+
+        Assert.Equal(0, effective.ExitCode);
+        Assert.Empty(effective.Error);
+        using JsonDocument effectiveDocument =
+            JsonDocument.Parse(effective.Output);
+        JsonElement effectiveRow = effectiveDocument.RootElement
+            .EnumerateArray()
+            .Single(element =>
+                element.GetProperty("name").GetString()
+                == "Reference Hierarchy");
+        Assert.Equal(
+            path,
+            effectiveRow.GetProperty("path").GetString());
+
         var projected = await RunAsync(
             "library",
             "-D",

@@ -341,8 +341,16 @@ public static class DiscoverOutput
         IReadOnlySet<string>? listedCategoryDoors = null,
         RowSelectionIntent<string>? semanticRowSelection = null,
         string semanticSelectionName = "Discovery",
-        IReadOnlySet<string>? exactOnlySections = null)
+        IReadOnlySet<string>? exactOnlySections = null,
+        string? resourceCatalog = null,
+        OutputCapabilityCatalog? resourceCapabilities = null)
     {
+        if ((resourceCatalog is null) != (resourceCapabilities is null))
+        {
+            throw new ArgumentException(
+                "Resource catalog and capabilities must be supplied together.");
+        }
+
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
         foreach (var name in effectiveSections)
@@ -356,13 +364,16 @@ public static class DiscoverOutput
         var effectiveSectionCategories = FilterCategories(
             sectionCategories,
             filtered.SectionNames);
+        string[] columns = resourceCatalog is null
+            ? ["Name", "Kind"]
+            : ["Name", "Kind", "Path"];
 
         string[]? projectedColumns = null;
         if (IsProjectedJson(request)
             && !TryResolveProjectedJsonColumns(
                 request.Tree,
                 request,
-                ["Name", "Kind"],
+                columns,
                 out projectedColumns))
         {
             return 1;
@@ -400,7 +411,7 @@ public static class DiscoverOutput
                             "-D/--discover",
                             0,
                             out var emptyProjectionExitCode,
-                            ["Name", "Kind"])
+                            columns)
                         ? emptyProjectionExitCode
                         : 0;
                 }
@@ -418,6 +429,31 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
+        DiscoveryDocumentFactory.Projection? resourceProjection =
+            resourceCatalog is null
+                ? null
+                : DiscoveryDocumentFactory.CreateProjection(
+                    resourceCatalog,
+                    discover,
+                    filtered,
+                    effectiveSectionCategories,
+                    catalogHiddenSections,
+                    listedCategoryDoors,
+                    sectionCostAnnotations,
+                    exactOnlySections,
+                    resourceCapabilities!);
+        if (resourceCatalog is not null
+            && resourceProjection is null)
+        {
+            return 1;
+        }
+        IReadOnlyDictionary<
+            DiscoveryResourceIdentity,
+            ResourcePath>? resourcePaths =
+                resourceProjection?.ResourcePaths.ToDictionary(
+                    static registration => registration.Identity,
+                    static registration => registration.Path);
+
         if (projectedColumns is not null)
         {
             return WriteProjectedJson(
@@ -432,8 +468,8 @@ public static class DiscoverOutput
                 semanticRowSelection,
                 semanticSelectionName,
                 exactOnlySections,
-                document: null,
-                resourcePaths: null);
+                resourceProjection?.Document,
+                resourcePaths);
         }
 
         return Execute(
@@ -447,7 +483,9 @@ public static class DiscoverOutput
             listedCategoryDoors,
             semanticRowSelection: semanticRowSelection,
             semanticSelectionName: semanticSelectionName,
-            exactOnlySections: exactOnlySections);
+            exactOnlySections: exactOnlySections,
+            document: resourceProjection?.Document,
+            resourcePaths: resourcePaths);
     }
 
     /// <summary>
