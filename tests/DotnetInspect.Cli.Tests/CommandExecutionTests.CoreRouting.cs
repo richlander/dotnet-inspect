@@ -3653,16 +3653,12 @@ public partial class CommandExecutionTests
         Assert.Contains("File not found:", routed.Error);
     }
 
-    [Theory]
-    [InlineData("Newtonsoft.Json@13.0.4", null)]
-    [InlineData("Newtonsoft.Json", "13.0.4")]
-    public async Task Router_PackageVersion_DoesNotOverrideExplicitLibraryPath(
-        string package,
-        string? version)
+    [Fact]
+    public async Task Router_PinnedPackage_DoesNotOverrideExplicitLibraryPath()
     {
-        List<string> arguments =
+        string[] arguments =
         [
-            package,
+            "Newtonsoft.Json@13.0.4",
             "--library",
             "lib/net8.0/../Newtonsoft.Json.dll",
             "-S",
@@ -3670,14 +3666,9 @@ public partial class CommandExecutionTests
             "--tips",
             "q"
         ];
-        if (version is not null)
-        {
-            arguments.Add("--version");
-            arguments.Add(version);
-        }
 
         var direct = await RunAppAsync(["type", .. arguments]);
-        var routed = await RunAppAsync([.. arguments]);
+        var routed = await RunAppAsync(arguments);
 
         Assert.Equal(1, direct.Exit);
         Assert.Equal(direct.Exit, routed.Exit);

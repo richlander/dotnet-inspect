@@ -123,7 +123,12 @@ public static class PackageCommandDefinitions
         });
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
-        var versionOption = new Option<string?>("--version") { Description = "Package version (or use alone to show resolved version)", Arity = ArgumentArity.ZeroOrOne };
+        var versionOption = new Option<bool>("--version")
+        {
+            Description =
+                "Show the resolved Package version; select a version with Package@Version",
+            Arity = ArgumentArity.Zero,
+        };
         packageCommand.Arguments.Add(packageNameArg);
         packageCommand.Options.Add(workspaceOption);
         packageCommand.Options.Add(shareOption);

@@ -406,9 +406,8 @@ public partial class PackageCommand
         }
 #endif
 
-        PackageReferenceTarget target = PackageExtractor.ParsePackageTarget(
-            options.PackageArgs[0],
-            options.ExplicitVersion);
+        PackageReferenceTarget target =
+            PackageExtractor.ParsePackageTarget(options.PackageArgs[0]);
         if (target.IsLocalFile
             || !PackageExtractor.IsValidPackageId(target.PackageName))
         {
