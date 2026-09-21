@@ -93,10 +93,10 @@ MetadataDeclarationSession.Relate(Type, Body)
    | Rejected(Failure)
 ```
 
-The Metadata relationship session is created by the `AssemblyImage`-owned
-factory from one owned or borrowed lease over retained bytes and its reader.
-That owner-backed session establishes the image boundary. The request carries
-module-scoped coordinates, not display names:
+The Metadata relationship session is obtained from one live owned or borrowed
+`AssemblyInspectionSession` and its operation context. That owner-backed
+session establishes the image boundary without reopening the source. The
+request carries module-scoped coordinates, not display names:
 
 - the module MVID;
 - the declaring `TypeDef` address; and
@@ -110,15 +110,13 @@ MVID is not cryptographic image identity and is not a durable or cross-session
 association currency. A token without its module coordinate is not a request
 currency.
 
-The owner-backed session uses the opaque image identity defined by
-[Member inspection planning and metadata projection][metadata-image-generation]
-to isolate operation-local caches and accounting across reader wrappers. That
-identity is supporting session infrastructure: this contract neither exposes
-it nor depends on its concrete representation. Issue #7929 supplies its
-admission, cache-isolation, lifetime, accounting, concurrency, disposal, and
-platform evidence through `MetadataDeclarationSessionSubstrateTests`. That
-focused gate contributes to, but does not claim completion of, the broader
-composite `MDP009` gate owned by the supporting design.
+The owner-backed session itself is the process-local observation and cache
+boundary. Issue #7929 supplies its construction, admission, session-local
+reuse, operation accounting, lifetime, detached posting, and disposal evidence
+through `MetadataDeclarationSessionSubstrateTests`. It does not mint an image
+generation, reunify independently opened readers, or define cross-session
+cache identity. MethodImpl-specific work limits and failure semantics remain
+evidence of this focused contract.
 
 The operation rejects a foreign module, an invalid handle, or a body not owned
 by the supplied type before scanning the `MethodImpl` table.
@@ -404,9 +402,11 @@ external lifetime and cache analogue. An owning `ModuleMetadata` receives one
 opaque ID, copies over the same immutable metadata retain it, and an
 independently created snapshot receives another ID even when the bytes are
 equal. Roslyn uses that ID for snapshot-scoped caches but does not carry it on
-ordinary semantic results. This contract follows that division: the
-owner-backed session may retain internal observation identity, while detached
-MethodImpl evidence contains only the facts its consumer needs
+ordinary semantic results. This contract follows the result boundary but does
+not require a parallel `MetadataId`: the existing `AssemblyImage` and
+`AssemblyInspectionSession` ownership already provide the process-local
+observation boundary. Detached MethodImpl evidence contains only the facts its
+consumer needs
 ([`Metadata`][roslyn-metadata], [`ModuleMetadata`][roslyn-module-metadata]).
 
 Mono.Cecil exposes a method's overrides as a mutable
@@ -439,7 +439,7 @@ require Release gates in that implementation:
 | Inherited local declaration lookup is visibly unsupported | Direct-versus-inherited local declaration fixture |
 | Signature, owner, and generic-context mismatches reject | Focused malformed metadata matrix with valid neighbors |
 | `Absent` requires a completed scan while unrelated readable rows remain isolated | Budget, unreadable-body, exact-body unreadable-declaration, and unrelated readable-row neighbors |
-| The public operation is owner-backed | API construction test proving the relationship operation is obtained from an `AssemblyImage`-owned Metadata session rather than an independently supplied reader |
+| The public operation is owner-backed | API construction test proving the relationship operation is obtained from a live `AssemblyInspectionSession` plus operation context rather than independently supplied resource pieces |
 | Ordered multiplicity and duplicate physical rows are preserved | One body with multiple relevant rows, interleaved unrelated rows, and duplicate declaration operands; assert the exact relevant-row sequence and multiplicity |
 | Every claimed cumulative work dimension is charged and enforced | Limit-minus-one, exact-limit, and limit-plus-one matrix for MethodImpl rows, declaration candidates, relationship edges, signature/TypeSpec bytes, generic-substitution nodes, structured/materialized nodes, and retained text; assert exact counters and typed outcomes |
 | Cancellation is out-of-band and preserves the caller token | Focused cancellation propagation test |
@@ -482,7 +482,6 @@ This contract does not:
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
 [issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
 [issue-7929]: https://github.com/richlander/dotnet-inspect/issues/7929
-[metadata-image-generation]: member-inspection-planning-and-metadata-projection.md
 [roslyn-metadata]: https://github.com/dotnet/roslyn/blob/5a9f1b4bb88ec57c776fd9be0c8693eafb375b10/src/Compilers/Core/Portable/MetadataReference/Metadata.cs#L9-L43
 [roslyn-module-metadata]: https://github.com/dotnet/roslyn/blob/5a9f1b4bb88ec57c776fd9be0c8693eafb375b10/src/Compilers/Core/Portable/MetadataReference/ModuleMetadata.cs#L32-L61
 [runtime-int32]: https://github.com/dotnet/runtime/blob/81be0823c7162a79bcc8bde49763293c92567e9e/src/libraries/System.Private.CoreLib/src/System/Int32.cs#L270-L277
