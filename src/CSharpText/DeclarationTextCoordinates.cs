@@ -12,9 +12,12 @@ internal readonly record struct SourceTextRange(
 }
 
 internal sealed record DeclarationTextCoordinates(
+    SourceTextRange Declaration,
     SourceTextRange Signature,
     SourceTextRange? Body,
     SourceTextPoint TerminalEnd,
     ImmutableArray<SourceTextRange> XmlDocumentation,
     ImmutableArray<SourceTextRange> Attributes,
+    bool DeclarationKnown,
+    bool DocumentationKnown,
     bool IsKnown);

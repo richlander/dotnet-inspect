@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 
 using DotnetInspect.Cli.Sections;
-using DotnetInspector.PortableQueries;
 using DotnetInspector.QueryOperations;
+using QuerySpace;
 using DotnetInspector.Queries;
 using ILInspector.CSharp;
 
@@ -30,7 +30,10 @@ public sealed record LibraryCallUseQueryOptions
                 new SectionQueryKey(
                 capability.Binding.Key,
                 ["--where"],
-                [.. capability.Operators.Select(Comparison)],
+                [
+                    .. capability.Operators.Select(
+                        RowPredicateSyntaxParser.Comparison),
+                ],
                 capability.Binding.Description.ValueKind,
                 [.. capability.Binding.Description.Values],
                 $"--where \"{capability.Binding.Key}"
@@ -85,7 +88,8 @@ public sealed record LibraryCallUseQueryOptions
             terms.Add(
                 new(
                     capability.Binding.Key,
-                    PortableOperator(syntax.Operator),
+                    RowPredicateSyntaxParser.PortableOperator(
+                        syntax.Operator),
                     syntax.Value));
         }
 
@@ -126,37 +130,6 @@ public sealed record LibraryCallUseQueryOptions
                 nameof(section),
                 section,
                 "Graph Libraries declares no such section."),
-        };
-
-    private static PortableQueryOperator PortableOperator(
-        RowPredicateOperator @operator) =>
-        @operator switch
-        {
-            RowPredicateOperator.Equals => PortableQueryOperator.Equal,
-            RowPredicateOperator.NotEquals =>
-                PortableQueryOperator.NotEqual,
-            RowPredicateOperator.StartsWith =>
-                PortableQueryOperator.StartsWith,
-            RowPredicateOperator.GreaterOrEqual =>
-                PortableQueryOperator.AtLeast,
-            RowPredicateOperator.LessOrEqual =>
-                PortableQueryOperator.AtMost,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(@operator),
-                @operator,
-                "Unsupported CLI query operator."),
-        };
-
-    private static string Comparison(
-        PortableQueryOperator @operator) =>
-        @operator switch
-        {
-            PortableQueryOperator.Equal => "=",
-            PortableQueryOperator.NotEqual => "!=",
-            PortableQueryOperator.AtLeast => ">=",
-            PortableQueryOperator.AtMost => "<=",
-            _ => throw new InvalidOperationException(
-                "Graph Libraries registered an unsupported CLI comparison."),
         };
 
     private static OptionError Error(PortableQueryFailure failure) =>

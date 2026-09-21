@@ -18,12 +18,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="QuerySpace.Rows" />
     <Using Include="Xunit" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
-    <ProjectReference Include="../DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
+    <ProjectReference Include="../../src/QuerySpace/QuerySpace.csproj" />
+    <ProjectReference Include="../QuerySpace.Consumer/QuerySpace.Consumer.csproj" />
   </ItemGroup>
 
 </Project>

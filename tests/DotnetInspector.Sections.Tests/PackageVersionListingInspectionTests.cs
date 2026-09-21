@@ -1,6 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Packages;
-using DotnetInspector.RowSelection;
+using QuerySpace.Rows;
 using NuGetFetch;
 
 namespace DotnetInspector.Sections.Tests;
