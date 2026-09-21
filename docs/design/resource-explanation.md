@@ -3,15 +3,16 @@
 ## Status
 
 This document is the normative design for **Resource Explanation**, the
-host-neutral contract behind a future `dotnet-inspect explain` experience.
+host-neutral contract behind `dotnet-inspect explain`. The first production
+slice implements the complete Library structural domain; query, value,
+result-contract, Browser/Wasm, and subject-reference adoption remain staged.
 It is the focused design for
 [#7964](https://github.com/richlander/dotnet-inspect/issues/7964) under the
 structural and query composition tracked by
 [#7814](https://github.com/richlander/dotnet-inspect/issues/7814).
 
-The design records target architecture, not a claim that the `explain`
-command, resource paths, explanation Document, or Browser experience are
-implemented. Each production adoption names and gates its own current
+The design records both the implemented structural contract and its staged
+adoption. Each later production adoption names and gates its own current
 behavior.
 
 ## Owner and exact claim
@@ -270,6 +271,12 @@ The CLI may accept ASCII case differences for consistency with structural
 selection, but it always emits the registered lower-case path. Aliases, when a
 compatibility migration requires them, resolve to and emit the one canonical
 path; aliases are not peer identities.
+
+The Library structural adapter uses Markout's owner-issued section and item
+machine keys, replacing the machine-key `_` separator with the path grammar's
+`-` separator. It does not read rendered headings. Category segments and the
+query-oriented Performance items that Schema Query injects outside Markout are
+explicit registrations.
 
 ### Collections are resources
 
@@ -613,10 +620,10 @@ CLI parsing produces one typed `ResourcePath` and one resolved traversal
 request. The command obtains the completed explanation envelope before
 presenting its Content and diagnostics.
 
-Human output lowers the Document through a typed Markout view. Structured
-output serializes the same Content contract after the output-format owner
-admits its final CLI spelling. Human headings and tables are not machine
-identity.
+Human output lowers the Document through a typed Markout view. `--json`
+serializes the same Content contract with source-generated metadata; the final
+general output-format spelling remains owned by its focused work. Human
+headings and tables are not machine identity.
 
 Diagnostics expose canonical paths that can be copied unchanged into
 `explain`. Compact `-D`, `-Q`, and `vocabulary` output should do the same when
@@ -720,12 +727,13 @@ implementation property is **unverified**.
 
 ## Production adoption
 
-1. Lock this owner, path contract, explanation Document, and host boundaries.
-2. Add the host-neutral adopted-domain manifest, total registry, exact
-   resolver, structural detail variant, and envelope-returning Resource
+1. **Complete:** lock this owner, path contract, explanation Document, and host
+   boundaries.
+2. **Complete:** add the host-neutral adopted-domain manifest, total registry,
+   exact resolver, structural detail variant, and envelope-returning Resource
    Explanation service.
-3. Add the CLI `explain` facade and Library structural adoption, including
-   structured Content JSON.
+3. **Complete:** add the CLI `explain` facade and Library structural adoption,
+   including structured Content JSON.
 4. Add one Browser/Wasm consumer of the same structural explanation envelope.
 5. Remove Library `-D --details` after equivalent Formats explanation ships.
 6. Let Query Space adopt query-resource variants and typed links.

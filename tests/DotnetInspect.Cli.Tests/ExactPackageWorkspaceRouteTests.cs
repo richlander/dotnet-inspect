@@ -209,7 +209,11 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Contains(
-            "| Name | Kind | Formats |",
+            "| Name | Kind | Path | Formats |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "library/sections/library-info",
             result.Output,
             StringComparison.Ordinal);
     }
