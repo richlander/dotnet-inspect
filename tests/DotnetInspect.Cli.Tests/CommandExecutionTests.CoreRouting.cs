@@ -208,7 +208,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
+    public async Task Router_BareSimpleType_UsesTargetBoundPlatformCatalog()
     {
         var (exit, output, error) = await RunAppAsync(
             "Regex", "--markdown", "--tips", "q");
@@ -216,7 +216,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
         AssertLibraryAsset(output, "System.Text.RegularExpressions");
-        Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
+        Assert.Contains(
+            "Note: Type 'Regex' resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Theory]
@@ -234,7 +236,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
         Assert.DoesNotContain("## Package Info", output);
-        Assert.Contains("resolved via platform find", error);
+        Assert.Contains(
+            "resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Fact]
@@ -247,11 +251,13 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "# System.Runtime.InteropServices.JavaScript.JSType.String",
             output);
-        Assert.Contains("resolved via platform find", error);
+        Assert.Contains(
+            "resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Fact]
-    public async Task Router_AmbiguousPlatformFind_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformCatalog_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer", "--markdown", "--tips", "q");
@@ -265,7 +271,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_AmbiguousPlatformMemberFind_ReportsAmbiguity()
+    public async Task Router_AmbiguousTargetBoundPlatformMember_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
             "Timer.Start", "--markdown", "--tips", "q");
@@ -279,7 +285,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
+    public async Task Router_BareGenericType_UsesTargetBoundPlatformCatalog()
     {
         var (exit, output, error) = await RunAppAsync(
             "List<T>", "--markdown", "--tips", "q");
@@ -287,7 +293,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
         AssertLibraryAsset(output, "System.Collections");
-        Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
+        Assert.Contains(
+            "Note: Type 'List<T>' resolved via the target-bound Platform catalog",
+            error);
     }
 
     [Theory]
@@ -563,19 +571,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_UnqualifiedGenericPlatformMember_AmbiguityFails()
+    public async Task Router_UnqualifiedGenericPlatformMember_UsesSelectedRuntimeCatalog()
     {
-        SkipUnlessAspNetCoreAvailable();
-
         var (exit, output, error) = await RunAppAsync(
             "SequenceReader<T>.TryRead", "--all", "--markdown", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "Platform type lookup is ambiguous",
-            error,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("# System.Buffers.SequenceReader&lt;T&gt;", output);
+        Assert.Contains("TryRead", output);
     }
 
     [Fact]
