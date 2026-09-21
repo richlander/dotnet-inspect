@@ -342,8 +342,34 @@ The four compact witness packages are pinned as test assets and their exact
 row counts run through production package acquisition and projection in PR CI.
 Generated package and configured-feed boundary cases run through the same
 product command. The broader survey remains reproducible design evidence rather
-than a corpus gate. Domain, API, and other command families remain separate
-work under issue #3284.
+than a corpus gate.
+
+#### Package domain evidence
+
+The package domain audit covers sections that belong only to `@Dependencies`,
+`@Audit`, or `@SourceLink`. Every selectable package section has authored
+category membership, so there are no uncategorized exact-name sections.
+Domain membership remains explicit: these declarations do not add any section
+to the automatic `@Package` and `@Files` base-category union.
+
+| Section | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Dependency Hierarchy | One row per dependency occurrence; a 31-dependency local-feed boundary exceeds 24 rows | `Verbose` |
+| Audit: Artifact Text | One row per package field or file path requiring visual containment | `Verbose` |
+| Audit: Findings | One row per rendering or restore-policy finding in scanned package content | `Verbose` |
+| Audit: Identifier Confusion | One row per concerning package, alternate, dependency, runtime-dependency, or RID-package identifier; a 31-dependency boundary exceeds 24 rows | `Verbose` |
+| SourceLink: Files | One row per mapped source document across selected package libraries | `Verbose` |
+| SourceLink: Availability | A fixed aggregate field table over the selected package libraries | `Fixed` |
+| SourceLink: Missing Files | One row per missing source document or unavailable or failed library; a 31-file boundary exceeds 24 rows | `Verbose` |
+| SourceLink: Integrity | A fixed aggregate field table over the selected package libraries | `Fixed` |
+
+Availability and Integrity may contain variable-length values such as joined
+library or file details, but their semantic row sets remain fixed fields.
+Missing Files is the row inventory for those individual failures and therefore
+retains the target-dependent population. All SourceLink sections remain
+capability-gated and explicit despite their size classification.
+
+API and other command families remain separate work under issue #3284.
 
 #### API type-list evidence
 
