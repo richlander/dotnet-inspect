@@ -314,13 +314,13 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "type-member-list",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:76:9633CCFA51A0]",
+                "ApiMember[schema:77:4946F93ADD96]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=False"),
             new(
                 "member-type-view",
                 "schema-static/effective-deferred",
-                "ApiMember[schema:76:9633CCFA51A0]",
+                "ApiMember[schema:77:4946F93ADD96]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
@@ -338,7 +338,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:185:51158FAF4201]",
+                "ApiType[schema:186:4126ABA0803B]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

@@ -163,7 +163,7 @@ The first adoption is the shared `type`/`member` output path:
 | One source/code payload | Its content, without document headings, fences, separators, or tips. |
 | Ordinary report or multiple selected sections | The existing Markdown document. |
 
-The source/code payloads are Decompiled Source, Annotated Source, PDB Source,
+The source/code payloads are API Declarations, Decompiled Source, Annotated Source, PDB Source,
 Source Diff, IL, Cost Overlay, Semantics Overlay, and the existing indivisible
 Finding Census document payload. A selected payload must be produced by its
 existing owner; missing or failed content is not fabricated or replaced by
@@ -194,8 +194,8 @@ change.
 The shared inspection operations still return their typed completed envelopes.
 The CLI chooses the renderer; Browser continues using its existing code viewer.
 This approved CLI-only presentation slice introduces no host-specific
-inspection algorithm or new dependency. API Declarations remains a separate
-delivery and will use the same native-payload default when adopted.
+inspection algorithm or new dependency. [API Declarations](type-api-declarations.md)
+adopts the same native-payload default for its separate bodyless metadata view.
 
 ## Summary Table
 

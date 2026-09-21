@@ -3,7 +3,7 @@
 ## Status and authority
 
 Focused Research design for [#7987](https://github.com/richlander/dotnet-inspect/issues/7987).
-Its required Analysis prerequisite is
+Its Analysis coverage prerequisite is tracked by
 [#7989](https://github.com/richlander/dotnet-inspect/issues/7989).
 
 The **Library Metrics** report is the single normative owner for a

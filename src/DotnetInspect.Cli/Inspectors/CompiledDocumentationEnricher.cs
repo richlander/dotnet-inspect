@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
@@ -17,6 +16,7 @@ using DotnetInspector.Platforms.Installed;
 using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Sections.Installed;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
@@ -273,72 +273,27 @@ internal static class CompiledDocumentationEnricher
             new InstalledReferencePackSource(hive, dotnetRoot),
             new InstalledImplementationPlatformSource(hive, dotnetRoot),
             "cli-platform-documentation");
-        PlatformHouseRequest request =
-            CreatePlatformDocumentationRequest(
+        var request =
+            new PlatformCompiledDocumentationInspectionRequest(
                 target,
                 assemblyIdentity,
-                adapter.Capabilities.ReferenceRealization,
-                TimeSpan.FromSeconds(30),
-                cancellationToken);
-
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        InstalledPlatformHouseResult<InstalledReferenceRealization>
-            sourceResult =
-                await adapter.RealizeReferenceAsync(request)
+                documentationIds,
+                PlatformCompiledDocumentationSubjectSelection
+                    .AvailableOnly);
+        InspectionEnvelope<
+            PlatformCompiledDocumentationInspectionOutcome> envelope =
+                await InstalledPlatformCompiledDocumentationInspection
+                    .ExecuteAsync(
+                        request,
+                        adapter,
+                        CreatePlatformDocumentationWork(
+                            TimeSpan.FromSeconds(30)),
+                        CreatePlatformDocumentationQueryLimits(options),
+                        cancellationToken)
                     .ConfigureAwait(false);
-        if (sourceResult
-            is not InstalledPlatformHouseResult<
-                InstalledReferenceRealization>.Succeeded reference)
-        {
-            var terminal = (InstalledPlatformHouseResult<
-                InstalledReferenceRealization>.NotSucceeded)sourceResult;
-            throw new InvalidOperationException(
-                "PlatformHouse could not realize the installed reference "
-                    + $"Library: {terminal.Diagnostic.Kind}: "
-                    + terminal.Diagnostic.Summary);
-        }
-
-        stopwatch.Stop();
-        var consumed = new PlatformHouseConsumedWork(
-            sourceOperations: 1,
-            targetCandidates: 0,
-            assemblies: reference.Value.Libraries.Count,
-            xmlDocuments: reference.Value.Libraries.Count(
-                static library => library.Documentation is not null),
-            portablePdbs: 0,
-            sourceDocuments: 0,
-            bytes: reference.Value.Libraries.Sum(
-                static library => library.TotalContentLength),
-            forwardingHops: 0,
-            targetComparisons: 0,
-            elapsed: stopwatch.Elapsed);
-        InstalledPlatformLibraryMaterializationResult materialization =
-            await InstalledPlatformLibraryMaterializer
-                .MaterializeReferenceAsync(
-                    request,
-                    reference,
-                    consumed)
-                .ConfigureAwait(false);
-        if (materialization
-            is not InstalledPlatformLibraryMaterializationResult.Completed
-                completed)
-        {
-            throw new InvalidOperationException(
-                "PlatformHouse could not materialize the installed reference "
-                    + "Library "
-                    + $"({materialization.Realization.Outcome.GetType().Name}).");
-        }
-
-        await using (completed.Artifacts.ConfigureAwait(false))
-        await using (completed.Library.Owner.ConfigureAwait(false))
-        {
-            return await QueryPlatformLibraryAsync(
-                    completed.Library,
-                    documentationIds,
-                    options,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
+        return GetPlatformDocumentationOutcomes(
+            envelope,
+            "Installed");
     }
 
     private static async ValueTask<
@@ -369,16 +324,6 @@ internal static class CompiledDocumentationEnricher
                 documentationIds,
                 PlatformCompiledDocumentationSubjectSelection
                     .AvailableOnly);
-        var work = new PlatformHouseWorkBudget(
-            maxSourceOperations: 1,
-            maxTargetCandidates: 0,
-            maxAssemblies: 1,
-            maxXmlDocuments: 1,
-            maxPortablePdbs: 0,
-            maxSourceDocuments: 0,
-            maxBytes: 520L * 1024 * 1024,
-            maxForwardingHops: 0,
-            maxDuration: TimeSpan.FromMinutes(10));
         InspectionEnvelope<
             PlatformCompiledDocumentationInspectionOutcome> envelope =
                 await PlatformCompiledDocumentationInspection
@@ -387,12 +332,24 @@ internal static class CompiledDocumentationEnricher
                         adapter,
                         composition.IssueSettlementOperation(
                             cancellationToken),
-                        work,
+                        CreatePlatformDocumentationWork(
+                            TimeSpan.FromMinutes(10)),
                         CreatePlatformDocumentationQueryLimits(
                             options),
                         cancellationToken)
                     .ConfigureAwait(false);
-        return envelope.Content switch
+        return GetPlatformDocumentationOutcomes(
+            envelope,
+            "Package-backed");
+    }
+
+    private static IReadOnlyDictionary<
+        string,
+        CompiledDocumentationOutcome> GetPlatformDocumentationOutcomes(
+            InspectionEnvelope<
+                PlatformCompiledDocumentationInspectionOutcome> envelope,
+            string sourceDescription) =>
+        envelope.Content switch
         {
             PlatformCompiledDocumentationInspectionOutcome.Completed
                 completed =>
@@ -403,69 +360,28 @@ internal static class CompiledDocumentationEnricher
             PlatformCompiledDocumentationInspectionOutcome.NotAvailable
                 notAvailable =>
                 throw new InvalidOperationException(
-                    "Package-backed Platform compiled documentation could "
+                    $"{sourceDescription} Platform compiled documentation "
+                        + "could "
                         + $"not be settled at "
                         + $"{notAvailable.Failure.Stage}: "
                         + notAvailable.Failure.Summary),
             _ => throw new InvalidOperationException(
                 "Unknown Platform compiled-documentation inspection outcome."),
         };
-    }
 
-    private static PlatformHouseRequest CreatePlatformDocumentationRequest(
-        PlatformFamilyTarget target,
-        AssemblyReferenceIdentity assemblyIdentity,
-        PlatformSourceCapabilityIdentity referenceCapability,
-        TimeSpan maximumDuration,
-        CancellationToken cancellationToken) =>
+    private static PlatformHouseWorkBudget
+        CreatePlatformDocumentationWork(
+            TimeSpan maximumDuration) =>
         new(
-            PlatformHouseRequestIdentity.Create(
-                "cli-platform-documentation"),
-            new PlatformTargetDemand.Exact(target),
-            new PlatformHouseRequestOrigin.Standalone(
-                PlatformStandaloneOperationIdentity.Create(
-                    "cli-platform-documentation")),
-            new PlatformHouseOperation.Realize(
-                new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(
-                        assemblyIdentity)),
-                PlatformViewDemand.Reference,
-                PlatformLibraryContentDemand.CompiledXmlDocumentation),
-            new PlatformSourcePlan(
-                PlatformSourcePlanIdentity.Create(
-                    "cli-platform-documentation"),
-                PlatformSourcePolicyGeneration.Create(
-                    "cli-platform-documentation-v1"),
-                [
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.Reference,
-                        PlatformSourceSelectionMode.Precedence,
-                        [referenceCapability]),
-                ]),
-            new PlatformHouseWorkBudget(
-                maxSourceOperations: 1,
-                maxTargetCandidates: 0,
-                maxAssemblies: 1,
-                maxXmlDocuments: 1,
-                maxPortablePdbs: 0,
-                maxSourceDocuments: 0,
-                maxBytes: 520L * 1024 * 1024,
-                maxForwardingHops: 0,
-                maxDuration: maximumDuration),
-            cancellationToken);
-
-    private static ValueTask<
-        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
-        QueryPlatformLibraryAsync(
-            PlatformLibraryRealizationResult.Completed library,
-            IReadOnlyCollection<string> documentationIds,
-            ApiOptions options,
-            CancellationToken cancellationToken) =>
-        PlatformCompiledDocumentationQuery.ExecuteAvailableManyAsync(
-            library,
-            documentationIds,
-            CreatePlatformDocumentationQueryLimits(options),
-            cancellationToken);
+            maxSourceOperations: 1,
+            maxTargetCandidates: 0,
+            maxAssemblies: 1,
+            maxXmlDocuments: 1,
+            maxPortablePdbs: 0,
+            maxSourceDocuments: 0,
+            maxBytes: 520L * 1024 * 1024,
+            maxForwardingHops: 0,
+            maxDuration: maximumDuration);
 
     private static PlatformCompiledDocumentationQueryLimits
         CreatePlatformDocumentationQueryLimits(
