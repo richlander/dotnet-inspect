@@ -466,6 +466,10 @@ public class MarkoutRowContainmentTests
             3,
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspect.Cli.Views.PackageQueryRow)));
+        Assert.Equal(
+            6,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspect.Cli.Views.LibraryQueryRow)));
 
         Assert.Equal(OutOfReach, declined.Order(StringComparer.Ordinal).ToArray());
 
@@ -639,6 +643,19 @@ public class MarkoutRowContainmentTests
         if (type == typeof(PackageQueryMatch))
         {
             return PackageQueryCliTests.ContainmentMatch(Hostile);
+        }
+
+        if (type == typeof(LibraryQueryMatch))
+        {
+            var text = new InertString(TextPolicy.Field, Hostile);
+            return new LibraryQueryMatch(
+                text,
+                text,
+                text,
+                text,
+                DotnetInspector.Services.AssemblySetSourceKind.Directory,
+                text,
+                [text]);
         }
 
         if (type == typeof(InertString))

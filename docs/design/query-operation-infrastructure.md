@@ -12,12 +12,14 @@ Package Query, Library Query, Find, Depends, and Graph adopt it separately.
 
 The repository already has implemented portable intent, typed row-query
 resolution, semantic row selection, operation-specific plans, and query
-discovery. `DotnetInspector.QueryEngine` now carries
+discovery. `DotnetInspector.QueryEngine` currently carries
 `QueryOperationDefinition<TPredicate, TPlan>`, executable term and order
 bindings, Query Profiles, validated typed routes, profile-scoped portable
 resolution, effective capability projection, and heterogeneous
 `QueryOperationRegistry` lookup. `QueryOperationInfrastructureGateTests` is the
-Release gate for this substrate.
+Release gate for this substrate. [QuerySpace Library
+Boundary](query-space-library.md) owns its target physical migration to
+`QuerySpace`; this document retains semantic authority.
 
 Current CLI query discovery remains partly maintained through command-specific
 catalogs. Package Query is the first production adopter: one effective route
@@ -25,6 +27,14 @@ now supplies plan resolution, CLI discovery terms, and Browser control terms.
 Graph Libraries is the second adopter: one command route and five row-set
 routes supply its Cluster plan, CLI lowering, and section discovery. The
 remaining operations still bind their syntax through separate paths.
+
+[Query Space Composition](query-space-composition.md) now owns the target
+composition of one operation route with explicit row spaces, terminal
+requirements, structural plan descriptions, and optional source continuation.
+The current `ResultPredicate` operation-term role and route-local projection of
+row capabilities are transitional implementation surfaces. Their retirement is
+a focused adoption of that pattern; this document continues to own operation
+definition, route binding, and operation-plan resolution.
 
 ## Authority and exact claim
 
@@ -114,6 +124,9 @@ infer them.
 
 This pattern composes existing focused owners:
 
+- [Query Space Composition](query-space-composition.md) owns the effective
+  composition of this operation route with row spaces, terminal requirements,
+  structural plan descriptions, and adjacent continuation capability.
 - [Portable query intent](portable-query-intent.md) owns the canonical
   serializable vocabulary, terms, execution bounds, ordered selection stages,
   and order operations.
@@ -247,7 +260,7 @@ Its supported semantic roles are:
 | --- | --- |
 | Subject qualification | Determines whether a candidate subject belongs in the operation result. |
 | Operation selector | Selects an owner-defined mode, occurrence population, traversal projection, or other pre-result plan input. |
-| Result predicate | Filters one declared typed result-row set. |
+| Result predicate | Transitional current role that filters one declared typed result-row set; Query Space adoption moves this binding to the corresponding explicit row space. |
 
 An **order binding** instead records:
 
@@ -591,8 +604,8 @@ eight-step path:
    semantics.
 6. **Implemented:** adopt Find Type and Member query capability without changing
    its discovery grammar, scope rules, or result grains.
-7. Add Library Query over explicit Library populations, with assembly-reference
-   qualification as its first production facet.
+7. **Implemented:** add Library Query over explicit Library populations, with
+   assembly-reference qualification as its first production facet.
 8. Remove superseded command-local query catalogs and lowerers after every
    adopter has Release-gate coverage.
 
@@ -641,6 +654,15 @@ owner-issued plan after the complete Type or Member search result is available.
 The existing pattern grammars, scope authorization, operation limit,
 completion, Count, diagnostics, result shapes, and rendering remain unchanged.
 
+Library Query is the fifth adopter. Its operation registers one explicit
+Library-population role, Library result grain, Libraries row set, candidate
+dimension, direct `references` qualification, and Head, Tail, and Window
+stages. The CLI binds either one top-level DLL directory or one platform
+reference pack through `AssemblySetResolver`; the host-neutral inspection owns
+Metadata evaluation, Library-grain results, visible failures, and completion.
+The focused [Library Query](library-query.md) design owns its population,
+evidence, work-bound, result, and Count contracts.
+
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
 
@@ -677,8 +699,10 @@ automatic `-Q` inheritance, separation of Depth work from result-row stages,
 pre-acquisition rejection, and the existing visible acquisition, decode,
 traversal, and row-resolution failures.
 
-Remaining adopter slices must add Release gates for Package and Library
-reference qualification at their distinct result grains.
+Library Query's Release gates cover route-derived discovery without
+acquisition, portable reference qualification, repeated-term conjunction,
+candidate-bound separation from result rows, directory and platform
+populations, Count completeness, and visible malformed-reference failures.
 
 Adopter-specific owners name the authentic package, assembly, or repository
 fixtures that establish their behavior. This pattern does not manufacture a

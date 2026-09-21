@@ -31,12 +31,15 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
-For library inspection, References, Switches, Type Forwarders, and P/Invoke
-Methods are measured `Verbose` inventories. They therefore enter automatic
-output at `-v:d`, not `-v:n`. Exact `-S` selection and the explicit `@Library`
-or `@Surface` category remain available; explicit selection promotes the
-effective verbosity needed to render the requested inventory. Bare `-S`
-remains the fixed overview: Library Info, Symbols, and Signals.
+For library inspection, References, Switches, Type Forwarders, P/Invoke
+Methods, and Union Types are measured or structurally `Verbose` inventories.
+They therefore enter automatic output at `-v:d`, not `-v:n`. Exact `-S`
+selection and the explicit `@Library` or `@Surface` category remain available;
+explicit selection promotes the effective verbosity needed to render the
+requested inventory. Inspection Failures remains `Terse` and visible at
+`-v:n`; hiding failed producers from the normal view would allow partial
+inspection to look clean. Bare `-S` remains the fixed overview: Library Info,
+Symbols, and Signals.
 
 ## Categories
 
@@ -199,9 +202,11 @@ copy a legacy command.
 `--details` is a temporary Library-only discovery projection, not inspection
 verbosity. Its first adoption adds only `Formats` and remains structural and
 target-free. It will not accumulate more implicit columns. The resource-oriented
-`explain` adoption tracked by #7814 will expose Formats and later owner-issued
-properties from the host-neutral Discovery Document, then remove `--details`.
-Formats do not receive a global `-F` discovery flag.
+[Resource Explanation](resource-explanation.md) adoption tracked by
+[#7964](https://github.com/richlander/dotnet-inspect/issues/7964) will expose
+Formats and later owner-issued properties from the host-neutral Discovery
+Document, then remove `--details`. Formats do not receive a global `-F`
+discovery flag.
 
 ## Query discovery
 
