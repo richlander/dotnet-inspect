@@ -7,6 +7,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using QuerySpace.Rows;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -16,191 +17,6 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class InspectionCommandDefinitions
 {
-    public static Command CreateTimelineCommand(SharedOptions opts)
-    {
-        var command = new Command(
-            TimelineCommand.Name,
-            "Correlate API or member-body Findings across a package version range");
-        var argsArgument = new Argument<string[]>("args")
-        {
-            Description = "Package@A..B and type focus when --package/--type are omitted",
-            Arity = ArgumentArity.ZeroOrMore,
-        };
-        var packageOption = new Option<string?>("--package")
-        {
-            Description = "Package version range (e.g., System.Text.Json@8.0.0..10.0.0)",
-        };
-        var typeOption = new Option<string?>("--type")
-        {
-            Description = "Type focus (full name or unique short name)",
-        };
-        typeOption.Aliases.Add("-t");
-        var memberOption = new Option<string?>("--member")
-        {
-            Description = "Exact member selector; required for Analysis Findings",
-        };
-        memberOption.Aliases.Add("-m");
-        var findingOption = new Option<string?>("--finding")
-        {
-            Description = "Observation census: api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety",
-        };
-        var atOption = new Option<string[]>("--at")
-        {
-            Description = "Evaluate an exact version, #N, first, last, or all; repeat for sparse probes",
-            AllowMultipleArgumentsPerToken = false,
-        };
-        var membersOption = new Option<bool>("--members")
-        {
-            Description = "Alias for --finding api.member",
-        };
-        var typePresenceOption = new Option<bool>("--type-presence")
-        {
-            Description = "Alias for --finding api.type",
-        };
-        var attributesOption = new Option<bool>("--attributes")
-        {
-            Description = "Alias for --finding api.attribute",
-        };
-        var tfmOption = new Option<string?>("--tfm")
-        {
-            Description = "Target framework (e.g., net8.0)",
-        };
-        var allOption = new Option<bool>("--all")
-        {
-            Description = "Include non-public, hidden, and obsolete API",
-        };
-        var prereleaseOption = new Option<bool>("--preview")
-        {
-            Description = "Include prerelease versions inside the range",
-        };
-        prereleaseOption.Aliases.Add("--prerelease");
-        var configDirectoryOption = NuGetConfigDirectoryOption.Create();
-
-        command.Arguments.Add(argsArgument);
-        command.Options.Add(packageOption);
-        command.Options.Add(typeOption);
-        command.Options.Add(memberOption);
-        command.Options.Add(findingOption);
-        command.Options.Add(atOption);
-        command.Options.Add(membersOption);
-        command.Options.Add(typePresenceOption);
-        command.Options.Add(attributesOption);
-        command.Options.Add(tfmOption);
-        command.Options.Add(allOption);
-        command.Options.Add(prereleaseOption);
-        command.Options.Add(configDirectoryOption);
-        opts.AddTableOptionsTo(command);
-        opts.AddJsonOptionTo(command);
-        command.Options.Add(opts.Markdown);
-        opts.AddOutputOptionsTo(
-            command,
-            validateLegacyRowWindow: static _ => false);
-        command.Options.Add(opts.Select);
-        command.Options.Add(opts.Columns);
-        command.Options.Add(opts.Fields);
-        opts.AddCountOptionTo(command);
-        opts.AddNuGetOptionsTo(command);
-        command.SetAction(async (parseResult, ct) =>
-        {
-            string[] positional = parseResult.GetValue(argsArgument) ?? [];
-            string? package = parseResult.GetValue(packageOption);
-            string? type = parseResult.GetValue(typeOption);
-            int positionalIndex = 0;
-            if (package is null && positionalIndex < positional.Length)
-                package = positional[positionalIndex++];
-            if (type is null && positionalIndex < positional.Length)
-                type = positional[positionalIndex++];
-            if (positionalIndex < positional.Length)
-            {
-                CommandError.Write("too many positional arguments.");
-                return 1;
-            }
-
-            var aliases = new List<string>();
-            if (parseResult.GetValue(membersOption))
-                aliases.Add(MetadataFindings.MemberDescriptor.Id);
-            if (parseResult.GetValue(typePresenceOption))
-                aliases.Add(MetadataFindings.TypeDescriptor.Id);
-            if (parseResult.GetValue(attributesOption))
-                aliases.Add(MetadataFindings.AttributeDescriptor.Id);
-            string? explicitFinding = parseResult.GetValue(findingOption);
-            if (aliases.Count > 1 || (aliases.Count == 1 && explicitFinding is not null))
-            {
-                CommandError.Write(
-                    "specify only one of --finding, --members, --type-presence, or --attributes.");
-                return 1;
-            }
-
-            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
-                    parseResult,
-                    "Timeline",
-                    out RowSelectionIntent<string>? rowSelection,
-                    out string? rowSelectionError))
-            {
-                CommandError.Write(rowSelectionError!);
-                return 1;
-            }
-
-            if (!NuGetConfigDirectoryOption.TryApply(
-                    parseResult.GetValue(configDirectoryOption),
-                    opts.ParseNuGetSourceOptions(parseResult),
-                    out var sourceOptions, out string? sourceError))
-            {
-                CommandError.Write(sourceError!);
-                return 1;
-            }
-
-            return await TimelineCommand.ExecuteAsync(new TimelineOptions
-            {
-                PackageVersionRange = package ?? "",
-                TypeName = type ?? "",
-                MemberName = parseResult.GetValue(memberOption),
-                Finding = aliases.Count == 1
-                    ? aliases[0]
-                    : explicitFinding ?? MetadataFindings.MemberDescriptor.Id,
-                At = parseResult.GetValue(atOption) ?? [],
-                Tfm = parseResult.GetValue(tfmOption),
-                IncludeAll = parseResult.GetValue(allOption),
-                IncludePrerelease = parseResult.GetValue(prereleaseOption),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-                Tabular = opts.ResolveTabular(parseResult),
-                Tsv = opts.ResolveTsv(parseResult),
-                Jsonl = opts.ResolveJsonl(parseResult),
-                NoHeader = parseResult.GetValue(opts.NoHeaders),
-                Count = parseResult.GetValue(opts.Count),
-                RowSelection = rowSelection,
-                Select = opts.ParseSelect(parseResult),
-                SelectDefault = opts.ParseSelectDefault(parseResult),
-                Columns = opts.ParseColumns(parseResult),
-                Fields = opts.ParseFields(parseResult),
-                SourceOptions = sourceOptions,
-            });
-        });
-
-        CliRowSelectionCommandRegistry.Register(
-            command,
-            new(
-                opts.Limit,
-                opts.Rows,
-                top: null,
-                orderBy: null,
-                opts.Head,
-                opts.Tail,
-                opts.Lines,
-                opts.TailLines),
-            CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window
-                | CliRowSelectionCapabilities.Lines,
-            isActive: static _ => true,
-            validateLowering: (result, lowering) =>
-                CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.IsJsonDocumentOutput(result),
-                    lowering));
-
-        return command;
-    }
-
     public static Command CreateDiffCommand(SharedOptions opts)
     {
         var diffCommand = new Command(
@@ -231,6 +47,25 @@ public static class InspectionCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
+        var historyOption = new Option<bool>("--history")
+        {
+            Description = "Inspect one Finding across a package version population; requires one full Type name",
+        };
+        var atOption = new Option<string[]>("--at")
+        {
+            Description = "History checkpoint: exact version, #N, first, last, endpoints, midpoint, or all; repeat for sparse evaluation",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var maxProbesOption = new Option<int?>("--max-probes")
+        {
+            Description = "History adaptive-bisection probe budget (minimum 2)",
+        };
+        var prereleaseOption = new Option<bool>("--preview")
+        {
+            Description = "History: include prerelease versions inside the package range",
+        };
+        prereleaseOption.Aliases.Add("--prerelease");
+        var configDirectoryOption = NuGetConfigDirectoryOption.Create();
         var typeFilterOption = new Option<string[]>("-t")
         {
             Description = "Filter to specific type(s)",
@@ -255,10 +90,9 @@ public static class InspectionCommandDefinitions
             Description = "Implementation Diff: read PDB-mapped source from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
-        var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
+        var findingOption = new Option<string?>("--finding") { Description = "Finding producer: api.type, api.member, api.attribute, analysis.allocation, analysis.call-site, or analysis.unsafety" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
-        var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -267,6 +101,11 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(frameworkOption);
         diffCommand.Options.Add(tfmOption);
         diffCommand.Options.Add(allOption);
+        diffCommand.Options.Add(historyOption);
+        diffCommand.Options.Add(atOption);
+        diffCommand.Options.Add(maxProbesOption);
+        diffCommand.Options.Add(prereleaseOption);
+        diffCommand.Options.Add(configDirectoryOption);
         diffCommand.Options.Add(typeFilterOption);
         diffCommand.Options.Add(memberFilterOption);
         opts.AddTableOptionsTo(diffCommand);
@@ -283,7 +122,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
-        diffCommand.Options.Add(unavailableCountOption);
+        opts.AddCountOptionTo(diffCommand);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -292,15 +131,40 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.Select);
         opts.AddEnvelopeOptionTo(
             diffCommand,
-            opts.Discover, opts.Select, opts.Verbosity, opts.Rows,
-            opts.Limit, opts.Head, opts.Tail,
-            typeFilterOption, memberFilterOption, nameOnlyOption,
+            opts.Discover, opts.Select, opts.Verbosity,
+            nameOnlyOption,
             breakingOption, additiveOption, changedOption,
             allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
-            repoOption, findingOption, legendOption);
+            repoOption, legendOption);
+        Option[] envelopeRowOptions =
+        [
+            opts.Rows,
+            opts.Limit,
+            opts.Head,
+            opts.Tail,
+        ];
         diffCommand.Validators.Add(result =>
         {
-            if (!result.GetValue(opts.Envelope))
+            if (!result.GetValue(opts.Envelope)
+                || result.GetValue(historyOption)
+                    && result.GetValue(opts.Count))
+            {
+                return;
+            }
+
+            foreach (Option option in envelopeRowOptions)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {option.Name}.");
+                }
+            }
+        });
+        diffCommand.Validators.Add(result =>
+        {
+            if (!result.GetValue(opts.Envelope)
+                || result.GetValue(historyOption))
                 return;
 
             bool explicitSource =
@@ -317,11 +181,14 @@ public static class InspectionCommandDefinitions
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
+            historyOption, atOption, maxProbesOption, prereleaseOption, opts.Count,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetResult(unavailableCountOption) is { Implicit: false })
+            bool history = parseResult.GetValue(historyOption);
+            if (!history
+                && parseResult.GetResult(opts.Count) is { Implicit: false })
             {
                 CommandError.Write(
                     "--count is not supported by the 'diff' command because "
@@ -329,7 +196,24 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
 
-            var result = DiffOptionsParser.Parse(parseResult, opts, commandArgs);
+            RowSelectionIntent<string>? semanticRowSelection = null;
+            if (history
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Diff History",
+                        out semanticRowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
+            var result = DiffOptionsParser.Parse(
+                parseResult,
+                opts,
+                commandArgs,
+                semanticRowSelection);
 
             switch (result)
             {
@@ -337,17 +221,35 @@ public static class InspectionCommandDefinitions
                     CommandError.Write($"'{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
                     return 1;
 
+                case DiffOptionsParser.Invalid invalid:
+                    CommandError.Write(invalid.Message);
+                    return 1;
+
                 case DiffOptionsParser.Success success:
-                    var exitCode = await DiffCommand.ExecuteAsync(success.Options);
+                    if (!NuGetConfigDirectoryOption.TryApply(
+                            parseResult.GetValue(configDirectoryOption),
+                            success.Options.SourceOptions
+                                ?? NuGetSourceOptions.Default,
+                            out NuGetSourceOptions? sourceOptions,
+                            out string? sourceError))
+                    {
+                        CommandError.Write(sourceError!);
+                        return 1;
+                    }
+                    DiffOptions options = success.Options with
+                    {
+                        SourceOptions = sourceOptions,
+                    };
+                    var exitCode = await DiffCommand.ExecuteAsync(options, ct);
 
                     if (exitCode == 0)
                     {
-                        if (success.Options.Legend)
+                        if (options.Legend)
                             Hints.WriteDiffLegend();
 
-                        if (!success.Options.FormatExplicitlySet)
+                        if (!options.FormatExplicitlySet)
                         {
-                            var tips = DiffOptionsParser.BuildTips(success.Options, success.Options.TypeFilter);
+                            var tips = DiffOptionsParser.BuildTips(options, options.TypeFilter);
                             Hints.WriteTips(success.TipLevel, [.. tips]);
                         }
                     }
@@ -358,6 +260,26 @@ public static class InspectionCommandDefinitions
                     return 1;
             }
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            diffCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result => result.GetValue(historyOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return diffCommand;
     }
