@@ -104,7 +104,7 @@ back. The three models therefore carry three correlation currencies:
 
 | Model | Currency | Used by |
 | --- | --- | --- |
-| `NavigationSession.tla` | maintenance and synchronization request numbers, exact settled-request sets, intent token, semantic revision, action generation, exact applied-route generation, relation-removal invalidation, and consumer installation epoch | per-request admission, per-token settlement, per-authority installation, route/removal correlation, and composite publication receipts |
+| `NavigationSession.tla` | maintenance and synchronization request numbers, exact settled-request sets, intent token, semantic revision, action generation, exact applied-route and removed-relation generations, stale-action basis generation, relation-removal invalidation, and consumer installation epoch | per-request admission, per-token settlement, per-authority installation, route/removal/action correlation, and composite publication receipts |
 | `AtomicRestoration.tla` | restoration token plus an independently retained request payload | per-attempt settlement and exact prepared result |
 | `SnapshotAuthority.tla` | operation ID plus independently retained requested lens | per-operation resolution, rejection, and exact applied result |
 
@@ -481,17 +481,18 @@ OpenJDK `21.0.12` on Linux `amd64`:
 
 | Configuration | States generated | Distinct states | Search depth | TLC exit |
 | --- | --- | --- | --- | --- |
-| `NavigationSessionRouteSafety.cfg` | 890,025 | 178,653 | 23 | `0` |
+| `NavigationSessionRouteSafety.cfg` | 896,468 | 180,917 | 23 | `0` |
 | `NavigationSessionRouteReachability.cfg` | 7,355 | 1,391 | 7 | `12` |
 | `NavigationSessionPostRemovalMaintenanceReachability.cfg` | 4,461 | 1,503 | 10 | `12` |
-| `NavigationSessionPostRemovalMaintenanceLiveness.cfg` | 15,913 | 6,579 | 20 | `0` |
+| `NavigationSessionPostRemovalMaintenanceLiveness.cfg` | 15,983 | 6,622 | 20 | `0` |
 
 The safety configuration exhaustively checks the route/current-relation
 invariants with one maintenance request. The first reachability configuration
 is a negative invariant: exit `12` is the required witness that one behavior
 successfully applies a route-only relation-backed publication, removes that
 exact publication with an atomic direct replacement, and rejects an action
-from the stale relation publication. The second negative invariant requires
+whose retained basis generation equals that removed publication. The second
+negative invariant requires
 one exact request whose current relation-backed publication basis was
 invalidated by removal to rebuild, regather, and drain; its unchanged semantic
 value preserves revision while its publication generation advances. The
@@ -736,6 +737,7 @@ violation exits `13`. None is reported as a successful production model.
 | NS44 | Reintroduce `ConsumerAcknowledgementLags` as a dedicated-response guard while retaining the request through acknowledgement | `EverySynchronizationRequestSettles` | Violated, `13` |
 | NS45 | Remove the exact-publication guard from retry resolution so a stale relation action can resolve as unavailable | `StaleRelationActionIsRejected` | Violated, `12` |
 | NS46 | Advance semantic revision for an unchanged post-removal maintenance publication | `MaintenancePublicationMatchesSemanticChange` | Violated, `12` |
+| NS47 | Issue the post-removal stale action from generation 0 instead of the exact removed relation publication | `RequiredRouteCasesNotObserved` | No violation, `0` |
 | NS14 recheck | Retain revision for a changed semantic non-success snapshot | `NonSuccessRevisionMatchesSnapshotChange` | Violated, `12` |
 | NS21 recheck | Return dedicated synchronization authority at the wrong revision | `SynchronizationAuthorityIsCurrent` | Violated, `12` |
 | NS28 recheck | Copy consumer installation into the receipt during abandonment | `AbandonmentPreservesAcknowledgement` | Violated, `12` |
@@ -744,10 +746,11 @@ violation exits `13`. None is reported as a successful production model.
 | SA18 recheck | Install a different admissible session lens from the exact request | `AppliedResultEqualsExactRequest` | Violated, `12` |
 
 The 2026-09-21 NS45 and NS46 scratch probes use
-`NavigationSessionRouteSafety.cfg`. NS45 explores 10,783 generated and 2,338
-distinct states at depth 7; NS46 explores 739 generated and 199 distinct states
-at depth 4. Both stop on their named invariant. The earlier safety probes
-retain the shipped bounds. NS44 uses
+`NavigationSessionRouteSafety.cfg` and stop on their named invariant. The
+2026-09-21 NS47 reachability mutation explores 63,790 generated and 14,808
+distinct states at depth 18 and exits `0`: an action from the unrelated initial
+direct publication cannot satisfy the exact removed-publication witness. The
+earlier safety probes retain the shipped bounds. NS44 uses
 `MaxIntent = 1`, `MaxMaintenance = 1`, `MaxSynchronization = 2`, and only the
 `lens` intent kind; all other constants are unchanged. It explores 4,581
 generated and 1,942 distinct states at depth 17. Its counterexample queues

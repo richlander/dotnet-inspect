@@ -142,6 +142,8 @@ NoResult ==
     postRemovalRegatheredMaintenanceOccurred |-> FALSE,
     routeOnlyAppliedGeneration |-> 0,
     appliedRelationRemovalOccurred |-> FALSE,
+    removedRelationGeneration |-> 0,
+    staleRelationActionBasisGeneration |-> 0,
     disposition     |-> "none",
     receiptSnapshot |-> Publication(InitialSemantic, 0),
     receiptRev      |-> 0,
@@ -171,6 +173,11 @@ Result(outcome, source, preparationFailureOccurred,
     routeOnlyAppliedGeneration |-> lastResult.routeOnlyAppliedGeneration,
     appliedRelationRemovalOccurred |->
       lastResult.appliedRelationRemovalOccurred,
+    removedRelationGeneration |-> lastResult.removedRelationGeneration,
+    staleRelationActionBasisGeneration |->
+      IF staleRelationActionOccurred
+        THEN explicit.basisGeneration
+        ELSE 0,
     disposition     |-> disposition,
     receiptSnapshot |-> receiptSnapshot,
     receiptRev      |-> receiptRev,
@@ -263,6 +270,8 @@ TypeOK ==
   /\ lastResult.postRemovalRegatheredMaintenanceOccurred \in BOOLEAN
   /\ lastResult.routeOnlyAppliedGeneration \in Nat
   /\ lastResult.appliedRelationRemovalOccurred \in BOOLEAN
+  /\ lastResult.removedRelationGeneration \in Nat
+  /\ lastResult.staleRelationActionBasisGeneration \in Nat
   /\ lastResult.disposition \in Dispositions \cup {"none"}
   /\ IsPublication(lastResult.receiptSnapshot)
   /\ lastResult.receiptRev \in Nat
@@ -378,11 +387,11 @@ BeginCurrentExplicitIntent(kind, route) ==
 
 BeginStaleRelationAction ==
   /\ ~relationAvailable
-  /\ installedSnapshot.generation > 0
+  /\ lastResult.removedRelationGeneration > 0
   /\ BeginExplicitIntent(
        "subject",
        RelatedRoute,
-       installedSnapshot.generation - 1)
+       lastResult.removedRelationGeneration)
 
 \* An `Applied` outcome installs a semantically changed replacement snapshot
 \* and returns fresh authority under its own intent token.
@@ -700,7 +709,9 @@ RemoveActiveRelation ==
               EXCEPT !.appliedRelationRemovalOccurred =
                 (@ \/
                    (lastResult.routeOnlyAppliedGeneration =
-                      installedSnapshot.generation))]
+                      installedSnapshot.generation)),
+                     !.removedRelationGeneration =
+                       installedSnapshot.generation]
   /\ installedRev' = installedRev + 1
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("maintenance", installedRev + 1, currentIntent,
@@ -1194,7 +1205,9 @@ StaleRelationActionIsRejected ==
 \* a route-only apply, atomic relation removal, and stale action rejection.
 RequiredRouteCasesNotObserved ==
   ~(lastResult.appliedRelationRemovalOccurred /\
-      lastResult.staleRelationActionOccurred)
+      lastResult.staleRelationActionOccurred /\
+      lastResult.staleRelationActionBasisGeneration =
+        lastResult.removedRelationGeneration)
 
 \* Every maintenance publication advances action generation. Semantic revision
 \* advances exactly when subject or route changed.

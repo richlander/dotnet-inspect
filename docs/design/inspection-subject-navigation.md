@@ -2327,7 +2327,8 @@ contract-defining
 `NavigationSessionRouteReachability.cfg` intentionally exits `12` only after
 one behavior successfully applies a route-only relation-backed publication,
 atomically replaces that exact publication with a direct route when the
-relation is removed, and rejects an action from the old publication.
+relation is removed, and rejects an action whose retained basis generation
+equals that removed publication.
 `NavigationSessionPostRemovalMaintenanceReachability.cfg` intentionally exits
 `12` only after relation removal invalidates one exact queued request's current
 relation-backed publication basis and that same request rebuilds, regathers,
