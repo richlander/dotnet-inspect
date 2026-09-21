@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using QuerySpace;
 using QuerySpace.Rows;
 
-namespace DotnetInspector.QueryOperations;
+namespace QuerySpace.Operations;
 
 public sealed class QueryOperationTermCapability
 {

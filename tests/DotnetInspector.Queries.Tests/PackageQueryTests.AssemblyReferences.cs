@@ -6,7 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using DotnetInspector.Packages;
 using QuerySpace;
-using DotnetInspector.QueryOperations;
+using QuerySpace.Operations;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
