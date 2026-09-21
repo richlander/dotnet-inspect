@@ -1184,6 +1184,12 @@ or consumer-completion failure restores the pre-activation snapshot. An
 in-application link enters browser history only after publication and
 acknowledgement; the active source-bearing packet remains the share and refresh
 URL rather than being rewritten through the format-1 encoder.
+URL synchronization remains suspended for the complete source-activation
+lifecycle. History restoration performs source preflight before switching the
+retained host projection, and ordinary navigation preserves the incumbent
+source-bearing URL until its replacement commits. An identical active
+definition may reuse its posting only after that posting completed consumer
+delivery; an abandoned posting is deactivated and prepared again.
 The production coordinator reuses an identical retained definition and removes
 only settled inactive definitions before retaining a distinct URL, so canceled
 prompts and prior URLs do not consume the controller's bounded definition

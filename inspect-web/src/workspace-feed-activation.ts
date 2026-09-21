@@ -91,6 +91,7 @@ export interface WorkspaceFeedActivationDependencies<TRollback> {
 
 export interface WorkspaceFeedActivationCoordinator {
   readonly activeUrl: string | null;
+  readonly blocksUrlSynchronization: boolean;
   tryOpen(
     url: URL,
     navigationSequence: number,
@@ -127,8 +128,10 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     readonly sourceUrl: string | null;
   } | null = null;
   const activationSequences = new Map<string, number>();
+  const deliveredDefinitionIds = new Set<string>();
   let activeUrl: string | null = null;
   let lastFailure: string | null = null;
+  let pendingNavigationSequence: number | null = null;
 
   function activationController(): RetainedWorkspaceActivationController {
     controller ??= createRetainedWorkspaceActivationController(
@@ -168,7 +171,16 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     const existing = currentController.state.definitions.find(definition =>
       definition.canonicalLocation === canonicalLocation
       && definition.canonicalPacket === canonicalPacket);
-    if (existing !== undefined) return existing.id;
+    if (existing !== undefined) {
+      if (currentController.state.activeDefinitionId !== existing.id
+        || deliveredDefinitionIds.has(existing.id)) {
+        return existing.id;
+      }
+      await currentController.delete(existing.id, {
+        successorDefinitionId: null,
+      });
+      deliveredDefinitionIds.delete(existing.id);
+    }
 
     const protectedIds = new Set([
       currentController.state.activeDefinitionId,
@@ -178,6 +190,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     for (const definition of currentController.state.definitions) {
       if (!protectedIds.has(definition.id)) {
         await currentController.delete(definition.id);
+        deliveredDefinitionIds.delete(definition.id);
       }
     }
 
@@ -208,6 +221,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     const retainedDefinitionId = await retainDefinition(
       url.toString(),
       packet);
+    pendingNavigationSequence = navigationSequence;
     releaseRollback();
     rollback = {
       retainedDefinitionId,
@@ -295,6 +309,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
     if (current === null) return;
     activationController().cancelPending();
     releaseRollback();
+    clearPendingNavigation(current.navigationSequence);
     prompt = null;
     dependencies.document
       .querySelector("#workspace-credential-backdrop")
@@ -346,6 +361,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       }
       if (succeeded) {
         prompt = null;
+        clearPendingNavigation(current.navigationSequence);
         dependencies.document
           .querySelector("#workspace-credential-backdrop")
           ?.remove();
@@ -439,6 +455,10 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         return false;
       }
       if (result.status === "noEffect" && result.posting !== null) {
+        if (!deliveredDefinitionIds.has(retainedDefinitionId)) {
+          throw new Error(
+            "The retained Workspace did not complete its prior publication.");
+        }
         posted = {
           value: result.posting,
           navigationSequence,
@@ -447,6 +467,7 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
       }
       if ((result.status === "activated" || result.status === "noEffect")
         && projected) {
+        deliveredDefinitionIds.add(retainedDefinitionId);
         activeUrl = canonicalLocation;
         releaseRollback(retainedDefinitionId, navigationSequence);
         if (commitHistory) dependencies.pushLocation(canonicalLocation);
@@ -485,6 +506,13 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
         === navigationSequence) {
         activationSequences.delete(retainedDefinitionId);
       }
+      if (prompt === null) clearPendingNavigation(navigationSequence);
+    }
+  }
+
+  function clearPendingNavigation(navigationSequence: number): void {
+    if (pendingNavigationSequence === navigationSequence) {
+      pendingNavigationSequence = null;
     }
   }
 
@@ -542,6 +570,10 @@ export function createWorkspaceFeedActivationCoordinator<TRollback>(
   return {
     get activeUrl() {
       return activeUrl;
+    },
+    get blocksUrlSynchronization() {
+      return pendingNavigationSequence !== null
+        && dependencies.isCurrent(pendingNavigationSequence);
     },
     tryOpen,
     cancelPrompt,

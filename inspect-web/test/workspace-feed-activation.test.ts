@@ -200,6 +200,7 @@ function createWorkspaceTestClient(
   options: WorkspaceTestClientOptions = {},
 ): WorkspaceTestClient {
   let activePosting: BrowserRetainedWorkspacePosting | null = null;
+  let successfulCompletionFailures = 0;
   let prepared = {
     id: "definition",
     canonicalLocation: "https://example.test/?w=packet",
@@ -299,7 +300,9 @@ function createWorkspaceTestClient(
       succeeded,
     ) {
       events.push(`complete:${succeeded}`);
-      if (succeeded && options.failSuccessfulCompletion) {
+      if (succeeded
+        && options.failSuccessfulCompletion
+        && successfulCompletionFailures++ === 0) {
         throw new Error("Consumer completion could not be delivered.");
       }
       return {
@@ -310,10 +313,26 @@ function createWorkspaceTestClient(
       };
     },
     async deactivateRetainedWorkspaceDefinition() {
-      throw new Error("Unexpected retained Workspace deactivation.");
+      events.push("deactivate");
+      activePosting = null;
+      return {
+        status: "deactivated",
+        completionReceipt: "deactivation-receipt",
+        settlement: null,
+        message: null,
+      };
     },
-    async completeRetainedWorkspaceDeactivation() {
-      throw new Error("Unexpected retained Workspace deactivation completion.");
+    async completeRetainedWorkspaceDeactivation(
+      _receipt,
+      succeeded,
+    ) {
+      events.push(`deactivation-complete:${succeeded}`);
+      return {
+        status: "completed",
+        succeeded,
+        failure: null,
+        message: null,
+      };
     },
     async observeRetainedWorkspaceSettlement() {
       throw new Error("Unexpected predecessor settlement.");
@@ -770,6 +789,7 @@ test("superseded delayed admission releases rather than restores rollback", asyn
     harness.sequence,
     true);
   await admissionStarted.promise;
+  assert.equal(harness.coordinator.blocksUrlSynchronization, true);
   harness.advance("successor-workspace");
   admission.resolve({
     status: "admitted",
@@ -792,6 +812,19 @@ test("superseded delayed admission releases rather than restores rollback", asyn
   assert.equal(events.includes("restore"), false);
   assert.equal(events.includes("release"), true);
   assert.equal(harness.failure, null);
+  assert.equal(harness.coordinator.blocksUrlSynchronization, false);
+
+  const reopened = await harness.coordinator.tryOpen(
+    new URL("https://example.test/?w=packet"),
+    harness.sequence,
+    true);
+  assert.equal(reopened, true);
+  assert.equal(harness.visible, "https://example.test/?w=packet");
+  assert.equal(events.filter(event => event === "commit").length, 2);
+  assert.equal(events.filter(event => event === "publish").length, 1);
+  assert.equal(events.filter(event => event === "acknowledge").length, 1);
+  assert.equal(events.filter(event => event === "complete:true").length, 1);
+  assert.equal(events.includes("deactivate"), true);
 });
 
 test("consumer-completion failure restores the incumbent workspace", async () => {
@@ -813,4 +846,15 @@ test("consumer-completion failure restores the incumbent workspace", async () =>
   assert.equal(events.includes("release"), false);
   assert.match(harness.failure ?? "", /Consumer completion could not be delivered/);
   assert.equal(harness.coordinator.activeUrl, null);
+
+  assert.equal(
+    await harness.coordinator.tryOpen(
+      new URL("https://example.test/?w=packet"),
+      harness.sequence,
+      true),
+    true);
+  assert.equal(harness.visible, "https://example.test/?w=packet");
+  assert.equal(events.includes("deactivate"), true);
+  assert.equal(events.filter(event => event === "complete:true").length, 2);
+  assert.equal(events.filter(event => event === "publish").length, 2);
 });

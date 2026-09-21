@@ -11230,6 +11230,7 @@ function syncUrl() {
   if (pendingWorkspaceConstruction
     && navigationSequence.isCurrent(
       pendingWorkspaceConstruction.navigationSeq)) return;
+  if (workspaceFeedActivation?.blocksUrlSynchronization) return;
   if (retainFailedWorkspaceUrl()) return;
   const pushFromProductDemos =
     isProductHomeDemosPath(location.pathname);
@@ -17746,6 +17747,7 @@ async function openFreshWorkspaceLink(
       && (state.package || state.platformSelection)) {
       const destination = (await buildStateUrl()).toString();
       if (!navigationSequence.isCurrent(navigationSeq)) return;
+      workspaceFeedActivation?.clearActiveUrl();
       publishCurrentWorkspace(construction.retainedSnapshot);
       workspaceLocation.push(destination);
       render({ synchronizeUrl: false });
@@ -17814,8 +17816,6 @@ async function navigateInAppUrl(url: URL) {
     render({ synchronizeUrl: false });
     return;
   }
-  workspaceFeedActivation?.clearActiveUrl();
-  state.workspaceFeedUrl = null;
   const tablessTarget = !loc.tabs.length && loc.package
     ? state.packages.find(candidate =>
       packageCoordinateMatchesLocation(candidate, loc))
@@ -17828,6 +17828,8 @@ async function navigateInAppUrl(url: URL) {
       openFreshWorkspaceLink(loc, navigationSeq),
       "Opening workspace link");
   } else {
+    workspaceFeedActivation?.clearActiveUrl();
+    state.workspaceFeedUrl = null;
     workspaceLocation.push(url.toString());
     observeAsync(
       navigateWithinCurrentWorkspace(loc, navigationSeq),
@@ -18341,8 +18343,12 @@ window.addEventListener("popstate", () => {
   const historyWorkspaceAvailable = historyWorkspaceId !== null
     && retainedWorkspaces.workspaces.some(
       workspace => workspace.id === historyWorkspaceId);
+  const deferHistoryWorkspaceActivation =
+    location.pathname === "/"
+    && new URL(location.href).searchParams.has("w");
   if (historyWorkspaceAvailable
-    && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+    && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId
+    && !deferHistoryWorkspaceActivation) {
     try {
       activateRetainedWorkspaceProjection(historyWorkspaceId, false);
     } catch (error) {
@@ -18485,6 +18491,16 @@ window.addEventListener("popstate", () => {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   if (!state.engineReady) {
+    if (deferHistoryWorkspaceActivation
+      && historyWorkspaceAvailable
+      && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+      try {
+        activateRetainedWorkspaceProjection(historyWorkspaceId, false);
+      } catch (error) {
+        showToast(`Could not activate Workspace: ${errorMessage(error)}`);
+        return;
+      }
+    }
     const pendingWorkspace = workspaceLocation.preflightCurrent();
     const pendingLocation = pendingWorkspace.visible;
     state.queryNotice = pendingLocation.workspaceNotice || "";
@@ -18506,6 +18522,16 @@ window.addEventListener("popstate", () => {
     new URL(location.href),
     navigationSeq)) {
     return;
+  }
+  if (deferHistoryWorkspaceActivation
+    && historyWorkspaceAvailable
+    && historyWorkspaceId !== retainedWorkspaces.activeWorkspaceId) {
+    try {
+      activateRetainedWorkspaceProjection(historyWorkspaceId, false);
+    } catch (error) {
+      showToast(`Could not activate Workspace: ${errorMessage(error)}`);
+      return;
+    }
   }
   const loc = await parseLocation();
   if (!navigationSequence.isCurrent(navigationSeq)) return;
