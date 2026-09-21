@@ -18,7 +18,6 @@
     <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageHouse.Execution\DotnetInspector.PackageHouse.Execution.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
-    <ProjectReference Include="..\DotnetInspector.QueryEngine\DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <InternalsVisibleTo Include="DotnetInspector.Sections" />
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />

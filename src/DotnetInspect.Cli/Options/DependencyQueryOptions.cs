@@ -7,7 +7,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
 using QuerySpace;
-using DotnetInspector.QueryOperations;
+using QuerySpace.Operations;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;

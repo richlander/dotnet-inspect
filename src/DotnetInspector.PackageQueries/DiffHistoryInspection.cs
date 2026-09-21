@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Inspector.Findings;
 
@@ -773,24 +772,15 @@ public abstract record DiffHistoryOutcome
     {
     }
 
-    public sealed record Available : DiffHistoryOutcome
+    public record Available : DiffHistoryOutcome
     {
-        internal Available(
-            DiffHistoryDocument document,
-            SectionCountOutcome<
-                DiffHistoryCountCohort,
-                DiffHistoryChangedVersionCountEvidence>? count = null)
+        internal Available(DiffHistoryDocument document)
         {
             Document =
                 document ?? throw new ArgumentNullException(nameof(document));
-            Count = count;
         }
 
         public DiffHistoryDocument Document { get; }
-
-        public SectionCountOutcome<
-            DiffHistoryCountCohort,
-            DiffHistoryChangedVersionCountEvidence>? Count { get; }
     }
 
     public sealed record ExactApiMemberUnavailable : DiffHistoryOutcome

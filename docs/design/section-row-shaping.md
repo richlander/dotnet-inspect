@@ -15,10 +15,12 @@ binds Head, Tail, and Window intent directly to one unordered cohort for
 package-version rows. Ordered/ranked intent resolution, projection, general
 Count binding, source outcomes, and multiple-cohort composition remain
 unimplemented.
-The dependency-free `SectionCountOutcome<TIdentity, TEvidence>` carrier
-implements the terminal exact-count, source-for-Count, and semantic-failure
-branches consumed by Diff History; it does not itself resolve or execute a
-section request.
+The `DotnetInspector.Sections`-owned
+`SectionCountOutcome<TIdentity, TEvidence>` carrier implements the terminal
+exact-count, source-for-Count, and semantic-failure branches consumed by Diff
+History; it does not itself resolve or execute a section request. The L1
+PackageQueries outcome remains Count-free, while L2 returns
+`DiffHistorySectionAvailable` with the optional section Count outcome.
 
 Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains

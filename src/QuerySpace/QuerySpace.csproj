@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Portable query intent, row planning, and reference execution</Description>
+    <Description>Portable query intent, operation and row planning, composition, and reference execution</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

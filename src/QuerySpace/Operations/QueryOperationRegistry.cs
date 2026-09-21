@@ -1,4 +1,4 @@
-namespace DotnetInspector.QueryOperations;
+namespace QuerySpace.Operations;
 
 public sealed class QueryOperationRegistry
 {

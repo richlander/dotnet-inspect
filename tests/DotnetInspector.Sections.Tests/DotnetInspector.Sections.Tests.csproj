@@ -23,7 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <ProjectReference Include="../../src/QuerySpace/QuerySpace.csproj" />
   </ItemGroup>

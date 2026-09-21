@@ -1,6 +1,6 @@
 using QuerySpace;
 
-namespace DotnetInspector.QueryOperations;
+namespace QuerySpace.Operations;
 
 public sealed class QueryOperationDefinition<TPredicate, TPlan>
 {

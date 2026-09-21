@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using QuerySpace;
-using DotnetInspector.QueryOperations;
+using QuerySpace.Operations;
 using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;

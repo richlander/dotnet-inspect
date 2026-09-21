@@ -1,5 +1,5 @@
 using QuerySpace;
-using DotnetInspector.QueryOperations;
+using QuerySpace.Operations;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Queries.Tests;

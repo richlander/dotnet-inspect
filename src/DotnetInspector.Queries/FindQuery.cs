@@ -1,9 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 
 using QuerySpace;
-using DotnetInspector.QueryOperations;
+using QuerySpace.Operations;
 using QuerySpace.Rows;
-using DotnetInspector.Sections;
 
 namespace DotnetInspector.Queries;
 

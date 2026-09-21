@@ -157,7 +157,6 @@
     <Project Path="src/DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Packages/DotnetInspector.Platforms.Packages.csproj" />
-    <Project Path="src/DotnetInspector.QueryEngine/DotnetInspector.QueryEngine.csproj" />
     <Project Path="src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />

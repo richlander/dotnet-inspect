@@ -80,7 +80,7 @@ public abstract record SectionCountOutcome<TIdentity, TEvidence>
                 }
             }
 
-            Counts = QueryEngineSnapshot.Copy(counts);
+            Counts = SectionContractSnapshot.Copy(counts);
         }
 
         public IReadOnlyList<SectionCountEntry<TIdentity>> Counts { get; }
@@ -117,7 +117,7 @@ public abstract record SectionCountOutcome<TIdentity, TEvidence>
                 }
             }
 
-            Sources = QueryEngineSnapshot.Copy(sources);
+            Sources = SectionContractSnapshot.Copy(sources);
         }
 
         public IReadOnlyList<

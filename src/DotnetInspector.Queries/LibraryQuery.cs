@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using QuerySpace;
 using QuerySpace.Rows;
-using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using InertText;
