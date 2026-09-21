@@ -372,6 +372,56 @@ generic bounded `-v:n` preset; `-v:d`, exact section selection, and explicit
 `@Surface` selection retain the complete inventories. Exact-type/member
 sections and domain catalogs remain separate #3284 audit work.
 
+#### Base `@Member` evidence
+
+The focused base `@Member` audit covers the broad exact-type route, the
+named-member overload route, and the exact-member detail route. It classifies
+the shared descriptors at their declarations so overload and detail
+composition inherit the same growth contract.
+
+The broad exact-type route has these measured and structural bounds:
+
+| Section | Evidence and producer shape | Classification |
+| --- | --- | --- |
+| Type Info | One identity fact table | `Fixed` |
+| Values | 145 `ConsoleKey` values; one row per enum field | `Verbose` |
+| Type Parameters | 17 rows on the largest `Func` type | `Informative` |
+| Interfaces | 31 rows on `Decimal`; one row per implemented interface | `Verbose` |
+| Baseclass | Zero or one non-trivial base-class row | `Fixed` |
+| Constructors | Nine `System.String` overload rows at Detailed/exact selection; Minimal groups them into one authored summary row | `Verbose` |
+| Finalizer | Zero or one grouped finalizer row in supported valid metadata | `Fixed` |
+| Fields | 226 rows on `OpCodes` | `Verbose` |
+| Properties | 70 rows on `System.Type` | `Verbose` |
+| Method Groups | 75 rows on `Enumerable`; one row per method name | `Verbose` |
+| Methods | 234 rows on `Enumerable`; one row per overload | `Verbose` |
+| Operators | 37 rows on `Decimal` | `Verbose` |
+| Explicit Interface Implementations | 99 rows on `Decimal` | `Verbose` |
+| Extension Methods | 83 rows on `Span<T>` | `Verbose` |
+| Events | 31 rows in a product projection boundary; one row per target-authored event | `Verbose` |
+| Custom Attributes | 31 rows in an inspected-fixture boundary; one row per method attribute | `Verbose` |
+| Decompiled Source | Document length grows with selected source/body content | `Verbose` |
+| PDB Source | Document length grows with selected source content | `Verbose` |
+| IL | Document length grows with selected method bodies | `Verbose` |
+
+The named-member route owns a distinct `Methods` descriptor because it lists
+only overloads for the selected name. `AdvSimd.Store` has 41 overload rows, so
+that descriptor is also `Verbose`. The route reuses the broad Custom
+Attributes, Decompiled Source, PDB Source, and IL descriptors when composition
+narrows to one member; their growth classifications therefore belong on the
+shared declarations rather than duplicated route-local declarations.
+
+The exact-member route keeps `Signature` `Fixed`. Its route-local Custom
+Attributes descriptor is also `Verbose`, preserving the same uncapped metadata
+shape and inspected-fixture boundary as the shared descriptor. Its route-local
+Decompiled Source, PDB Source, and IL descriptors are `Verbose` because their
+rendered documents grow with the selected source or body;
+`Enumerable.ToArray:1` provides a stable platform IL witness above 24 rendered
+lines.
+
+This audit changes only base `@Member` behavior and declarations directly
+reused by its overload/detail composition. Domain-only and uncategorized
+analysis sections remain later #3284 work.
+
 ### Cost
 
 `Cost` describes the work required to produce section content:
