@@ -85,15 +85,19 @@ public static class PlatformTypeCatalogQuery
 
         if (string.IsNullOrWhiteSpace(pattern))
         {
-            return new PlatformTypeCatalogQueryOutcome.Rejected(
-                catalog,
-                PlatformTypeCatalogQueryRejectionKind.EmptyPattern);
+            return Publish(
+                new PlatformTypeCatalogQueryOutcome.Rejected(
+                    catalog,
+                    PlatformTypeCatalogQueryRejectionKind.EmptyPattern),
+                cancellationToken);
         }
         if (pattern.Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
         {
-            return new PlatformTypeCatalogQueryOutcome.Rejected(
-                catalog,
-                PlatformTypeCatalogQueryRejectionKind.PatternTooLong);
+            return Publish(
+                new PlatformTypeCatalogQueryOutcome.Rejected(
+                    catalog,
+                    PlatformTypeCatalogQueryRejectionKind.PatternTooLong),
+                cancellationToken);
         }
 
         string normalizedPattern =
@@ -129,14 +133,13 @@ public static class PlatformTypeCatalogQuery
         }
         else if (explicitGenericNotation)
         {
-            return new PlatformTypeCatalogQueryOutcome.Missing(catalog);
+            preferred = [];
         }
         preferred = PreferDefinitions(
             preferred,
             cancellationToken);
 
-        cancellationToken.ThrowIfCancellationRequested();
-        return preferred.Length switch
+        PlatformTypeCatalogQueryOutcome outcome = preferred.Length switch
         {
             0 => new PlatformTypeCatalogQueryOutcome.Missing(catalog),
             1 => new PlatformTypeCatalogQueryOutcome.Resolved(
@@ -146,6 +149,7 @@ public static class PlatformTypeCatalogQuery
                 catalog,
                 preferred),
         };
+        return Publish(outcome, cancellationToken);
     }
 
     private static ImmutableArray<PlatformTypeCatalogEntry> PreferDefinitions(
@@ -201,5 +205,14 @@ public static class PlatformTypeCatalogQuery
         return name.Namespace.Length == 0
             ? typeName
             : $"{name.Namespace}.{typeName}";
+    }
+
+    private static T Publish<T>(
+        T outcome,
+        CancellationToken cancellationToken)
+        where T : PlatformTypeCatalogQueryOutcome
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return outcome;
     }
 }

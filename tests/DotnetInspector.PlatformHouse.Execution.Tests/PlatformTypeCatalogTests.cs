@@ -445,7 +445,7 @@ public partial class PlatformLibraryRealizationTests
             Assert.Throws<OperationCanceledException>(
                 () => PlatformTypeCatalogQuery.Execute(
                     catalog,
-                    "External.Exported",
+                    "Missing<T>",
                     cancellation.Token));
         }
         finally
