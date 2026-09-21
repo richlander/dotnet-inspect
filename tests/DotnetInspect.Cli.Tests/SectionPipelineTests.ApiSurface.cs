@@ -434,6 +434,8 @@ public partial class SectionPipelineTests
                 ApiMemberSectionDescriptors.TopLeverage.SizeClass),
             (ApiMemberSectionDescriptors.TypeMetrics.Name,
                 ApiMemberSectionDescriptors.TypeMetrics.SizeClass),
+            (ApiMemberSectionDescriptors.MemberMetrics.Name,
+                ApiMemberSectionDescriptors.MemberMetrics.SizeClass),
             (ApiMemberSectionDescriptors.OptimizationOpportunities.Name,
                 ApiMemberSectionDescriptors.OptimizationOpportunities.SizeClass),
             (ApiMemberSectionDescriptors.SourceLocations.Name,
