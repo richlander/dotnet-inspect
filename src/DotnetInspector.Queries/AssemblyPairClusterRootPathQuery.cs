@@ -181,7 +181,7 @@ public static class AssemblyPairClusterRootPathQuery
             {
                 throw new AssemblyPairClusterRootPathRequestException(
                     "The selected cluster, Metadata inventory, and "
-                        + "Analysis index do not identify the same "
+                        + "Analysis call-graph result do not identify the same "
                         + "source module.",
                     nameof(selection));
             }

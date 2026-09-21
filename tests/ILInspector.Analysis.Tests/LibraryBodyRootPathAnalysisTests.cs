@@ -456,7 +456,19 @@ public class LibraryBodyRootPathAnalysisTests
         MethodIdentity method = Method(mvid, 1, "Method");
         LibraryCallGraphAnalysisResult callGraph =
             CallGraph([method], []);
+        LibraryCallGraphAnalysisResult unrequested =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.None))
+            .CallGraph;
 
+        Assert.Throws<InvalidOperationException>(
+            () => LibraryBodyRootPathAnalysis.FindShortestPaths(
+                unrequested,
+                [Address(method)],
+                [Address(method)],
+                s_generousLimits));
         Assert.Throws<ArgumentException>(
             () => LibraryBodyRootPathAnalysis.FindShortestPaths(
                 callGraph,
