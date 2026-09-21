@@ -481,7 +481,7 @@ does not reopen this document to absorb its adopting owner's semantics.
 
 | Gate or evidence | Required property |
 | --- | --- |
-| `QuerySpaceDirectConsumerBuilds` | An independent consumer constructs a descriptor and plan over application-owned data types with no QuerySpace interface on those types and no dotnet-inspect host dependency. |
+| `QuerySpaceDirectConsumerExecutes` | An independent consumer constructs a descriptor and request, resolves and executes a representative plan through public APIs over an existing application-owned collection, and verifies the detached result. Its row and collection types implement no QuerySpace interface, execution requires no separately allocated source wrapper, and the consumer has no dotnet-inspect host dependency. |
 | Existing portable-query gates | Moving the types preserves intent, identity, ordering, payload, compatibility, and failure behavior. |
 | Existing row-query and row-selection gates | Moving the types preserves predicate, order, stage, failure, and reference-evaluator behavior. |
 | Existing Query Operation gates | Moving the types preserves executable registration and capability projection. |
