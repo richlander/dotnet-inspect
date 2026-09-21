@@ -349,8 +349,8 @@ public partial class PlatformLibraryRealizationTests
                 AddDefinition(
                     metadata,
                     TypeAttributes.Public,
-                    "Other",
-                    "ExportOnly");
+                    "External",
+                    "ExportOnly`1");
                 TypeDefinitionHandle outer = AddDefinition(
                     metadata,
                     TypeAttributes.Public,
