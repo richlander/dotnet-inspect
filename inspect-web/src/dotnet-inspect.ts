@@ -12928,8 +12928,36 @@ async function selectWorkspaceApplicationScope() {
   const pkg = state.package;
   if (!pkg) {
     if (state.platformSelection) {
-      navigationSequence.begin();
-      openDefaultWorkspace();
+      const navigationSeq = navigationSequence.begin();
+      const focusGeneration = documentFocusGeneration;
+      let destination: URL;
+      try {
+        const snapshot = captureWorkspaceUrlState();
+        if (!snapshot) throw new Error("The Platform workspace is unavailable.");
+        destination = await workspaceLocation.build({
+          ...snapshot,
+          subject: "workspace",
+        });
+      } catch (error) {
+        if (navigationSequence.isCurrent(navigationSeq)) {
+          showToast(`Opening Workspace failed: ${errorMessage(error)}`);
+        }
+        return;
+      }
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
+      if (!workspaceLocation.push(destination.toString())) {
+        showToast("Opening Workspace failed: browser history could not be updated.");
+        return;
+      }
+      // Retire any maintenance projection captured from the predecessor.
+      syncUrlRevision++;
+      const restoreDestinationFocus = focusGeneration === documentFocusGeneration;
+      state.workspaceSubjectOpen = true;
+      state.atPackageRoot = true;
+      state.atLibraryRoot = false;
+      activeWorkspaceUrl = destination.toString();
+      render({ synchronizeUrl: false });
+      if (restoreDestinationFocus) focusWorkspaceOrHeading();
     }
     return;
   }

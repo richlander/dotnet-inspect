@@ -13,6 +13,12 @@ public sealed record InertWidgetDto(
     [property: JsonConverter(typeof(InertStringWriteConverter))]
     InertString Display);
 
+public sealed record TimestampDto(
+    DateTimeOffset ObservedAt,
+    DateTimeOffset? CompletedAt,
+    TimestampSelection Selection,
+    NullableTimestampSelection NullableSelection);
+
 public sealed class InertStringWriteConverter : JsonConverter<InertString>
 {
     public override InertString Read(
@@ -118,6 +124,7 @@ public sealed class HiddenTypeJsonIncludeDto
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(InertWidgetDto))]
+[JsonSerializable(typeof(TimestampDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(ConditionalOutputDto))]
@@ -246,6 +253,28 @@ public static partial class TypeScriptFixtureExports
                     TextPolicy.Field,
                     "line\u202Egpj")),
             FixtureJsonContext.Default.InertWidgetDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetTimestampAsync()
+    {
+        await Task.Yield();
+        var observedAt = new DateTimeOffset(
+            2026,
+            9,
+            21,
+            10,
+            30,
+            45,
+            TimeSpan.FromHours(-7))
+            .AddTicks(1_234_567);
+        return JsonSerializer.Serialize(
+            new TimestampDto(
+                observedAt,
+                null,
+                new TimestampSelection(observedAt),
+                new NullableTimestampSelection((DateTimeOffset?)null)),
+            FixtureJsonContext.Default.TimestampDto);
     }
 
     [JSExport]
