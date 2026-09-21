@@ -150,12 +150,35 @@ public sealed class PlatformTypeCatalog
     internal static Dictionary<
         MetadataTypeDefinitionName,
         ImmutableArray<PlatformTypeCatalogEntry>> CreateLookup(
-        ImmutableArray<PlatformTypeCatalogEntry> entries) =>
-        entries
-            .GroupBy(static entry => entry.Name)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.ToImmutableArray());
+        ImmutableArray<PlatformTypeCatalogEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        var builders = new Dictionary<
+            MetadataTypeDefinitionName,
+            ImmutableArray<PlatformTypeCatalogEntry>.Builder>();
+        foreach (PlatformTypeCatalogEntry entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!builders.TryGetValue(entry.Name, out var candidates))
+            {
+                candidates =
+                    ImmutableArray.CreateBuilder<
+                        PlatformTypeCatalogEntry>();
+                builders.Add(entry.Name, candidates);
+            }
+            candidates.Add(entry);
+        }
+
+        var lookup = new Dictionary<
+            MetadataTypeDefinitionName,
+            ImmutableArray<PlatformTypeCatalogEntry>>(builders.Count);
+        foreach (var pair in builders)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lookup.Add(pair.Key, pair.Value.ToImmutable());
+        }
+        return lookup;
+    }
 
     public PlatformPopulationRealizationValue Population { get; }
     public PlatformPopulationRealizationReceipt PopulationReceipt { get; }
@@ -503,6 +526,7 @@ public static class PlatformTypeCatalogDerivation
                         .. completed.Correspondence.Inventory
                             .GetDeclarations(),
                     ];
+                    cancellationToken.ThrowIfCancellationRequested();
                     work.ObserveEntries(declarations.Length);
                     if (work.ObservedEntries
                         > bounds.MaximumRetainedEntries)
@@ -532,6 +556,7 @@ public static class PlatformTypeCatalogDerivation
                     foreach (AssemblyTypeDeclaration declaration
                         in declarations)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         entries.Add(
                             new PlatformTypeCatalogEntry(
                                 member,
@@ -545,22 +570,27 @@ public static class PlatformTypeCatalogDerivation
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         ImmutableArray<PlatformTypeCatalogEntry> retainedEntries =
             entries.ToImmutable();
+        cancellationToken.ThrowIfCancellationRequested();
         Dictionary<
             MetadataTypeDefinitionName,
             ImmutableArray<PlatformTypeCatalogEntry>> entriesByName =
-            PlatformTypeCatalog.CreateLookup(retainedEntries);
-        if (work.Elapsed >= bounds.MaximumDuration)
+            PlatformTypeCatalog.CreateLookup(
+                retainedEntries,
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        PlatformTypeCatalogDerivationWork completedWork = work.Snapshot();
+        if (completedWork.Elapsed >= bounds.MaximumDuration)
         {
             return new PlatformTypeCatalogDerivationOutcome.Incomplete(
                 population.Value,
                 population.Receipt,
                 PlatformTypeCatalogDerivationBound.Duration,
-                work.Snapshot());
+                completedWork);
         }
 
-        PlatformTypeCatalogDerivationWork completedWork = work.Snapshot();
         var catalog = new PlatformTypeCatalog(
             population.Value,
             population.Receipt,

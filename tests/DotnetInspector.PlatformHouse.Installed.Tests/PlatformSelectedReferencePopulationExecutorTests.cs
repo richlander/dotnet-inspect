@@ -114,19 +114,19 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
         MetadataTypeDefinitionName executorName = Name(
             "DotnetInspector.PlatformHouse",
             "PlatformHouseSelectedReferencePopulationExecutor");
+        var catalogBounds = new PlatformTypeCatalogDerivationBounds(
+            new LibraryTypeDeclarationInventoryInspectionBounds(
+                maximumAssemblyBytes: 16 * 1024 * 1024,
+                maximumRetainedDeclarations: 100_000),
+            maximumAssemblies: 8,
+            maximumAggregateAssemblyBytes: 64 * 1024 * 1024,
+            maximumRetainedEntries: 200_000,
+            maximumDuration: TimeSpan.FromSeconds(30));
         PlatformTypeCatalog catalog = Assert.IsType<
                 PlatformTypeCatalogDerivationOutcome.Completed>(
                 PlatformTypeCatalogDerivation.Execute(
                     completed.Population,
-                    new PlatformTypeCatalogDerivationBounds(
-                        new LibraryTypeDeclarationInventoryInspectionBounds(
-                            maximumAssemblyBytes: 16 * 1024 * 1024,
-                            maximumRetainedDeclarations: 100_000),
-                        maximumAssemblies: 8,
-                        maximumAggregateAssemblyBytes:
-                            64 * 1024 * 1024,
-                        maximumRetainedEntries: 200_000,
-                        maximumDuration: TimeSpan.FromSeconds(30)),
+                    catalogBounds,
                     TestContext.Current.CancellationToken))
             .Catalog;
         Assert.Same(
@@ -139,6 +139,8 @@ public sealed class PlatformSelectedReferencePopulationExecutorTests
             .HouseReceipt.Request);
         Assert.Equal(context.InstalledTarget, catalog.Target);
         Assert.Equal(PlatformViewDemand.Reference, catalog.View);
+        Assert.True(
+            catalog.Work.Elapsed < catalogBounds.MaximumDuration);
         Assert.Equal(context.Contents.Count, catalog.Work.ObservedAssemblies);
         Assert.Equal(
             context.Contents.Sum(static content => content.Bytes.LongLength),

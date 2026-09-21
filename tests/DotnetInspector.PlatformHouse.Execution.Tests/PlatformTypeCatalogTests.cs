@@ -53,6 +53,9 @@ public partial class PlatformLibraryRealizationTests
                         cancellationToken));
             PlatformTypeCatalog catalog = completed.Catalog;
 
+            Assert.True(
+                catalog.Work.Elapsed
+                    < s_catalogBounds.MaximumDuration);
             Assert.Same(population.Value, catalog.Population);
             Assert.Same(population.Receipt, catalog.PopulationReceipt);
             Assert.Same(
@@ -202,6 +205,9 @@ public partial class PlatformLibraryRealizationTests
                         cancellationToken))
                 .Catalog;
 
+            Assert.True(
+                catalog.Work.Elapsed
+                    < s_catalogBounds.MaximumDuration);
             var duplicates = Assert.IsType<
                     PlatformTypeCatalogLookupOutcome.Found>(
                     catalog.Lookup(Name("Shared", "Widget")))
@@ -272,6 +278,9 @@ public partial class PlatformLibraryRealizationTests
                         cancellationToken))
                 .Catalog;
 
+            Assert.True(
+                complete.Work.Elapsed
+                    < s_catalogBounds.MaximumDuration);
             AssertBound(
                 PlatformTypeCatalogDerivationBound.PopulationAssemblies,
                 new(
@@ -416,6 +425,71 @@ public partial class PlatformLibraryRealizationTests
         }
         finally
         {
+            await RetireCatalogPopulationAsync(
+                population,
+                artifacts,
+                cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeCatalog_CancellationAfterLeaseClosurePreventsPublication()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var request = PopulationRequest(cancellationToken);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        byte[] image = BuildCatalogImage(
+            "Large",
+            metadata =>
+            {
+                for (int index = 0; index < 20_000; index++)
+                {
+                    AddDefinition(
+                        metadata,
+                        TypeAttributes.Public,
+                        "Large",
+                        $"Type{index}");
+                }
+            });
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationImagesAsync(
+                (contribution, image));
+        PlatformPopulationRealizationResult.Completed population =
+            await RealizeCatalogPopulationAsync(
+                request.Request,
+                artifacts,
+                count: 1);
+        using var cancellation = CancellationTokenSource
+            .CreateLinkedTokenSource(cancellationToken);
+        Task retireAndCancel = Task.Run(
+            async () =>
+            {
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(10),
+                    cancellationToken);
+                await population.Owners[0].DisposeAsync();
+                cancellation.Cancel();
+            },
+            cancellationToken);
+
+        try
+        {
+            Assert.ThrowsAny<OperationCanceledException>(
+                () => PlatformTypeCatalogDerivation.Execute(
+                    population,
+                    s_catalogBounds,
+                    cancellation.Token));
+            await retireAndCancel.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await retireAndCancel.WaitAsync(cancellationToken);
             await RetireCatalogPopulationAsync(
                 population,
                 artifacts,
