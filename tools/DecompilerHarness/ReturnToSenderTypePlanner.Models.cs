@@ -404,7 +404,8 @@ public sealed record CompileBackMemberRequirement(
     int? AdderToken = null,
     int? RemoverToken = null,
     bool IsReadOnly = false,
-    CSharpBlockBody? CompanionBody = null)
+    CSharpBlockBody? CompanionBody = null,
+    string? PropertyInitializer = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
