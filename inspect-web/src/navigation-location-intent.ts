@@ -141,6 +141,7 @@ NavigationLocationIntentArbiter {
   let nextIdentity = 0;
   let currentIntentId: symbol | null = null;
   let unresolved: UnresolvedLocationObligation | null = null;
+  let publicationInProgress = false;
 
   function issueId(): symbol {
     return Symbol(`location-intent-${++nextIdentity}`);
@@ -208,7 +209,14 @@ NavigationLocationIntentArbiter {
   }
 
   function settle(effect: LocationEffect, succeeded: boolean): void {
-    if (effect.kind === "none" || effect.intentId !== currentIntentId) return;
+    if (effect.intentId !== currentIntentId) return;
+    if (effect.kind === "none") {
+      if (effect.reason === "current-no-write" && succeeded) {
+        currentIntentId = null;
+        unresolved = null;
+      }
+      return;
+    }
     if (succeeded) {
       currentIntentId = null;
       unresolved = null;
@@ -225,14 +233,17 @@ NavigationLocationIntentArbiter {
     effect: LocationEffect,
     history: BrowserHistoryWriter,
   ): void {
-    if (effect.intentId !== currentIntentId) return;
+    if (effect.intentId !== currentIntentId || publicationInProgress) return;
+    publicationInProgress = true;
     try {
       applyLocationEffect(effect, history);
+      settle(effect, true);
     } catch (error) {
       settle(effect, false);
       throw error;
+    } finally {
+      publicationInProgress = false;
     }
-    settle(effect, true);
   }
 
   return {

@@ -262,6 +262,55 @@ test("successful publication consumes its location intent", () => {
     { kind: "none", intentId: intent.id, reason: "stale" });
 });
 
+test("publication claims its intent before writer reentry", () => {
+  const arbiter = createNavigationLocationIntentArbiter();
+  const intent = arbiter.admitNonBrowser("push", null, null);
+  const effect = arbiter.classify(intent, result(association("workspace-a")));
+  let writes = 0;
+  const history = {
+    pushState() {
+      writes++;
+      arbiter.publish(effect, history);
+    },
+    replaceState() {
+      assert.fail("A push effect cannot replace history.");
+    },
+  };
+
+  arbiter.publish(effect, history);
+
+  assert.equal(writes, 1);
+  assert.equal(arbiter.currentIntentId, null);
+  assert.equal(arbiter.unresolved, null);
+});
+
+test("successful current no-write consumes its location intent", () => {
+  const arbiter = createNavigationLocationIntentArbiter();
+  const intent = arbiter.admitNonBrowser("none", null, null);
+  const installed = association("workspace-a");
+  const effect = arbiter.classify(intent, result(installed));
+
+  assert.deepEqual(
+    effect,
+    { kind: "none", intentId: intent.id, reason: "current-no-write" });
+  arbiter.publish(effect, {
+    pushState() {
+      assert.fail("A no-write effect cannot push history.");
+    },
+    replaceState() {
+      assert.fail("A no-write effect cannot replace history.");
+    },
+  });
+
+  assert.equal(arbiter.currentIntentId, null);
+  assert.deepEqual(
+    arbiter.classify(intent, result(installed, {
+      outcome: "failed",
+      synchronization: "synchronization-required",
+    })),
+    { kind: "none", intentId: intent.id, reason: "stale" });
+});
+
 test("post-cutover history failure keeps the installed successor unresolved", () => {
   const arbiter = createNavigationLocationIntentArbiter();
   const accepted = arbiter.admitNonBrowser("push", null, null);
