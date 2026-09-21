@@ -278,9 +278,11 @@ public sealed class CSharpTypeDocument
             SnapshotDeclarations(declarations, budget),
             contractRelationships);
         CSharpTypeDocumentValidator.Validate(data);
-        return new CSharpTypeDocument(
+        var document = new CSharpTypeDocument(
             data,
             CSharpTypeDocumentRevision.Create(data));
+        CSharpTypeDocumentJson.ValidateReplaySize(document);
+        return document;
     }
 
     internal CSharpTypeDocumentData ToData()
@@ -1000,6 +1002,11 @@ static class CSharpTypeDocumentValidator
             }
         }
 
+        Add(data.TypeName.Namespace);
+        foreach (string segment in data.TypeName.Segments)
+            Add(segment);
+        Add(data.Source.AssemblyName);
+        Add(data.Source.RenderingPolicy);
         foreach (CSharpTypeRenderPart part in data.Frame.PrefixParts)
         {
             Add(part.FullText);
@@ -1007,8 +1014,20 @@ static class CSharpTypeDocumentValidator
         }
         Add(data.Frame.DeclarationSeparator);
         Add(data.Frame.Suffix);
+        foreach (CSharpTypePhysicalArtifact artifact in data.Artifacts)
+            AddAnchor(artifact.Anchor);
+        foreach (CSharpTypePhysicalBody body in data.Bodies)
+        {
+            Add(body.Fingerprint);
+            foreach (DecompilerDiagnostic diagnostic in body.Diagnostics)
+            {
+                Add(diagnostic.Id);
+                Add(diagnostic.Message);
+            }
+        }
         foreach (CSharpTypeDeclaration declaration in data.Declarations)
         {
+            AddAnchor(declaration.Anchor);
             foreach (CSharpTypeRenderPart part in declaration.Parts)
             {
                 Add(part.FullText);
@@ -1018,7 +1037,16 @@ static class CSharpTypeDocumentValidator
         if (total > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
         {
             throw new ArgumentException(
-                "C# Type document exceeds the structural text budget.");
+                "C# Type document exceeds the aggregate string budget.");
+        }
+
+        void AddAnchor(MemberAnchor anchor)
+        {
+            Add(anchor.StableSelector);
+            Add(anchor.CanonicalSignature);
+            Add(anchor.Fingerprint);
+            Add(anchor.TypeFullName);
+            Add(anchor.MemberName);
         }
     }
 

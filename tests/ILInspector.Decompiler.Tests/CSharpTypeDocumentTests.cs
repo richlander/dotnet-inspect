@@ -104,6 +104,22 @@ public class CSharpTypeDocumentTests
     }
 
     [Fact]
+    public void Create_RejectsAggregateStringsBeforeIssuingUnreplayableDocument()
+    {
+        var input = Input() with
+        {
+            Source = Input().Source with
+            {
+                RenderingPolicy = new string(
+                    'x',
+                    MetadataSafetyPolicy.MaxStructuralSignatureWorkChars + 1),
+            },
+        };
+
+        Assert.Throws<ArgumentException>(() => Create(input));
+    }
+
+    [Fact]
     public void Create_RequiresBodiesToBelongToTheTypeDefModule()
     {
         var input = Input();
@@ -259,6 +275,77 @@ public class CSharpTypeDocumentTests
             bodies.Declarations[3].Bodies
                 .Select(body => Slice(bodies.Text, body.Range)));
         Assert.Empty(skeleton.Declarations.SelectMany(static row => row.Bodies));
+    }
+
+    [Fact]
+    public void FailedBodies_AlwaysUseSkeletonAndEmitDiagnostics()
+    {
+        var input = Input();
+        input.Bodies[0] = input.Bodies[0] with
+        {
+            Outcome = CSharpTypeBodyOutcome.Failed,
+            Fidelity = DecompilationFidelity.Failed,
+            Diagnostics = [new("D1000", "Body production failed.")],
+        };
+        CSharpTypeDocument document = Create(input);
+
+        CSharpTypeDocumentProjection bodies = Project(
+            document,
+            new(CSharpTypeBodyMode.Bodies));
+        CSharpTypeDocumentProjection skeleton = Project(
+            document,
+            new(CSharpTypeBodyMode.Skeleton));
+
+        Assert.Contains("private int _a;", bodies.Text);
+        Assert.Contains("private int _b;", bodies.Text);
+        Assert.Contains("public Sample() { }", bodies.Text);
+        Assert.Single(bodies.Diagnostics);
+        Assert.Single(skeleton.Diagnostics);
+        Assert.Equal(0, bodies.Diagnostics[0].BodyId);
+        Assert.Equal(0, skeleton.Diagnostics[0].BodyId);
+    }
+
+    [Fact]
+    public void SelectedBody_ProjectsTypeFrameContributionRanges()
+    {
+        var input = Input();
+        const string contribution = "// from ctor\n";
+        input = input with
+        {
+            Frame = input.Frame with
+            {
+                PrefixParts =
+                [
+                    input.Frame.PrefixParts[0],
+                    Implementation(
+                        1,
+                        contribution,
+                        "",
+                        CSharpTypeImplementationKind.Initializer,
+                        contributions:
+                        [
+                            new(
+                                0,
+                                CSharpTypeBodyContributionRole.LoweredImplementation,
+                                new(3, 9)),
+                        ]),
+                ],
+            },
+        };
+        CSharpTypeDocument document = Create(input);
+
+        CSharpTypeDocumentProjection projection = Project(
+            document,
+            new(
+                CSharpTypeBodyMode.SelectedBody,
+                document.Declarations[2].Anchor));
+
+        CSharpTypeProjectedContribution projected =
+            Assert.Single(projection.FrameContributions);
+        Assert.Equal(0, projected.BodyId);
+        Assert.Equal(
+            "from ctor",
+            Slice(projection.Text, projected.Range));
     }
 
     [Fact]

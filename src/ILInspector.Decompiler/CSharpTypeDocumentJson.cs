@@ -15,7 +15,7 @@ public static class CSharpTypeDocumentJson
 {
     const int SchemaVersion = 1;
     internal const int MaxSerializedCharacters =
-        MetadataSafetyPolicy.MaxStructuralSignatureWorkChars * 8;
+        MetadataSafetyPolicy.MaxStructuralSignatureWorkChars * 16;
     const string ContractError =
         "Structured C# Type document JSON violates the wire contract.";
 
@@ -31,6 +31,19 @@ public static class CSharpTypeDocumentJson
             : JsonSerializer.Serialize(
                 wire,
                 CSharpTypeDocumentCompactJsonContext.Default.CSharpTypeDocumentWire);
+    }
+
+    internal static void ValidateReplaySize(CSharpTypeDocument document)
+    {
+        string json = JsonSerializer.Serialize(
+            ToWire(document),
+            CSharpTypeDocumentJsonContext.Default.CSharpTypeDocumentWire);
+        if (json.Length > MaxSerializedCharacters)
+        {
+            throw new ArgumentException(
+                "C# Type document exceeds the detached replay-size limit.",
+                nameof(document));
+        }
     }
 
     /// <summary>
