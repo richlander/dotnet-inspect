@@ -38,10 +38,10 @@ internal static class DetailedDiscoverOutput
     }
 
     public static int Write(
-        DiscoveryDocument document,
+        DiscoveryDocumentFactory.Projection projection,
         DiscoveryOutputRequest request)
     {
-        List<DetailedDiscoveryRow> rows = ResolveRows(document);
+        List<DetailedDiscoveryRow> rows = ResolveRows(projection);
 
         rows = [.. RowWindow.Apply(request.Rows, rows)];
         if (request.Count)
@@ -106,14 +106,21 @@ internal static class DetailedDiscoverOutput
     }
 
     private static List<DetailedDiscoveryRow> ResolveRows(
-        DiscoveryDocument document)
+        DiscoveryDocumentFactory.Projection projection)
     {
+        DiscoveryDocument document = projection.Document;
+        IReadOnlyDictionary<DiscoveryResourceIdentity, ResourcePath> paths =
+            projection.ResourcePaths.ToDictionary(
+                static registration => registration.Identity,
+                static registration => registration.Path);
         if (document.Selection.IsCatalog)
         {
             return
             [
                 .. document.Selection.Rows.Select(identity =>
-                    CreateRow(document.GetResource(identity))),
+                    CreateRow(
+                        document.GetResource(identity),
+                        paths[identity])),
             ];
         }
 
@@ -124,22 +131,26 @@ internal static class DetailedDiscoverOutput
         {
             return
             [
-                CreateRow(resource),
+                CreateRow(resource, paths[resource.Identity]),
                 .. document.Selection.Rows.Select(identity =>
-                    CreateRow(document.GetResource(identity))),
+                    CreateRow(
+                        document.GetResource(identity),
+                        paths[identity])),
             ];
         }
 
-        return [CreateRow(resource)];
+        return [CreateRow(resource, paths[resource.Identity])];
     }
 
     private static DetailedDiscoveryRow CreateRow(
-        DiscoveryResource resource) =>
+        DiscoveryResource resource,
+        ResourcePath path) =>
         new(
             resource.Identity.Name,
             resource.Identity.Kind == DiscoveryResourceKind.Item
                 ? resource.Identity.ItemKind!
                 : resource.Identity.Kind.ToString().ToLowerInvariant(),
+            path.Value,
             [
                 .. resource.OutputModes.Select(
                     OutputCapabilityCatalog.CliOption),

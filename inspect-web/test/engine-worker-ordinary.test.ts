@@ -167,6 +167,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("admitRetainedWorkspacePlatform"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
+    activateRetainedWorkspaceDefinitionWithCredentials: () =>
+      unexpected("activateRetainedWorkspaceDefinitionWithCredentials"),
     cancelRetainedWorkspaceActivation: () =>
       unexpected("cancelRetainedWorkspaceActivation"),
     canonicalizeWorkspaceSharePacket: () =>
@@ -179,6 +181,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("completeRetainedWorkspaceDeactivation"),
     deactivateRetainedWorkspaceDefinition: () =>
       unexpected("deactivateRetainedWorkspaceDefinition"),
+    describeWorkspacePackageSources: () =>
+      unexpected("describeWorkspacePackageSources"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -188,6 +192,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
+    prepareRetainedWorkspaceDefinitionWithCredentials: () =>
+      unexpected("prepareRetainedWorkspaceDefinitionWithCredentials"),
     recordRetainedWorkspaceNavigationPosting: () =>
       unexpected("recordRetainedWorkspaceNavigationPosting"),
     runHomeDemo: () => unexpected("runHomeDemo"),
@@ -1638,16 +1644,19 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "admitRetainedWorkspacePackage",
       "admitRetainedWorkspacePlatform",
       "activateRetainedWorkspaceDefinition",
+      "activateRetainedWorkspaceDefinitionWithCredentials",
       "cancelRetainedWorkspaceActivation",
       "canonicalizeWorkspaceSharePacket",
       "commitRetainedWorkspaceActivation",
       "completeRetainedWorkspaceActivation",
       "completeRetainedWorkspaceDeactivation",
       "deactivateRetainedWorkspaceDefinition",
+      "describeWorkspacePackageSources",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "observeRetainedWorkspaceSettlement",
       "prepareRetainedWorkspaceDefinition",
+      "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
@@ -1666,7 +1675,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 72);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 75);
 
   const state = fixture();
   const groups = [

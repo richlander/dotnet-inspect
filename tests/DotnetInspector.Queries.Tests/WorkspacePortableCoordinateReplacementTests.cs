@@ -40,11 +40,21 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                 TestContext.Current.CancellationToken);
 
         Assert.True(result.Succeeded, result.Failure?.Detail);
-        Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+        var scope = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
             result.ScopeResult);
+        Assert.Equal(WorkspaceScopeOperationKind.Add, scope.Effect);
+        Assert.Equal(WorkspaceScopeOperationKind.Add, scope.Association.Kind);
+        NavigationCoordinateRetentionResult retention =
+            result.CoordinateRetention!;
+        Assert.NotSame(
+            retention.SourceWorkspace,
+            retention.DestinationWorkspace);
+        Assert.Same(
+            retention.DestinationWorkspace,
+            scope.Association.Workspace);
         Assert.Equal(
             NavigationCoordinateRetentionDisposition.ExactPath,
-            result.NavigationResult!.CoordinateRetention!.Disposition);
+            retention.Disposition);
         CommittedScenarioDefinitionSet derived = result.Definitions!;
         Assert.Equal(InspectionDefinitionSchema.Version4,
             derived.Scenario.SchemaVersion);
@@ -120,7 +130,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Equal(
             NavigationCoordinateRetentionDisposition
                 .ActiveLibraryContainmentTruncated,
-            result.NavigationResult!.CoordinateRetention!.Disposition);
+            result.CoordinateRetention!.Disposition);
         CommittedViewStateDefinition state = result.Definitions!.View!.States[1];
         Assert.IsType<PortableSubjectRequest.Library>(state.Subject);
         var context =
@@ -186,8 +196,17 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                 TestContext.Current.CancellationToken);
 
         Assert.True(result.Succeeded, result.Failure?.Detail);
-        Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+        var scope = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
             result.ScopeResult);
+        Assert.Equal(WorkspaceScopeOperationKind.Add, scope.Effect);
+        NavigationCoordinateRetentionResult retention =
+            result.CoordinateRetention!;
+        Assert.NotSame(
+            retention.SourceWorkspace,
+            retention.DestinationWorkspace);
+        Assert.Same(
+            retention.DestinationWorkspace,
+            scope.Association.Workspace);
         Assert.Equal(
             Encode(input),
             Encode(result.Definitions!));
@@ -299,6 +318,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Equal(expected, result.Failure!.Kind);
         Assert.Null(result.ScopeResult);
         Assert.Null(result.NavigationResult);
+        Assert.Null(result.CoordinateRetention);
     }
 
     [Fact]
@@ -319,6 +339,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
             result.Failure!.Kind);
         Assert.Null(result.ScopeResult);
         Assert.Null(result.NavigationResult);
+        Assert.Null(result.CoordinateRetention);
     }
 
     [Fact]
@@ -345,6 +366,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         Assert.Null(result.Definitions);
         Assert.Null(result.ScopeResult);
         Assert.Null(result.NavigationResult);
+        Assert.Null(result.CoordinateRetention);
     }
 
     [Theory]
