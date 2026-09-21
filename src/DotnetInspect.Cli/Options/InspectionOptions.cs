@@ -3,6 +3,7 @@ using DotnetInspector.Packages;
 
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Options;
 
@@ -44,6 +45,8 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public bool ShowDependencies { get; init; }
 
+    public int? ReferenceHierarchyDepth { get; init; }
+
     /// <summary>
     /// Target framework to use for dependency resolution (defaults to highest).
     /// </summary>
@@ -75,6 +78,32 @@ public record InspectionOptions : IProjectionOptions
     /// Inspect all compatible libraries in the package instead of selecting one.
     /// </summary>
     public bool AllLibraries { get; init; }
+
+    internal WorkspaceLibrarySelection? WorkspaceLibrarySelection { get; init; }
+
+    internal string[]? WorkspaceLibraryAssetPaths { get; init; }
+
+    public IntegrationQueryOptions IntegrationQuery { get; init; } =
+        IntegrationQueryOptions.Default;
+
+    public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
+
+    public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    public PerformanceTriageOptions PerformanceTriage { get; init; } =
+        PerformanceTriageOptions.Default;
+
+    public BodyKindQueryOptions BodyKindQuery { get; init; } =
+        BodyKindQueryOptions.Default;
+
+    public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
+        CloneCandidateQueryOptions.Default;
+
+    public bool Trace { get; init; }
+
+    public bool Effective { get; init; }
+
+    public string? ExtractResources { get; init; }
 
     /// <summary>
     /// Show the package file tree (lib/tools structure).
@@ -336,6 +365,11 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public string[]? Discover { get; init; }
 
+    /// <summary>
+    /// Include additional structural discovery metadata.
+    /// </summary>
+    public bool DiscoverDetails { get; init; }
+
     public bool Tree { get; init; }
 
     /// <summary>
@@ -399,4 +433,17 @@ public enum PackageFileContentScope
     Full,
     Frontmatter,
     Body
+}
+
+internal abstract record WorkspaceLibrarySelection
+{
+    private WorkspaceLibrarySelection()
+    {
+    }
+
+    internal sealed record Aggregate : WorkspaceLibrarySelection;
+
+    internal sealed record Namesake : WorkspaceLibrarySelection;
+
+    internal sealed record Exact(string Library) : WorkspaceLibrarySelection;
 }
