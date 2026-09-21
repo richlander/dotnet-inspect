@@ -1,5 +1,11 @@
 import { dotnet } from "./runtime-loader.js";
 
+declare const dateTimeOffsetStringBrand: unique symbol;
+
+export type DateTimeOffsetString = string & {
+  readonly [dateTimeOffsetStringBrand]: "DateTimeOffsetString";
+};
+
 export type AuthoredDocumentationAmbiguityReason = "PhysicalDeclarationConflict" | "DeclarationAmbiguous" | number;
 
 export type AuthoredDocumentationFailureReason = "SourceFailed" | "PhysicalDeclarationFailed" | "MalformedDocumentation" | number;
@@ -455,7 +461,7 @@ export interface BrowserPackageCacheStats {
 export interface BrowserPackageChangesAdvisoryAcquisition {
   readonly packageProducerKey: string;
   readonly advisoryProducer: string;
-  readonly observedAt: string;
+  readonly observedAt: DateTimeOffsetString;
   readonly apiRequests: number;
   readonly responseBytes: number;
   readonly complete: boolean;
@@ -480,8 +486,8 @@ export interface BrowserPackageChangesAdvisoryReference {
   readonly cveId: string | null;
   readonly severity: string;
   readonly advisoryUrl: string;
-  readonly publishedAt: string;
-  readonly updatedAt: string;
+  readonly publishedAt: DateTimeOffsetString;
+  readonly updatedAt: DateTimeOffsetString;
 }
 
 export interface BrowserPackageChangesCancellation {
@@ -496,7 +502,7 @@ export interface BrowserPackageChangesCatalogActivity {
   readonly normalizedVersion: string;
   readonly leafUrl: string;
   readonly commitId: string;
-  readonly commitTimestamp: string;
+  readonly commitTimestamp: DateTimeOffsetString;
   readonly catalogKind: string;
   readonly activity: string;
 }
@@ -525,7 +531,7 @@ export interface BrowserPackageChangesInspection {
 }
 
 export interface BrowserPackageChangesPackageReceipt {
-  readonly receivedAt: string;
+  readonly receivedAt: DateTimeOffsetString;
   readonly basis: string;
 }
 
@@ -560,7 +566,7 @@ export interface BrowserPackageChangesProgress {
   readonly phase: string;
   readonly completed: number;
   readonly total: number | null;
-  readonly capturedHorizon: string | null;
+  readonly capturedHorizon: DateTimeOffsetString | null;
   readonly catalogPagesAcquired: number;
   readonly catalogHttpAttempts: number;
   readonly catalogDecodedBytes: number;
@@ -580,9 +586,9 @@ export interface BrowserPackageChangesRequest {
 }
 
 export interface BrowserPackageChangesResolvedRequest {
-  readonly referenceTime: string;
-  readonly fromExclusive: string;
-  readonly throughInclusive: string;
+  readonly referenceTime: DateTimeOffsetString;
+  readonly fromExclusive: DateTimeOffsetString;
+  readonly throughInclusive: DateTimeOffsetString;
   readonly usedDefaultInterval: boolean;
   readonly packageScope: BrowserPackageChangesPackageScope;
   readonly securitySelection: string;
@@ -623,7 +629,7 @@ export interface BrowserPackageChangesSource {
 }
 
 export interface BrowserPackageChangesSummary {
-  readonly capturedHorizon: string | null;
+  readonly capturedHorizon: DateTimeOffsetString | null;
   readonly catalogCompletion: string | null;
   readonly catalogFailure: BrowserPackageChangesPackageSourceFailure | null;
   readonly catalogPagesAcquired: number;

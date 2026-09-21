@@ -135,6 +135,9 @@ public static class PlatformTypeCatalogQuery
         {
             preferred = [];
         }
+        preferred = PreferTopLevelDeclarations(
+            preferred,
+            cancellationToken);
         preferred = PreferDefinitions(
             preferred,
             cancellationToken);
@@ -150,6 +153,27 @@ public static class PlatformTypeCatalogQuery
                 preferred),
         };
         return Publish(outcome, cancellationToken);
+    }
+
+    private static ImmutableArray<PlatformTypeCatalogEntry>
+        PreferTopLevelDeclarations(
+            ImmutableArray<PlatformTypeCatalogEntry> candidates,
+            CancellationToken cancellationToken)
+    {
+        var topLevel =
+            ImmutableArray.CreateBuilder<PlatformTypeCatalogEntry>();
+        foreach (PlatformTypeCatalogEntry candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (candidate.Name.Segments.Length == 1)
+            {
+                topLevel.Add(candidate);
+            }
+        }
+
+        return topLevel.Count == 0
+            ? candidates
+            : topLevel.ToImmutable();
     }
 
     private static ImmutableArray<PlatformTypeCatalogEntry> PreferDefinitions(

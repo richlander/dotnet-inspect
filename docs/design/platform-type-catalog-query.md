@@ -43,9 +43,11 @@ The query uses the shared CSharpText and Metadata lookup conventions:
 2. flatten `+` and `.` nesting spelling for matching only;
 3. match full names, namespace-qualified suffixes, and arity-free base names;
 4. prefer exact structured-name matches over base-name matches;
-5. prefer definitions over forwarding-only evidence among equally exact
+5. prefer top-level declarations over nested declarations when unqualified
+   text matches both;
+6. prefer definitions over forwarding-only evidence among equally exact
    matches; and
-6. when the user spells generic syntax explicitly, require exact arity on every
+7. when the user spells generic syntax explicitly, require exact arity on every
    nested segment rather than broadening to an arity-free match.
 
 Module exports and duplicate declarations remain candidates. A module export
@@ -91,6 +93,8 @@ Release tests exercise:
 - a real `System.Text.Json.JsonSerializer` definition;
 - a real `System.Object` forwarding declaration;
 - duplicate exact definitions that remain ambiguous;
+- an unqualified top-level declaration winning over a nested same-name
+  declaration;
 - definition preference over a module export;
 - nested generic spelling with arity on every segment;
 - wrong explicit generic arity returning `Missing`;
@@ -104,12 +108,14 @@ query outcomes through test-only seams.
 
 ## Production adoption
 
-This query is the shared adaptation boundary for later CLI and Browser/Wasm
+This query is the shared adaptation boundary for CLI and Browser/Wasm
 consumers. Those hosts separately own target-demand selection, operation
-composition, and presentation. Versionless CLI routing can consume a catalog
-selected by the Platform family-default policy, while explicit
-`runtime@version` routing can consume an exact-demand catalog without changing
-this query contract.
+composition, and presentation. Versionless CLI routing adopts this query over
+a catalog selected by the Platform family-default policy under
+[#8164](https://github.com/richlander/dotnet-inspect/issues/8164).
+Browser/Wasm and explicit `runtime@version` routing remain later adoptions; an
+exact-demand catalog can serve the latter without changing this query
+contract.
 
 The Services-era resolver and catalog remain compatibility surfaces until
 those consumers adopt the shared path. No compatibility adapter converts the
