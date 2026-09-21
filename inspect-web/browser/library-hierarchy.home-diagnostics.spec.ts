@@ -364,6 +364,8 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
   await expect(page.locator(".data-bar")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Back to previous page" }))
     .toBeVisible();
+  await expect(page.locator("#diagnostics-product"))
+    .toHaveAccessibleName("dotnet-inspect navigation");
   await page.screenshot({
     path: testInfo.outputPath("diagnostics-wide.png"),
     fullPage: true,

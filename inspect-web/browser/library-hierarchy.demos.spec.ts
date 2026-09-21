@@ -227,8 +227,17 @@ test("Demos is a dedicated page reached from Home and the data bar", async ({
   await expect(page.locator(
     "[data-product-destination][aria-current='page']",
   )).toHaveCount(0);
-  await expect(page.locator("[data-product-destination='workspace']"))
-    .toBeDisabled();
+  const workspace =
+    page.locator("[data-product-destination='workspace']");
+  await expect(workspace).toHaveAttribute("aria-disabled", "true");
+  await expect(workspace).toHaveAccessibleDescription("No workspace is open");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(workspace).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL("/demos");
+  await expect(workspace).toBeFocused();
+  await expect(page.locator(".product-navigation-menu")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator("html")).not.toHaveAttribute("data-home-demo-run");
   await page.screenshot({ path: testInfo.outputPath("demos-wide.png") });

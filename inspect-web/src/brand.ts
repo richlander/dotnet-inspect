@@ -66,9 +66,9 @@ function buttonMenu(
   return menuId ? root.querySelector<HTMLElement>(`#${CSS.escape(menuId)}`) : null;
 }
 
-function enabledItems(menu: HTMLElement): HTMLButtonElement[] {
+function productItems(menu: HTMLElement): HTMLButtonElement[] {
   return [...menu.querySelectorAll<HTMLButtonElement>(
-    "[data-product-destination]:not([disabled])")];
+    "[data-product-destination]")];
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -123,8 +123,15 @@ function synchronizeProductNavigation(
     else item.removeAttribute("aria-current");
     const workspaceUnavailable =
       destination === "workspace" && !actions.workspaceAvailable();
-    item.disabled = workspaceUnavailable;
-    item.title = workspaceUnavailable ? "No workspace is open" : "";
+    if (workspaceUnavailable) {
+      item.setAttribute("aria-disabled", "true");
+      item.setAttribute("aria-description", "No workspace is open");
+      item.title = "No workspace is open";
+    } else {
+      item.removeAttribute("aria-disabled");
+      item.removeAttribute("aria-description");
+      item.removeAttribute("title");
+    }
   }
 }
 
@@ -148,7 +155,7 @@ function openProductNavigation(
   position: "first" | "last",
 ): void {
   setProductNavigationOpen(button, menu, true, actions);
-  const items = enabledItems(menu);
+  const items = productItems(menu);
   (position === "first" ? items[0] : items.at(-1))?.focus();
 }
 
@@ -191,7 +198,11 @@ export function bindProductNavigation(
     }
     const item =
       target?.closest<HTMLButtonElement>("[data-product-destination]");
-    if (!item || !root.contains(item) || item.disabled) return;
+    if (!item || !root.contains(item)) return;
+    if (item.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      return;
+    }
     const destination = item.dataset.productDestination;
     if (!isProductDestination(destination)) return;
     closeOpenMenu(true);
@@ -233,7 +244,7 @@ export function bindProductNavigation(
         () => closeOpenMenu(false));
       return;
     }
-    const items = enabledItems(menu);
+    const items = productItems(menu);
     const activeIndex = items.findIndex(item =>
       item === menu.ownerDocument.activeElement);
     const targetIndex = event.key === "ArrowDown"

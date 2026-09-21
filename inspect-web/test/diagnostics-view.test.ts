@@ -58,6 +58,10 @@ const ready: DiagnosticsViewModel = {
 test("Diagnostics renders runtime, build, and isolated-storage evidence in order", () => {
   const html = diagnosticsViewHtml(ready, escapeHtml);
 
+  assert.match(
+    html,
+    /id="diagnostics-product"[\s\S]*aria-label="dotnet-inspect navigation"/);
+  assert.doesNotMatch(html, /aria-label="dotnet-inspect workspace"/);
   assert.match(html, /aria-label="Back to previous page"/);
   assert.match(html, /&larr; Back/);
   assert.ok(html.indexOf(">Runtime startup<") < html.indexOf(">Build<"));

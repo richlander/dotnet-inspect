@@ -261,7 +261,7 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.product-navigation-menu button:hover:not(:disabled),
+.product-navigation-menu button:hover:not([aria-disabled="true"]),
 .product-navigation-menu button:focus-visible {
   background: var(--accent-soft);
   color: var(--accent);
@@ -271,7 +271,7 @@ body {
   color: var(--shell-accent);
   font-weight: 700;
 }
-.product-navigation-menu button:disabled {
+.product-navigation-menu button[aria-disabled="true"] {
   opacity: .4;
   cursor: default;
 }

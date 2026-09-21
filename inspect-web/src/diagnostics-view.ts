@@ -309,7 +309,6 @@ export function diagnosticsViewHtml(
   return `<div class="diagnostics-view">
     <header class="diagnostics-header">
       ${renderBrand({
-        ariaLabel: "dotnet-inspect workspace",
         id: "diagnostics-product",
       })}
       <button id="diagnostics-back" class="diagnostics-back" type="button"
