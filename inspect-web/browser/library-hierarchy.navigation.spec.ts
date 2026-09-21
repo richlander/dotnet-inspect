@@ -94,6 +94,55 @@ test("Library Query keeps the full inventory while loading and after failure", a
   await expect(rows).toHaveCount(4);
 });
 
+test("exact Library inspectors auto-select the alphabetical fallback only on navigation", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root.replace("#pkg", "#library"));
+
+  const rows = page.locator(".library-subject-list [data-library-subject]");
+  await expect(rows).toHaveCount(4);
+  expect(await rows.evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-library-subject"))))
+    .toEqual(["all", core.id, empty.id, other.id]);
+  const allLibraries = rows.first();
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+
+  await chooseInspector(page, "data-library-lens", "references", "References");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+
+  await chooseInspector(page, "data-library-lens", "overview", "Overview");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText(core.name);
+
+  await allLibraries.click();
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await chooseInspector(page, "data-library-lens", "metadata", "Metadata");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+
+  await allLibraries.click();
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
+  await page.keyboard.press("6");
+  await expect(allLibraries).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
+  const shared = page.url();
+  await page.reload();
+  await expect(page.locator(
+    '.library-subject-list [data-library-subject="all"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Metadata requires one Library");
+  await expect(page).toHaveURL(shared);
+});
+
 for (const [width, selectedLibrary, activation] of [
   [900, core, "click"],
   [480, core, "keyboard"],
@@ -821,35 +870,12 @@ for (const width of [900, 390]) {
   });
 }
 
-for (const [lens, label] of [
-  ["compare", "Compare"],
-  ["references", "References"],
-  ["integrations", "Integrations"],
-  ["analysis", "Analysis"],
-  ["metadata", "Metadata"],
-] as const) {
-  test(`aggregate Library makes ${label} exact-only`, async ({ page }) => {
-    await installFacades(page);
-    await page.goto(root);
-    await chooseSubject(page, "library", "Library");
-    await chooseInspector(page, "data-library-lens", lens, label);
-    await expect(page.getByRole("heading", {
-      name: `${label} requires one Library`,
-    })).toBeVisible();
-    const shared = page.url();
-    await page.reload();
-    await expect(page.getByRole("heading", {
-      name: `${label} requires one Library`,
-    })).toBeVisible();
-    await expect(page).toHaveURL(shared);
-  });
-}
-
 test("exact Library selection resolves an aggregate References refusal", async ({ page }) => {
   await installFacades(page);
-  await page.goto(root);
-  await chooseSubject(page, "library", "Library");
+  await page.goto(root.replace("#pkg", "#library"));
   await chooseInspector(page, "data-library-lens", "references", "References");
+  await page.locator(
+    '.library-subject-list [data-library-subject="all"]').click();
   await expect(page.getByRole("heading", {
     name: "References requires one Library",
   })).toBeVisible();
