@@ -1369,6 +1369,75 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
+    public async Task CommandLineShare_DeclaresPatSourceWithoutCredential()
+    {
+        string[] args =
+        [
+            "workspace",
+            "--package",
+            "Private.Package@1.2.3",
+            "--tfm",
+            "net10.0",
+            "--source",
+            "github=https://nuget.pkg.github.com/example/index.json",
+            "--requires-pat",
+            "github=example",
+            "--share",
+            "packet",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Empty(captured.Error);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            captured.Output.TrimEnd(),
+            TestContext.Current.CancellationToken);
+        WorkspacePackageSourceDefinition source =
+            Assert.Single(packet.PackageSources);
+        Assert.Equal(WorkspaceSharePacketCodec.Format5Version, packet.FormatVersion);
+        Assert.Equal("github", source.Id);
+        Assert.Equal(
+            WorkspacePackageSourceAuthentication.BasicPat,
+            source.Authentication);
+        Assert.Equal("example", source.Username);
+    }
+
+    [Fact]
+    public async Task CommandLinePat_RejectsLiteralCredentialWithoutDisclosure()
+    {
+        const string secret = "literal-secret";
+        string[] args =
+        [
+            "workspace",
+            "--package",
+            "Private.Package@1.2.3",
+            "--tfm",
+            "net10.0",
+            "--source",
+            "github=https://nuget.pkg.github.com/example/index.json",
+            "--requires-pat",
+            "github=example",
+            "--pat",
+            $"github={secret}",
+        ];
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(args)),
+                args));
+
+        Assert.NotEqual(0, captured.ExitCode);
+        Assert.Contains("env:NAME, stdin, or file:PATH", captured.Error);
+        Assert.DoesNotContain(secret, captured.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, captured.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CommandLineInventory_PreservesGroupedRegistrationOrder()
     {
         string[] args =

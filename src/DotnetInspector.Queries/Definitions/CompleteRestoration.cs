@@ -104,6 +104,14 @@ public abstract record CompleteRestorationRecipe
             Definitions
             ?? throw new ArgumentNullException(nameof(Definitions));
     }
+
+    public sealed record Version5(CommittedScenarioDefinitionSet Definitions)
+        : CompleteRestorationRecipe
+    {
+        public CommittedScenarioDefinitionSet Definitions { get; } =
+            Definitions
+            ?? throw new ArgumentNullException(nameof(Definitions));
+    }
 }
 
 /// <summary>
@@ -116,6 +124,8 @@ public sealed record CompleteRestorationPlan
         CompleteRestorationRequestBasis request,
         WorkspacePlan workspacePlan,
         CompleteRestorationRecipe recipe,
+        IReadOnlyList<WorkspacePackageSourceDefinition>
+            configuredPackageSources,
         IReadOnlyDictionary<
             string,
             PackageNavigationSource> packageSources,
@@ -126,6 +136,9 @@ public sealed record CompleteRestorationPlan
         WorkspacePlan = workspacePlan
             ?? throw new ArgumentNullException(nameof(workspacePlan));
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
+        ConfiguredPackageSources = configuredPackageSources
+            ?? throw new ArgumentNullException(
+                nameof(configuredPackageSources));
         PackageSources = packageSources
             ?? throw new ArgumentNullException(nameof(packageSources));
         GroupSources = groupSources
@@ -139,6 +152,9 @@ public sealed record CompleteRestorationPlan
     public WorkspacePlan WorkspacePlan { get; }
 
     public CompleteRestorationRecipe Recipe { get; }
+
+    public IReadOnlyList<WorkspacePackageSourceDefinition>
+        ConfiguredPackageSources { get; }
 
     internal IReadOnlyDictionary<
         string,
@@ -432,6 +448,8 @@ public static class CompleteRestorationPreparation
                 PrepareVersion3(definitions, authority, request),
             InspectionDefinitionSchema.Version4 =>
                 PrepareVersion4(definitions, authority, request),
+            InspectionDefinitionSchema.Version5 =>
+                PrepareVersion5(definitions, authority, request),
             int version =>
                 new CompleteRestorationPreparationResult.Failed(
                     authority.Identity,
@@ -441,8 +459,9 @@ public static class CompleteRestorationPreparation
                         $"Portable Package-coordinate replacement requires "
                             + $"schema version "
                             + $"{InspectionDefinitionSchema.Version2}, "
-                            + $"{InspectionDefinitionSchema.Version3} or "
-                            + $"{InspectionDefinitionSchema.Version4}.")),
+                            + $"{InspectionDefinitionSchema.Version3}, "
+                            + $"{InspectionDefinitionSchema.Version4}, or "
+                            + $"{InspectionDefinitionSchema.Version5}.")),
         };
     }
 
@@ -485,7 +504,8 @@ public static class CompleteRestorationPreparation
         if (packet.FormatVersion is not (
             WorkspaceSharePacketCodec.Format2Version
             or WorkspaceSharePacketCodec.CurrentFormatVersion
-            or WorkspaceSharePacketCodec.Format4Version))
+            or WorkspaceSharePacketCodec.Format4Version
+            or WorkspaceSharePacketCodec.Format5Version))
         {
             return new CompleteRestorationPreparationResult.Failed(
                 authority.Identity,
@@ -494,8 +514,9 @@ public static class CompleteRestorationPreparation
                     packet.FormatVersion,
                     "Complete Workspace restoration requires packet format "
                         + $"{WorkspaceSharePacketCodec.Format2Version}, "
-                        + $"{WorkspaceSharePacketCodec.CurrentFormatVersion} or "
-                        + $"{WorkspaceSharePacketCodec.Format4Version}; "
+                        + $"{WorkspaceSharePacketCodec.CurrentFormatVersion}, "
+                        + $"{WorkspaceSharePacketCodec.Format4Version}, or "
+                        + $"{WorkspaceSharePacketCodec.Format5Version}; "
                         + $"format {packet.FormatVersion} is not supported."));
         }
 
@@ -513,6 +534,8 @@ public static class CompleteRestorationPreparation
                     PrepareVersion3(definitions, authority, request),
                 WorkspaceSharePacketCodec.Format4Version =>
                     PrepareVersion4(definitions, authority, request),
+                WorkspaceSharePacketCodec.Format5Version =>
+                    PrepareVersion5(definitions, authority, request),
                 _ => throw new InvalidOperationException(
                     "Unknown admitted Workspace packet format."),
             };
@@ -646,6 +669,8 @@ public static class CompleteRestorationPreparation
                 PrepareVersion3(version3.Definitions, authority, request),
             InspectionDefinitionScenarioPreparationResult.Version4 version4 =>
                 PrepareVersion4(version4.Definitions, authority, request),
+            InspectionDefinitionScenarioPreparationResult.Version5 version5 =>
+                PrepareVersion5(version5.Definitions, authority, request),
             InspectionDefinitionScenarioPreparationResult.Version1 =>
                 new CompleteRestorationPreparationResult.Failed(
                     authority.Identity,
@@ -654,8 +679,9 @@ public static class CompleteRestorationPreparation
                         InspectionDefinitionSchema.Version1,
                         "Complete Workspace restoration requires schema "
                             + $"version {InspectionDefinitionSchema.Version2}, "
-                            + $"{InspectionDefinitionSchema.Version3} or "
-                            + $"{InspectionDefinitionSchema.Version4}; "
+                            + $"{InspectionDefinitionSchema.Version3}, "
+                            + $"{InspectionDefinitionSchema.Version4}, or "
+                            + $"{InspectionDefinitionSchema.Version5}; "
                             + "schema version 1 is not supported.")),
             _ => throw new InvalidOperationException(
                 "Unknown definition preparation result."),
@@ -692,6 +718,16 @@ public static class CompleteRestorationPreparation
             request,
             new CompleteRestorationRecipe.Version4(definitions));
 
+    private static CompleteRestorationPreparationResult PrepareVersion5(
+        CommittedScenarioDefinitionSet definitions,
+        ICompleteRestorationIntentAuthority authority,
+        CompleteRestorationRequestBasis request) =>
+        PrepareCommitted(
+            definitions,
+            authority,
+            request,
+            new CompleteRestorationRecipe.Version5(definitions));
+
     private static CompleteRestorationPreparationResult PrepareCommitted(
         CommittedScenarioDefinitionSet definitions,
         ICompleteRestorationIntentAuthority authority,
@@ -716,6 +752,7 @@ public static class CompleteRestorationPreparation
                 request,
                 workspacePlan,
                 recipe,
+                definitions.Workspace.PackageSources,
                 packageSources,
                 InspectionDefinitionRegistry.ResolveGroupNavigationSources(
                     definitions.Workspace,

@@ -56,6 +56,10 @@ retained production consumer is Inspect Web activation
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028). CLI replay
 of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+Schema-version-5 Workspace package-source declarations and packet format 5
+carry exact credential-free HTTPS NuGet source configuration. CLI and Browser
+hosts bind any required PAT only while realizing that definition; no credential
+is a definition or packet field.
 The definition-first role of the `workspace` command, portable
 Workspace-to-Workspace transformations, and noun-command packet consumption are
 specified by
@@ -196,7 +200,15 @@ Navigation effect authority remain separate owner-issued currencies.
    Version 3 adds one ordered registration vector beside contexts, permits zero
    contexts when that vector is nonempty or in the closed query-only composition,
    and projects the same complete state into the packet.
-8. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+8. **Portable package-source declarations begin at definition schema version 5
+   and packet format 5.** Versions 1 through 4 remain immutable source
+   contracts. Each source carries a stable ID, an HTTPS service-index endpoint,
+   an authentication requirement, and, for Basic PAT authentication, a
+   username. Credentials are never part of the definition, packet, canonical
+   URL, projection, or diagnostic. A host binds required source IDs to
+   ephemeral credentials before acquisition and refuses missing, duplicate, or
+   unexpected bindings rather than widening to ambient source configuration.
+9. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -1317,16 +1329,16 @@ Field semantics:
   `members`. Schema versions 1 and 2 require at least one context. Schema
   version 3 permits an empty context array when `registrations` is nonempty or
   when the record participates in the query-only peer composition below.
-  Schema version 4 permits an empty context array only when `registrations` is
-  nonempty.
-- `registrations` — required on schema-version-3-or-4 Workspace records and
-  unknown on earlier versions. It is the ordered closed Exact Library, Package
+  Schema versions 4 and 5 permit an empty context array only when
+  `registrations` is nonempty.
+- `registrations` — required on schema-version-3-through-5 Workspace records
+  and unknown on earlier versions. It is the ordered closed Exact Library, Package
   Prefix, or Ecosystem union defined by
   [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
   A version-3 Workspace with neither context nor registration is valid only in
   the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Versions 2 through 4 use the common closed envelope
+  optional product query ID. Versions 2 through 5 use the common closed envelope
   `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
   `payload` is one closed JSON object parsed and canonically rewritten by
   `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
@@ -1451,6 +1463,32 @@ explicit active Library, Type and Member requests without reinterpreting the
 version-2/3 subject tags specified here. Its managed records, codec,
 transposition, resolution and complete restoration are implemented; that
 focused document names the Release gates and remaining CLI/Browser adoption.
+
+### Credential-free package-source declarations
+
+Schema version 5 and packet format 5 add the Workspace-owned
+`packageSources` vector. Each entry contains only a stable source ID, an
+absolute HTTPS service-index endpoint without user information, query, or
+fragment, an authentication requirement, and the Basic-auth username when that
+requirement is `BasicPat`. Source IDs use a bounded ASCII identifier grammar
+and are unique under ordinal comparison.
+
+The PAT is host execution authority, not portable state. It is absent from
+definition JSON, packets, URLs, retained postings, and all output. Complete
+restoration carries the credential-free declarations to the host. Before any
+package acquisition, the host must bind every required source ID, reject
+missing or unexpected bindings, and install exactly the packet-declared source
+set. It must not fall back to ambient NuGet configuration when a version-5
+source set exists.
+
+The CLI binds PATs noninteractively from an explicitly named environment
+variable, redirected standard input, or caller-owned file. Inspect Web accepts
+them only as page-session activation input. Those host mechanisms may retain a
+credential in process memory for the active operation or realization, but must
+not write it to a packet, browser storage, generated file, log, diagnostic, or
+telemetry event. Host-specific input and lifetime details remain owned by
+[NuGet feed authentication](nuget-authentication.md) and
+[Browser package sources](browser-package-sources.md).
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the

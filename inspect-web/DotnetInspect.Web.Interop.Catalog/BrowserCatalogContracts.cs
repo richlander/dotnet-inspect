@@ -381,6 +381,17 @@ public sealed record BrowserWorkspaceShareEncodeResult(
     string? Packet,
     BrowserWorkspaceShareFailure? Failure);
 
+public sealed record BrowserWorkspacePackageSourceRequirement(
+    string Id,
+    string Endpoint,
+    bool RequiresPat,
+    string? Username);
+
+public sealed record BrowserWorkspacePackageSourceRequirementsResult(
+    bool Succeeded,
+    BrowserWorkspacePackageSourceRequirement[] Sources,
+    BrowserWorkspaceShareFailure? Failure);
+
 public sealed record BrowserRetainedNavigationAction(
     string Session,
     string Generation,
@@ -746,6 +757,7 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareState))]
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
+[JsonSerializable(typeof(BrowserWorkspacePackageSourceRequirementsResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]

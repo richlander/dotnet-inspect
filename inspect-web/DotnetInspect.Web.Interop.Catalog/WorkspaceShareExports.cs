@@ -193,7 +193,9 @@ namespace DotnetInspect.Web.Interop.Catalog
                     WorkspaceSharePacketCodec.Decode(encoded);
                 if (packet.FormatVersion is not (
                     WorkspaceSharePacketCodec.Format2Version
-                    or WorkspaceSharePacketCodec.CurrentFormatVersion))
+                    or WorkspaceSharePacketCodec.CurrentFormatVersion
+                    or WorkspaceSharePacketCodec.Format4Version
+                    or WorkspaceSharePacketCodec.Format5Version))
                 {
                     return new BrowserWorkspaceShareEncodeResult(
                         Succeeded: false,

@@ -6,6 +6,7 @@ import type {
   BrowserRetainedWorkspacePreparedPosting,
   BrowserRetainedWorkspacePreparationResult,
   BrowserRetainedWorkspaceSettlementResult,
+  BrowserWorkspacePackageSourceRequirementsResult,
 } from "./facades/inspect-web-catalog.d.ts";
 
 export const MAX_RETAINED_WORKSPACE_DEFINITIONS = 4;
@@ -36,11 +37,22 @@ interface SoleDeactivationIntent {
 }
 
 export interface RetainedWorkspaceActivationClient {
+  describeWorkspacePackageSources?(
+    canonicalPacket: string,
+  ): BrowserWorkspacePackageSourceRequirementsResult
+    | Promise<BrowserWorkspacePackageSourceRequirementsResult>;
   prepareRetainedWorkspaceDefinition(
     retainedDefinitionId: string,
     label: string,
     canonicalLocation: string,
     canonicalPacket: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
+  prepareRetainedWorkspaceDefinitionWithCredentials?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    canonicalPacket: string,
+    packageSourcePatsJson: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   commitRetainedWorkspaceActivation(
     receipt: string,
@@ -120,6 +132,9 @@ export interface RetainedWorkspaceActivationHooks {
 export interface RetainedWorkspaceActivationController {
   readonly state: RetainedWorkspaceActivationState;
   retain(input: RetainedWorkspaceDefinitionInput): RetainedWorkspaceDefinition;
+  describePackageSources(
+    retainedDefinitionId: string,
+  ): Promise<BrowserWorkspacePackageSourceRequirementsResult>;
   activate(
     retainedDefinitionId: string,
     accept?: (
@@ -128,6 +143,8 @@ export interface RetainedWorkspaceActivationController {
     complete?: (
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void>,
+    committed?: () => void,
+    packageSourcePats?: Readonly<Record<string, string>>,
   ): Promise<BrowserRetainedWorkspaceActivationResult>;
   cancelPending(): boolean;
   waitForPendingCommit(): Promise<void> | null;
@@ -200,7 +217,22 @@ export function createRetainedWorkspaceActivationController(
         `Unknown retained Workspace definition '${retainedDefinitionId}'.`,
       );
     }
+
     return definition;
+  }
+
+  async function describePackageSources(
+    retainedDefinitionId: string,
+  ): Promise<BrowserWorkspacePackageSourceRequirementsResult> {
+    const definition = find(retainedDefinitionId);
+    const describe = client.describeWorkspacePackageSources;
+    if (describe === undefined) {
+      throw new Error(
+        "This engine does not support Workspace package-source descriptions.",
+      );
+    }
+
+    return await describe(definition.canonicalPacket);
   }
 
   function beginActivation(retainedDefinitionId: string): void {
@@ -457,6 +489,7 @@ export function createRetainedWorkspaceActivationController(
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void> = () => {},
     committed: () => void = () => {},
+    packageSourcePats: Readonly<Record<string, string>> = {},
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -489,12 +522,32 @@ export function createRetainedWorkspaceActivationController(
     try {
       let result: BrowserRetainedWorkspaceActivationResult;
       try {
-        const preparation = await client.prepareRetainedWorkspaceDefinition(
-          definition.id,
-          definition.label,
-          definition.canonicalLocation,
-          definition.canonicalPacket,
-        );
+        const credentialIds = Object.keys(packageSourcePats);
+        let preparation: BrowserRetainedWorkspacePreparationResult;
+        if (credentialIds.length === 0) {
+          preparation = await client.prepareRetainedWorkspaceDefinition(
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.canonicalPacket,
+          );
+        } else {
+          const prepareWithCredentials =
+            client.prepareRetainedWorkspaceDefinitionWithCredentials;
+          if (prepareWithCredentials === undefined) {
+            throw new Error(
+              "This engine does not support Workspace PAT bindings.",
+            );
+          }
+          preparation = await prepareWithCredentials.call(
+            client,
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.canonicalPacket,
+            JSON.stringify(packageSourcePats),
+          );
+        }
         switch (preparation.status) {
           case "prepared": {
             if (preparation.preparation === null
@@ -1066,6 +1119,7 @@ export function createRetainedWorkspaceActivationController(
       return snapshot();
     },
     retain,
+    describePackageSources,
     activate,
     cancelPending,
     waitForPendingCommit: () => commitBarrier,

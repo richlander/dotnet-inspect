@@ -4,8 +4,10 @@ This document explains how to give `dotnet-inspect` access to a private NuGet fe
 
 `dotnet-inspect` reads packages from the sources in your `nuget.config` — the same file
 `dotnet restore` uses — so a feed that already works for `dotnet restore` usually works here too.
-A private feed needs credentials. There are two ways to supply them, and a credential provider is
-the one to prefer.
+A private feed needs credentials. Ordinary package commands can use a
+credential provider or `nuget.config`, and a credential provider is the one to
+prefer. Portable Workspaces additionally support an explicit ephemeral PAT
+binding.
 
 Examples below run `dotnet-inspect` directly. With `dnx`, prefix each command with
 `dnx dotnet-inspect -y --`.
@@ -94,6 +96,51 @@ The examples above use `export`, the shell syntax. In PowerShell, set the same v
 `$env:ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS = '...'`, and in `cmd.exe` with
 `set ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS=...`. The variable names and the JSON
 are identical on every platform.
+
+## Portable Workspaces for PAT-only feeds
+
+Use a named source and `--requires-pat` to put a credential-free private-feed
+requirement in a Workspace packet:
+
+```bash
+packet=$(dotnet-inspect workspace \
+  --package MyCompany.Widgets@1.2.3 \
+  --tfm net10.0 \
+  --source github=https://nuget.pkg.github.com/OWNER/index.json \
+  --requires-pat github=OWNER \
+  --share packet)
+```
+
+The packet contains the source ID, HTTPS endpoint, authentication requirement,
+and Basic-auth username. It never contains the PAT. Resource-free `--share`
+therefore needs no credential.
+
+Supply the PAT again whenever the Workspace is executed:
+
+```bash
+GITHUB_TOKEN=... \
+  dotnet-inspect workspace --packet "$packet" \
+  --pat github=env:GITHUB_TOKEN
+
+printf '%s\n' "$GITHUB_TOKEN" |
+  dotnet-inspect workspace --packet "$packet" --pat github=stdin
+
+dotnet-inspect workspace --packet "$packet" \
+  --pat github=file:/run/secrets/github-pat
+```
+
+`--pat` accepts only `env:NAME`, `stdin`, or `file:PATH`; it rejects literal
+credentials. Standard input must be redirected, so an unattended caller never
+hangs on a prompt. The command does not modify or delete a credential file.
+All required source IDs must be bound before any package request starts.
+Credentials can remain in process memory for the execution but are never
+written to the Workspace packet, generated files, logs, diagnostics, or
+telemetry.
+
+Inspect Web reads the same credential-free requirement from a Workspace link
+and accepts the PAT for that activation in page-session memory. It does not
+write the PAT to the URL, packet, local storage, session storage, or IndexedDB;
+refreshing or reopening the link requires it again.
 
 ## Alternative: a credential in `nuget.config`
 

@@ -459,7 +459,8 @@ public static class WorkspacePortableCoordinateReplacement
             workspace.Title,
             workspace.Description,
             workspace.Groups,
-            workspace.Registrations);
+            workspace.Registrations,
+            workspace.PackageSources);
     }
 
     private static CommittedNavigationDefinition ReplaceNavigationCoordinate(
@@ -985,6 +986,8 @@ public static class WorkspacePortableCoordinateReplacement
                 version3.States,
             CompleteRestorationResolvedState.Version4 version4 =>
                 version4.States,
+            CompleteRestorationResolvedState.Version5 version5 =>
+                version5.States,
             _ => throw new InvalidOperationException(
                 "Unknown complete restoration state version."),
         };

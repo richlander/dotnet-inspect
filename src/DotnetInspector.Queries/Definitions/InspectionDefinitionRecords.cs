@@ -12,9 +12,10 @@ public static class InspectionDefinitionSchema
     public const int Version2 = 2;
     public const int Version3 = 3;
     public const int Version4 = 4;
+    public const int Version5 = 5;
 
     internal static bool IsSupported(int value) =>
-        value is Version1 or Version2 or Version3 or Version4;
+        value is Version1 or Version2 or Version3 or Version4 or Version5;
 }
 
 /// <summary>
@@ -102,7 +103,8 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         string? title = null,
         string? description = null,
         IReadOnlyList<CatalogGroupDefinition>? groups = null,
-        IReadOnlyList<WorkspaceRegistration>? registrations = null)
+        IReadOnlyList<WorkspaceRegistration>? registrations = null,
+        IReadOnlyList<WorkspacePackageSourceDefinition>? packageSources = null)
         : base(schemaVersion, id)
     {
         ArgumentNullException.ThrowIfNull(contexts);
@@ -110,21 +112,38 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         // Freeze first, then validate the retained snapshot (emptiness and uniqueness).
         var frozenContexts = DefinitionCollections.Freeze(contexts);
         var frozenRegistrations = DefinitionCollections.Freeze(registrations);
+        var frozenPackageSources = DefinitionCollections.Freeze(packageSources);
         if (schemaVersion is not (
                 InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4)
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5)
             && frozenRegistrations.Count != 0)
         {
             throw new ArgumentException(
-                "Workspace registrations require schema version 3 or 4.",
+                "Workspace registrations require schema version 3, 4, or 5.",
                 nameof(registrations));
         }
-        if (schemaVersion == InspectionDefinitionSchema.Version4)
+        if (schemaVersion != InspectionDefinitionSchema.Version5
+            && frozenPackageSources.Count != 0)
+        {
+            throw new ArgumentException(
+                "Workspace package sources require schema version 5.",
+                nameof(packageSources));
+        }
+        if (schemaVersion == InspectionDefinitionSchema.Version5
+            && frozenPackageSources.Count == 0)
+        {
+            throw new ArgumentException(
+                "A schema-version-5 workspace definition requires at least one package source.",
+                nameof(packageSources));
+        }
+        if (schemaVersion is InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5)
         {
             if (frozenContexts.Count == 0 && frozenRegistrations.Count == 0)
             {
                 throw new ArgumentException(
-                    "A schema-version-4 workspace definition requires at least one context or registration.",
+                    $"A schema-version-{schemaVersion} workspace definition requires at least one context or registration.",
                     nameof(contexts));
             }
         }
@@ -147,6 +166,17 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
             }
         }
 
+        var sourceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (WorkspacePackageSourceDefinition source in frozenPackageSources)
+        {
+            if (!sourceIds.Add(source.Id))
+            {
+                throw new ArgumentException(
+                    $"Duplicate workspace package source id '{source.Id}'.",
+                    nameof(packageSources));
+            }
+        }
+
         ImmutableArray<WorkspaceRegistration> registrationArray =
             [.. frozenRegistrations];
         if (WorkspacePlan.ValidateRegistrations(registrationArray)
@@ -162,6 +192,7 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         Contexts = frozenContexts;
         Groups = DefinitionCollections.Freeze(groups);
         Registrations = frozenRegistrations;
+        PackageSources = frozenPackageSources;
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Workspace;
@@ -179,9 +210,111 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
     public IReadOnlyList<CatalogGroupDefinition> Groups { get; }
 
     /// <summary>
-    /// Ordered resource-free registrations. Present only in schema versions 3 and 4.
+    /// Ordered resource-free registrations. Present only in schema versions 3 through 5.
     /// </summary>
     public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
+
+    /// <summary>
+    /// Ordered credential-free package source declarations. Present only in
+    /// schema version 5.
+    /// </summary>
+    public IReadOnlyList<WorkspacePackageSourceDefinition> PackageSources { get; }
+}
+
+/// <summary>
+/// Authentication required to realize one portable Workspace package source.
+/// </summary>
+public enum WorkspacePackageSourceAuthentication
+{
+    None = 0,
+    BasicPat = 1,
+}
+
+/// <summary>
+/// Credential-free configuration for one portable Workspace NuGet v3 source.
+/// </summary>
+public sealed record WorkspacePackageSourceDefinition
+{
+    public WorkspacePackageSourceDefinition(
+        string id,
+        string endpoint,
+        WorkspacePackageSourceAuthentication authentication =
+            WorkspacePackageSourceAuthentication.None,
+        string? username = null)
+    {
+        if (!IsValidId(id))
+        {
+            throw new ArgumentException(
+                "A Workspace package source id must start with an ASCII letter "
+                    + "and contain only ASCII letters, digits, '.', '_', or '-'.",
+                nameof(id));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? parsed)
+            || parsed.Scheme != Uri.UriSchemeHttps
+            || parsed.UserInfo.Length != 0
+            || parsed.Query.Length != 0
+            || parsed.Fragment.Length != 0)
+        {
+            throw new ArgumentException(
+                "A portable Workspace package source must be an absolute HTTPS "
+                    + "URL without user information, query, or fragment.",
+                nameof(endpoint));
+        }
+        if (authentication is not (
+                WorkspacePackageSourceAuthentication.None
+                or WorkspacePackageSourceAuthentication.BasicPat))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(authentication),
+                authentication,
+                "Unsupported Workspace package source authentication.");
+        }
+        if (authentication == WorkspacePackageSourceAuthentication.BasicPat)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        }
+        else if (username is not null)
+        {
+            throw new ArgumentException(
+                "A Workspace package source username requires Basic PAT authentication.",
+                nameof(username));
+        }
+
+        Id = id;
+        Endpoint = parsed.AbsoluteUri;
+        Authentication = authentication;
+        Username = username;
+    }
+
+    public string Id { get; }
+
+    public string Endpoint { get; }
+
+    public WorkspacePackageSourceAuthentication Authentication { get; }
+
+    public string? Username { get; }
+
+    private static bool IsValidId(string value)
+    {
+        if (string.IsNullOrEmpty(value)
+            || value.Length > 64
+            || !char.IsAsciiLetter(value[0]))
+        {
+            return false;
+        }
+
+        foreach (char character in value.AsSpan(1))
+        {
+            if (!char.IsAsciiLetterOrDigit(character)
+                && character is not ('.' or '_' or '-'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>One binding-consistent context inside a workspace definition.</summary>
@@ -250,7 +383,7 @@ public sealed record QueryDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// A schema-version-2-through-4 query preset with one canonical portable identity.
+/// A schema-version-2-through-5 query preset with one canonical portable identity.
 /// </summary>
 public sealed record CommittedQueryDefinition : InspectionDefinitionRecord
 {
@@ -263,12 +396,13 @@ public sealed record CommittedQueryDefinition : InspectionDefinitionRecord
         if (schemaVersion is not (
             InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4))
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedQueryDefinition requires schema version 2, 3, or 4.");
+                "CommittedQueryDefinition requires schema version 2, 3, 4, or 5.");
         }
 
         Identity = identity ?? throw new ArgumentNullException(nameof(identity));
@@ -836,7 +970,8 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
 
         if (schemaVersion is InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4)
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5)
         {
             if (hasWorkspace)
             {
@@ -892,7 +1027,7 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// Schema-version-2-through-4 navigation: ordered tabs and a required nullable
+/// Schema-version-2-through-5 navigation: ordered tabs and a required nullable
 /// focus. Null focus selects the committed Workspace row.
 /// </summary>
 public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
@@ -906,12 +1041,13 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
     {
         if (schemaVersion is not (InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4))
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedNavigationDefinition requires schema version 2, 3, or 4.");
+                "CommittedNavigationDefinition requires schema version 2, 3, 4, or 5.");
         }
 
         ArgumentNullException.ThrowIfNull(tabs);
@@ -965,7 +1101,7 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// Schema-version-2-through-4 committed view state: one Workspace row plus one row
+/// Schema-version-2-through-5 committed view state: one Workspace row plus one row
 /// for every navigation tab in exact navigation order.
 /// </summary>
 public sealed record CommittedViewDefinition : InspectionDefinitionRecord
@@ -978,17 +1114,20 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
     {
         if (schemaVersion is not (InspectionDefinitionSchema.Version2
             or InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4))
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedViewDefinition requires schema version 2, 3, or 4.");
+                "CommittedViewDefinition requires schema version 2, 3, 4, or 5.");
         }
 
         ArgumentNullException.ThrowIfNull(states);
         States = DefinitionCollections.Freeze(states);
-        if (schemaVersion != InspectionDefinitionSchema.Version4
+        if (schemaVersion is not (
+                InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5)
             && States.Any(state => state.Subject is
                 PortableSubjectRequest.Library
                 or PortableSubjectRequest.Type
@@ -1036,7 +1175,7 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
     public IReadOnlyList<CommittedViewStateDefinition> States { get; }
 }
 
-/// <summary>One schema-version-2-through-4 committed state.</summary>
+/// <summary>One schema-version-2-through-5 committed state.</summary>
 public sealed record CommittedViewStateDefinition
 {
     public CommittedViewStateDefinition(

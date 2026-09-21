@@ -16,6 +16,71 @@ public sealed class BrowserRetainedWorkspaceActivationCollection;
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     [Fact]
+    public void PackageSourcePatBindings_AreRequiredBeforeSourceAuthorization()
+    {
+        CompleteRestorationExecutionOptions options =
+            BrowserCompleteRestorationOptions.Create();
+        WorkspacePackageSourceDefinition[] definitions =
+        [
+            new(
+                "github",
+                "https://nuget.pkg.github.com/example/index.json",
+                WorkspacePackageSourceAuthentication.BasicPat,
+                "example"),
+        ];
+
+        CompleteRestorationExecutionOptions denied =
+            BrowserCompleteRestorationOptions.BindPackageSources(
+                options,
+                definitions,
+                new Dictionary<string, string>(StringComparer.Ordinal));
+        PackageSourceAuthorization deniedAuthorization =
+            denied.ContextLoad.SourceAuthorization.AuthorizeSourcesFor(
+                "Private.Package");
+        Assert.Empty(deniedAuthorization.Sources);
+        Assert.Contains(
+            "requires a PAT",
+            deniedAuthorization.DenialReason,
+            StringComparison.Ordinal);
+
+        const string secret = "session-only-secret";
+        CompleteRestorationExecutionOptions bound =
+            BrowserCompleteRestorationOptions.BindPackageSources(
+                options,
+                definitions,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["github"] = secret,
+                });
+        PackageSource source = Assert.Single(
+            bound.ContextLoad.SourceAuthorization
+                .AuthorizeSourcesFor("Private.Package")
+                .Sources);
+
+        Assert.Equal("github", source.Name);
+        Assert.Equal(secret, source.Credential?.Password);
+        Assert.DoesNotContain(secret, source.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ActivationRequest_ToStringRedactsPackageSourcePats()
+    {
+        const string secret = "session-only-secret";
+        var request = new BrowserRetainedWorkspaceActivationRequest(
+            "workspace-1",
+            "Private",
+            "/private",
+            "packet",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["github"] = secret,
+            });
+
+        Assert.DoesNotContain(secret, request.ToString(), StringComparison.Ordinal);
+        Assert.Contains("<redacted>", request.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_B_A_RestoresWholeWorkspaceAndSelectedPackage()
     {
         const string foo = "FooPackage";

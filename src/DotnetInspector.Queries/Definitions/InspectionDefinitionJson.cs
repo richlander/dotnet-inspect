@@ -253,6 +253,13 @@ public static class InspectionDefinitionJson
                 {
                     EnsureRegistrationUtf16(registration);
                 }
+                foreach (WorkspacePackageSourceDefinition source
+                    in workspace.PackageSources)
+                {
+                    EnsureUtf16(source.Id, "packageSources.id");
+                    EnsureUtf16(source.Endpoint, "packageSources.endpoint");
+                    EnsureUtf16(source.Username, "packageSources.username");
+                }
                 EnsureGroupUtf16(workspace.Groups);
                 break;
             case QueryDefinition query:
@@ -622,13 +629,19 @@ public static class InspectionDefinitionJson
                 "schemaVersion", "kind", "id", "title", "description",
                 "contexts", "registrations", "groups",
             ],
+            (InspectionDefinitionSchema.Version5, "workspace") =>
+            [
+                "schemaVersion", "kind", "id", "title", "description",
+                "contexts", "registrations", "packageSources", "groups",
+            ],
             (_, "workspace") =>
                 ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
             (InspectionDefinitionSchema.Version1, "query") =>
                 ["schemaVersion", "kind", "id", "queryId"],
             (InspectionDefinitionSchema.Version2
                 or InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4, "query") =>
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5, "query") =>
                 ["schemaVersion", "kind", "id", "queryId", "payload"],
             (InspectionDefinitionSchema.Version1, "view") =>
             [
@@ -639,11 +652,13 @@ public static class InspectionDefinitionJson
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
             (InspectionDefinitionSchema.Version2
                 or InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4, "view") =>
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5, "view") =>
                 ["schemaVersion", "kind", "id", "states"],
             (InspectionDefinitionSchema.Version2
                 or InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4, "navigation") =>
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5, "navigation") =>
                 ["schemaVersion", "kind", "id", "tabs", "focus"],
             (_, "scenario") =>
             [
@@ -672,7 +687,8 @@ public static class InspectionDefinitionJson
         }
         if (schemaVersion is (
                 InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4)
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5)
             && kind == "workspace")
         {
             if (!root.TryGetProperty(
@@ -686,8 +702,25 @@ public static class InspectionDefinitionJson
 
             ValidateRegistrations(registrations);
         }
-        if (schemaVersion is InspectionDefinitionSchema.Version2
+        if (schemaVersion == InspectionDefinitionSchema.Version5
+            && kind == "workspace")
+        {
+            if (!root.TryGetProperty(
+                    "packageSources",
+                    out JsonElement packageSources)
+                || packageSources.ValueKind != JsonValueKind.Array)
+            {
+                throw new InspectionDefinitionException(
+                    "Schema-version-5 Workspace requires a packageSources array.");
+            }
+
+            ValidatePackageSources(packageSources);
+        }
+        if (schemaVersion is (
+                InspectionDefinitionSchema.Version2
                 or InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5)
             && kind == "query")
         {
             if (!TryGetExactString(root, "queryId", out string queryId)
@@ -709,7 +742,8 @@ public static class InspectionDefinitionJson
             ValidateCommittedStates(states, schemaVersion);
         if ((schemaVersion == InspectionDefinitionSchema.Version2
                 || schemaVersion == InspectionDefinitionSchema.Version3
-                || schemaVersion == InspectionDefinitionSchema.Version4)
+                || schemaVersion == InspectionDefinitionSchema.Version4
+                || schemaVersion == InspectionDefinitionSchema.Version5)
             && kind == "navigation")
         {
             if (!root.TryGetProperty("focus", out JsonElement focus)
@@ -731,6 +765,7 @@ public static class InspectionDefinitionJson
                 throw new InspectionDefinitionException(
                     "Workspace registration entry must be an object.");
             }
+
             if (!TryGetExactString(registration, "kind", out string kind))
             {
                 throw new InspectionDefinitionException(
@@ -775,6 +810,37 @@ public static class InspectionDefinitionJson
                     throw new InspectionDefinitionException(
                         $"Unknown Workspace registration kind '{kind}'.");
             }
+        }
+    }
+
+    private static void ValidatePackageSources(JsonElement packageSources)
+    {
+        if (packageSources.GetArrayLength() == 0)
+        {
+            throw new InspectionDefinitionException(
+                "Schema-version-5 Workspace requires at least one package source.");
+        }
+
+        foreach (JsonElement source in packageSources.EnumerateArray())
+        {
+            if (source.ValueKind != JsonValueKind.Object)
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace package source entry must be an object.");
+            }
+            RejectUnknownProperties(
+                source,
+                ["id", "endpoint", "authentication", "username"],
+                "Workspace package source");
+            RequireStringProperty(source, "id", "Workspace package source");
+            RequireStringProperty(
+                source,
+                "endpoint",
+                "Workspace package source");
+            RequireStringProperty(
+                source,
+                "authentication",
+                "Workspace package source");
         }
     }
 
@@ -1010,7 +1076,9 @@ public static class InspectionDefinitionJson
         if (!TryGetExactString(subject, "kind", out string kind))
             throw new InspectionDefinitionException("Committed subject requires kind.");
         if (kind is not "workspace" and not "package"
-            && (schemaVersion != InspectionDefinitionSchema.Version4
+            && (schemaVersion is not (
+                    InspectionDefinitionSchema.Version4
+                    or InspectionDefinitionSchema.Version5)
                 || kind is not ("library" or "type" or "member")))
         {
             throw new InspectionDefinitionException(
@@ -1289,7 +1357,8 @@ public static class InspectionDefinitionJson
                     CreateQuery(dto),
                 (InspectionDefinitionSchema.Version2
                     or InspectionDefinitionSchema.Version3
-                    or InspectionDefinitionSchema.Version4, "query") =>
+                    or InspectionDefinitionSchema.Version4
+                    or InspectionDefinitionSchema.Version5, "query") =>
                     CreateCommittedQuery(dto),
                 (InspectionDefinitionSchema.Version1, "view") =>
                     CreateView(dto),
@@ -1297,11 +1366,13 @@ public static class InspectionDefinitionJson
                     CreateNavigation(dto, ref coordinateCount),
                 (InspectionDefinitionSchema.Version2
                     or InspectionDefinitionSchema.Version3
-                    or InspectionDefinitionSchema.Version4, "view") =>
+                    or InspectionDefinitionSchema.Version4
+                    or InspectionDefinitionSchema.Version5, "view") =>
                     CreateCommittedView(dto),
                 (InspectionDefinitionSchema.Version2
                     or InspectionDefinitionSchema.Version3
-                    or InspectionDefinitionSchema.Version4, "navigation") =>
+                    or InspectionDefinitionSchema.Version4
+                    or InspectionDefinitionSchema.Version5, "navigation") =>
                     CreateCommittedNavigation(dto, ref coordinateCount),
                 (_, "scenario") => CreateScenario(dto),
                 _ => throw new InspectionDefinitionException($"Unknown definition kind '{dto.Kind}'."),
@@ -1351,6 +1422,7 @@ public static class InspectionDefinitionJson
             dto,
             "workspace",
             registrations: false,
+            packageSources: false,
             queryId: true,
             lens: true,
             type: true,
@@ -1381,6 +1453,9 @@ public static class InspectionDefinitionJson
             MapGroups(dto.Groups, ref coordinateCount),
             MapRegistrations(
                 dto.Registrations,
+                dto.SchemaVersion),
+            MapPackageSources(
+                dto.PackageSources,
                 dto.SchemaVersion));
     }
 
@@ -1669,7 +1744,8 @@ public static class InspectionDefinitionJson
         bool view = false,
         bool navigation = false,
         bool states = false,
-        bool registrations = true)
+        bool registrations = true,
+        bool packageSources = true)
     {
         void Check(bool reject, string name, object? value)
         {
@@ -1704,6 +1780,7 @@ public static class InspectionDefinitionJson
         Check(navigation, "navigation", dto.Navigation);
         Check(states, "states", dto.States);
         Check(registrations, "registrations", dto.Registrations);
+        Check(packageSources, "packageSources", dto.PackageSources);
     }
 
     internal static InspectionDefinitionDto ToDto(InspectionDefinitionRecord record) =>
@@ -1727,8 +1804,15 @@ public static class InspectionDefinitionJson
                 Registrations =
                     workspace.SchemaVersion is InspectionDefinitionSchema.Version3
                         or InspectionDefinitionSchema.Version4
+                        or InspectionDefinitionSchema.Version5
                         ? workspace.Registrations
                             .Select(ToRegistrationDto)
+                            .ToList()
+                        : null,
+                PackageSources =
+                    workspace.SchemaVersion == InspectionDefinitionSchema.Version5
+                        ? workspace.PackageSources
+                            .Select(ToPackageSourceDto)
                             .ToList()
                         : null,
                 Groups = workspace.Groups.Count == 0 ? null : workspace.Groups.Select(ToGroupDto).ToList(),
@@ -1855,11 +1939,17 @@ public static class InspectionDefinitionJson
         {
             "workspace" => new PortableSubjectRequest.Workspace(),
             "package" => new PortableSubjectRequest.Package(),
-            "library" when schemaVersion == InspectionDefinitionSchema.Version4 =>
+            "library" when schemaVersion is (
+                InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5) =>
                 new PortableSubjectRequest.Library(),
-            "type" when schemaVersion == InspectionDefinitionSchema.Version4 =>
+            "type" when schemaVersion is (
+                InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5) =>
                 new PortableSubjectRequest.Type(),
-            "member" when schemaVersion == InspectionDefinitionSchema.Version4 =>
+            "member" when schemaVersion is (
+                InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5) =>
                 new PortableSubjectRequest.Member(),
             _ => throw new InspectionDefinitionException(
                 $"Committed subject kind '{subject.Kind}' is not supported by schema version {schemaVersion}."),
@@ -2004,13 +2094,19 @@ public static class InspectionDefinitionJson
                 PortableSubjectRequestKind.Workspace => "workspace",
                 PortableSubjectRequestKind.Package => "package",
                 PortableSubjectRequestKind.Library
-                    when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                    when schemaVersion is (
+                        InspectionDefinitionSchema.Version4
+                        or InspectionDefinitionSchema.Version5) =>
                     "library",
                 PortableSubjectRequestKind.Type
-                    when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                    when schemaVersion is (
+                        InspectionDefinitionSchema.Version4
+                        or InspectionDefinitionSchema.Version5) =>
                     "type",
                 PortableSubjectRequestKind.Member
-                    when schemaVersion == InspectionDefinitionSchema.Version4 =>
+                    when schemaVersion is (
+                        InspectionDefinitionSchema.Version4
+                        or InspectionDefinitionSchema.Version5) =>
                     "member",
                 _ => throw new InspectionDefinitionException(
                     $"Portable subject kind {subject.Kind} is not supported by schema version {schemaVersion}."),
@@ -2098,6 +2194,23 @@ public static class InspectionDefinitionJson
             },
             _ => throw new InspectionDefinitionException(
                 $"Unsupported Workspace registration type {registration.GetType().Name}."),
+        };
+
+    private static WorkspacePackageSourceDto ToPackageSourceDto(
+        WorkspacePackageSourceDefinition source) =>
+        new()
+        {
+            Id = source.Id,
+            Endpoint = source.Endpoint,
+            Authentication = source.Authentication switch
+            {
+                WorkspacePackageSourceAuthentication.None => "none",
+                WorkspacePackageSourceAuthentication.BasicPat => "basicPat",
+                _ => throw new InspectionDefinitionException(
+                    $"Unsupported Workspace package source authentication "
+                        + $"{source.Authentication}."),
+            },
+            Username = source.Username,
         };
 
     private static ExactLibrarySourceCoordinateDto
@@ -2215,7 +2328,8 @@ public static class InspectionDefinitionJson
         if (contexts.Count == 0
             && schemaVersion is not (
                 InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4))
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5))
         {
             throw new InspectionDefinitionException("Workspace requires at least one context.");
         }
@@ -2237,7 +2351,8 @@ public static class InspectionDefinitionJson
     {
         if (schemaVersion is not (
             InspectionDefinitionSchema.Version3
-            or InspectionDefinitionSchema.Version4))
+            or InspectionDefinitionSchema.Version4
+            or InspectionDefinitionSchema.Version5))
             return [];
         if (registrations is null)
         {
@@ -2268,6 +2383,52 @@ public static class InspectionDefinitionJson
                 _ => throw new InspectionDefinitionException(
                     $"Unknown Workspace registration kind '{registration.Kind}'."),
             });
+        }
+
+        return mapped;
+    }
+
+    private static List<WorkspacePackageSourceDefinition> MapPackageSources(
+        List<WorkspacePackageSourceDto>? packageSources,
+        int schemaVersion)
+    {
+        if (schemaVersion != InspectionDefinitionSchema.Version5)
+            return [];
+        if (packageSources is null || packageSources.Count == 0)
+        {
+            throw new InspectionDefinitionException(
+                "Schema-version-5 Workspace requires package sources.");
+        }
+
+        var mapped =
+            new List<WorkspacePackageSourceDefinition>(packageSources.Count);
+        foreach (WorkspacePackageSourceDto? source in packageSources)
+        {
+            if (source is null)
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace package source entry must not be null.");
+            }
+
+            WorkspacePackageSourceAuthentication authentication =
+                source.Authentication switch
+                {
+                    "none" => WorkspacePackageSourceAuthentication.None,
+                    "basicPat" =>
+                        WorkspacePackageSourceAuthentication.BasicPat,
+                    _ => throw new InspectionDefinitionException(
+                        $"Unknown Workspace package source authentication "
+                            + $"'{source.Authentication}'."),
+                };
+            mapped.Add(new WorkspacePackageSourceDefinition(
+                source.Id
+                    ?? throw new InspectionDefinitionException(
+                        "Workspace package source requires id."),
+                source.Endpoint
+                    ?? throw new InspectionDefinitionException(
+                        "Workspace package source requires endpoint."),
+                authentication,
+                source.Username));
         }
 
         return mapped;
@@ -2408,7 +2569,8 @@ public static class InspectionDefinitionJson
         if (tabs.Count == 0
             && schemaVersion is not (
                 InspectionDefinitionSchema.Version3
-                or InspectionDefinitionSchema.Version4))
+                or InspectionDefinitionSchema.Version4
+                or InspectionDefinitionSchema.Version5))
         {
             throw new InspectionDefinitionException("Navigation requires at least one tab.");
         }
@@ -2758,6 +2920,8 @@ internal sealed class InspectionDefinitionDto
 
     public List<WorkspaceRegistrationDto>? Registrations { get; set; }
 
+    public List<WorkspacePackageSourceDto>? PackageSources { get; set; }
+
     public string? QueryId { get; set; }
 
     public JsonElement? Payload { get; set; }
@@ -2806,6 +2970,17 @@ internal sealed class WorkspaceRegistrationDto
     public string? Prefix { get; set; }
 
     public WorkspaceEcosystemDeclarationDto? Declaration { get; set; }
+}
+
+internal sealed class WorkspacePackageSourceDto
+{
+    public string? Id { get; set; }
+
+    public string? Endpoint { get; set; }
+
+    public string? Authentication { get; set; }
+
+    public string? Username { get; set; }
 }
 
 internal sealed class ExactLibrarySourceCoordinateDto

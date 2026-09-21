@@ -28,7 +28,87 @@ public static partial class WorkspaceCommand
         WorkspaceOptions options,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(options);
         WorkspaceContextLoadOptions loadOptions = CreateLoadOptions(options);
+        NuGetSourceOptions runtimeSourceOptions = options.SourceOptions;
+        if (options.Packet is not null && options.PackageSources.Length != 0)
+        {
+            CommandError.Write(
+                "A Workspace packet already owns its package source declarations and cannot be combined with named --source values.");
+            return 1;
+        }
+
+        bool realizesWorkspace =
+            options.ShareFormat is null
+            || options.MakePackageDependenciesExplicit
+            || options.ReplacePackage is not null;
+        IReadOnlyList<WorkspacePackageSourceDefinition> packageSources =
+            options.PackageSources;
+        if (options.Packet is not null
+            && (realizesWorkspace || options.PatBindings.Length != 0))
+        {
+            try
+            {
+                WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+                    WorkspacePacketRestoration.GetPacketInput(
+                        options.Packet,
+                        "--packet"),
+                    cancellationToken);
+                packageSources = packet.PackageSources;
+            }
+            catch (Exception ex) when (ex is
+                WorkspaceSharePacketException
+                or InvalidDataException)
+            {
+                CommandError.Write(
+                    "The Workspace packet input is invalid.",
+                    [ex.Message]);
+                return 1;
+            }
+        }
+
+        try
+        {
+            if (realizesWorkspace && packageSources.Count != 0)
+            {
+                if (options.Packet is not null
+                    && HasExplicitSourceOptions(options.SourceOptions))
+                {
+                    throw new WorkspacePatBindingException(
+                        "A source-bearing Workspace packet cannot be combined "
+                            + "with --source, --add-source, or --nugetconfig.");
+                }
+
+                PackageSource[] resolvedSources =
+                    await WorkspacePatCredentialResolver.ResolveAsync(
+                        packageSources,
+                        options.PatBindings,
+                        cancellationToken).ConfigureAwait(false);
+                loadOptions = loadOptions with
+                {
+                    SourceAuthorization =
+                        new UniformPackageSourceAuthorization(resolvedSources),
+                };
+                runtimeSourceOptions =
+                    NuGetSourceResolver.RestrictToResolvedSources(
+                        options.SourceOptions,
+                        resolvedSources);
+            }
+            else
+            {
+                WorkspacePatCredentialResolver.ValidateBindings(
+                    packageSources,
+                    options.PatBindings);
+            }
+        }
+        catch (WorkspacePatBindingException ex)
+        {
+            CommandError.Write(
+                "The Workspace PAT bindings are invalid.",
+                [ex.Message]);
+            return 1;
+        }
+
         if (options.MakePackageDependenciesExplicit)
         {
             await using var composition =
@@ -37,7 +117,7 @@ public static partial class WorkspaceCommand
             var candidateSource =
                 new DesktopPackageDependencyCandidateSource(
                     composition,
-                    options.SourceOptions,
+                    runtimeSourceOptions,
                     options.Verbose ? CommandError.WriteLine : null);
             return await ExecuteCoreAsync(
                 options,
@@ -60,7 +140,7 @@ public static partial class WorkspaceCommand
         await using var payloadProvider =
             new ConfiguredPackageRootPayloadProvider(
                 HttpClientFactory.Shared.Timeout,
-                options.SourceOptions);
+                runtimeSourceOptions);
         return await ExecuteCoreAsync(
             options,
             loadOptions,
@@ -536,15 +616,20 @@ public static partial class WorkspaceCommand
         definitions = CreatePortableDefinition(
             directMembers,
             options.Tfm,
-            registrations);
+            registrations,
+            options.PackageSources);
         return true;
     }
 
     static CommittedScenarioDefinitionSet CreatePortableDefinition(
         IReadOnlyList<WorkspaceMemberCoordinate> directMembers,
         string? framework,
-        ImmutableArray<WorkspaceRegistration> registrations)
+        ImmutableArray<WorkspaceRegistration> registrations,
+        IReadOnlyList<WorkspacePackageSourceDefinition> packageSources)
     {
+        int schemaVersion = packageSources.Count == 0
+            ? InspectionDefinitionSchema.Version3
+            : InspectionDefinitionSchema.Version5;
         DefinitionMemberCoordinate.PackageCoordinate[] coordinates =
         [
             .. directMembers
@@ -573,10 +658,11 @@ public static partial class WorkspaceCommand
                         members: coordinates),
                 ];
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.WorkspaceId,
             contexts,
-            registrations: registrations);
+            registrations: registrations,
+            packageSources: packageSources);
         NavigationTabDefinition[] tabs =
         [
             .. coordinates.Select((coordinate, index) =>
@@ -585,7 +671,7 @@ public static partial class WorkspaceCommand
                     coordinate: coordinate)),
         ];
         var navigation = new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.NavigationId,
             tabs,
             focus: null);
@@ -598,11 +684,11 @@ public static partial class WorkspaceCommand
                 new CommittedViewStateDefinition(tab.Id)),
         ];
         var view = new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.ViewId,
             states);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: contexts.Length == 0 ? null : contexts[0].Name,
@@ -613,11 +699,17 @@ public static partial class WorkspaceCommand
         registry.Add(navigation);
         registry.Add(view);
         registry.Add(scenario);
-        return registry.PrepareScenario(scenario.Id)
-            is InspectionDefinitionScenarioPreparationResult.Version3 prepared
-                ? prepared.Definitions
-                : throw new InvalidOperationException(
-                    "Schema-version-3 authoring requires version-3 preparation.");
+        return registry.PrepareScenario(scenario.Id) switch
+        {
+            InspectionDefinitionScenarioPreparationResult.Version3 prepared
+                when schemaVersion == InspectionDefinitionSchema.Version3 =>
+                    prepared.Definitions,
+            InspectionDefinitionScenarioPreparationResult.Version5 prepared
+                when schemaVersion == InspectionDefinitionSchema.Version5 =>
+                    prepared.Definitions,
+            _ => throw new InvalidOperationException(
+                $"Schema-version-{schemaVersion} authoring requires matching preparation."),
+        };
     }
 
     static async Task<int> ExecutePacketAsync(

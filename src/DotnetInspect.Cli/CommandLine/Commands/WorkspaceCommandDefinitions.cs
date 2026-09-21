@@ -4,7 +4,9 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -134,6 +136,18 @@ public static class WorkspaceCommandDefinitions
                     + "dependencies to the portable Workspace definition; "
                     + "requires --share",
             };
+        var requiresPatOption = new Option<string[]>("--requires-pat")
+        {
+            Description =
+                "Declare that a named --source requires a PAT: source-id=username",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var patOption = new Option<string[]>("--pat")
+        {
+            Description =
+                "Bind a required PAT without putting it in argv: source-id=env:NAME, source-id=stdin, or source-id=file:PATH",
+            AllowMultipleArgumentsPerToken = false,
+        };
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
@@ -155,6 +169,8 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(lensOption);
         command.Options.Add(shareOption);
         command.Options.Add(makePackageDependenciesExplicitOption);
+        command.Options.Add(requiresPatOption);
+        command.Options.Add(patOption);
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
@@ -212,6 +228,17 @@ public static class WorkspaceCommandDefinitions
             string? type = parseResult.GetValue(typeOption);
             string? member = parseResult.GetValue(memberOption);
             string? lens = parseResult.GetValue(lensOption);
+            if (!TryParsePackageSources(
+                    parseResult,
+                    opts,
+                    requiresPatOption,
+                    patOption,
+                    out WorkspacePackageSourceDefinition[] packageSources,
+                    out WorkspacePatBindingInput[] patBindings,
+                    out NuGetSourceOptions sourceOptions))
+            {
+                return 1;
+            }
             if (rootRequest is not null
                 && (packages.Length > 0
                     || !string.IsNullOrWhiteSpace(tfm)))
@@ -272,8 +299,9 @@ public static class WorkspaceCommandDefinitions
                     MakePackageDependenciesExplicit =
                         parseResult.GetValue(
                             makePackageDependenciesExplicitOption),
-                    SourceOptions =
-                        opts.ParseNuGetSourceOptions(parseResult),
+                    PackageSources = packageSources,
+                    PatBindings = patBindings,
+                    SourceOptions = sourceOptions,
                 },
                 cancellationToken);
         });
@@ -383,4 +411,211 @@ public static class WorkspaceCommandDefinitions
             _ => throw new InvalidOperationException(
                 "System.CommandLine admitted an unsupported Workspace inventory kind."),
         };
+
+    static bool TryParsePackageSources(
+        ParseResult parseResult,
+        SharedOptions options,
+        Option<string[]> requiresPatOption,
+        Option<string[]> patOption,
+        out WorkspacePackageSourceDefinition[] packageSources,
+        out WorkspacePatBindingInput[] patBindings,
+        out NuGetSourceOptions sourceOptions)
+    {
+        string[] sourceValues = parseResult.GetValue(options.Source) ?? [];
+        NuGetSourceOptions parsedSourceOptions =
+            options.ParseNuGetSourceOptions(parseResult);
+        var namedSources = new List<(string Id, string Endpoint)>();
+        var ambientSources = new List<string>();
+        foreach (string value in sourceValues)
+        {
+            if (LooksLikeNamedSource(value))
+            {
+                SplitAssignment(
+                    value,
+                    "--source",
+                    out string id,
+                    out string endpoint);
+                namedSources.Add((id, endpoint));
+            }
+            else
+            {
+                ambientSources.Add(value);
+            }
+        }
+
+        sourceOptions = parsedSourceOptions with
+        {
+            Sources = [.. ambientSources],
+        };
+        packageSources = [];
+        patBindings = [];
+
+        try
+        {
+            if (namedSources.Count > 0
+                && (ambientSources.Count > 0
+                    || parsedSourceOptions.AdditionalSources.Length > 0
+                    || parsedSourceOptions.ConfigFile is not null))
+            {
+                throw new ArgumentException(
+                    "Named Workspace --source values cannot be combined with "
+                        + "unnamed --source, --add-source, or --nugetconfig.");
+            }
+            if (namedSources.Count > WorkspaceSharePacketCodec.MaxPackageSources)
+            {
+                throw new ArgumentException(
+                    $"A portable Workspace permits at most "
+                        + $"{WorkspaceSharePacketCodec.MaxPackageSources} package sources.");
+            }
+
+            var requirements = new Dictionary<string, string>(
+                StringComparer.Ordinal);
+            foreach (string value
+                in parseResult.GetValue(requiresPatOption) ?? [])
+            {
+                SplitAssignment(
+                    value,
+                    "--requires-pat",
+                    out string id,
+                    out string username);
+                if (!requirements.TryAdd(id, username))
+                {
+                    throw new ArgumentException(
+                        $"--requires-pat declares source '{id}' more than once.");
+                }
+            }
+
+            var seenSources = new HashSet<string>(StringComparer.Ordinal);
+            packageSources =
+            [
+                .. namedSources.Select(source =>
+                {
+                    if (!seenSources.Add(source.Id))
+                    {
+                        throw new ArgumentException(
+                            $"Named Workspace source '{source.Id}' is declared more than once.");
+                    }
+
+                    return requirements.TryGetValue(
+                        source.Id,
+                        out string? username)
+                            ? new WorkspacePackageSourceDefinition(
+                                source.Id,
+                                source.Endpoint,
+                                WorkspacePackageSourceAuthentication.BasicPat,
+                                username)
+                            : new WorkspacePackageSourceDefinition(
+                                source.Id,
+                                source.Endpoint);
+                }),
+            ];
+            string? missingSource = requirements.Keys.FirstOrDefault(
+                id => !seenSources.Contains(id));
+            if (missingSource is not null)
+            {
+                throw new ArgumentException(
+                    $"--requires-pat names source '{missingSource}', but no "
+                        + "matching named --source was declared.");
+            }
+
+            var bindings = new List<WorkspacePatBindingInput>();
+            var boundSources = new HashSet<string>(StringComparer.Ordinal);
+            int stdinBindings = 0;
+            foreach (string value in parseResult.GetValue(patOption) ?? [])
+            {
+                SplitAssignment(
+                    value,
+                    "--pat",
+                    out string id,
+                    out string provider);
+                if (!boundSources.Add(id))
+                {
+                    throw new ArgumentException(
+                        $"--pat binds source '{id}' more than once.");
+                }
+
+                WorkspacePatBindingInput binding =
+                    ParsePatBinding(id, provider);
+                if (binding.Kind == WorkspacePatInputKind.StandardInput
+                    && ++stdinBindings > 1)
+                {
+                    throw new ArgumentException(
+                        "At most one --pat binding may read from stdin.");
+                }
+                bindings.Add(binding);
+            }
+            patBindings = [.. bindings];
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.Write(
+                "The Workspace package source options are invalid.",
+                [ex.Message]);
+            return false;
+        }
+    }
+
+    static WorkspacePatBindingInput ParsePatBinding(
+        string sourceId,
+        string provider)
+    {
+        if (string.Equals(provider, "stdin", StringComparison.Ordinal))
+        {
+            return new WorkspacePatBindingInput(
+                sourceId,
+                WorkspacePatInputKind.StandardInput,
+                null);
+        }
+        if (provider.StartsWith("env:", StringComparison.Ordinal)
+            && provider.Length > "env:".Length)
+        {
+            return new WorkspacePatBindingInput(
+                sourceId,
+                WorkspacePatInputKind.Environment,
+                provider["env:".Length..]);
+        }
+        if (provider.StartsWith("file:", StringComparison.Ordinal)
+            && provider.Length > "file:".Length)
+        {
+            return new WorkspacePatBindingInput(
+                sourceId,
+                WorkspacePatInputKind.File,
+                provider["file:".Length..]);
+        }
+
+        throw new ArgumentException(
+            $"--pat for source '{sourceId}' must use env:NAME, stdin, or file:PATH.");
+    }
+
+    static bool LooksLikeNamedSource(string value)
+    {
+        int separator = value.IndexOf('=');
+        if (separator <= 0)
+            return false;
+
+        ReadOnlySpan<char> candidateId = value.AsSpan(0, separator);
+        ReadOnlySpan<char> candidateEndpoint = value.AsSpan(separator + 1);
+        return candidateId.IndexOfAny(':', '/', '\\') < 0
+            && candidateEndpoint.Contains(
+                "://",
+                StringComparison.Ordinal);
+    }
+
+    static void SplitAssignment(
+        string value,
+        string optionName,
+        out string name,
+        out string assignedValue)
+    {
+        int separator = value.IndexOf('=');
+        if (separator <= 0 || separator == value.Length - 1)
+        {
+            throw new ArgumentException(
+                $"{optionName} requires a non-empty name=value argument.");
+        }
+
+        name = value[..separator];
+        assignedValue = value[(separator + 1)..];
+    }
 }

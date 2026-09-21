@@ -47,7 +47,38 @@ sees Basic. See
 
 ## The credential sources
 
-Two, described in full below: a `nuget.config` entry, and a credential provider.
+Ordinary package commands use two sources described below: a `nuget.config`
+entry and a credential provider. A portable schema-version-5 Workspace has a
+third, narrower route: an explicit ephemeral PAT binding for a source
+declaration in that Workspace.
+
+### Portable Workspace PAT binding
+
+A Workspace packet can declare an HTTPS NuGet source, a stable source ID, and
+the Basic-auth username while marking the source as requiring a PAT. The PAT is
+not part of the definition or packet. On each realization the CLI caller binds
+the source ID to exactly one noninteractive provider:
+
+```bash
+dotnet-inspect workspace --packet "$packet" --pat github=env:GITHUB_TOKEN
+printf '%s\n' "$GITHUB_TOKEN" |
+  dotnet-inspect workspace --packet "$packet" --pat github=stdin
+dotnet-inspect workspace --packet "$packet" \
+  --pat github=file:/run/secrets/github-pat
+```
+
+The provider grammar deliberately has no literal-secret form. Standard input
+must already be redirected; the command never prompts or calls
+`Console.ReadLine`. Files are caller-owned and remain unchanged. Missing,
+duplicate, and unexpected bindings fail before source authorization or network
+access. The credential may remain in process memory for that realization but
+is never written to a Workspace packet, generated file, log, diagnostic, or
+telemetry event.
+
+This route is separate from NuGet's
+`NuGetPackageSourceCredentials_<name>` convention, which remains unsupported.
+Inspect Web uses the same source-ID binding contract with page-session memory
+instead of CLI providers and never writes PATs to browser storage.
 
 ### `nuget.config`
 

@@ -161,7 +161,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
+| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or format 5 with named `--source` and `--requires-pat` declarations; omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string; `--pat` binds a declared PAT source from an environment variable, redirected stdin, or a caller-owned file for execution only. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -820,6 +820,30 @@ resource-free. Normalized-equivalent Package coordinates are emitted once,
 while registration options retain their authored cross-kind order. A
 scanner-bearing Ecosystem fails visibly as non-projectable; the command never
 drops its scanner to manufacture a packet.
+
+For a portable Workspace that must use an HTTPS PAT-only feed, name the source
+and declare its credential slot:
+
+```bash
+packet=$(dotnet-inspect workspace \
+  --package Private.Package@1.2.3 \
+  --tfm net10.0 \
+  --source github=https://nuget.pkg.github.com/OWNER/index.json \
+  --requires-pat github=OWNER \
+  --share packet)
+
+GITHUB_TOKEN=... \
+  dotnet-inspect workspace --packet "$packet" \
+  --pat github=env:GITHUB_TOKEN
+```
+
+Named sources produce a schema-version-5 definition and format-5 packet. The
+packet carries the source ID, HTTPS endpoint, authentication requirement, and
+username, but never the PAT. Resource-free sharing does not require a
+credential. Execution requires every PAT slot to be bound with
+`source-id=env:NAME`, `source-id=stdin`, or `source-id=file:PATH`; literal
+credentials are rejected, stdin must be redirected, and there is no prompt.
+See [Using a Private NuGet Feed](docs/private-feeds.md#portable-workspaces-for-pat-only-feeds).
 
 Add `--make-package-dependencies-explicit` to acquire every direct Package
 member, resolve its exact direct dependencies for the member's effective
