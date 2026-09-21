@@ -288,6 +288,18 @@ public sealed class LibraryBodyAnalysisExecution
             LibraryBodyAnalysisResult analysis,
             bool wasRequested)
     {
+        if (!wasRequested)
+        {
+            return new(
+                WasRequested: false,
+                receipt.HasFullMethodEvidenceScope,
+                analysis.Methods.DeclaredMethods,
+                analysis.Methods.Methods,
+                [],
+                [],
+                analysis.Diagnostics);
+        }
+
         ImmutableArray<MethodIdentity> profiledBodies =
         [
             .. analysis.Methods.ImplementationProfiles
@@ -343,10 +355,10 @@ public sealed class LibraryBodyAnalysisExecution
     {
         if (!wasRequested)
             return ImplementationProfileUnavailableReason.NotRequested;
+        if (diagnostic is not null)
+            return ImplementationProfileUnavailableReason.AnalysisFailed;
         if (!hasFullMethodEvidenceScope)
             return ImplementationProfileUnavailableReason.ScopeExcluded;
-        return diagnostic is null
-            ? ImplementationProfileUnavailableReason.ProfileUnavailable
-            : ImplementationProfileUnavailableReason.AnalysisFailed;
+        return ImplementationProfileUnavailableReason.ProfileUnavailable;
     }
 }

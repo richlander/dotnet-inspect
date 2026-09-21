@@ -1,3 +1,8 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 
 namespace ILInspector.Analysis.Tests;
@@ -136,14 +141,15 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.NotEmpty(
             execution.ImplementationProfiles
                 .Coverage
-                .UnavailableBodies);
-        Assert.All(
+                .ManagedMethodBodies);
+        Assert.Empty(
             execution.ImplementationProfiles
                 .Coverage
-                .UnavailableBodies,
-            body => Assert.Equal(
-                ImplementationProfileUnavailableReason.NotRequested,
-                body.Reason));
+                .ProfiledEvidenceBodies);
+        Assert.Empty(
+            execution.ImplementationProfiles
+                .Coverage
+                .UnavailableBodies);
     }
 
     [Fact]
@@ -233,6 +239,38 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void ExecuteImage_ProfileCoverageReportsScopedDiagnosticsAsAnalysisFailed()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ArrayPoolLeakFixtures).Assembly.Location);
+        int methodToken =
+            ReplaceMethodCodeSizeWithInvalidValue(image);
+
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "MalformedProfileBody.dll",
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles,
+                    bodyScope: new HashSet<int> { methodToken }));
+
+        ImplementationProfileUnavailableBody body =
+            Assert.Single(
+                execution.ImplementationProfiles
+                    .Coverage
+                    .UnavailableBodies,
+                body => body.EvidenceMethod.MetadataToken == methodToken);
+        Assert.Equal(
+            ImplementationProfileUnavailableReason.AnalysisFailed,
+            body.Reason);
+        Assert.NotNull(body.Diagnostic);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            body.Diagnostic.Message);
+    }
+
+    [Fact]
     public void CompatibilityIndex_PreservesFocusedProfileResults()
     {
         LibraryBodyAnalysisExecution execution =
@@ -256,6 +294,44 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .GeneratedFrameworkTypes.SetEquals(
                     index.GeneratedFrameworkTypes));
+    }
+
+    static int ReplaceMethodCodeSizeWithInvalidValue(
+        byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle methodHandle =
+            reader.MethodDefinitions.Single(handle =>
+                reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    nameof(ArrayPoolLeakFixtures
+                        .ExternalReadBeforeReturn)));
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
+        int methodOffset = RvaToFileOffset(
+            peReader.PEHeaders,
+            method.RelativeVirtualAddress);
+        Assert.Equal(3, image[methodOffset] & 3);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(methodOffset + 4, 4),
+            0x7F000000);
+        return MetadataTokens.GetToken(methodHandle);
+    }
+
+    static int RvaToFileOffset(
+        PEHeaders headers,
+        int rva)
+    {
+        SectionHeader section =
+            headers.SectionHeaders.Single(header =>
+                rva >= header.VirtualAddress
+                && rva < header.VirtualAddress
+                    + Math.Max(
+                        header.VirtualSize,
+                        header.SizeOfRawData));
+        return checked(rva - section.VirtualAddress + section.PointerToRawData);
     }
 
     [Fact]
