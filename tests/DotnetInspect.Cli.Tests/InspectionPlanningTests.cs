@@ -234,7 +234,7 @@ public sealed class InspectionPlanningTests
 
     [Theory]
     [InlineData("Clone*")]
-    [InlineData("Implementation*")]
+    [InlineData("Member*")]
     [InlineData("Finding*")]
     [InlineData("Signat*")]
     public void SectionDemandIndex_ExactOnlyGlobDoesNotPromoteTarget(

@@ -12,13 +12,28 @@ Rows path: request-local sequence-key binding, one named semantic invocation,
 and typed success or strict-failure rebinding. #5625 adds the immutable typed
 selection-operation intent received before schema and order resolution. #5786
 binds Head, Tail, and Window intent directly to one unordered cohort for
-package-version rows. Ordered/ranked intent resolution, projection, general
-Count binding, source outcomes, and multiple-cohort composition remain
-unimplemented.
-The dependency-free `SectionCountOutcome<TIdentity, TEvidence>` carrier
-implements the terminal exact-count, source-for-Count, and semantic-failure
-branches consumed by Diff History; it does not itself resolve or execute a
-section request.
+package-version rows.
+
+The section-row substrate slice of #8010 adds one explicit association over
+complete source rows. It binds typed schema witnesses to already-resolved
+cohort executors, allocates sequence keys across the complete request, forms
+ordered heterogeneous cohorts by schema and request-local intent-binding
+identity, executes each cohort once, and returns declaration-ordered typed Rows
+or exact Count outcomes. Rows rebind through the declaration's typed result
+adapter without section names or presentation schemas.
+
+Projection, source dispositions and completion evidence, structured resolution
+failures, multiple association instances, Query Space request lowering and
+row-query resolution, and Graph Libraries adoption remain unimplemented. The
+complete-source subset rejects malformed construction with exceptions before
+execution; it does not yet satisfy the design's structured failure or complete
+resolution-order contracts.
+The `DotnetInspector.Sections`-owned
+`SectionCountOutcome<TIdentity, TEvidence>` carrier implements the terminal
+exact-count, source-for-Count, and semantic-failure branches consumed by Diff
+History; it does not itself resolve or execute a section request. The L1
+PackageQueries outcome remains Count-free, while L2 returns
+`DiffHistorySectionAvailable` with the optional section Count outcome.
 
 Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -593,6 +608,15 @@ The one-cohort Rows implementation is enforced by:
 | `RowsCohortBindsStrictFailureAtomically` | A strict semantic failure binds to its exact declared identity and publishes no selected row sets. |
 | `RowsCohortRejectsAmbiguousOrInvalidInput` | Empty cohorts, duplicate identities, and invalid required inputs reject before plausible output; resolver and comparer exceptions propagate unchanged. |
 | `RowsCohortSnapshotsInputsAndResults` | Input and result collection membership and order are snapshots while row values remain caller-owned objects. |
+
+The one-association, complete-source heterogeneous substrate is enforced by:
+
+| Gate | Contract |
+| --- | --- |
+| `HeterogeneousCompleteSourceCohortsPreserveTypedRowsAndCount` | One explicit association binds every declared row set exactly once; request-wide sequence keys round-trip owner identity; cohorts follow first schema occurrence and retain declaration order; one typed execution binding serves every same-schema member; successful Rows and Count reassemble in declaration order; typed result adapters receive the selected caller-owned rows. |
+| `SectionRowSingleAssociationRejectsInvalidBinding` | Empty selected sets, duplicate declarations, unknown, duplicate, or unassigned association references, duplicate or missing schema bindings, and unused bindings reject before any cohort executor runs. These construction exceptions do not claim the later structured-resolution failure contract. |
+| `CrossCohortCompleteSourceFailureIsAtomic` | A semantic failure in a later heterogeneous cohort publishes no earlier Rows or Count payload, binds to the owner-issued row-set identity, and skips every later cohort. |
+| `CrossCohortExceptionsPropagateAndSkipLaterWork` | An exception from an entered cohort propagates as the exact instance and skips every later cohort. |
 
 The remaining implementation must add these named Release gates:
 

@@ -454,7 +454,7 @@ public partial class LibraryCommand
                 options.IncludeSections,
                 options.ExactIncludeSections,
                 sections.SelectableSectionNames,
-                SectionNames.ImplementationProfiles);
+                SectionNames.MemberMetrics);
         if (implementationProfilesSelection.Error is not null)
         {
             CommandError.Write(
@@ -583,10 +583,10 @@ public partial class LibraryCommand
                 options.IncludeSections))
         {
             if (options.IncludeSections.Contains(
-                    SectionNames.ImplementationProfiles))
+                    SectionNames.MemberMetrics))
             {
                 CommandError.Write(
-                    "Document --json cannot represent Implementation Profiles analysis. "
+                    "Document --json cannot represent Member Metrics analysis. "
                     + "Use --jsonl, --tsv, or --table.");
             }
             else
