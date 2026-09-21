@@ -256,31 +256,6 @@ function closeApplicationMenu(
   if (restoreFocus) button.focus();
 }
 
-function documentFocusableElements(document: Document): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
-      + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter(element =>
-    !element.hidden
-    && element.getClientRects().length > 0
-    && element.closest("#application-menu") === null);
-}
-
-function continueDocumentOrder(
-  button: HTMLElement,
-  menu: HTMLElement,
-  event: KeyboardEvent,
-): void {
-  const focusable = documentFocusableElements(button.ownerDocument);
-  const buttonIndex = focusable.indexOf(button);
-  const target = event.shiftKey
-    ? focusable[buttonIndex - 1]
-    : focusable[buttonIndex + 1];
-  event.preventDefault();
-  closeApplicationMenu(button, menu, false);
-  target?.focus();
-}
-
 function isNodeTarget(target: EventTarget | null): target is Node {
   return target !== null && "nodeType" in target;
 }
@@ -362,7 +337,9 @@ export function bindWorkbenchShell(
         event.preventDefault();
         closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Tab") {
-        continueDocumentOrder(menuButton, menu, event);
+        // Let native Tab traversal continue from the trigger, including at
+        // document boundaries and past controls outside the page Tab sequence.
+        closeApplicationMenu(menuButton, menu, true);
       } else if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
         (event.key === "Home" ? items[0] : items.at(-1))?.focus();
