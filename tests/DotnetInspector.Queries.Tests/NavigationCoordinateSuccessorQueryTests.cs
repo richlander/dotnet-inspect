@@ -425,6 +425,89 @@ public sealed class NavigationCoordinateSuccessorQueryTests
         Assert.NotNull(failed.Failure.RootFailure);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FailedEndpoint_PreservesOwnerIssuedRootFailure(
+        bool sourceEndpoint)
+    {
+        PackageRootBinding source =
+            ApiCoordinateCorrespondenceQueryTests.Binding(
+                "1.0.0",
+                ("ref/net11.0/_._", ""));
+        PackageRootBinding destination =
+            ApiCoordinateCorrespondenceQueryTests.Binding(
+                "2.0.0",
+                ("ref/net11.0/_._", ""));
+        await using var sourceWorkspace = new InspectionWorkspace();
+        await using var destinationWorkspace = new InspectionWorkspace();
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationFacetAvailabilityProvider availability =
+            AllAvailable(registry);
+        PreparedSource prepared = await PrepareSourceAsync(
+            sourceWorkspace,
+            source,
+            registry,
+            availability,
+            StructuralSubjectKind.Package,
+            memberName: null,
+            "package.overview",
+            declaringType: null);
+        WorkspaceScopeSnapshot destinationScope =
+            await AddAsync(destinationWorkspace, destination);
+        NavigationState sourceNavigation =
+            prepared.Initialization.State;
+        if (sourceEndpoint)
+        {
+            WorkspaceScopeSnapshot failedScope =
+                await FailRootAsync(sourceWorkspace, prepared.Scope);
+            NavigationWorkspaceSnapshot refreshed =
+                NavigationWorkspaceSnapshotEvaluation.Refresh(
+                    sourceNavigation.CurrentSnapshot,
+                    failedScope,
+                    package: null,
+                    registry,
+                    availability,
+                    new(failedScope.Packages.Single())).Snapshot;
+            sourceNavigation =
+                new(sourceNavigation.Data with { Current = refreshed });
+        }
+        else
+        {
+            destinationScope =
+                await FailRootAsync(
+                    destinationWorkspace,
+                    destinationScope);
+        }
+
+        NavigationCoordinateSuccessorPreparationResult result =
+            await NavigationCoordinateSuccessorQuery.PrepareAsync(
+                sourceWorkspace,
+                sourceNavigation,
+                source,
+                destinationWorkspace,
+                destinationScope,
+                destination,
+                registry,
+                availability,
+                Cancellation);
+
+        NavigationCoordinateSuccessorPreparationResult.Failed failed =
+            Assert.IsType<
+                NavigationCoordinateSuccessorPreparationResult.Failed>(
+                    result);
+        Assert.Equal(
+            sourceEndpoint
+                ? NavigationCoordinateSuccessorFailureKind
+                    .SourceRootUnavailable
+                : NavigationCoordinateSuccessorFailureKind
+                    .DestinationRootUnavailable,
+            failed.Failure.Kind);
+        Assert.Equal(
+            ArtifactRootFailure.PreparationFailed,
+            failed.Failure.RootFailure);
+    }
+
     [Fact]
     public async Task UnknownDestinationFacet_PreservesTypedRestorationResult()
     {
@@ -590,6 +673,33 @@ public sealed class NavigationCoordinateSuccessorQueryTests
                 [binding],
                 Deadline,
                 Cancellation)).Snapshot;
+    }
+
+    static async Task<WorkspaceScopeSnapshot> FailRootAsync(
+        InspectionWorkspace workspace,
+        WorkspaceScopeSnapshot scope)
+    {
+        WorkspacePackageOccurrenceDescriptor occurrence =
+            Assert.Single(scope.Packages);
+        ArtifactRootRealizationStatus.Ready ready =
+            Assert.IsType<ArtifactRootRealizationStatus.Ready>(
+                occurrence.Realization.Status);
+        ArtifactRootCompositionGenerationIdentity pending =
+            Assert.IsType<
+                ArtifactRootResult<
+                    ArtifactRootCompositionGenerationIdentity>.Available>(
+                        await workspace.RetireArtifactRootAsync(
+                            occurrence.Occurrence.Correspondence,
+                            ready.Generation)).Value;
+        _ = Assert.IsType<
+            ArtifactRootResult<
+                ArtifactRootCompositionGenerationIdentity>.Available>(
+                    await workspace.FailArtifactRootReplacementAsync(
+                        occurrence.Occurrence.Correspondence,
+                        pending,
+                        ArtifactRootFailure.PreparationFailed));
+        return Assert.IsType<WorkspaceScopeReadResult.Available>(
+            await workspace.GetScopeSnapshotAsync()).Snapshot;
     }
 
     static NavigationFacetAvailabilityProvider AllAvailable(

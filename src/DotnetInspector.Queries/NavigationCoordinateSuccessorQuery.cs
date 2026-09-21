@@ -221,20 +221,29 @@ public static class NavigationCoordinateSuccessorQuery
                     + "successor occurrence and retained content snapshot.");
         }
 
-        if (sourceOccurrence.Realization.Status
-                is not ArtifactRootRealizationStatus.Ready sourceReady)
+        ArtifactRootRealizationStatus sourceStatus =
+            sourceOccurrence.Realization.Status;
+        if (sourceStatus is not ArtifactRootRealizationStatus.Ready sourceReady)
         {
             return Failed(
                 NavigationCoordinateSuccessorFailureKind.SourceRootUnavailable,
-                "The active source Package Root is not ready.");
+                "The active source Package Root is not ready.",
+                rootFailure:
+                    (sourceStatus as ArtifactRootRealizationStatus.Failed)
+                        ?.Failure);
         }
-        if (destinationOccurrence.Realization.Status
+        ArtifactRootRealizationStatus destinationStatus =
+            destinationOccurrence.Realization.Status;
+        if (destinationStatus
                 is not ArtifactRootRealizationStatus.Ready destinationReady)
         {
             return Failed(
                 NavigationCoordinateSuccessorFailureKind
                     .DestinationRootUnavailable,
-                "The requested destination Package Root is not ready.");
+                "The requested destination Package Root is not ready.",
+                rootFailure:
+                    (destinationStatus as ArtifactRootRealizationStatus.Failed)
+                        ?.Failure);
         }
 
         ArtifactRootResult<

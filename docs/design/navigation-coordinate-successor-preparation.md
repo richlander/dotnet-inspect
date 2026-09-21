@@ -107,7 +107,9 @@ The producer returns one closed result:
   observation failure. It never returns a success-shaped empty state.
 
 Cancellation uses the ordinary `OperationCanceledException` contract before or
-during Root access. Root and observation failures remain visible through their
+during Root access. A failed endpoint projection preserves its owner-issued
+`ArtifactRootFailure`; a pending projection carries no invented Root failure.
+Root-access and observation failures likewise remain visible through their
 owner-issued evidence.
 
 ## Identity and lifetime
@@ -165,7 +167,9 @@ Release gates in `NavigationCoordinateSuccessorQueryTests` prove:
   and mismatched source or destination bindings — including independently
   acquired same-coordinate bindings with empty compile selection — fail with
   their exact typed reason;
-- source and destination Root or observation failure remains typed; and
+- source and destination Root-access or observation failure remains typed;
+- source and destination failed Root projections preserve their exact
+  owner-issued `ArtifactRootFailure`; and
 - the existing protected same-Workspace replacement suite remains green.
 
 The focused implementation gate is:
