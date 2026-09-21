@@ -89,6 +89,54 @@ export async function readInertDisplay(): Promise<string> {
 export const untreated: InertString = "plain text";
 TS
 
+cat > "$scratch/timestamp-usage.ts" <<'TS'
+import { getTimestampAsync } from "./facade.js";
+import type {
+  DateTimeOffsetString,
+  NullableTimestampSelection,
+  TimestampSelection,
+} from "./facade.js";
+
+type TimestampArray =
+  Extract<TimestampSelection, ReadonlyArray<unknown>>;
+type TimestampMap =
+  Extract<TimestampSelection, Readonly<Record<string, unknown>>>;
+
+export async function readTimestamp(): Promise<string> {
+  const value = await getTimestampAsync();
+  const timestamp: DateTimeOffsetString = value.observedAt;
+  const selection: TimestampSelection = value.selection;
+  const nullableSelection: NullableTimestampSelection =
+    value.nullableSelection;
+  declareTimestampAlternatives(selection, [], {});
+  void nullableSelection;
+  const display: string = timestamp;
+  return display;
+}
+
+function declareTimestampAlternatives(
+  direct: TimestampSelection,
+  array: TimestampArray,
+  map: TimestampMap,
+): void {
+  const first: DateTimeOffsetString | null | undefined = array[0];
+  const named: DateTimeOffsetString | undefined = map["timestamp"];
+  void direct;
+  void first;
+  void named;
+}
+
+// A plain string has not crossed an authenticated DateTimeOffset JSON boundary.
+// @ts-expect-error
+export const untreated: DateTimeOffsetString =
+  "2026-09-21T10:30:45.1234567-07:00";
+
+// A plain string cannot enter the DateTimeOffset union alternative either.
+// @ts-expect-error
+export const untreatedSelection: TimestampSelection =
+  "2026-09-21T10:30:45.1234567-07:00";
+TS
+
 cat > "$scratch/typed-input-usage.ts" <<'TS'
 import { matchWidgetCandidates } from "./facade.js";
 import type { WidgetDto } from "./facade.js";
@@ -447,6 +495,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "callback-usage.ts",
     "conditional-usage.ts",
     "inert-usage.ts",
+    "timestamp-usage.ts",
     "typed-input-usage.ts",
     "union-usage.ts"
   ]
@@ -458,6 +507,10 @@ cp "$dotnet_dts" "$scratch/dotnet.d.ts"
 grep -F 'from "./dotnet.js"' "$scratch/out/facade.js" >/dev/null
 if grep -F 'inertStringBrand' "$scratch/out/facade.js" >/dev/null; then
   echo "Generated JavaScript retained the compile-time inert-string brand." >&2
+  exit 1
+fi
+if grep -F 'dateTimeOffsetStringBrand' "$scratch/out/facade.js" >/dev/null; then
+  echo "Generated JavaScript retained the compile-time timestamp brand." >&2
   exit 1
 fi
 if grep -E 'RuntimeAPI|dotnet(\.js)?' "$scratch/out/facade.d.ts" >/dev/null; then
@@ -550,6 +603,25 @@ if cmp -s "$scratch/facade.ts" "$mutation/facade.ts"; then
 fi
 if "$tsc" -p "$mutation/tsconfig.json" >/dev/null 2>&1; then
   echo "inert-string-brand mutation unexpectedly compiled." >&2
+  exit 1
+fi
+
+mutation="$scratch/datetimeoffset-string-brand"
+mkdir "$mutation"
+cp \
+  "$scratch/dotnet.d.ts" \
+  "$scratch/tsconfig.json" \
+  "$scratch/timestamp-usage.ts" \
+  "$mutation/"
+perl -0pe \
+  's/export type DateTimeOffsetString = string & \{\n  readonly \[dateTimeOffsetStringBrand\]: "DateTimeOffsetString";\n\};/export type DateTimeOffsetString = string;/' \
+  "$scratch/facade.ts" > "$mutation/facade.ts"
+if cmp -s "$scratch/facade.ts" "$mutation/facade.ts"; then
+  echo "datetimeoffset-string-brand mutation did not change the generated source." >&2
+  exit 1
+fi
+if "$tsc" -p "$mutation/tsconfig.json" >/dev/null 2>&1; then
+  echo "datetimeoffset-string-brand mutation unexpectedly compiled." >&2
   exit 1
 fi
 

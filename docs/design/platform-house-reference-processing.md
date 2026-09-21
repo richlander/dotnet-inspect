@@ -2092,11 +2092,15 @@ Step 7 is staged without changing the ten-step count. Step 7a, tracked by
 family-default target and realizes its authoritative complete reference
 population in the same closed operation. Step 7b derives the target-bound type
 catalog from that population through LibraryMetadata's exact declaration
-correspondence before the later Metadata resolution and host-adoption slices.
-The stage-7a population operation does not expose catalog semantics or change
-CLI or Inspect Web routing. Stage 7b adds exact structured lookup only; user-text
-matching, candidate preference, Metadata binding, and host routing remain later
-focused adoptions.
+correspondence. Step 7c, implemented under
+[#8096](https://github.com/richlander/dotnet-inspect/issues/8096), adapts user
+text to that resource-free catalog with typed resolved, ambiguous, missing, and
+rejected outcomes. The stage-7a population operation does not expose catalog
+semantics or change CLI or Inspect Web routing. Step 9a, tracked by
+[#8164](https://github.com/richlander/dotnet-inspect/issues/8164), adopts the
+family-default population and catalog query for versionless bare CLI type and
+member routing. Browser/Wasm adoption, exact-demand Metadata binding, and
+Services-era resolver retirement remain later focused slices.
 
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
