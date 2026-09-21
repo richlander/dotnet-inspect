@@ -645,7 +645,7 @@ public static class PackageVersionCellAnalysisInspector
                             limits.MaximumRetainedImageBytes,
                     };
                 WorkspaceScopeOperationResult admission =
-                    await workspace.ReplaceScopeWithRealizationOptionsAsync(
+                        await workspace.AddPackagesWithRealizationOptionsAsync(
                             current.Snapshot.Revision,
                             [
                                 .. executed.Select(endpoint =>

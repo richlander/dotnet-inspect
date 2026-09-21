@@ -815,8 +815,12 @@ public sealed partial class CompleteRestorationExecutionTests
 
         var failed = Assert.IsType<
             CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
-        Assert.IsType<CompleteRestorationFailure.ScopeMutationFailed>(
+        var scopeFailure =
+            Assert.IsType<CompleteRestorationFailure.ScopeMutationFailed>(
             failed.Failure);
+        Assert.Equal(
+            WorkspaceScopeOperationKind.Add,
+            scopeFailure.Outcome.Association.Kind);
         Assert.True(host.CloseReport!.Succeeded);
     }
 
