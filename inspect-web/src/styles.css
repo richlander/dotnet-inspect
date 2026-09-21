@@ -2569,6 +2569,19 @@ kbd {
   .content-navigation-integrated .metadata-surface-head {
     padding-left: 112px;
   }
+  /* The narrow-screen Types/Libraries control occupies the Compare title's place;
+     the subject path above the surface keeps the exact subject visible. */
+  .content-navigation-integrated .compare-head { padding-left: 112px; }
+  .content-navigation-integrated .compare-kicker { display: none; }
+  .content-navigation-integrated .compare-head h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .content-navigation-integrated .api-surface-head h1,
   .content-navigation-integrated .overview-surface-label,
   .content-navigation-integrated .metadata-surface-head h1 {
@@ -4972,6 +4985,7 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
   overflow: auto;
 }
 .compare-panel:empty { display: none; }
+.compare-panel > .library-api-diff-evidence { align-self: start; }
 .compare-retry { align-self: center; justify-self: center; margin: 32px 0; }
 .compare-loading {
   align-self: center;
