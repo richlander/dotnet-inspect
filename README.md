@@ -147,6 +147,7 @@ stderr rather than mixed into structured output.
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, recognized ecosystem dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
+| Product resource explanation | `explain` | Target-free semantic detail for exact product-resource paths. The first domain covers the complete Library structural catalog, categories, sections, fields, columns, and query-oriented structural items. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
@@ -189,6 +190,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `explain PATH` | Explain one exact product resource without acquiring an inspection target. Library structural paths are supported first; add `--depth N` for bounded related-resource expansion. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
@@ -410,6 +412,7 @@ not adopted this transport.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
+| Explain an exact product resource | `explain <resource-path>`, optionally `--depth N` or `--json` |
 | Add Library format details | `-D --details`, `-D <exact-name> --details` |
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
@@ -443,6 +446,9 @@ dotnet-inspect library System.Text.Json -D
 dotnet-inspect library System.Text.Json -D --details
 dotnet-inspect library System.Text.Json -D @Dependencies --details
 dotnet-inspect library System.Text.Json -D "Reference Hierarchy" --details
+dotnet-inspect explain library/sections/reference-hierarchy
+dotnet-inspect explain \
+  library/sections/reference-hierarchy/items/column/target --json
 dotnet-inspect library -Q
 dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
@@ -466,10 +472,17 @@ dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 
 Library `-D --details` is structural and does not acquire the target. It adds a
 `Formats` column to the top-level catalog, or reports one exact category or
-section in detail. A category reports the formats supported by its complete
-expansion plus the formats of each member; it never selects or drops members to
-satisfy a format. Use the result to choose an exact section before requesting a
-single-result projection such as `--tree` or `--mermaid`.
+section in detail. `explain` is the exact-resource successor: pass a stable path
+from the Library structural catalog to see its typed identity, owner, formats,
+and related paths, or add `--depth N` for bounded expansion. It is target-free:
+the package or Library selected for a later inspection is not an argument.
+`--details` remains available until `explain` covers its complete Formats
+workflow.
+
+A category reports the formats supported by its complete expansion plus the
+formats of each member; it never selects or drops members to satisfy a format.
+Use the result to choose an exact section before requesting a single-result
+projection such as `--tree` or `--mermaid`.
 
 ## Common examples
 

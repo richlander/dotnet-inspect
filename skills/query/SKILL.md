@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-query
-version: 0.1.0
-description: Output formats, -D/-S discovery and selection, -Q query-capability discovery, value projection, @ categories, and output limits shared across commands.
+version: 0.2.0
+description: Product-resource explanation, output formats, -D/-S discovery and selection, -Q query-capability discovery, value projection, @ categories, and output limits shared across commands.
 ---
 
 # dotnet-inspect: query and output system
@@ -101,6 +101,9 @@ aliases, or wildcards, `-Q` to discover query facets and operators, and
 `--columns`/`--fields` to project values. Discover first instead of guessing names.
 On `library`, add `--details` to bare `-D` or one exact category or section to
 include supported presentation modes without acquiring the target.
+Use `explain <resource-path>` after structural discovery to inspect one stable
+product resource without supplying or acquiring a target. Add `--depth N` to
+expand related resources or `--json` to consume the typed Content document.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
@@ -109,6 +112,8 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- library System.Text.Json -D --details
 dnx dotnet-inspect -y -- library System.Text.Json -D @Dependencies --details
 dnx dotnet-inspect -y -- library System.Text.Json -D "Reference Hierarchy" --details
+dnx dotnet-inspect -y -- explain library/sections/reference-hierarchy
+dnx dotnet-inspect -y -- explain library/sections/reference-hierarchy --depth 1 --json
 ```
 
 Structural discovery describes authored membership without running producers;
@@ -130,6 +135,13 @@ and its members. It does not choose a compatible member or narrow the category.
 For an exact section, `--details` reports the section row; omit it to drill into
 fields or columns. After discovery, use exact `-S` section selection for
 single-result formats such as tree or Mermaid.
+
+Resource Explanation is the semantic drill-down path that will replace
+`--details` after Formats adoption is complete. The first domain covers the
+Library structural catalog, categories, sections, and every structural item
+kind. It preserves query-oriented Discovery items such as `filterable` and
+`sortable` as structural facts; `-Q` remains the authority for executable query
+facets and operators.
 
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |

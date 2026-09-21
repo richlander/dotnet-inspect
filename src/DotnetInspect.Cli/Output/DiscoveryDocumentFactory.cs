@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
@@ -7,6 +8,10 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class DiscoveryDocumentFactory
 {
+    public sealed record Projection(
+        DiscoveryDocument Document,
+        ImmutableArray<StructuralResourcePathRegistration> ResourcePaths);
+
     public static DiscoveryDocument? Create(
         string catalog,
         string[]? discover,
@@ -17,12 +22,68 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<string, string>? sectionCostAnnotations,
         IReadOnlySet<string>? exactOnlySections,
         OutputCapabilityCatalog capabilities,
-        bool requireExactSelection = false)
+        bool requireExactSelection = false) =>
+        CreateCore(
+            catalog,
+            discover,
+            schema,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            sectionCostAnnotations,
+            exactOnlySections,
+            capabilities,
+            requireExactSelection,
+            includeResourcePaths: false)?.Document;
+
+    public static Projection? CreateProjection(
+        string catalog,
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlySet<string>? exactOnlySections,
+        OutputCapabilityCatalog capabilities,
+        bool requireExactSelection = false) =>
+        CreateCore(
+            catalog,
+            discover,
+            schema,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            sectionCostAnnotations,
+            exactOnlySections,
+            capabilities,
+            requireExactSelection,
+            includeResourcePaths: true);
+
+    private static Projection? CreateCore(
+        string catalog,
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlySet<string>? exactOnlySections,
+        OutputCapabilityCatalog capabilities,
+        bool requireExactSelection,
+        bool includeResourcePaths)
     {
         IReadOnlyDictionary<string, string[]> categories =
             FilterCategories(sectionCategories, schema.SectionNames);
+        var resourcePaths =
+            new List<StructuralResourcePathRegistration>();
         List<DiscoveryResource> resources =
-            CreateResources(schema, categories, capabilities);
+            CreateResources(
+                catalog,
+                schema,
+                categories,
+                capabilities,
+                includeResourcePaths ? resourcePaths : null);
         List<DiscoveryResourceIdentity> catalogEntries =
             CreateCatalogEntries(
                 schema,
@@ -41,17 +102,22 @@ internal static class DiscoveryDocumentFactory
         if (selection is null)
             return null;
 
-        return new DiscoveryDocument(
-            catalog,
-            resources,
-            catalogEntries,
-            selection);
+        var document = new DiscoveryDocument(
+                catalog,
+                resources,
+                catalogEntries,
+                selection);
+        return new Projection(
+            document,
+            [.. resourcePaths]);
     }
 
     private static List<DiscoveryResource> CreateResources(
+        string catalog,
         DocumentSchema schema,
         IReadOnlyDictionary<string, string[]> categories,
-        OutputCapabilityCatalog capabilities)
+        OutputCapabilityCatalog capabilities,
+        List<StructuralResourcePathRegistration>? resourcePaths)
     {
         var resources = new List<DiscoveryResource>();
         foreach ((string name, string[] members) in categories
@@ -67,23 +133,42 @@ internal static class DiscoveryDocumentFactory
                         StringComparer.OrdinalIgnoreCase)
                     .Select(SectionIdentity),
             ];
+            DiscoveryResourceIdentity categoryIdentity =
+                CategoryIdentity(name);
             resources.Add(
                 new DiscoveryResource(
-                    CategoryIdentity(name),
+                    categoryIdentity,
                     members: memberIdentities,
                     outputModes: capabilities.FormatsForSelection(members)));
+            if (resourcePaths is not null)
+            {
+                AddPath(
+                    resourcePaths,
+                    categoryIdentity,
+                    new ResourcePath(
+                        $"{catalog}/categories/"
+                        + CategoryPathSegment(name)));
+            }
         }
 
         foreach (string sectionName in schema.SectionNames)
         {
             SectionSchema? section = schema.GetSection(sectionName);
-            List<(string Name, string Kind)> items =
+            string sectionSegment =
+                section is null
+                    ? throw new InvalidOperationException(
+                        $"Section '{sectionName}' has no schema.")
+                    : MachineKeyPathSegment(section.Key);
+            List<DiscoveryItem> items =
                 section is null
                     ? []
                     :
                     [
                         .. section.Items.Select(item =>
-                            (Name: item.Name, Kind: item.Kind)),
+                            new DiscoveryItem(
+                                item.Name,
+                                item.Kind,
+                                MachineKeyPathSegment(item.Key))),
                     ];
             if (string.Equals(
                     sectionName,
@@ -94,7 +179,12 @@ internal static class DiscoveryDocumentFactory
                     StringComparer.OrdinalIgnoreCase))
             {
                 items.AddRange(
-                    PerformanceTriageOptions.DiscoveryItems());
+                    PerformanceTriageOptions.DiscoveryItems()
+                        .Select(static item =>
+                            new DiscoveryItem(
+                                item.Name,
+                                item.Kind,
+                                item.PathSegment)));
             }
 
             DiscoveryResourceIdentity[] itemIdentities =
@@ -105,20 +195,41 @@ internal static class DiscoveryDocumentFactory
                         item.Name,
                         item.Kind)),
             ];
+            DiscoveryResourceIdentity sectionIdentity =
+                SectionIdentity(sectionName);
             resources.Add(
                 new DiscoveryResource(
-                    SectionIdentity(sectionName),
+                    sectionIdentity,
                     members: itemIdentities,
                     outputModes:
                         capabilities.FormatsForSection(sectionName)));
+            if (resourcePaths is not null)
+            {
+                AddPath(
+                    resourcePaths,
+                    sectionIdentity,
+                    new ResourcePath(
+                        $"{catalog}/sections/{sectionSegment}"));
+            }
 
-            resources.AddRange(
-                items.Select(item =>
-                    new DiscoveryResource(
-                        ItemIdentity(
-                            sectionName,
-                            item.Name,
-                            item.Kind))));
+            foreach (DiscoveryItem item in items)
+            {
+                DiscoveryResourceIdentity itemIdentity =
+                    ItemIdentity(
+                        sectionName,
+                        item.Name,
+                        item.Kind);
+                resources.Add(new DiscoveryResource(itemIdentity));
+                if (resourcePaths is not null)
+                {
+                    AddPath(
+                        resourcePaths,
+                        itemIdentity,
+                        new ResourcePath(
+                            $"{catalog}/sections/{sectionSegment}/items/"
+                            + $"{item.Kind}/{item.PathSegment}"));
+                }
+            }
         }
 
         return resources;
@@ -414,5 +525,60 @@ internal static class DiscoveryDocumentFactory
             name,
             section,
             itemKind);
+
+    private static void AddPath(
+        ICollection<StructuralResourcePathRegistration>? registrations,
+        DiscoveryResourceIdentity identity,
+        ResourcePath path) =>
+        registrations?.Add(
+            new StructuralResourcePathRegistration(identity, path));
+
+    private static string MachineKeyPathSegment(string key)
+    {
+        string segment = key.Replace('_', '-');
+        if (!ResourcePath.IsCanonicalSegment(segment))
+        {
+            throw new InvalidOperationException(
+                $"Machine key '{key}' cannot be represented as a "
+                + "resource-path segment.");
+        }
+        return segment;
+    }
+
+    private static string CategoryPathSegment(string category) =>
+        category switch
+        {
+            SectionCategoryNames.Library => "library",
+            SectionCategoryNames.Package => "package",
+            SectionCategoryNames.Member => "member",
+            SectionCategoryNames.Diff => "diff",
+            SectionCategoryNames.Project => "project",
+            SectionCategoryNames.Vocabulary => "vocabulary",
+            SectionCategoryNames.Ecosystem => "ecosystem",
+            SectionCategoryNames.Libraries => "libraries",
+            SectionCategoryNames.Query => "query",
+            SectionCategoryNames.Api => "api",
+            SectionCategoryNames.Audit => "audit",
+            SectionCategoryNames.Dependencies => "dependencies",
+            SectionCategoryNames.Calls => "calls",
+            SectionCategoryNames.Source => "source",
+            SectionCategoryNames.SourceLink => "source-link",
+            SectionCategoryNames.Surface => "surface",
+            SectionCategoryNames.Context => "context",
+            SectionCategoryNames.Integrations => "integrations",
+            SectionCategoryNames.Files => "files",
+            SectionCategoryNames.Hidden => "hidden",
+            SectionCategoryNames.Performance => "performance",
+            SectionCategoryNames.Decompiler => "decompiler",
+            SectionCategoryNames.Metadata => "metadata",
+            SectionCategoryNames.ReadyToRun => "ready-to-run",
+            _ => throw new InvalidOperationException(
+                $"Category '{category}' has no resource-path registration."),
+        };
+
+    private sealed record DiscoveryItem(
+        string Name,
+        string Kind,
+        string PathSegment);
 
 }

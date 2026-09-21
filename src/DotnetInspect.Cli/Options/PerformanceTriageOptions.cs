@@ -37,23 +37,65 @@ public sealed record PerformanceTriageOptions
     public static IReadOnlyList<string> SortableFields =>
         PerformanceTriageRowQuery.SortableFields;
 
-    internal static IEnumerable<(string Name, string Kind)> DiscoveryItems()
+    internal static IEnumerable<(
+        string Name,
+        string Kind,
+        string PathSegment)> DiscoveryItems()
     {
-        yield return ("Triage desc", "default-order");
-        foreach (string step in new[]
-                 {
-                     "Priority desc (high > medium > low)",
-                     "Confidence desc (high > medium > low)",
-                     "Weight desc (high > medium > low > none)",
-                     "RootReach desc",
-                 })
-        {
-            yield return (step, "order-step");
-        }
+        yield return ("Triage desc", "default-order", "triage-desc");
+        yield return (
+            "Priority desc (high > medium > low)",
+            "order-step",
+            "priority-desc");
+        yield return (
+            "Confidence desc (high > medium > low)",
+            "order-step",
+            "confidence-desc");
+        yield return (
+            "Weight desc (high > medium > low > none)",
+            "order-step",
+            "weight-desc");
+        yield return ("RootReach desc", "order-step", "root-reach-desc");
         foreach (string field in FilterableFields)
-            yield return (field, "filterable");
+        {
+            yield return (
+                field,
+                "filterable",
+                StableQueryKeyPathSegment(field));
+        }
         foreach (string field in SortableFields)
-            yield return (field, "sortable");
+        {
+            yield return (
+                field,
+                "sortable",
+                StableQueryKeyPathSegment(field));
+        }
+    }
+
+    private static string StableQueryKeyPathSegment(string key)
+    {
+        var builder = new System.Text.StringBuilder(key.Length + 4);
+        for (int index = 0; index < key.Length; index++)
+        {
+            char character = key[index];
+            if (char.IsUpper(character)
+                && index > 0
+                && (char.IsLower(key[index - 1])
+                    || char.IsDigit(key[index - 1])))
+            {
+                builder.Append('-');
+            }
+            builder.Append(char.ToLowerInvariant(character));
+        }
+
+        string segment = builder.ToString();
+        if (!ResourcePath.IsCanonicalSegment(segment))
+        {
+            throw new InvalidOperationException(
+                $"Stable query key '{key}' cannot be represented as a "
+                + "resource-path segment.");
+        }
+        return segment;
     }
 
     public static readonly string[] KnownShapes =
