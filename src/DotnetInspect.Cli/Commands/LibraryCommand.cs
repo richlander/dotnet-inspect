@@ -3166,7 +3166,6 @@ public partial class LibraryCommand
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
-                Bare: false,
                 Destination: new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
