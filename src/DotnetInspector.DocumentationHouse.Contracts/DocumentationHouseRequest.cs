@@ -85,12 +85,14 @@ public sealed class DocumentationSubjectReference
         ApiAssemblyIdentity metadataAssembly,
         MetadataTypeDefinitionName typeIdentity,
         MemberAnchor? memberIdentity,
+        int? metadataToken,
         XmlDocMemberIdentity compiledXmlIdentity,
         LibraryApiSurfaceCorrespondence apiSurfaceCorrespondence)
     {
         MetadataAssembly = metadataAssembly;
         TypeIdentity = typeIdentity;
         MemberIdentity = memberIdentity;
+        MetadataToken = metadataToken;
         CompiledXmlIdentity = compiledXmlIdentity;
         ApiSurfaceCorrespondence = apiSurfaceCorrespondence;
     }
@@ -98,6 +100,7 @@ public sealed class DocumentationSubjectReference
     public ApiAssemblyIdentity MetadataAssembly { get; }
     public MetadataTypeDefinitionName TypeIdentity { get; }
     public MemberAnchor? MemberIdentity { get; }
+    public int? MetadataToken { get; }
     public bool IsMember => MemberIdentity is not null;
     public XmlDocMemberIdentity CompiledXmlIdentity { get; }
     public LibraryApiSurfaceCorrespondence ApiSurfaceCorrespondence { get; }
@@ -125,6 +128,7 @@ public sealed class DocumentationSubjectReference
             surface.AssemblyIdentity!,
             type.DefinitionName!,
             memberIdentity: null,
+            type.MetadataToken,
             compiledXmlIdentity,
             apiSurfaceCorrespondence);
     }
@@ -162,6 +166,7 @@ public sealed class DocumentationSubjectReference
             ApiMemberIdentity.GetMemberAnchor(
                 declaringType,
                 member),
+            member.MetadataToken,
             compiledXmlIdentity,
             apiSurfaceCorrespondence);
     }

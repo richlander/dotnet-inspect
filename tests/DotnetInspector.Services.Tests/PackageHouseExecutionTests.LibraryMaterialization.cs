@@ -20,16 +20,20 @@ public sealed partial class PackageHouseExecutionTests
         "lib/net10.0/System.Text.Json.dll";
     private const string MaterializedDocumentationPath =
         "ref/net10.0/System.Text.Json.xml";
+    private const string MaterializedPortablePdbPath =
+        "runtimes/linux-x64/lib/net10.0/System.Text.Json.pdb";
 
     [Fact]
     public async Task CompileHandoffMaterializesOwnedLibraryWithImplementationAndDocumentation()
     {
         byte[] assembly = ReadRealAsset("System.Text.Json.dll");
         byte[] documentation = ReadRealAsset("System.Text.Json.xml");
+        byte[] portablePdb = "portable-pdb"u8.ToArray();
         InMemoryPackageContent content = CreatePackageContent(
             (MaterializedApiPath, assembly),
             (MaterializedImplementationPath, assembly),
-            (MaterializedDocumentationPath, documentation));
+            (MaterializedDocumentationPath, documentation),
+            (MaterializedPortablePdbPath, portablePdb));
         await using HouseEnvironment environment =
             HouseEnvironment.CreateNuGetOrg(
                 MaterializedPackageId,
@@ -53,21 +57,32 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Same(handoff, completed.Receipt.Handoff);
         LibraryReference library = completed.Receipt.Library;
         Assert.Same(library, completed.Owner.Reference);
-        Assert.Equal(3, library.Contents.Count);
+        Assert.Equal(4, library.Contents.Count);
         Assert.True(
             library.ApiAssembly.HasRole(
                 LibraryContentRole.ApiAssembly));
         Assert.True(
             library.ImplementationAssembly!.HasRole(
                 LibraryContentRole.ImplementationAssembly));
-        LibraryContentReference companion =
+        LibraryContentReference documentationCompanion =
             Assert.Single(
                 library.Contents,
                 contentReference =>
                     contentReference.HasRole(
                         LibraryContentRole
                             .CompiledXmlDocumentation));
-        Assert.Same(library.ApiAssembly, companion.AssociatedAssembly);
+        Assert.Same(
+            library.ApiAssembly,
+            documentationCompanion.AssociatedAssembly);
+        LibraryContentReference portablePdbCompanion =
+            Assert.Single(
+                library.Contents,
+                contentReference =>
+                    contentReference.HasRole(
+                        LibraryContentRole.PortablePdb));
+        Assert.Same(
+            library.ImplementationAssembly,
+            portablePdbCompanion.AssociatedAssembly);
         var source = Assert.IsType<
             ExactLibrarySourceCoordinate.Package>(
                 library.SourceCoordinate);
@@ -93,13 +108,26 @@ public sealed partial class PackageHouseExecutionTests
             implementationProvenance.PackagePath);
         PackageHouseLibraryArtifactProvenance documentationProvenance =
             Assert.IsType<PackageHouseLibraryArtifactProvenance>(
-                companion.Provenance);
+                documentationCompanion.Provenance);
         Assert.Same(
             handoff.Asset,
             documentationProvenance.AssociatedAsset);
         Assert.Equal(
             MaterializedDocumentationPath,
             documentationProvenance.PackagePath);
+        PackageHouseLibraryArtifactProvenance portablePdbProvenance =
+            Assert.IsType<PackageHouseLibraryArtifactProvenance>(
+                portablePdbCompanion.Provenance);
+        Assert.Same(
+            handoff.ImplementationAsset,
+            portablePdbProvenance.AssociatedAsset);
+        Assert.Equal(
+            MaterializedPortablePdbPath,
+            portablePdbProvenance.PackagePath);
+        Assert.Equal(
+            PackageHouseLibraryArtifactRole
+                .ImplementationPortablePdb,
+            portablePdbProvenance.Roles);
 
         await completed.Owner.DisposeAsync();
         await completed.Artifacts.DisposeAsync();

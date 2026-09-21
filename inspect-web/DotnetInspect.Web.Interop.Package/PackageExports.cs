@@ -7,6 +7,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceHouse;
 using ILInspector.Metadata;
 using QuerySpace;
 
@@ -672,28 +673,63 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// One exact member's shared compiled-documentation outcome from the PackageHouse-selected
-    /// Library and its associated XML companion.
+    /// One exact member's unified documentation outcome from the
+    /// PackageHouse-selected Library.
     /// </summary>
     [JSExport]
-    public static async Task<string> QueryMemberDocumentation(
+    public static Task<string> QueryMemberDocumentation(
         string packageId,
         string version,
         string framework,
         string assemblyName,
-        string documentationId)
+        string documentationId) =>
+        QueryMemberDocumentationCore(
+            packageId,
+            version,
+            framework,
+            assemblyName,
+            documentationId,
+            authoredSourceCapabilities: null);
+
+    internal static Task<string>
+        QueryMemberDocumentationWithCapabilities(
+            string packageId,
+            string version,
+            string framework,
+            string assemblyName,
+            string documentationId,
+            IReadOnlyList<ISourceHouseSourceCapability>
+                authoredSourceCapabilities) =>
+        QueryMemberDocumentationCore(
+            packageId,
+            version,
+            framework,
+            assemblyName,
+            documentationId,
+            authoredSourceCapabilities);
+
+    private static async Task<string> QueryMemberDocumentationCore(
+        string packageId,
+        string version,
+        string framework,
+        string assemblyName,
+        string documentationId,
+        IReadOnlyList<ISourceHouseSourceCapability>?
+            authoredSourceCapabilities)
     {
-        CompiledDocumentationOutcome documentation =
+        DocumentationQueryOutcome documentation =
             await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
                 packageId,
                 version,
                 framework,
                 assemblyName,
-                documentationId);
+                documentationId,
+                authoredSourceCapabilities:
+                    authoredSourceCapabilities);
         return JsonSerializer.Serialize(
             documentation,
-            CompiledDocumentationQueryJsonContext.Default
-                .CompiledDocumentationOutcome);
+            DocumentationQueryJsonContext.Default
+                .DocumentationQueryOutcome);
     }
 
     /// <summary>

@@ -890,8 +890,10 @@ operation or Library lifetime ends. The discriminator and case-specific
 properties are also the semantic C#-to-TypeScript contract. Inspect Web exposes
 separate package and platform operations so each five-string input contract is
 semantic and ordinary package calls do not acquire a platform-only coordinate.
-Both return the same generated nine-case union as one JSON string; no UTF-8
-byte-array transport or host-local duplicate shape is introduced.
+The platform operation returns the generated nine-case compiled-only union; the
+package operation returns the generated unified compiled-and-authored outcome.
+Both cross the boundary as one JSON string; no UTF-8 byte-array transport or
+host-local duplicate shape is introduced.
 
 This L1 operation returns the bare Queries result. A completed L2 or host
 handoff wraps the portable outcome in `InspectionEnvelope<TContent>`; it does
@@ -1040,7 +1042,9 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8130](https://github.com/richlander/dotnet-inspect/issues/8130).**
     Extend Queries with authored-source documentation evidence through a
     QuerySpace-backed operation;
-20. adopt authored-source documentation in Inspect Web;
+20. **In progress under
+    [#8155](https://github.com/richlander/dotnet-inspect/issues/8155).**
+    Adopt authored-source documentation in Inspect Web;
 21. adopt authored-source documentation in the CLI and remove the remaining
     `SourceEnricher` composition; and
 22. delete `DocCommentParser` from CSharpText after all consumers are gone and
@@ -1056,6 +1060,31 @@ DocumentationHouse slices, and this plan does not duplicate their retirement.
 Workspace publication and consumption of reusable documentation artifacts are
 not initial scope; adding them requires a separately counted production-
 consumer slice.
+
+### Inspect Web authored-documentation adoption
+
+Inspect Web package member documentation requests the unified QuerySpace
+`compiled-xml-and-authored-source` demand and returns the Queries-owned
+`DocumentationQueryOutcome` through the generated package facade. The browser
+host authorizes its existing bounded source-acquisition capabilities and may
+also supply an explicitly authorized SourceHouse physical-declaration
+capability. Absence of that stronger capability remains typed
+`PhysicalDeclarationUnavailable` evidence; the host does not infer physical
+correspondence from PDB, Source Link, paths, names, or source text.
+
+The package member-detail consumer selects display values from the deterministic
+field settlement, preferring the first contribution in requested-channel order
+while retaining the complete compiled attempt, authored attempt, contribution
+order, and conflict kind in the transported result. A field conflict therefore
+has a stable display value without becoming agreement or erasing either
+channel. Top-level rejection, failure, and incompleteness remain visible and
+retryable.
+
+The platform member-documentation export remains compiled-only in this slice.
+Its reference-pack Library has no authorized implementation-source or
+physical-declaration capability, so requesting authored source would advertise
+work the host cannot perform. Adding that authority is separately scoped work,
+not a name- or path-based inference in this consumer adoption.
 
 ## Evidence and required gates
 
@@ -1212,8 +1241,14 @@ package evidence as direct-Library evidence.
 
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
 executes the production package export over the real `System.Text.Json` 10.0.0
-package and requires the Queries-owned `available` case and expected member
-summary.
+package and requires compiled availability, independently typed authored
+unavailability without physical-declaration authority, and deterministic
+compiled field selection.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_BuildAttestedSourcePublishesConflict`
+packages a real build-attested assembly, matching portable PDB, source bytes,
+and deliberately differing compiled summary. It executes the capability-aware
+production package path and requires both channels to be available plus the
+ordered compiled-then-authored summary conflict.
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
 gates the neighboring package-without-companion case as typed authoritative
 `absent` evidence rather than empty browser documentation.

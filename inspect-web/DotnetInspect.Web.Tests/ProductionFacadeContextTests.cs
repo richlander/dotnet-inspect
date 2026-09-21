@@ -396,6 +396,23 @@ public sealed class ProductionFacadeContextTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ProductionPackageFacade_PublishesUnifiedDocumentationOutcome()
+    {
+        string facade = File.ReadAllText(Path.Combine(
+            InspectWebRoot(),
+            "DotnetInspect.Web",
+            "facades",
+            "inspect-web-package.ts"));
+
+        Assert.Contains(
+            "queryMemberDocumentation(packageId: string, version: string, "
+            + "framework: string, assemblyName: string, documentationId: string): "
+            + "Promise<DocumentationQueryOutcome>",
+            facade,
+            StringComparison.Ordinal);
+    }
+
     static IEnumerable<Type> SerializableRoots(Type context)
     {
         foreach (CustomAttributeData attribute in context.GetCustomAttributesData())

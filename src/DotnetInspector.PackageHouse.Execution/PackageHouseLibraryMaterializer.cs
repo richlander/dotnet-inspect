@@ -42,7 +42,7 @@ public static class PackageHouseLibraryMaterializer
                 ? null
                 : implementationAsset.Path;
         string? documentationPath =
-            TryGetCompiledXmlPath(apiPath);
+            TryGetCompanionPath(apiPath, ".xml");
         if (documentationPath is null)
         {
             return Terminal(
@@ -52,7 +52,14 @@ public static class PackageHouseLibraryMaterializer
                     .InvalidHandoff);
         }
 
-        var entries = new List<MaterializationEntry>(3);
+        string? portablePdbPath =
+            implementationAsset is null
+                ? null
+                : TryGetCompanionPath(
+                    implementationAsset.Path,
+                    ".pdb");
+
+        var entries = new List<MaterializationEntry>(4);
         EntryPreparation apiPreparation = PrepareEntry(
             content,
             apiPath,
@@ -117,6 +124,29 @@ public static class PackageHouseLibraryMaterializer
                 preparationFailure);
         }
 
+        EntryPreparation? portablePdbPreparation = null;
+        if (portablePdbPath is not null)
+        {
+            portablePdbPreparation = PrepareEntry(
+                content,
+                portablePdbPath,
+                required: false,
+                limits.MaxContentBytes);
+            if (!TryAcceptEntry(
+                    portablePdbPreparation,
+                    entries,
+                    implementationAsset!,
+                    PackageHouseLibraryArtifactRole
+                        .ImplementationPortablePdb,
+                    out preparationFailure))
+            {
+                return Terminal(
+                    settlement,
+                    handoff,
+                    preparationFailure);
+            }
+        }
+
         long knownRetainedBytes = 0;
         foreach (MaterializationEntry entry in entries)
         {
@@ -168,16 +198,8 @@ public static class PackageHouseLibraryMaterializer
                                         entry.Path,
                                         limits.MaxContentBytes,
                                         token),
-                                    entry.Roles.HasFlag(
-                                        PackageHouseLibraryArtifactRole
-                                            .ApiCompiledXmlDocumentation)
-                                        ? "application/xml"
-                                        : "application/vnd.microsoft.portable-executable",
-                                    entry.Roles.HasFlag(
-                                        PackageHouseLibraryArtifactRole
-                                            .ApiCompiledXmlDocumentation)
-                                        ? "compiled-xml-documentation"
-                                        : "managed-assembly");
+                                    ContentType(entry.Roles),
+                                    ArtifactKind(entry.Roles));
                             contributions.Add(contribution);
                             entry.Artifact = contribution.Descriptor.Identity;
                             identities.Add(contribution.Descriptor.Identity);
@@ -208,9 +230,7 @@ public static class PackageHouseLibraryMaterializer
                                     ReferenceEquals(
                                         candidate.Artifact,
                                         artifact));
-                            if (entry.Roles.HasFlag(
-                                    PackageHouseLibraryArtifactRole
-                                        .ApiCompiledXmlDocumentation))
+                            if (IsCompanion(entry.Roles))
                             {
                                 return null;
                             }
@@ -325,17 +345,32 @@ public static class PackageHouseLibraryMaterializer
                         ? null
                         : new(
                             implementationProjection.Identity));
-            LibraryCompanionCorrespondence[] companions =
-                documentationPreparation.Kind
+            var companions =
+                new List<LibraryCompanionCorrespondence>(2);
+            if (documentationPreparation.Kind
+                == EntryPreparationKind.Present)
+            {
+                companions.Add(
+                    new(
+                        ReferenceForRole(
+                            PackageHouseLibraryArtifactRole
+                                .ApiCompiledXmlDocumentation),
+                        LibraryContentRole
+                            .CompiledXmlDocumentation,
+                        apiReference));
+            }
+            if (portablePdbPreparation?.Kind
                     == EntryPreparationKind.Present
-                    ? [
-                        new LibraryCompanionCorrespondence(
-                            references[^1],
-                            LibraryContentRole
-                                .CompiledXmlDocumentation,
-                            apiReference),
-                    ]
-                    : [];
+                && implementationReference is not null)
+            {
+                companions.Add(
+                    new(
+                        ReferenceForRole(
+                            PackageHouseLibraryArtifactRole
+                                .ImplementationPortablePdb),
+                        LibraryContentRole.PortablePdb,
+                        implementationReference));
+            }
             var sourceCoordinate =
                 new ExactLibrarySourceCoordinate.Package(
                     handoff.Coordinate,
@@ -356,6 +391,20 @@ public static class PackageHouseLibraryMaterializer
                     library);
             return new PackageHouseLibraryMaterializationOutcome
                 .Completed(receipt, owner, session);
+
+            ArtifactContentReference ReferenceForRole(
+                PackageHouseLibraryArtifactRole role)
+            {
+                int index = entries.FindIndex(
+                    entry => entry.Roles.HasFlag(role));
+                if (index < 0)
+                {
+                    throw new InvalidOperationException(
+                        $"The materialized Library has no {role} artifact.");
+                }
+
+                return references[index];
+            }
         }
         catch (Exception failure)
         {
@@ -536,8 +585,12 @@ public static class PackageHouseLibraryMaterializer
         }
     }
 
-    private static string? TryGetCompiledXmlPath(string assemblyPath)
+    private static string? TryGetCompanionPath(
+        string assemblyPath,
+        string companionExtension)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            companionExtension);
         int separator = assemblyPath.LastIndexOf('/');
         int extension = assemblyPath.LastIndexOf('.');
         if (extension <= separator
@@ -550,8 +603,41 @@ public static class PackageHouseLibraryMaterializer
 
         return string.Concat(
             assemblyPath.AsSpan(0, extension),
-            ".xml");
+            companionExtension);
     }
+
+    private static bool IsCompanion(
+        PackageHouseLibraryArtifactRole roles) =>
+        roles.HasFlag(
+            PackageHouseLibraryArtifactRole
+                .ApiCompiledXmlDocumentation)
+        || roles.HasFlag(
+            PackageHouseLibraryArtifactRole
+                .ImplementationPortablePdb);
+
+    private static string ContentType(
+        PackageHouseLibraryArtifactRole roles) =>
+        roles.HasFlag(
+            PackageHouseLibraryArtifactRole
+                .ApiCompiledXmlDocumentation)
+            ? "application/xml"
+            : roles.HasFlag(
+                PackageHouseLibraryArtifactRole
+                    .ImplementationPortablePdb)
+                ? "application/vnd.microsoft.portable-pdb"
+                : "application/vnd.microsoft.portable-executable";
+
+    private static string ArtifactKind(
+        PackageHouseLibraryArtifactRole roles) =>
+        roles.HasFlag(
+            PackageHouseLibraryArtifactRole
+                .ApiCompiledXmlDocumentation)
+            ? "compiled-xml-documentation"
+            : roles.HasFlag(
+                PackageHouseLibraryArtifactRole
+                    .ImplementationPortablePdb)
+                ? "portable-pdb"
+                : "managed-assembly";
 
     private static Stream OpenEntry(
         IPackageContent content,

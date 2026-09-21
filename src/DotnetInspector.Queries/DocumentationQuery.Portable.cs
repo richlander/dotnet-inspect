@@ -20,30 +20,46 @@ public enum DocumentationQueryFieldEvidenceKind
     Absent,
 }
 
-public sealed record DocumentationQueryFieldContribution<T>(
+public sealed record DocumentationQueryTextFieldContribution(
     DocumentationQueryChannel Channel,
-    T Value)
-    where T : notnull;
+    string Value);
 
-public sealed record DocumentationQueryFieldEvidence<T>(
+public sealed record DocumentationQueryTextFieldEvidence(
     DocumentationQueryFieldEvidenceKind Kind,
     ImmutableArray<DocumentationQueryChannel> RequestedChannels,
-    ImmutableArray<DocumentationQueryFieldContribution<T>> Contributions)
-    where T : notnull;
+    ImmutableArray<DocumentationQueryTextFieldContribution> Contributions);
+
+public sealed record DocumentationQueryExceptionFieldContribution(
+    DocumentationQueryChannel Channel,
+    ImmutableArray<CompiledDocumentationException> Value);
+
+public sealed record DocumentationQueryExceptionFieldEvidence(
+    DocumentationQueryFieldEvidenceKind Kind,
+    ImmutableArray<DocumentationQueryChannel> RequestedChannels,
+    ImmutableArray<DocumentationQueryExceptionFieldContribution>
+        Contributions);
+
+public sealed record DocumentationQuerySampleFieldContribution(
+    DocumentationQueryChannel Channel,
+    ImmutableArray<CompiledDocumentationSample> Value);
+
+public sealed record DocumentationQuerySampleFieldEvidence(
+    DocumentationQueryFieldEvidenceKind Kind,
+    ImmutableArray<DocumentationQueryChannel> RequestedChannels,
+    ImmutableArray<DocumentationQuerySampleFieldContribution>
+        Contributions);
 
 public sealed record DocumentationQueryParameterField(
     string Name,
-    DocumentationQueryFieldEvidence<string> Evidence);
+    DocumentationQueryTextFieldEvidence Evidence);
 
 public sealed record DocumentationQueryFieldSettlement(
-    DocumentationQueryFieldEvidence<string> Summary,
-    DocumentationQueryFieldEvidence<string> Remarks,
-    DocumentationQueryFieldEvidence<string> Returns,
+    DocumentationQueryTextFieldEvidence Summary,
+    DocumentationQueryTextFieldEvidence Remarks,
+    DocumentationQueryTextFieldEvidence Returns,
     ImmutableArray<DocumentationQueryParameterField> Parameters,
-    DocumentationQueryFieldEvidence<
-        ImmutableArray<CompiledDocumentationException>> Exceptions,
-    DocumentationQueryFieldEvidence<
-        ImmutableArray<CompiledDocumentationSample>> Samples);
+    DocumentationQueryExceptionFieldEvidence Exceptions,
+    DocumentationQuerySampleFieldEvidence Samples);
 
 public sealed record AuthoredDocumentationObservation(
     string Code,

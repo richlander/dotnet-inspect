@@ -1,5 +1,15 @@
 import { dotnet } from "./runtime-loader.js";
 
+export type AuthoredDocumentationAmbiguityReason = "PhysicalDeclarationConflict" | "DeclarationAmbiguous" | number;
+
+export type AuthoredDocumentationFailureReason = "SourceFailed" | "PhysicalDeclarationFailed" | "MalformedDocumentation" | number;
+
+export type AuthoredDocumentationIncompleteReason = "DeclarationUncertain" | "Deadline" | "SourceDocuments" | "SourceBytes" | "SourceCharacters" | "SourceHouse" | "PhysicalDeclaration" | "Documentation" | number;
+
+export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" | "AlreadyInvoked" | "BindingMismatch" | "LeaseReferenceMismatch" | "SourceRejected" | "SourceEvidenceMismatch" | "PhysicalDeclarationRejected" | number;
+
+export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "PhysicalDeclarationUnavailable" | "DeclarationNotFound" | number;
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
@@ -79,6 +89,20 @@ export type CompiledDocumentationSourceEvidenceKind = "Candidate" | "Absent" | "
 export type CompiledDocumentationSourceKind = "Package" | "Platform" | "DirectLibrary" | "SourceHouse" | number;
 
 export type CompiledDocumentationSourceRejectionKind = "SubjectMismatch" | "LibraryMismatch" | "ApiContentMismatch" | "CompanionMismatch" | number;
+
+export type DocumentationQueryChannel = "CompiledXml" | "AuthoredSource" | number;
+
+export type DocumentationQueryFailureReason = "CompiledXmlMalformedOrUnreadableDocument" | "CompiledXmlContentAccessFailed" | number;
+
+export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | "Conflict" | "Absent" | number;
+
+export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
+
+export interface AuthoredDocumentationObservation {
+  readonly code?: string;
+  readonly detail?: string;
+  readonly detailWasTruncated: boolean;
+}
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -1153,26 +1177,93 @@ export interface CompiledDocumentationSubject {
   readonly documentationId?: string;
 }
 
+export interface DocumentationQueryExceptionFieldContribution {
+  readonly channel: DocumentationQueryChannel;
+  readonly value: ReadonlyArray<CompiledDocumentationException>;
+}
+
+export interface DocumentationQueryExceptionFieldEvidence {
+  readonly kind: DocumentationQueryFieldEvidenceKind;
+  readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
+  readonly contributions: ReadonlyArray<DocumentationQueryExceptionFieldContribution>;
+}
+
+export interface DocumentationQueryFieldSettlement {
+  readonly summary: DocumentationQueryTextFieldEvidence;
+  readonly remarks: DocumentationQueryTextFieldEvidence;
+  readonly returns: DocumentationQueryTextFieldEvidence;
+  readonly parameters: ReadonlyArray<DocumentationQueryParameterField>;
+  readonly exceptions: DocumentationQueryExceptionFieldEvidence;
+  readonly samples: DocumentationQuerySampleFieldEvidence;
+}
+
+export interface DocumentationQueryParameterField {
+  readonly name?: string;
+  readonly evidence: DocumentationQueryTextFieldEvidence;
+}
+
+export interface DocumentationQuerySampleFieldContribution {
+  readonly channel: DocumentationQueryChannel;
+  readonly value: ReadonlyArray<CompiledDocumentationSample>;
+}
+
+export interface DocumentationQuerySampleFieldEvidence {
+  readonly kind: DocumentationQueryFieldEvidenceKind;
+  readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
+  readonly contributions: ReadonlyArray<DocumentationQuerySampleFieldContribution>;
+}
+
+export interface DocumentationQueryTextFieldContribution {
+  readonly channel: DocumentationQueryChannel;
+  readonly value?: string;
+}
+
+export interface DocumentationQueryTextFieldEvidence {
+  readonly kind: DocumentationQueryFieldEvidenceKind;
+  readonly requestedChannels: ReadonlyArray<DocumentationQueryChannel>;
+  readonly contributions: ReadonlyArray<DocumentationQueryTextFieldContribution>;
+}
+
 export interface Absent {
   readonly kind: "absent";
-  readonly subject: CompiledDocumentationSubject;
-  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
-  readonly sourcesTruncated?: boolean;
 }
 
 export interface Ambiguous {
   readonly kind: "ambiguous";
-  readonly subject: CompiledDocumentationSubject;
-  readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
-  readonly candidatesTruncated?: boolean;
+  readonly reason: AuthoredDocumentationAmbiguityReason;
+  readonly observation: AuthoredDocumentationObservation | null;
 }
 
 export interface Available {
   readonly kind: "available";
-  readonly subject: CompiledDocumentationSubject;
-  readonly source: CompiledDocumentationSource;
   readonly documentation: CompiledDocumentationEntry;
 }
+
+export interface Failed {
+  readonly kind: "failed";
+  readonly reason: AuthoredDocumentationFailureReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export interface Incomplete {
+  readonly kind: "incomplete";
+  readonly reason: AuthoredDocumentationIncompleteReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export interface Rejected {
+  readonly kind: "rejected";
+  readonly reason: AuthoredDocumentationRejectionReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export interface Unavailable {
+  readonly kind: "unavailable";
+  readonly reason: AuthoredDocumentationUnavailableReason;
+  readonly observation: AuthoredDocumentationObservation | null;
+}
+
+export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | Rejected | Failed | Incomplete;
 
 export interface ContentAccessFailed {
   readonly kind: "contentAccessFailed";
@@ -1187,14 +1278,6 @@ export interface ContributionsRejected {
   readonly rejectionsTruncated?: boolean;
 }
 
-export interface Incomplete {
-  readonly kind: "incomplete";
-  readonly subject: CompiledDocumentationSubject;
-  readonly reason: CompiledDocumentationIncompleteReason;
-  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
-  readonly sourcesTruncated?: boolean;
-}
-
 export interface MalformedOrUnreadableDocument {
   readonly kind: "malformedOrUnreadableDocument";
   readonly subject: CompiledDocumentationSubject;
@@ -1207,14 +1290,72 @@ export interface RequestRejected {
   readonly reason: CompiledDocumentationRequestRejectionKind;
 }
 
-export interface Unavailable {
+export interface type_09ed4ff7 {
+  readonly kind: "ambiguous";
+  readonly subject: CompiledDocumentationSubject;
+  readonly candidates: ReadonlyArray<CompiledDocumentationSource>;
+  readonly candidatesTruncated?: boolean;
+}
+
+export interface type_b58c2bef {
+  readonly kind: "available";
+  readonly subject: CompiledDocumentationSubject;
+  readonly source: CompiledDocumentationSource;
+  readonly documentation: CompiledDocumentationEntry;
+}
+
+export interface type_c09463af {
+  readonly kind: "incomplete";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: CompiledDocumentationIncompleteReason;
+  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+  readonly sourcesTruncated?: boolean;
+}
+
+export interface type_d6f98266 {
   readonly kind: "unavailable";
   readonly subject: CompiledDocumentationSubject;
   readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
   readonly sourcesTruncated?: boolean;
 }
 
-export type CompiledDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | ContributionsRejected | MalformedOrUnreadableDocument | Incomplete | RequestRejected | ContentAccessFailed;
+export interface type_fabd3005 {
+  readonly kind: "absent";
+  readonly subject: CompiledDocumentationSubject;
+  readonly sources: ReadonlyArray<CompiledDocumentationSourceEvidence>;
+  readonly sourcesTruncated?: boolean;
+}
+
+export type CompiledDocumentationOutcome = type_b58c2bef | type_fabd3005 | type_d6f98266 | type_09ed4ff7 | ContributionsRejected | MalformedOrUnreadableDocument | type_c09463af | RequestRejected | ContentAccessFailed;
+
+export interface Completed {
+  readonly kind: "completed";
+  readonly subject: CompiledDocumentationSubject;
+  readonly compiledXml: CompiledDocumentationOutcome | null;
+  readonly authoredSource: AuthoredDocumentationOutcome | null;
+  readonly fields: DocumentationQueryFieldSettlement;
+}
+
+export interface type_0808982e {
+  readonly kind: "failed";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: DocumentationQueryFailureReason;
+  readonly source: CompiledDocumentationSource;
+}
+
+export interface type_29dfca00 {
+  readonly kind: "incomplete";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: CompiledDocumentationIncompleteReason;
+}
+
+export interface type_4486029c {
+  readonly kind: "requestRejected";
+  readonly subject: CompiledDocumentationSubject;
+  readonly reason: DocumentationQueryRequestRejectionReason;
+}
+
+export type DocumentationQueryOutcome = Completed | type_4486029c | type_0808982e | type_29dfca00;
 
 export type BrowserAssemblyReferenceResult = BrowserAssemblyReferenceList | string | null;
 
@@ -1821,10 +1962,10 @@ export async function queryLibraryApi(packageId: string, version: string, target
   return $parsed as BrowserExactLibraryApiInspection;
 }
 
-export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<CompiledDocumentationOutcome> {
+export async function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<DocumentationQueryOutcome> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryMemberDocumentation.1330709314"](packageId, version, framework, assemblyName, documentationId);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as CompiledDocumentationOutcome;
+  return $parsed as DocumentationQueryOutcome;
 }
 
 export async function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult> {

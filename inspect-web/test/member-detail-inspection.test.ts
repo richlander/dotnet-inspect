@@ -36,6 +36,7 @@ import type {
   BrowserMemberSurface,
   CompiledDocumentationEntry,
   CompiledDocumentationOutcome,
+  DocumentationQueryOutcome,
 } from "../src/facades/inspect-web-package.d.ts";
 import type {
   BrowserMemberDeclaration,
@@ -248,6 +249,86 @@ function absentDocumentation(): CompiledDocumentationOutcome {
       },
       kind: "Absent",
     }],
+  };
+}
+
+function combinedDocumentation(): DocumentationQueryOutcome {
+  const subject = {
+    assembly: { name: "Example.Package" },
+    documentationId: "M:Example.Widget.Run(System.String)",
+  };
+  return {
+    kind: "completed",
+    subject,
+    compiledXml: availableDocumentation({
+      summary: "Compiled summary.",
+    }),
+    authoredSource: {
+      kind: "available",
+      documentation: {
+        summary: "Authored summary.",
+        returns: "Authored returns.",
+        parameters: [{
+          name: "value",
+          description: "Authored parameter.",
+        }],
+        exceptions: [{
+          reference: "T:System#InvalidOperationException",
+          description: "Authored exception.",
+        }],
+        samples: [],
+      },
+    },
+    fields: {
+      summary: {
+        kind: "Conflict",
+        requestedChannels: ["CompiledXml", "AuthoredSource"],
+        contributions: [
+          { channel: "CompiledXml", value: "Compiled summary." },
+          { channel: "AuthoredSource", value: "Authored summary." },
+        ],
+      },
+      remarks: {
+        kind: "Absent",
+        requestedChannels: ["CompiledXml", "AuthoredSource"],
+        contributions: [],
+      },
+      returns: {
+        kind: "Selected",
+        requestedChannels: ["CompiledXml", "AuthoredSource"],
+        contributions: [{
+          channel: "AuthoredSource",
+          value: "Authored returns.",
+        }],
+      },
+      parameters: [{
+        name: "value",
+        evidence: {
+          kind: "Selected",
+          requestedChannels: ["CompiledXml", "AuthoredSource"],
+          contributions: [{
+            channel: "AuthoredSource",
+            value: "Authored parameter.",
+          }],
+        },
+      }],
+      exceptions: {
+        kind: "Selected",
+        requestedChannels: ["CompiledXml", "AuthoredSource"],
+        contributions: [{
+          channel: "AuthoredSource",
+          value: [{
+            reference: "T:System#InvalidOperationException",
+            description: "Authored exception.",
+          }],
+        }],
+      },
+      samples: {
+        kind: "Absent",
+        requestedChannels: ["CompiledXml", "AuthoredSource"],
+        contributions: [],
+      },
+    },
   };
 }
 
@@ -594,6 +675,26 @@ test("documentation completion updates the current overload and restores focus",
   assert.equal(overload.exceptions[0]?.type, "System.ArgumentException");
   assert.equal(state.memberDocumentationLoading, false);
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
+});
+
+test("combined documentation applies ordered field settlement", async () => {
+  const overload = memberSurface();
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocumentation: async () => combinedDocumentation(),
+    }));
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.documentationLoaded, true);
+  assert.equal(overload.summary, "Compiled summary.");
+  assert.equal(overload.returns, "Authored returns.");
+  assert.equal(overload.parameters[0]?.description, "Authored parameter.");
+  assert.equal(
+    overload.exceptions[0]?.type,
+    "System.InvalidOperationException");
+  assert.equal(state.memberDocumentationError, "");
 });
 
 test("documentation hydration mutates only the application projection", async () => {
