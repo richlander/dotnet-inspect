@@ -633,6 +633,13 @@ substrates, and inspection producers that will extend that space.
   drill-down projection, Member detail boundary, and Explore return state. It
   consumes owner-issued comparison, clone, target, identity, and navigation
   contracts without redefining them.
+- [Inspect Web Compare Explore](design/inspect-web-compare-explore.md) owns
+  the Member Diff Explore destination: its product issuance, the full-bleed
+  transient viewer that composes classified API changes, a declaration diff,
+  and the paired authored-Source comparison from their owners' evidence, its
+  pane lifetime, and the Compare state restored on return. It consumes the
+  Diff document, the paired Source query, the declaration pair, the Diff
+  viewer interaction, and shell modal semantics without redefining them.
 - [Library API diff presentation](design/library-api-diff-presentation.md)
   owns the portable Library-root and changed-Type projection of one complete
   selected-library API comparison. It preserves Metadata identity,

@@ -399,7 +399,9 @@ The staged path is:
 6. Library and Type Clone drill-down adoption;
 7. Type and Member Diff narrowing;
 8. Member Clone detail and checked-relation composition when available; and
-9. whole-Type and Member immersive viewer adoption under their focused owners.
+9. whole-Type and Member immersive viewer adoption under their focused owners;
+   the Member Diff destination is owned by
+   [Inspect Web Compare Explore](inspect-web-compare-explore.md).
 
 Each stage lands only when its own result and failure states are complete. An
 unimplemented downstream destination remains unavailable; the UI does not
