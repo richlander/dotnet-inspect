@@ -126,6 +126,110 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Empty(
             execution.ImplementationProfiles
                 .GeneratedFrameworkTypes);
+        Assert.False(
+            execution.ImplementationProfiles.Coverage.WasRequested);
+        Assert.Equal(
+            execution.Receipt.HasFullMethodEvidenceScope,
+            execution.ImplementationProfiles
+                .Coverage
+                .HasFullMethodEvidenceScope);
+        Assert.NotEmpty(
+            execution.ImplementationProfiles
+                .Coverage
+                .UnavailableBodies);
+        Assert.All(
+            execution.ImplementationProfiles
+                .Coverage
+                .UnavailableBodies,
+            body => Assert.Equal(
+                ImplementationProfileUnavailableReason.NotRequested,
+                body.Reason));
+    }
+
+    [Fact]
+    public void ExecutePath_PublishesImplementationProfileCoverage()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles));
+
+        ImplementationProfilePopulationCoverageReceipt coverage =
+            execution.ImplementationProfiles.Coverage;
+
+        Assert.True(coverage.WasRequested);
+        Assert.True(coverage.HasFullMethodEvidenceScope);
+        Assert.Equal(
+            execution.Receipt.Diagnostics,
+            coverage.Diagnostics);
+        Assert.Equal(
+            execution.CallGraph.DeclaredMethods,
+            coverage.DeclaredMethods);
+        Assert.Equal(
+            execution.CallGraph.Methods,
+            coverage.ManagedMethodBodies);
+        HashSet<int> profiledEvidenceTokens =
+        [
+            .. execution.ImplementationProfiles
+                .Profiles
+                .Select(static profile => profile.EvidenceMethod.MetadataToken),
+        ];
+        Assert.Equal(
+            profiledEvidenceTokens.Count,
+            coverage.ProfiledEvidenceBodyCount);
+        Assert.All(
+            coverage.ProfiledEvidenceBodies,
+            method => Assert.Contains(
+                method.MetadataToken,
+                profiledEvidenceTokens));
+        Assert.Equal(
+            coverage.ManagedMethodBodyCount,
+            coverage.ProfiledEvidenceBodyCount);
+        Assert.Empty(coverage.UnavailableBodies);
+    }
+
+    [Fact]
+    public void ExecutePath_ProfileCoverageRecordsScopedUnavailableBodies()
+    {
+        LibraryBodyAnalysisExecution full =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles));
+        int selectedBodyToken =
+            full.ImplementationProfiles
+                .Profiles[0]
+                .EvidenceMethod
+                .MetadataToken;
+
+        LibraryBodyAnalysisExecution scoped =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles,
+                    bodyScope:
+                    new HashSet<int> { selectedBodyToken }));
+
+        ImplementationProfilePopulationCoverageReceipt coverage =
+            scoped.ImplementationProfiles.Coverage;
+
+        Assert.True(coverage.WasRequested);
+        Assert.False(coverage.HasFullMethodEvidenceScope);
+        Assert.Contains(
+            coverage.ProfiledEvidenceBodies,
+            method => method.MetadataToken == selectedBodyToken);
+        Assert.True(
+            coverage.ManagedMethodBodyCount
+                > coverage.ProfiledEvidenceBodyCount);
+        Assert.All(
+            coverage.UnavailableBodies,
+            body => Assert.Equal(
+                ImplementationProfileUnavailableReason.ScopeExcluded,
+                body.Reason));
     }
 
     [Fact]
