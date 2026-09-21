@@ -1,7 +1,7 @@
 import {
-  packageIdentityKey,
   removeWorkspacePackage,
   type RemoveWorkspacePackageInput,
+  workspacePackageRemovalKey,
 } from "./data.ts";
 
 export interface RecentPackageEntry {
@@ -52,7 +52,8 @@ export function createPackageRemoval<T extends RemoveWorkspacePackageInput>(
       }
       forgetRecent(removed.closed.id);
       const activeChanged =
-        packageIdentityKey(state.package) !== packageIdentityKey(removed.active);
+        workspacePackageRemovalKey(state.package)
+          !== workspacePackageRemovalKey(removed.active);
       state.packages = removed.packages;
       if (activeChanged) options.activate(removed.active);
       options.release(removed.closed);

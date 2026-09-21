@@ -128,6 +128,8 @@ public sealed record LibraryCallUseQueryOptions
             RowPredicateOperator.Equals => PortableQueryOperator.Equal,
             RowPredicateOperator.NotEquals =>
                 PortableQueryOperator.NotEqual,
+            RowPredicateOperator.StartsWith =>
+                PortableQueryOperator.StartsWith,
             RowPredicateOperator.GreaterOrEqual =>
                 PortableQueryOperator.AtLeast,
             RowPredicateOperator.LessOrEqual =>

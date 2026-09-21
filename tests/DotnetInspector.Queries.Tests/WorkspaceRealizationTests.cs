@@ -494,7 +494,7 @@ public sealed class WorkspaceRealizationTests
     }
 
     [Fact]
-    public async Task OperationAuthority_RetainsExactDefinitionSnapshot()
+    public async Task OperationAuthority_RetainsExactDefinitionAssociation()
     {
         await using var coordinator = new WorkspaceRealizationCoordinator();
         WorkspaceRealizationCandidate candidate =
@@ -523,9 +523,12 @@ public sealed class WorkspaceRealizationTests
         Assert.Same(
             before.Realization,
             after.Realization);
+        Assert.Same(before.Realization, before.Definition.Workspace);
+        Assert.Same(after.Realization, after.Definition.Workspace);
         Assert.NotSame(
-            before.Definition.Identity,
-            after.Definition.Identity);
+            before.Definition.Registrations,
+            after.Definition.Registrations);
+        Assert.Same(before.Definition.Scope, after.Definition.Scope);
         Assert.Empty(before.Definition.Registrations.Registrations);
         Assert.Same(afterRevision, after.Definition.Registrations);
         Assert.Single(after.Definition.Registrations.Registrations);
@@ -557,8 +560,11 @@ public sealed class WorkspaceRealizationTests
         Assert.Same(plan, second.Realization.OriginPlan);
         Assert.NotSame(first.Identity, second.Realization.Identity);
         Assert.NotSame(
-            first.InitialDefinition.Identity,
-            second.Realization.InitialDefinition.Identity);
+            first.InitialDefinition.Registrations,
+            second.Realization.InitialDefinition.Registrations);
+        Assert.NotSame(
+            first.InitialDefinition.Scope,
+            second.Realization.InitialDefinition.Scope);
         Assert.Null(predecessor.Failure);
 
         using WorkspaceRealizationOperationLease operation =

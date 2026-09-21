@@ -14,12 +14,13 @@ settlement.
 The model uses the product's join currencies:
 
 - one fresh realization identity per Workspace;
-- one immutable definition identity per realization; and
+- one immutable definition association per realization; and
 - one operation lease associated with that exact realization and definition.
 
-The fixed definition value abstracts the operation's captured
-`WorkspaceDefinitionSnapshot`. Dynamic append-only definition publication is
-owned by issue
+The fixed definition value abstracts the operation's captured exact Workspace,
+registration-revision, and Scope-revision tuple. The model does not require an
+additional `WorkspaceDefinitionSnapshotIdentity`. Dynamic append-only
+definition publication is owned by issue
 [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and is not
 copied into this model.
 

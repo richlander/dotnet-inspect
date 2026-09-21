@@ -13,6 +13,10 @@ import { fakeDom } from "./fake-dom.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  ownerDocument = {
+    querySelector: (_selector: string): FakeElement | null => null,
+  };
+  onFocus: (() => void) | null = null;
   focused = false;
   hidden = false;
   rendered = true;
@@ -35,6 +39,7 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+    this.onFocus?.();
     this.dispatch("focus");
   }
 
@@ -361,6 +366,37 @@ test("tab navigation moves focus without activation until Enter", () => {
   assert.deepEqual(calls, []);
   assert.equal(library.dispatch("keydown", { key: "Enter" }), true);
   assert.deepEqual(calls, ["scope:library"]);
+});
+
+test("local Navigation tab activation preserves destination focus", async () => {
+  const root = new FakeRoot();
+  const memberChoice = new FakeElement();
+  const selectionRequired = new FakeElement({
+    localNavigationAction: "choose-member",
+    navigationId: "unavailable:Member",
+    navigationItem: "tab",
+  });
+  let focused = "";
+  memberChoice.onFocus = () => focused = "member-choice";
+  selectionRequired.onFocus = () => focused = "navigation";
+  selectionRequired.ownerDocument.querySelector = () => selectionRequired;
+  root.add("[data-subject-tab]", selectionRequired);
+  root.add("[data-inspector-tab]");
+  root.add("[data-scope]");
+  root.add("[data-package-lens]");
+  root.add("[data-library-lens]");
+  root.add("[data-lens]");
+  root.add("[data-member-section]");
+  root.add("[data-application-scope]");
+  root.add("[data-application-scope-tab]:not([disabled])");
+
+  bindScopeBar(fakeDom.parentNode(root), recordingActions([]));
+  selectionRequired.addEventListener("click", () => memberChoice.focus());
+
+  selectionRequired.dispatch("keydown", { key: "Enter" });
+  await Promise.resolve();
+
+  assert.equal(focused, "member-choice");
 });
 
 test("bindings dispatch typed tab and Chooser items but not current items", () => {

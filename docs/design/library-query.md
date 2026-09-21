@@ -9,8 +9,10 @@ The normative basis is the
 [Query Operation Infrastructure](query-operation-infrastructure.md): Library
 Query is a distinct population query whose operation definition owns its
 Library-grain vocabulary, work bound, result rows, completion, and failures.
-The supporting acquisition substrate is `AssemblySetResolver`; direct assembly
-identity and reference evidence is owned by `AssemblyIdentityScanner`.
+The supporting CLI acquisition substrate is `AssemblySetResolver`; direct
+assembly identity and reference evidence is owned by
+`AssemblyIdentityScanner` for filesystem candidates and
+`AssemblyContextReferencesQuery` for retained workspace participants.
 
 ## Claim
 
@@ -31,10 +33,12 @@ form scans one installed or explicitly acquired reference pack named by the
 existing platform framework grammar, such as `runtime`, `aspnetcore`, or
 `runtime@10.0.0`. Exactly one population is required for execution.
 
-Packages and restored projects are not Library Query populations in this
-slice. Package Query retains package aggregation, and project/workspace
-population requires a separate owner decision rather than an incidental CLI
-alias.
+Packages and restored projects are not Library Query CLI populations in this
+slice. Package Query retains package aggregation, and project/workspace CLI
+population requires a separate owner decision rather than an incidental
+command alias. Inspect Web separately adopts the current package's already
+realized compile-Library surface as described below; it does not add package
+acquisition or aggregation to the Library Query operation.
 
 ## Query operation
 
@@ -141,6 +145,37 @@ then hands the resulting explicit population to the host-neutral Library Query
 inspection. The CLI does not reimplement reference matching, candidate
 accounting, completion, or result semantics.
 
+## Browser/Wasm adoption
+
+Inspect Web supplies the exact Library roster admitted by the current package
+surface as typed `LibraryQueryParticipant` values. The Browser returns the
+product-issued asset IDs from that rendered roster to the package export, which
+validates each ID against the opened scope before constructing participants.
+Assemblies omitted by API-surface extraction or transport bounds do not enter
+the query population; the package surface's existing typed inspection notice
+remains the visible account of that omission. Each participant associates one
+exact `AssemblyContextParticipant` with the product-issued package asset path,
+package source and version, source kind, and target framework. The shared
+execution path evaluates direct references through
+`AssemblyContextReferencesQuery.ExecuteParticipant`; the Browser host does not
+open Metadata or reimplement matching, candidate accounting, completion, or
+failure semantics.
+
+The Browser projection retains the landed `LibraryQueryMatch`,
+`LibraryQueryFailure`, and `LibraryQuerySummary` fields and adds the exact
+product-issued asset ID for navigation. It joins a returned row to that ID by
+the exact asset path supplied with the participant, never by assembly display
+name. The Browser uses the product default candidate limit.
+
+The Direct reference control is available only in package-backed Library
+navigation. Loading and top-level operation failure leave the full admitted
+Library inventory visible. A settled result filters exact Library candidates
+to the returned asset IDs; a settled zero-match result therefore supplies an
+empty match set. `All libraries` always remains visible, and a selected
+nonmatching exact Library remains visible as the current selection. Filtering
+does not change the committed subject, Package Overview, aggregate
+composition, history, or restoration state.
+
 ## Validation
 
 Release gates cover:
@@ -151,4 +186,8 @@ Release gates cover:
   in `DotnetInspect.Cli.Tests`;
 - directory execution, row selection versus candidate bounds, Count, and
   malformed-reference visibility in `DotnetInspect.Cli.Tests`; and
+- participant-backed execution, exact Browser asset-ID projection, Worker
+  transport, Library navigation filtering, and Package Overview exclusion in
+  `DotnetInspector.Queries.Tests`, `DotnetInspect.Web.Tests`, and Inspect Web
+  tests; and
 - a Release solution build plus real directory and runtime-pack demos.
