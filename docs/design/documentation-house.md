@@ -1042,7 +1042,7 @@ assembly and XML companion in the .NET 11 reference pack.
     [#8130](https://github.com/richlander/dotnet-inspect/issues/8130).**
     Extend Queries with authored-source documentation evidence through a
     QuerySpace-backed operation;
-20. **In progress under
+20. **Completed under
     [#8155](https://github.com/richlander/dotnet-inspect/issues/8155).**
     Adopt authored-source documentation in Inspect Web;
 21. adopt authored-source documentation in the CLI and remove the remaining
